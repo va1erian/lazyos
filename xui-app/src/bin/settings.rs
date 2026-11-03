@@ -7,7 +7,8 @@
 //! pick changes up live, with the machine's `sys/**` keys written through
 //! `elevd` ([`ElevatingStore`], an administrator approves); an [`OsSystem`]
 //! over `timed`, `confd` and `sysinfo` for the Time & Date and About pages;
-//! and [`OsAccounts`] for the Accounts page (docs/accounts-plan.md U1, U2).
+//! and [`OsAccounts`] for the Accounts page (docs/accounts-plan.md U1, U2); the
+//! Bluetooth page talks to `btd` through [`OsBluetooth`] (docs/bluetooth-plan.md B5).
 //!
 //! Serial evidence: `SETTINGS:UP:PASS` after the first frame;
 //! `SETTINGS:BUILD:FAIL:<error>` when the window cannot be built (then
@@ -18,20 +19,27 @@ use std::rc::Rc;
 
 use xui_app::launch;
 use xui_app::platform::accounts::OsAccounts;
+use xui_app::platform::bluetooth::OsBluetooth;
 use xui_app::platform::confd_store::ConfdStore;
 use xui_app::platform::elevd::ElevatingStore;
 use xui_app::platform::system::OsSystem;
 use xui_settings::app::{SettingsApp, WINDOW};
 
 fn main() {
-    launch::run(xui_app::trace::Channel::Settings, "Settings", WINDOW, |ui, backend| {
-        backend.on_first_frame(|| println!("SETTINGS:UP:PASS"));
-        SettingsApp::build(
-            ui,
-            Rc::new(ElevatingStore(ConfdStore::new())),
-            Rc::new(OsSystem::new()),
-            Rc::new(OsAccounts),
-        )
-        .inspect_err(|error| println!("SETTINGS:BUILD:FAIL:{error}"))
-    })
+    launch::run(
+        xui_app::trace::Channel::Settings,
+        "Settings",
+        WINDOW,
+        |ui, backend| {
+            backend.on_first_frame(|| println!("SETTINGS:UP:PASS"));
+            SettingsApp::build(
+                ui,
+                Rc::new(ElevatingStore(ConfdStore::new())),
+                Rc::new(OsSystem::new()),
+                Rc::new(OsAccounts),
+            Rc::new(OsBluetooth::new()),
+            )
+            .inspect_err(|error| println!("SETTINGS:BUILD:FAIL:{error}"))
+        },
+    )
 }

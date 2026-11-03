@@ -26,7 +26,7 @@ pub(super) const OTHER_APP: &str = "app:com.other";
 /// into a tool's rules; the kernel does not depend on that crate). It names
 /// exactly the interfaces of the real list (a plain tool, no declaration):
 /// `tools/devtool/check_interfaces.py`, a CI step, compares the two.
-pub(super) const DENIED: [&str; 11] = [
+pub(super) const DENIED: [&str; 12] = [
     "os.lazy.keyd.v1",
     "os.lazy.keyd.appsecret.v1",
     "os.lazy.accounts.v1",
@@ -38,6 +38,7 @@ pub(super) const DENIED: [&str; 11] = [
     "os.lazy.webd.net.v1",
     "os.lazy.webd.browser.v1",
     "os.lazy.usb.bt.v1",
+    "os.lazy.bt.v1",
 ];
 
 /// The `when` column of the stand-in, one list per condition that lifts an

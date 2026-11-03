@@ -79,6 +79,7 @@ fn render(mode: Mode, section: Section) -> Image {
                 Rc::new(store(mode)),
                 Rc::new(MemSystem::default()),
                 Rc::new(xui_settings::MemAccounts::default()),
+                Rc::new(xui_settings::MemBluetooth::default()),
             )
         },
         move |stage| stage.emit(Msg::Section(section.index())),
@@ -110,7 +111,15 @@ fn every_section_renders_in_both_modes() {
 fn drive(store: Rc<MemStore>, accounts: Rc<MemAccounts>, messages: Vec<Msg>) -> Image {
     render_with(
         Snapshot::new(Dip(WINDOW.0 as f32), Dip(WINDOW.1 as f32)),
-        move |ui| SettingsApp::build(ui, store, Rc::new(MemSystem::default()), accounts),
+        move |ui| {
+            SettingsApp::build(
+                ui,
+                store,
+                Rc::new(MemSystem::default()),
+                accounts,
+                Rc::new(xui_settings::MemBluetooth::default()),
+            )
+        },
         move |stage| {
             for msg in messages {
                 stage.emit(msg);
@@ -271,7 +280,15 @@ fn automatic_time_is_the_stores_and_sync_now_is_open() {
             let (mem, system) = (mem.clone(), system.clone());
             render_with(
                 Snapshot::new(Dip(WINDOW.0 as f32), Dip(WINDOW.1 as f32)),
-                move |ui| SettingsApp::build(ui, mem, system, Rc::new(MemAccounts::default())),
+                move |ui| {
+                    SettingsApp::build(
+                        ui,
+                        mem,
+                        system,
+                        Rc::new(MemAccounts::default()),
+                        Rc::new(xui_settings::MemBluetooth::default()),
+                    )
+                },
                 move |stage| {
                     for msg in messages {
                         stage.emit(msg);
@@ -301,7 +318,15 @@ fn automatic_time_is_the_stores_and_sync_now_is_open() {
             let (mem, system) = (mem.clone(), system.clone());
             render_with(
                 Snapshot::new(Dip(WINDOW.0 as f32), Dip(WINDOW.1 as f32)),
-                move |ui| SettingsApp::build(ui, mem, system, Rc::new(MemAccounts::default())),
+                move |ui| {
+                    SettingsApp::build(
+                        ui,
+                        mem,
+                        system,
+                        Rc::new(MemAccounts::default()),
+                        Rc::new(xui_settings::MemBluetooth::default()),
+                    )
+                },
                 move |stage| {
                     for msg in messages {
                         stage.emit(msg);

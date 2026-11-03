@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 
 use btusb::{PACKET_ACL, PACKET_COMMAND, PACKET_EVENT};
 use framering::{FrameBuf, PopError, PushError};
-use user::messenger::registry;
+use user::messenger::{registry, Endpoint};
 use user::messenger::usb_bt::{self as transport, wire, Attachment, Client};
 use user::sys;
 
@@ -145,12 +145,13 @@ impl Link {
 
     /// Sleep until `usbd` has events or the absolute tick `deadline`: arm the
     /// ring, look once more, and only then wait for the doorbell.
-    pub(super) fn sleep(&mut self, deadline: u64) -> Result<(), Failure> {
+    /// `also` is a second endpoint (the service's) that ends the sleep too.
+    pub(super) fn sleep(&mut self, deadline: u64, also: Option<Endpoint>) -> Result<(), Failure> {
         self.attachment.events.arm();
         if matches!(self.attachment.events.pending(), Ok(n) if n > 0) {
             return Ok(());
         }
-        match self.attachment.wait(deadline) {
+        match self.attachment.wait_with(also, deadline) {
             Ok(Some(bits)) if bits & (1 << wire::NOTIFY_BIT_GONE) != 0 => Err(Failure::Gone),
             Ok(_) => Ok(()),
             Err(_) => Err(Failure::Gone),

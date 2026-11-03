@@ -364,7 +364,7 @@ mod tests {
         assert_eq!(parse(&event), Some(Err(Error::BadLength)));
         // A name without its terminator is cut at the field's end.
         let mut params = vec![0, 1, 2, 3, 4, 5, 6];
-        params.extend(core::iter::repeat(b'x').take(400));
+        params.extend(core::iter::repeat_n(b'x', 400));
         let event = Event::Unknown {
             code: EV_REMOTE_NAME_COMPLETE,
             params,

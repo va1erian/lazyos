@@ -38,6 +38,8 @@ use bthost::{Config, Effect, Host};
 use user::sys;
 use user::trace::{self, Channel};
 
+#[path = "btd/api.rs"]
+mod api;
 #[path = "btd/disk.rs"]
 mod disk;
 #[path = "btd/link.rs"]
@@ -45,6 +47,7 @@ mod link;
 #[path = "btd/sources.rs"]
 mod sources;
 
+use api::Api;
 use link::{deadline_ticks, Failure, Frame, Link};
 use sources::Sources;
 
@@ -97,7 +100,7 @@ fn load_bonds() -> btbond::BondStore {
 }
 
 /// Wait for `usbd` to bind a controller, then attach the rings.
-fn open() -> Link {
+fn open(api: &mut Api) -> Link {
     let mut logged = false;
     loop {
         match Link::open() {
@@ -110,7 +113,7 @@ fn open() -> Link {
             }
             Err(why) => trace::line!(Channel::Bt, "LINK:FAIL {why}"),
         }
-        sys::wait(sys::clock() + WAIT_TICKS);
+        api.idle(WAIT_TICKS);
     }
 }
 
@@ -136,8 +139,12 @@ static REFUSALS: tracefmt::Budget = tracefmt::Budget::new(16, 6000);
 
 /// Carry out what the host decided; returns false once it gave up on the
 /// controller.
-fn act(effect: Effect, sources: &mut Sources) -> bool {
+fn act(effect: Effect, sources: &mut Sources, api: &mut Api) -> bool {
     match effect {
+        // The passkey a pairing shows travels to the subscribers and no
+        // further: it is never traced.
+        Effect::Device(change, info) => api.broadcast(Some((change, &info)), None),
+        Effect::Pairing(state) => api.broadcast(None, Some(&state)),
         Effect::OpenSource { handle, kind } => sources.open(handle, kind),
         Effect::Input { handle, event } => sources.publish(handle, event),
         Effect::CloseSources { handle } => sources.close(handle),
@@ -173,6 +180,7 @@ fn drain(
     host: &mut Host,
     link: &mut Link,
     sources: &mut Sources,
+    api: &mut Api,
     now: u64,
 ) -> Result<bool, Failure> {
     let mut alive = true;
@@ -187,7 +195,7 @@ fn drain(
             progress = true;
         }
         while let Some(effect) = host.poll_effect() {
-            alive &= act(effect, sources);
+            alive &= act(effect, sources, api);
             progress = true;
         }
         if !progress {
@@ -197,7 +205,7 @@ fn drain(
 }
 
 /// Run the host against an attached controller until it goes away.
-fn serve(link: &mut Link, sources: &mut Sources) -> Failure {
+fn serve(link: &mut Link, sources: &mut Sources, api: &mut Api) -> Failure {
     let mut host = Host::new(args(), load_bonds(), sys::monotonic_ms());
     seed_entropy(&mut host);
     let mut alive = true;
@@ -216,14 +224,19 @@ fn serve(link: &mut Link, sources: &mut Sources) -> Failure {
         if host.next_deadline().is_some_and(|due| due <= now) {
             host.on_tick(now);
         }
-        match drain(&mut host, link, sources, now) {
+        let asked = api.serve(Some(&mut host), now);
+        if asked {
+            // A call may have queued work (a page, a scan): start it now.
+            host.on_tick(now);
+        }
+        match drain(&mut host, link, sources, api, now) {
             Ok(still) => alive = still && alive,
             Err(failure) => return failure,
         }
         if let Err(failure) = link.flush() {
             return failure;
         }
-        if handled == BATCH {
+        if handled == BATCH || asked {
             continue;
         }
         // Sleep until the host's next deadline, or the doorbell.
@@ -236,7 +249,7 @@ fn serve(link: &mut Link, sources: &mut Sources) -> Failure {
             (true, Some(due)) => deadline_ticks(now, due),
             _ => sys::clock() + IDLE_TICKS,
         };
-        if let Err(failure) = link.sleep(ticks) {
+        if let Err(failure) = link.sleep(ticks, api.endpoint()) {
             return failure;
         }
     }
@@ -248,14 +261,16 @@ pub extern "C" fn _start() -> ! {
         Ok(cred) => trace::line!(Channel::Bt, "CRED uid={} caps={:#x}", cred.uid, cred.caps),
         Err(errno) => trace::line!(Channel::Bt, "CRED unavailable (errno {errno})"),
     }
+    let mut api = Api::new();
+    api.register();
     loop {
-        let mut link = open();
+        let mut link = open(&mut api);
         trace::line!(Channel::Bt, "LINK ring={}", link.ring());
         let mut sources = Sources::new(
             args().trace_reports,
             cfg!(lazyos_bt_crash_test) && attempt() == 1,
         );
-        let failure = serve(&mut link, &mut sources);
+        let failure = serve(&mut link, &mut sources, &mut api);
         // Whatever the devices held is released with their sources.
         sources.close_all();
         match failure {
@@ -266,7 +281,7 @@ pub extern "C" fn _start() -> ! {
         // A controller that fails at once every time must not spin: wait for
         // `usbd` to withdraw it before looking again.
         while link::served_by_usbd() {
-            sys::wait(sys::clock() + WAIT_TICKS);
+            api.idle(WAIT_TICKS);
         }
     }
 }

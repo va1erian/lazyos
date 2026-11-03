@@ -27,6 +27,8 @@ pub mod accounts_ops;
 pub mod accounts_page;
 pub mod app;
 pub mod appearance_page;
+pub mod bluetooth;
+pub mod bluetooth_page;
 pub mod defaults_ops;
 pub mod defaults_page;
 pub mod hidden_ops;
@@ -48,6 +50,7 @@ pub mod windows_page;
 
 pub use accounts::{Account, Accounts, MemAccounts};
 pub use app::{Msg, SettingsApp};
+pub use bluetooth::{Bluetooth, MemBluetooth};
 pub use sections::Section;
 pub use store::{AppChoice, ConfigStore, MemStore};
 pub use system::{MemSystem, System};
