@@ -206,6 +206,25 @@ impl BrPeer {
         self.pump(now, actions)
     }
 
+    /// The L2CAP PDUs that carry `message` on the control channel (empty
+    /// while it is not open).
+    pub(crate) fn control_pdus(&mut self, message: &[u8]) -> Vec<Vec<u8>> {
+        let Some(c) = &mut self.conn else {
+            return Vec::new();
+        };
+        let Some(cid) = c.control else {
+            return Vec::new();
+        };
+        let actions = c.l2.send(c.handle, cid, message).unwrap_or_default();
+        actions
+            .into_iter()
+            .filter_map(|a| match a {
+                Action::Send { pdu, .. } => Some(pdu),
+                Action::Event(_) => None,
+            })
+            .collect()
+    }
+
     /// Queue an input report (the bytes after the `0xA1` header).
     pub fn queue_report(&mut self, payload: Vec<u8>) {
         if self.pending.len() < MAX_PENDING_REPORTS {

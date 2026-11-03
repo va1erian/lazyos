@@ -1,0 +1,23 @@
+[package]
+name = "bthost"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The host logic of the LazyOS btd service: a sans-IO Bluetooth BR/EDR HID host (bring-up, pairing, bonds, HID input), tested against btsim"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "bthost"
+path = "src/lib.rs"
+
+[dependencies]
+bthci = { path = "../bthci" }
+btl2cap = { path = "../btl2cap" }
+btbond = { path = "../btbond" }
+btsdp = { path = "../btsdp" }
+bthid = { path = "../bthid" }
+usbhid = { path = "../usbhid" }
+
+[dev-dependencies]
+btsim = { path = "../btsim" }
+fuzzkit = { path = "../fuzzkit" }

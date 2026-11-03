@@ -241,6 +241,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "bthid"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+ "usbhid",
+]
+
+[[package]]
+name = "bthost"
+version = "0.1.0"
+dependencies = [
+ "btbond",
+ "bthci",
+ "bthid",
+ "btl2cap",
+ "btsdp",
+ "btsim",
+ "fuzzkit",
+ "usbhid",
+]
+
+[[package]]
 name = "btl2cap"
 version = "0.1.0"
 dependencies = [
@@ -251,6 +273,13 @@ dependencies = [
 [[package]]
 name = "btpolicy"
 version = "0.1.0"
+
+[[package]]
+name = "btsdp"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+]
 
 [[package]]
 name = "btsim"
@@ -279,6 +308,7 @@ name = "build-support-tests"
 version = "0.1.0"
 dependencies = [
  "accountdb",
+ "btpolicy",
  "dbgwire",
  "ed25519-dalek",
  "ext2fs",
@@ -670,6 +700,10 @@ dependencies = [
 [[package]]
 name = "fakebt"
 version = "0.1.0"
+dependencies = [
+ "bthci",
+ "btsim",
+]
 
 [[package]]
 name = "fastrand"
@@ -1031,6 +1065,7 @@ version = "0.1.0"
 dependencies = [
  "accountdb",
  "bootloader",
+ "btpolicy",
  "ed25519-dalek",
  "ext2fs",
  "fatfs 0.3.6",
@@ -1929,6 +1964,9 @@ dependencies = [
  "accountdb",
  "audioclient",
  "audiomix",
+ "btbond",
+ "bthid",
+ "bthost",
  "btpolicy",
  "btusb",
  "confd",
