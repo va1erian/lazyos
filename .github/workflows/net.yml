@@ -126,7 +126,7 @@ jobs:
         # is the only cargo-fuzz job in CI, so it lives with the others, as does
         # nvme (the kernel NVMe driver's hostile-controller target) and gpt
         # (the partition tables the kernel and lazyos-install read).
-        target: [framering, framering_header, virtio_net, nicdrv, netstack, ext2fs, nvme, ahci, gpt, ipp, pwgraster, passwd, accountdb, elevpolicy, accountwire, pkgstore_rules, smbwire, ieee80211, eapol, bthci, btl2cap, btbond, btsmp, btfw]
+        target: [framering, framering_header, virtio_net, nicdrv, netstack, ext2fs, nvme, ahci, gpt, ipp, pwgraster, passwd, accountdb, elevpolicy, accountwire, pkgstore_rules, smbwire, ieee80211, eapol, bthci, btl2cap, btbond, btsmp, btfw, btsdp, bthid]
     steps:
       - uses: actions/checkout@v4
 

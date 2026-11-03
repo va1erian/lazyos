@@ -167,11 +167,22 @@ name = "bthci"
 version = "0.1.0"
 
 [[package]]
+name = "bthid"
+version = "0.1.0"
+dependencies = [
+ "usbhid",
+]
+
+[[package]]
 name = "btl2cap"
 version = "0.1.0"
 dependencies = [
  "bthci",
 ]
+
+[[package]]
+name = "btsdp"
+version = "0.1.0"
 
 [[package]]
 name = "btsmp"
@@ -768,7 +779,9 @@ dependencies = [
  "btbond",
  "btfw",
  "bthci",
+ "bthid",
  "btl2cap",
+ "btsdp",
  "btsmp",
  "dbgwire",
  "eapol",

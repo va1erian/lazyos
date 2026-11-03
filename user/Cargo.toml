@@ -119,6 +119,11 @@ gpupolicy = { path = "../libs/gpupolicy" }
 # packet framing `usbd` applies between the radio and `btd`.
 btpolicy = { path = "../libs/btpolicy" }
 btusb = { path = "../libs/btusb" }
+# `btd`'s host logic, the bond store it persists and the HID decoders it
+# publishes (docs/bluetooth-plan.md B3).
+bthost = { path = "../libs/bthost" }
+bthid = { path = "../libs/bthid" }
+btbond = { path = "../libs/btbond" }
 # The Intel Gen9 display decoders `gpud` reads the firmware's state with
 # (docs/kabylake-gpu-plan.md, stage G1).
 intelgfx = { path = "../libs/intelgfx" }

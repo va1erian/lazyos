@@ -92,6 +92,11 @@ members = [
     # Controller firmware loaders for real radios (docs/bluetooth-plan.md B7):
     # Intel secure-send and Realtek epatch downloads as pure step functions.
     "libs/btfw",
+    # B3: the host side of SDP, HIDP framing and report decoding, and `btd`'s
+    # whole host logic (a sans-IO state machine tested against `btsim`).
+    "libs/btsdp",
+    "libs/bthid",
+    "libs/bthost",
     "libs/usbaudio",
     # xHCI registers, TRBs, contexts and ring state machines for `usbd`
     # (docs/usb-hid-plan.md U0): pure `no_std` logic with host tests.
@@ -290,6 +295,8 @@ passwd = { path = "libs/passwd" }
 # The account database `/accounts/db` is seeded with the code `accountsd`
 # and `keyd` read it with (docs/accounts-plan.md U1).
 accountdb = { path = "libs/accountdb" }
+# `/btd`'s owner, the `_bt` uid (docs/bluetooth-plan.md decision 3).
+btpolicy = { path = "libs/btpolicy" }
 # `/system/etc/shadow`'s Argon2id verifiers are derived at build time with the
 # code and cost `keyd` verifies them with (issue #447).
 lazyos-crypto = { path = "libs/crypto" }

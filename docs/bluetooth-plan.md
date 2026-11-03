@@ -1,10 +1,16 @@
 # Plan: a basic Bluetooth stack for keyboards and mice, usable from boot
 
-> **Status: plan (2026-11-03); B0, B1, B2 and the crypto half of B4 built**
+> **Status: plan (2026-11-03); B0, B1, B2, B3 and the crypto half of B4 built**
 > (`libs/bthci`, `libs/btl2cap`, `libs/btbond`, `libs/btsim`, `libs/btsmp`,
-> P-256 in `libs/crypto`; the USB transport, `btd`'s skeleton and the
-> `fakebt` harness: [architecture/usb.md](architecture/usb.md), "Bluetooth
-> controllers"). Builds on
+> P-256 in `libs/crypto`; the USB transport and the `fakebt` harness; `btd`
+> with BR/EDR HID: `libs/bthost`, `libs/btsdp`, `libs/bthid`:
+> [architecture/usb.md](architecture/usb.md), "Bluetooth controllers"). Two
+> things changed in B3: the bond store is `/btd/bonds`, not `/conf/svc/btd`
+> (`_bt` cannot cross root's private `/conf`: first boot showed `EACCES`; the
+> account database moved out for the same reason), and a peer's first L2CAP
+> request can beat the `Encryption_Change` (separate USB endpoints), so the
+> host holds data from a link it has offered its key to for up to 500 ms.
+> Builds on
 > [usb-hid-plan.md](usb-hid-plan.md) (input sources on the raw bus, `inputd`
 > owning keyboard and pointer policy), [architecture/usb.md](architecture/usb.md)
 > (`usbd` and its class dispatch; "Adding a device class"),
@@ -83,7 +89,7 @@ any driver runs), gamepads (the seam is the same input sources; see
    Bonds (address, address type, link key or LTK/IRK/EDIV/Rand, key size,
    authenticated flag, device class, name, the HID report descriptor and GATT
    handles so a reconnect needs no rediscovery) live in one versioned,
-   checksummed file at `fhs::state::BTD_BONDS` under `/conf/svc/btd`, owned by
+   checksummed file at `fhs::state::BTD_BONDS` (`/btd/bonds`: see the status note), owned by
    `_bt`, mode 0600, written atomically (`.new` + rename, as `keyd` does).
    Keys never reach a trace. Bonds are per machine, not per user: the greeter
    has no user yet, and a keyboard is a machine's device.

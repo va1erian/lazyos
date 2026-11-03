@@ -61,6 +61,28 @@ impl SimController {
         }
     }
 
+    /// Send `message` on the HID control channel (a device-initiated
+    /// operation: `HID_CONTROL`, a handshake). Nothing happens while the
+    /// channel is not open.
+    pub fn send_control(&mut self, id: PeerId, now_ms: u64, message: &[u8]) {
+        self.run_until(now_ms);
+        let p = self.br_at(id.0);
+        if let Some(handle) = p.handle() {
+            let pdus = p.control_pdus(message);
+            self.peer_sends(handle, pdus);
+        }
+    }
+
+    /// The device unplugs its virtual cable (`HID_CONTROL`): it is leaving
+    /// the host for good.
+    pub fn unplug(&mut self, id: PeerId, now_ms: u64) {
+        self.send_control(
+            id,
+            now_ms,
+            &[hid::hidp::HID_CONTROL | hid::hidp::VIRTUAL_CABLE_UNPLUG],
+        );
+    }
+
     /// The controller loses power and comes back (a host reboot with a bus-powered
     /// radio): the state of a fresh Reset, nothing queued, one command credit.
     pub fn power_cycle(&mut self) {

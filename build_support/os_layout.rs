@@ -140,6 +140,14 @@ pub fn dirs(accounts: &[Account]) -> Vec<DirSpec> {
             accountdb::ACCOUNTS_UID,
             accountdb::ACCOUNTS_UID,
         ),
+        // The Bluetooth bond store, `btd`'s alone (docs/bluetooth-plan.md
+        // decision 4): top-level for the same reason as the account database.
+        DirSpec::new(
+            fhs::state::BTD_DIR,
+            PRIVATE,
+            btpolicy::BT_UID,
+            btpolicy::BT_UID,
+        ),
         // Per-service state dirs, each created by its owner.
         DirSpec::new(fhs::state::CONF_SVC, PRIVATE, 0, 0),
         // `logd`'s journals and `pkgd`'s audit log carry every user's

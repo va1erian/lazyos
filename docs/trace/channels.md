@@ -51,7 +51,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `GREETER` | `Greeter` | `greeter` | user, xui-app | sessions, tools/tray | programs |
 | `HEALTH` | `Health` | `health` | user | tools/fuse | programs |
 | `INIT` | `Init` | `init` | kernel, kernel suite, other, user | sessions, tools/abi, tools/accounts, tools/boot, tools/crash, tools/dbg, tools/docs, tools/install, tools/lazysky, tools/lazyweb, tools/net, tools/playground, tools/print, tools/screenshot, tools/services, tools/shutdown, tools/storage, tools/tray, tools/usb, tools/xui | programs |
-| `INPUTD` | `Inputd` | `inputd` | user | sessions, tools/input, tools/perf, tools/usb | programs |
+| `INPUTD` | `Inputd` | `inputd` | user | sessions, tools/bt, tools/input, tools/perf, tools/usb | programs |
 | `INSTALLER` | `Installer` | `installer` | xui-app | sessions | programs |
 | `KEYD` | `Keyd` | `keyd` | user | tools/keyd | programs |
 | `LABEL` | `Label` | `label` | kernel, kernel suite, other | sessions, tools/devtool, tools/docs, tools/fuse, tools/input, tools/lazysky, tools/lazyweb, tools/mail, tools/nes, tools/playground, tools/storage, tools/webd, tools/webkit, tools/wifi | programs |

@@ -219,6 +219,35 @@ fn main() {
         );
         println!("cargo:rustc-cfg=lazyos_bt");
     }
+    // `LAZYOS_BT_TRACE=1` (harness images only, set by `tools/bt/run.py`):
+    // `init` starts `btd` with `trace=1` (key edges, report contents and the
+    // pairing passkey on serial, which would carry typed passwords) and
+    // `pair=<LAZYOS_BT_PAIR>`, the boot argument that opens a bounded pairing
+    // window for those addresses (or `any`). Never on by default: without it
+    // nobody can pair and nothing typed reaches the console. B5 brings the
+    // real pairing interface.
+    println!("cargo:rerun-if-env-changed=LAZYOS_BT_TRACE");
+    println!("cargo:rerun-if-env-changed=LAZYOS_BT_PAIR");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_bt_trace)");
+    if env::var_os("LAZYOS_BT_TRACE").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        println!("cargo:rustc-cfg=lazyos_bt_trace");
+    }
+    // `LAZYOS_BT_CRASH_TEST=1` (`tools/bt/run.py --kill`): `btd` exits with
+    // status 3 right after publishing its first key press, on its first
+    // attempt only, so `init` restarts it and the kernel must have released
+    // the key it held.
+    println!("cargo:rerun-if-env-changed=LAZYOS_BT_CRASH_TEST");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_bt_crash_test)");
+    if env::var_os("LAZYOS_BT_CRASH_TEST").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        println!("cargo:rustc-cfg=lazyos_bt_crash_test");
+    }
+    let pair = env::var("LAZYOS_BT_PAIR").unwrap_or_default();
+    assert!(
+        pair.bytes().all(|b| b.is_ascii_hexdigit()
+            || matches!(b, b':' | b',' | b'a' | b'n' | b'y' | b'o' | b'e')),
+        "LAZYOS_BT_PAIR is `any`, `none` or a comma separated list of AA:BB:CC:DD:EE:FF"
+    );
+    println!("cargo:rustc-env=LAZYOS_BT_PAIR={pair}");
     // `LAZYOS_UI_PROBE=1` (issue #538, debug images): `xuid` prints each
     // window's content rectangle as a `UI:RECT` line for session scripts. A
     // compile-time switch: the compositor never touches the file system for it.

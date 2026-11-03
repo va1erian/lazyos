@@ -11,12 +11,15 @@
 //! cannot place is skipped, never trusted.
 //!
 //! * [`pointer`] finds a pointer's X, Y, wheel and buttons.
+//! * [`keyboard`] checks that a keyboard's report is the boot layout behind an
+//!   optional id (Bluetooth keyboards, which stay in report protocol).
 //! * [`gamepad`] finds a gamepad's axes, hat switch and buttons, inside a
 //!   Game Pad, Joystick or Multi-axis Controller application collection.
 
 use crate::Error;
 
 pub mod gamepad;
+pub mod keyboard;
 pub mod pointer;
 
 pub use pointer::{parse_pointer, Decoder, Out, Pointer, PointerReport, MAX_BUTTONS, MAX_WHEEL};
