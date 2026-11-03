@@ -9,8 +9,8 @@ use alloc::vec::Vec;
 
 use btusb::{PACKET_ACL, PACKET_COMMAND, PACKET_EVENT};
 use framering::{FrameBuf, PopError, PushError};
-use user::messenger::{registry, Endpoint};
 use user::messenger::usb_bt::{self as transport, wire, Attachment, Client};
+use user::messenger::{registry, Endpoint};
 use user::sys;
 
 /// Milliseconds per PIT tick.

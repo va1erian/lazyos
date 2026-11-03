@@ -29,8 +29,19 @@ pub enum BtInput {
     Pointer,
 }
 
-/// One device in the list.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// The last two octets of an address, the form a trace may carry
+/// (docs/bluetooth-plan.md decision 9).
+pub fn redacted(address: &str) -> String {
+    let tail: Vec<&str> = address.rsplit(':').take(2).collect();
+    match tail[..] {
+        [b, a] => format!("xx:xx:xx:xx:{a}:{b}"),
+        _ => String::from("xx"),
+    }
+}
+
+/// One device in the list. `Debug` shows the redacted address: the window
+/// traces its messages.
+#[derive(Clone, PartialEq, Eq)]
 pub struct BtDevice {
     /// `AA:BB:CC:DD:EE:FF`.
     pub address: String,
@@ -41,6 +52,19 @@ pub struct BtDevice {
     pub rssi: Option<i32>,
     pub bonded: bool,
     pub connected: bool,
+}
+
+impl std::fmt::Debug for BtDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BtDevice")
+            .field("address", &redacted(&self.address))
+            .field("name", &self.name)
+            .field("transport", &self.transport)
+            .field("input", &self.input)
+            .field("bonded", &self.bonded)
+            .field("connected", &self.connected)
+            .finish_non_exhaustive()
+    }
 }
 
 impl BtDevice {
@@ -127,7 +151,7 @@ impl std::fmt::Debug for BtPairing {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BtPairing")
             .field("phase", &self.phase)
-            .field("address", &self.address)
+            .field("address", &redacted(&self.address))
             .field("reason", &self.reason)
             .finish_non_exhaustive()
     }
@@ -349,6 +373,26 @@ mod tests {
             bonded: false,
             connected: false,
         }
+    }
+
+    #[test]
+    fn a_trace_never_carries_a_full_address_or_a_passkey() {
+        let d = device("AA:BB:CC:DD:EE:01", "Desk");
+        let shown = format!("{d:?}");
+        assert!(
+            shown.contains("xx:xx:xx:xx:EE:01") && !shown.contains("AA:BB"),
+            "{shown}"
+        );
+        let p = BtPairing {
+            phase: BtPhase::ShowPasskey,
+            address: "AA:BB:CC:DD:EE:01".into(),
+            passkey: 123_456,
+            number: 654_321,
+            reason: BtReason::None,
+        };
+        let shown = format!("{:?}", BtEvent::Pairing(p));
+        assert!(!shown.contains("123456") && !shown.contains("654321") && !shown.contains("AA:BB"));
+        assert_eq!(redacted("garbage"), "xx");
     }
 
     #[test]

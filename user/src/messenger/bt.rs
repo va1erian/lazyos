@@ -168,8 +168,7 @@ impl Client {
             address: address.into(),
         })
         .map_err(Error::Parcel)?;
-        self.call(wire::METHOD_FORGET, body, Vec::new())
-            .map(|_| ())
+        self.call(wire::METHOD_FORGET, body, Vec::new()).map(|_| ())
     }
 
     /// Subscribe: returns the endpoint events arrive on (the far end moved to

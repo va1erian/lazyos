@@ -19,11 +19,11 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
-use btpolicy::{may_use_api, Caller, Op};
 use bthost::ctl_types::{
     CtlError, DeviceChange, DeviceInfo, FailReason, InputKind, PairingState, Phase, Transport,
 };
 use bthost::Host;
+use btpolicy::{may_use_api, Caller, Op};
 use user::messenger::bt::{self as api, wire};
 use user::messenger::{self, errno, registry, Endpoint, Error as MsgError, Message, Parcel};
 use user::trace::{self, Channel};
@@ -96,7 +96,11 @@ impl Api {
             match self.endpoint() {
                 Some(server) => {
                     let _ = messenger::wait::wait_any(&[server], 0, Some(deadline));
-                    self.serve(None, 0);
+                    // A wake that left nothing to serve (a closed peer) must
+                    // not spin: look again a tick later.
+                    if !self.serve(None, 0) {
+                        user::sys::wait(user::sys::clock() + 1);
+                    }
                 }
                 None => {
                     user::sys::wait(deadline);
@@ -186,7 +190,11 @@ impl Api {
     }
 
     /// Send a notice from the host to every subscriber.
-    pub(super) fn broadcast(&mut self, device: Option<(DeviceChange, &DeviceInfo)>, state: Option<&PairingState>) {
+    pub(super) fn broadcast(
+        &mut self,
+        device: Option<(DeviceChange, &DeviceInfo)>,
+        state: Option<&PairingState>,
+    ) {
         let parcel = match (device, state) {
             (Some((change, info)), _) => wire::encode_device_event_args(&wire::DeviceEventArgs {
                 kind: change_to_wire(change),
@@ -202,11 +210,12 @@ impl Api {
         let Ok(parcel) = parcel else {
             return;
         };
-        self.subscribers.retain(|events| match events.send(&parcel) {
-            Ok(()) => true,
-            // A full channel misses the event; anything else is a closed one.
-            Err(error) => error.errno() == Some(-errno::EAGAIN),
-        });
+        self.subscribers
+            .retain(|events| match events.send(&parcel) {
+                Ok(()) => true,
+                // A full channel misses the event; anything else is a closed one.
+                Err(error) => error.errno() == Some(-errno::EAGAIN),
+            });
     }
 }
 
@@ -237,7 +246,11 @@ fn control(host: &mut Host, now: u64, method: u32, body: &[u8]) -> Result<Vec<u8
             Ok(())
         }
         wire::METHOD_PAIR => {
-            let addr = parse(&wire::decode_pair_args(body).map_err(MsgError::Parcel)?.address)?;
+            let addr = parse(
+                &wire::decode_pair_args(body)
+                    .map_err(MsgError::Parcel)?
+                    .address,
+            )?;
             trace::line!(Channel::Bt, "API:PAIR addr={}", addr.redacted());
             host.pair(now, addr)
         }
@@ -251,7 +264,11 @@ fn control(host: &mut Host, now: u64, method: u32, body: &[u8]) -> Result<Vec<u8
             Ok(())
         }
         wire::METHOD_FORGET => {
-            let addr = parse(&wire::decode_forget_args(body).map_err(MsgError::Parcel)?.address)?;
+            let addr = parse(
+                &wire::decode_forget_args(body)
+                    .map_err(MsgError::Parcel)?
+                    .address,
+            )?;
             trace::line!(Channel::Bt, "API:FORGET addr={}", addr.redacted());
             host.forget_device(now, addr)
         }
@@ -329,7 +346,7 @@ fn pairing_to_wire(state: PairingState) -> api::Pairing {
             Phase::Paired => wire::PHASE_PAIRED,
             Phase::Failed => wire::PHASE_FAILED,
         },
-        address: state.addr.map(|a| a.to_string()).unwrap_or_else(String::new),
+        address: state.addr.map(|a| a.to_string()).unwrap_or_default(),
         passkey: state.passkey,
         number: state.number,
         reason: match state.reason {

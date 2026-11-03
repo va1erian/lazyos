@@ -109,6 +109,11 @@ fn parse(args: impl Iterator<Item = String>) -> Result<Args, String> {
             "--le-intruder" => parsed.world.le.intruder = Some(parse_address(&value()?)?),
             "--le-jw-keyboard" => parsed.world.le.keyboard_just_works = true,
             "--le-rpa" => parsed.world.le.rpa = true,
+            "--le-passkey-delay-ms" => {
+                parsed.world.le.passkey_delay_ms = value()?
+                    .parse()
+                    .map_err(|_| String::from("--le-passkey-delay-ms wants milliseconds"))?
+            }
             "--le-early-notify" => parsed.world.le.early_notify = true,
             "--pairable" => parsed.world.pairable = true,
             "--forged-bond" => parsed.world.forged_bond = true,

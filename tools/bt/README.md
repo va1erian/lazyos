@@ -75,3 +75,23 @@ type, key, hold, release, wake, move, drop; bonds persist with `--state`.
 The LE peers are `--le-keyboard`, `--le-mouse` (in the keyboard and mouse
 slots), `--le-jw-keyboard`, `--le-rpa`, `--le-early-notify` and
 `--le-intruder` (`itype=` types on it).
+`--le-passkey-delay-ms N` makes the LE keyboard's owner type the passkey `N` ms
+after the host shows it (a screenshot, or `btctl`'s polling, has to see it).
+
+### The pairing interface (B5)
+
+`--ui-pair` and `--btctl` boot a **desktop** image (`run_demo.py --desktop --bt`,
+which builds the xui apps, the core packages and `rhai`; `modes_ui.image_env`
+adds the harness switches) whose `btd` has no pairing window (`LAZYOS_BT_PAIR=none`)
+and pair the LE keyboard in pairing mode through `os.lazy.bt.v1`. `judge_ui.py` is
+the verdict (`test_judge_ui.py` checks that it fails when it should).
+
+| Mode | What happens | The verdict |
+|---|---|---|
+| `--ui-pair` | Settings opens at login; the session clicks the Bluetooth section (`click_at` with offsets from the window's centre, `UI_PROBE` names the window), Scan, the first row, Pair; the dialog shows the passkey (`shot_passkey_dialog.png`, read it) and the keyboard's owner types it five seconds later; the keyboard then types `pairedui` | nothing connected or paired before the Pair call (no silent pairing); the window's messages (`SETTINGS:MSG:Bt(...)`) and `btd`'s lines agree in order; an authenticated key; the passkey in no line but `btd`'s harness-only `BT:PAIR:PASSKEY`; no `LABEL:DENY` for `os.lazy.bt`; the text arrives at `inputd` |
+| `--btctl` | the Terminal runs `btctl list`, `scan 8`, `pair <address>` (prints the passkey), `list`, `forget`, `list`, each wrapped to print one `BTCTL:<what>:<status>:<lines joined by \|>` line the Terminal reports as `TERM:OUT:` | scan found the keyboard, `pair` printed the passkey `btd` showed and ended paired, the list shows it paired, `forget` removed it (`BT:BOND:FORGET`) and the last list does not show it paired, and the text arrived |
+
+The pairing-interface tests that need no guest: `cargo test -p bthost -p btsim -p btpolicy
+-p bthci` (discovery, pairing, Numeric Comparison, forget, floods and cycles against the
+simulator, and the caller policy) and `cargo test --manifest-path xui-app/Cargo.toml
+-p xui-settings` (the page; it leaves `target/snapshots/settings-bluetooth-*.png`).

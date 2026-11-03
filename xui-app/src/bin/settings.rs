@@ -37,7 +37,7 @@ fn main() {
                 Rc::new(ElevatingStore(ConfdStore::new())),
                 Rc::new(OsSystem::new()),
                 Rc::new(OsAccounts),
-            Rc::new(OsBluetooth::new()),
+                Rc::new(OsBluetooth::new()),
             )
             .inspect_err(|error| println!("SETTINGS:BUILD:FAIL:{error}"))
         },

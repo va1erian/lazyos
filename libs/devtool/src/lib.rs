@@ -212,9 +212,11 @@ pub const DENY: &[Deny] = &[
         reason: "the Bluetooth radio, which carries the machine's keyboard and mouse",
     },
     // Pairing decides which devices may type into every session, and shows the passkey.
+    // The user's own shell (the Terminal, `btctl`) acts as the session user, whom `btd` answers
+    // (`btpolicy::may_use_api`); every other tool keeps the denial.
     Deny {
         interface: "os.lazy.bt.v1",
-        when: DenyWhen::Always,
+        when: DenyWhen::UnlessShell,
         reason: "pairing and forgetting Bluetooth devices, which decides what may type into every session",
     },
 ];

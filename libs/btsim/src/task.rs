@@ -48,6 +48,10 @@ pub(crate) enum Task {
     PeerChannels {
         handle: u16,
     },
+    /// The LE keyboard's owner types the passkey that was shown.
+    LeTypePasskey {
+        shown: u32,
+    },
     /// One advertising event of an LE peer.
     LeAdv {
         peer: usize,

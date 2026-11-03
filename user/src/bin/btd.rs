@@ -12,6 +12,10 @@
 //! sleeps on the transport's doorbell until the host's next deadline: nothing
 //! here polls on a timer (docs/bluetooth-plan.md decision 11).
 //!
+//! `btd` also serves `os.lazy.bt.v1` (B5: the device list, discovery, pairing
+//! and forget, `btd/api.rs`) for as long as it runs; the loop sleeps on the
+//! transport's doorbell and the service's endpoint together.
+//!
 //! The bond file is read before the controller is brought up
 //! (`BT:BOND:LOAD n=`). Boot arguments (`trace=1`, `pair=...`) are passed by
 //! `init` only in harness builds (`LAZYOS_BT_TRACE=1`); a normal build gets
@@ -21,7 +25,9 @@
 //! `BT:LINK` (attached), `BT:READY ms=` (the fast path is done: a bonded
 //! device can connect), `BT:CTRL:PASS` (brought up) or `BT:CTRL:FAIL`,
 //! `BT:CONN`, `BT:ENCRYPT`, `BT:HID:KBD|MOUSE`, `BT:RECONNECT ms=`,
-//! `BT:PAIR:*`, `BT:REFUSE reason=`, `BT:CTRL:GONE`. Addresses appear as the
+//! `BT:PAIR:*`, `BT:REFUSE reason=`, `BT:CTRL:GONE`, and for the interface
+//! `BT:API:SERVE`, `BT:API:PAIR`, `BT:API:FORGET`, `BT:API:CANCEL`,
+//! `BT:API:DENY`. Addresses appear as the
 //! last two octets only and no key ever does. LE devices (B4) use the same
 //! lines (`BT:CONN ... role=le`, `BT:PAIR:START`, `BT:ENCRYPT`, `BT:HID:*`,
 //! `BT:RECONNECT`), plus `BT:GATT:FAIL`.

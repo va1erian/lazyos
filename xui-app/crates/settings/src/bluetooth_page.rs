@@ -173,9 +173,6 @@ impl BluetoothPage {
             }
             BtMsg::Cancel => bluetooth.cancel(),
             BtMsg::Event(event) => {
-                if let BtEvent::Pairing(pairing) = &event {
-                    println!("SETTINGS:BT:PAIRING:{:?}", pairing.phase);
-                }
                 if let BtEvent::Failed(why) = &event {
                     text = why.clone();
                 }

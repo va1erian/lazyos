@@ -172,7 +172,7 @@ impl Link {
             return;
         };
         if !self.subscribed {
-            match subscribe(service, sink) {
+            match spawn_listener(sink) {
                 Ok(()) => self.subscribed = true,
                 Err(error) => sink(BtEvent::Failed(explain(&error))),
             }
@@ -258,9 +258,41 @@ fn snapshot(service: &Service) -> Result<BtEvent, CallError> {
     })
 }
 
-/// `Subscribe`: hand `btd` one end of a fresh channel and start the thread
-/// that reads the other.
-fn subscribe(service: &Service, sink: &BtSink) -> Result<(), CallError> {
+/// The thread that listens: it resolves the service, subscribes and reads the
+/// event channel until `btd` goes away. It makes the channel itself because
+/// Messenger handles belong to the thread that made them (a Linux-ABI thread
+/// has its own table), so the end it reads must be created here.
+fn spawn_listener(sink: &BtSink) -> Result<(), CallError> {
+    let sink = Arc::clone(sink);
+    thread::Builder::new()
+        .name("settings-bt-events".into())
+        .spawn(move || {
+            mark_worker();
+            match subscribe() {
+                Ok((service, events)) => {
+                    // The picture as of the subscription: nothing between the
+                    // list and the first event is missed.
+                    if let Ok(event) = snapshot(&service) {
+                        sink(event);
+                    }
+                    listen(events, &sink);
+                }
+                Err(error) => sink(BtEvent::Failed(explain(&error))),
+            }
+        })
+        .map(drop)
+        .map_err(|_| CallError {
+            code: -errno::ENOMEM,
+            message: String::new(),
+        })
+}
+
+/// `Subscribe`: hand `btd` one end of a fresh channel; the other is returned.
+fn subscribe() -> Result<(Service, u64), CallError> {
+    let service = Service::try_connect(NAME).ok_or(CallError {
+        code: -errno::ENOENT,
+        message: String::new(),
+    })?;
     let (mine, theirs) = sys::msg_create_pair().map_err(|code| CallError {
         code,
         message: String::new(),
@@ -282,24 +314,18 @@ fn subscribe(service: &Service, sink: &BtSink) -> Result<(), CallError> {
                     message: String::new(),
                 })
         });
-    if let Err(error) = result {
-        let _ = sys::msg_close(mine);
-        let _ = sys::msg_close(theirs);
-        return Err(error);
+    match result {
+        Ok(_) => Ok((service, mine)),
+        Err(error) => {
+            let _ = sys::msg_close(mine);
+            let _ = sys::msg_close(theirs);
+            Err(error)
+        }
     }
-    let sink = Arc::clone(sink);
-    let spawned = thread::Builder::new()
-        .name("settings-bt-events".into())
-        .spawn(move || listen(mine, sink));
-    spawned.map(drop).map_err(|_| CallError {
-        code: -errno::ENOMEM,
-        message: String::new(),
-    })
 }
 
 /// Block on the event channel until `btd` goes away.
-fn listen(events: u64, sink: BtSink) {
-    mark_worker();
+fn listen(events: u64, sink: &BtSink) {
     let mut buf = vec![0u8; EVENT_BUF];
     // `0`: wait for ever; a closed peer ends the wait with an error.
     while let Ok(result) = sys::msg_recv(events, &mut buf, 0) {

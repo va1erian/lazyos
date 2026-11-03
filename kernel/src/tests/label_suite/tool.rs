@@ -53,10 +53,11 @@ pub(super) const UNLESS_NETWORK: [&str; 3] = [
     "os.lazy.mount.v1",
 ];
 pub(super) const UNLESS_DEVELOP: [&str; 1] = ["os.lazy.process.label.spawn.v1"];
-pub(super) const UNLESS_SHELL: [&str; 3] = [
+pub(super) const UNLESS_SHELL: [&str; 4] = [
     "os.lazy.keyd.v1",
     "os.lazy.keyd.appsecret.v1",
     "os.lazy.accounts.v1",
+    "os.lazy.bt.v1",
 ];
 
 pub(super) fn deny_rule(interface_id: u64) -> Rule {

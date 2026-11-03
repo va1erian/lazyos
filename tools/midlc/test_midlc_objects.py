@@ -304,6 +304,7 @@ class RepositoryTests(unittest.TestCase):
                     ("rings", "rings", None),
                     ("notify", "channel", "os.lazy.usb.bt.v1"),
                 ],
+                ("os.lazy.bt.v1", "Subscribe"): [("events", "channel", "os.lazy.bt.v1")],
             },
         )
 

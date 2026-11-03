@@ -21,6 +21,7 @@ input policy (no layout, no repeat, no cursor, no clamping).
 | `user/src/bin/usbd.rs`, `usbd/` | The driver: `hc.rs` (one controller: handoff, reset, rings, event pump), `port.rs` (root ports: power, debounce, reset, USB 3 training and warm reset), `bus.rs` (one controller's device tree: attach, retry, detach children first), `device.rs` (any device: address at its location, descriptors, control transfers with stall recovery, Configure Endpoint), `pipe.rs` (endpoint rings; interrupt-IN report queues), `class.rs` (class dispatch), `hub.rs` (hub class), `hid.rs` (decoders to bus records), `mem.rs` (BAR and DMA regions) |
 | `libs/btusb/`, `libs/btpolicy/`, `user/src/bin/usbd/bt*.rs`, `tools/bt/` | Bluetooth controllers (`LAZYOS_BT=1`, [bluetooth-plan.md](../bluetooth-plan.md) B2): packet framing, the `_bt` uid, the function and its `os.lazy.usb.bt` server, the fake dongle and harness |
 | `libs/bthost/`, `libs/btsdp/`, `libs/bthid/`, `libs/btgatt/`, `libs/btsmp/`, `user/src/bin/btd.rs`, `user/src/bin/btd/` | The Bluetooth host (B3, B4): `btd`'s logic and its I/O shell, the SDP client, HIDP and report decoding, the ATT/GATT client and HOGP discovery, LE Secure Connections |
+| `idl/bt.midl`, `user/src/messenger/bt.rs`, `user/src/bin/btd/api.rs`, `tools/bt/btctl.rhai`, `xui-app/crates/settings/src/bluetooth*.rs`, `xui-app/src/platform/bluetooth.rs` | The pairing interface (B5): `os.lazy.bt.v1`, its server in `btd`, `btctl` and the Settings page |
 | `tools/usb/` | The harness: `run.py` (QEMU sessions), `judge.py` (the verdict), `test_judge.py` |
 | `libs/usbaudio/`, `user/src/bin/usbd/audio*.rs` | USB audio (`LAZYOS_USB_AUDIO=1`, [usb-audio-plan.md](../usb-audio-plan.md)): UAC 1.0/2.0 descriptors, alternate and rate choice, the isochronous OUT ring and explicit feedback, the `os.lazy.usb.audio.v1` server `sndd usb=1` drives; harness `tools/sound/usb_run.py` |
 
@@ -175,11 +176,13 @@ until `Host::next_deadline`; nothing polls on a timer.
   `Encryption_Change` (events and data are different USB endpoints): data from
   a link that was offered its key is held for up to 500 ms for it, then
   processed as it is.
-- **Pairing** (harness only until B5). SSP with host IO capability
-  DisplayYesNo: a mouse (NoInputNoOutput) pairs with Just Works, a keyboard
-  (KeyboardOnly) with Passkey Entry, the host showing the passkey (traced only
-  with `trace=1`). Legacy PIN pairing, debug keys and unauthenticated numeric
-  comparison are refused. The record (SDP `ServiceSearchAttribute`, bounded and
+- **Pairing.** SSP with host IO capability DisplayYesNo: a mouse
+  (NoInputNoOutput) pairs with Just Works, a keyboard (KeyboardOnly) with
+  Passkey Entry, the host showing the passkey (to the caller of `os.lazy.bt.v1`;
+  traced only with `trace=1`), a device that can show a number with Numeric
+  Comparison, which a caller answers. Pairing is driven by the interface
+  (below), or by the harness-only `pair=` argument. Legacy PIN pairing and
+  debug keys are refused. The record (SDP `ServiceSearchAttribute`, bounded and
   hostile-safe, with continuation) gives the report descriptor, subclass and
   `HIDReconnectInitiate`/`HIDNormallyConnectable`; keyboards in report protocol
   are decoded by `usbhid::report::keyboard` (the boot layout behind a report
@@ -250,13 +253,37 @@ The simulated LE keyboard and mouse (`libs/btsim`: `LePeer`, a GATT server, the
 responder side of SMP with the real crypto) and `fakebt`'s `--le-*` options drive
 `--le-pair`, `--le-reboot`, `--le-rpa` and `--le-refuse`.
 
+**The pairing interface (B5, `os.lazy.bt.v1`, `idl/bt.midl`).** `btd` registers
+`os.lazy.bt` for as long as it runs (`user/src/bin/btd/api.rs`; the controller
+or not: a call without one is `ENODEV`). `List` is open to a session user;
+`Status`, `Subscribe`, `StartDiscovery`, `StopDiscovery`, `Pair`, `ConfirmNumber`,
+`CancelPairing` and `Forget` are for the session user or `elevd`
+(`btpolicy::may_use_api`: an account uid inside a login session, which `logind`
+opens one at a time on the local console, or `elevd`'s own identity); everyone
+else, root included, is `EACCES`. The interface is in `devtool::DENY`. No method
+returns a key. `libs/bthost` holds the logic (`ctl.rs`, `ctl_pair.rs`,
+`discover.rs`): discovery is a BR/EDR Inquiry (RSSI and extended results, then
+Remote Name Requests, one at a time, only Peripheral-class devices listed) and an
+LE scan that lists HID advertisers; it only lists, nothing found is admitted.
+`Pair` opens a 60 s window for that address alone, turns inquiry scan on while it
+is open (BR/EDR target) and closes both when the pairing ends, fails or is
+cancelled; a number to compare waits for `ConfirmNumber`, and without a `Pair`
+caller it is declined as before. Notices reach subscribers as `DeviceEvent` and
+`PairingEvent` one-way messages on a channel each of them handed over; the
+passkey is in those and in no trace. Clients: the Settings Bluetooth page
+(`xui-app/crates/settings`, `xui-app/src/platform/bluetooth.rs`: every call off the
+UI thread) and `btctl` (`tools/bt/btctl.rhai`, a Rhai script `init` finds at
+`/system/bin/btctl`).
+
 QEMU has no Bluetooth emulation, so the harness is `tools/bt/run.py`: QEMU
 with a `qemu-xhci` and `usb-redir` talking to `tools/bt/fakebt`, a host
 program serving a fake dongle over usbredir through `libs/btsim`'s controller,
 which also plays a BR/EDR keyboard and mouse that pair, bond, reconnect and
 type on a script. `--unplug` pulls the dongle out after the bring-up; `--pair`,
 `--reboot`, `--refuse` and `--kill` are the BR/EDR HID tests, `--le-pair`,
-`--le-reboot`, `--le-rpa` and `--le-refuse` the LE ones ([tools/bt/README.md](../../tools/bt/README.md)).
+`--le-reboot`, `--le-rpa` and `--le-refuse` the LE ones, `--ui-pair` and `--btctl`
+pair the LE keyboard through the interface, from Settings by clicking and from the
+Terminal ([tools/bt/README.md](../../tools/bt/README.md)).
 
 ## Security
 

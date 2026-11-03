@@ -39,6 +39,9 @@ pub struct SimConfig {
     /// Accept `Write_Inquiry_Mode(2)` (extended inquiry results carrying the
     /// name); false: names need a Remote_Name_Request.
     pub extended_inquiry: bool,
+    /// An LE keyboard's owner types the passkey this long after the host
+    /// shows it (the harness's `HARNESS_SHOW_PASSKEY`); 0: at once.
+    pub passkey_delay_ms: u64,
 }
 
 impl Default for SimConfig {
@@ -55,6 +58,7 @@ impl Default for SimConfig {
             seed: 0x5EED,
             acl_beats_encryption: false,
             extended_inquiry: true,
+            passkey_delay_ms: 0,
         }
     }
 }

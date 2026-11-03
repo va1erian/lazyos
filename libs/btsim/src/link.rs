@@ -70,6 +70,7 @@ impl SimController {
             } => self.le_connected(peer, address_type, addr),
             Task::LeGreet { handle } => self.le_greet(handle),
             Task::LeEncrypt { handle, ltk } => self.le_encrypt(handle, ltk),
+            Task::LeTypePasskey { shown } => self.le_type_passkey(shown),
             Task::PeerChannels { handle } => {
                 if let Some(ci) = self.conn_index(handle) {
                     let (peer, now) = (self.conns[ci].peer, self.clock);

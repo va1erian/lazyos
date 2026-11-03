@@ -54,7 +54,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `INPUTD` | `Inputd` | `inputd` | user | sessions, tools/bt, tools/input, tools/perf, tools/usb | programs |
 | `INSTALLER` | `Installer` | `installer` | xui-app | sessions | programs |
 | `KEYD` | `Keyd` | `keyd` | user | tools/keyd | programs |
-| `LABEL` | `Label` | `label` | kernel, kernel suite, other | sessions, tools/devtool, tools/docs, tools/fuse, tools/input, tools/lazysky, tools/lazyweb, tools/mail, tools/nes, tools/playground, tools/storage, tools/webd, tools/webkit, tools/wifi | programs |
+| `LABEL` | `Label` | `label` | kernel, kernel suite, other | sessions, tools/bt, tools/devtool, tools/docs, tools/fuse, tools/input, tools/lazysky, tools/lazyweb, tools/mail, tools/nes, tools/playground, tools/storage, tools/webd, tools/webkit, tools/wifi | programs |
 | `LOCK` | `Lock` | `lock` | kernel, kernel suite | tools/lazyweb | programs |
 | `LOGD` | `Logd` | `logd` | user | tools/services, tools/shutdown | programs |
 | `LOGIN` | `Login` | `login` | user | sessions, tools/accounts, tools/boot, tools/lazysky, tools/ntp, tools/storage, tools/tray, tools/wifi | programs |
@@ -67,7 +67,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `MIXER` | `Mixer` | `mixer` | user | tools/sound | programs |
 | `MODPLAY` | `Modplay` | `modplay` | lazyrad-os, user | sessions, tools/lazyrad, tools/sound | programs |
 | `MOUNTD` | `Mountd` | `mountd` | user | sessions, tools/devtool, tools/fuse, tools/storage | programs |
-| `MSG` | `Msg` | `msg` | kernel, kernel suite, lazyrad-os, user, xui-app | sessions, tools/rhai | programs |
+| `MSG` | `Msg` | `msg` | kernel, kernel suite, lazyrad-os, user, xui-app | sessions, tools/bt, tools/rhai | programs |
 | `MSGBENCH` | `Msgbench` | `msgbench` | user | tools/perf | programs |
 | `MSGCTL` | `Msgctl` | `msgctl` | user | tools/services | programs |
 | `MSGRD` | `Msgrd` | `msgrd` | user | - | programs |
@@ -98,7 +98,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `RHAI` | `Rhai` | `rhai` | kernel suite | tools/rhai | programs |
 | `SCHED` | `Sched` | `sched` | kernel, kernel suite | tools/lazyweb | programs |
 | `SERIAL` | `Serial` | `serial` | kernel, kernel suite | tools/boot, tools/devtool, tools/install, tools/lazyweb, tools/playground, tools/screenshot, tools/serial_integrity.py, tools/shutdown, tools/test_qemu_serial.py | programs |
-| `SETTINGS` | `Settings` | `settings` | xui-app | sessions | programs |
+| `SETTINGS` | `Settings` | `settings` | xui-app | sessions, tools/bt | programs |
 | `SHELL` | `Shell` | `shell` | kernel suite, other, user, xui-app | sessions, tools/bench, tools/boot, tools/crash, tools/devtool, tools/input, tools/install, tools/lazyweb, tools/playground, tools/screenshot, tools/services, tools/shutdown, tools/storage, tools/tray | programs |
 | `SHELLPROBE` | `Shellprobe` | `shellprobe` | user | - | programs |
 | `SIGNAL` | `Signal` | `signal` | kernel, kernel suite | - | programs |
@@ -111,7 +111,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `SYS` | `Sys` | `sys` | kernel, other, user, xui-app | sessions, tools/services | programs |
 | `SYSMON` | `Sysmon` | `sysmon` | xui-app | sessions, tools/screenshot | programs |
 | `SYSMOND` | `Sysmond` | `sysmond` | user | - | programs |
-| `TERM` | `Term` | `term` | lazyrad-os, xui-app | sessions, tools/abi, tools/accounts, tools/bench, tools/emusic, tools/fuse, tools/install, tools/keyd, tools/lazygui, tools/lazysky, tools/lazyweb, tools/nes, tools/rhai, tools/run_demo.py, tools/screenshot, tools/shutdown, tools/storage, tools/tray, tools/webd | programs |
+| `TERM` | `Term` | `term` | lazyrad-os, xui-app | sessions, tools/abi, tools/accounts, tools/bench, tools/bt, tools/emusic, tools/fuse, tools/install, tools/keyd, tools/lazygui, tools/lazysky, tools/lazyweb, tools/nes, tools/rhai, tools/run_demo.py, tools/screenshot, tools/shutdown, tools/storage, tools/tray, tools/webd | programs |
 | `TEST` | `Test` | `test` | kernel, kernel suite, other, xui-app | sessions, tools/test | programs |
 | `THEME` | `Theme` | `theme` | user | sessions, tools/emusic | programs |
 | `TIMECTL` | `Timectl` | `timectl` | user | tools/services | programs |

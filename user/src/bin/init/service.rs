@@ -130,11 +130,18 @@ impl Service {
             // `soak=`/`demo=` only drive boot evidence; release and desktop
             // boots skip them. The manifest writes them as one word list.
             // An argument that says what the row *is* (`sndd usb=1`, the USB
-            // audio card) is kept everywhere.
+            // audio card) is kept everywhere, and so are `btd`'s: it has
+            // none unless this is a Bluetooth harness image (`BTD_ARGS`), whose
+            // pairing-interface modes boot a desktop; `inputd`'s `trace=1` too.
             args: spec
                 .args
                 .split_whitespace()
-                .filter(|word| BOOT_EVIDENCE || IDENTITY_ARGS.contains(word))
+                .filter(|word| {
+                    BOOT_EVIDENCE
+                        || spec.name == "btd"
+                        || (spec.name == "inputd" && cfg!(lazyos_bt_trace))
+                        || IDENTITY_ARGS.contains(word)
+                })
                 .map(String::from)
                 .collect(),
             restart: spec.restart,
