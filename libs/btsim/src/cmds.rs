@@ -111,6 +111,8 @@ impl SimController {
         self.accept_list.clear();
         self.le_create = None;
         self.le_scanning = false;
+        self.inquiry_running = false;
+        self.inquiry_mode = bthci::inquiry::Mode::Standard;
     }
 
     fn dispatch(&mut self, cmd: Command) {
@@ -121,6 +123,11 @@ impl SimController {
         }
         if self.le_command(&cmd) {
             return;
+        }
+        if let Unknown { params, .. } = &cmd {
+            if self.inquiry_command(op, params) {
+                return;
+            }
         }
         match cmd {
             Reset => {
@@ -242,6 +249,9 @@ impl SimController {
     }
 
     fn create_connection(&mut self, op: u16, addr: BdAddr) {
+        if !self.may_page() {
+            return self.status(op, status::COMMAND_DISALLOWED);
+        }
         if self.conn_by_addr(addr).is_some() {
             return self.status(op, 0x0B);
         }
@@ -388,6 +398,9 @@ impl SimController {
         self.complete_with_addr(op, 0, addr);
         let handle = self.conns[ci].handle;
         self.conns[ci].auth = Auth::Idle;
+        // Numeric Comparison (both sides can show a number) makes an
+        // authenticated key, Just Works an unauthenticated one.
+        let comparison = self.br_at(self.conns[ci].peer).io_capability == 1;
         let d = self.followup(op, 1);
         self.after(
             d,
@@ -398,7 +411,7 @@ impl SimController {
                 } else {
                     status::AUTHENTICATION_FAILURE
                 },
-                key_type: 4,
+                key_type: if comparison { 5 } else { 4 },
             },
         );
     }

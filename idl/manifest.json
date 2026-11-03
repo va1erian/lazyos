@@ -169,6 +169,76 @@
     "topics": []
   },
   {
+    "interface": "os.lazy.bt.v1",
+    "interface_id": "0x35c643664b9f4cae",
+    "methods": [
+      {
+        "name": "List",
+        "id": 1,
+        "oneway": false
+      },
+      {
+        "name": "Status",
+        "id": 2,
+        "oneway": false
+      },
+      {
+        "name": "StartDiscovery",
+        "id": 3,
+        "oneway": false
+      },
+      {
+        "name": "StopDiscovery",
+        "id": 4,
+        "oneway": false
+      },
+      {
+        "name": "Pair",
+        "id": 5,
+        "oneway": false
+      },
+      {
+        "name": "ConfirmNumber",
+        "id": 6,
+        "oneway": false
+      },
+      {
+        "name": "CancelPairing",
+        "id": 7,
+        "oneway": false
+      },
+      {
+        "name": "Forget",
+        "id": 8,
+        "oneway": false
+      },
+      {
+        "name": "Subscribe",
+        "id": 9,
+        "oneway": false,
+        "objects": [
+          {
+            "name": "events",
+            "kind": "channel",
+            "index": 0,
+            "interface": "os.lazy.bt.v1"
+          }
+        ]
+      },
+      {
+        "name": "DeviceEvent",
+        "id": 10,
+        "oneway": true
+      },
+      {
+        "name": "PairingEvent",
+        "id": 11,
+        "oneway": true
+      }
+    ],
+    "topics": []
+  },
+  {
     "interface": "os.lazy.clipboard.v1",
     "interface_id": "0x5a8da8f22670b758",
     "methods": [

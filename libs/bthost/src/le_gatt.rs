@@ -233,10 +233,12 @@ impl Host {
             u8::from(bond.authenticated),
             class_word(bond.input)
         ));
+        self.ctl_paired(now, addr);
         self.le_register(now, handle, plan, &bond);
     }
 
     fn le_reject(&mut self, handle: u16, addr: bthci::BdAddr) {
+        self.ctl_failed(addr, crate::ctl_types::FailReason::Unsupported);
         self.le_deny(addr);
         self.disconnect(handle, status::AUTHENTICATION_FAILURE);
     }

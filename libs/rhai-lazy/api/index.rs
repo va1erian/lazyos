@@ -25,6 +25,12 @@ pub static MODULES: &[ApiModule] = &[
         topics: &[],
     },
     ApiModule {
+        alias: "bt",
+        interface: "os.lazy.bt.v1",
+        source: include_str!("bt.rhai"),
+        topics: &[],
+    },
+    ApiModule {
         alias: "clipboard",
         interface: "os.lazy.clipboard.v1",
         source: include_str!("clipboard.rhai"),

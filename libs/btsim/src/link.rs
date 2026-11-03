@@ -20,6 +20,11 @@ impl SimController {
     pub(crate) fn execute(&mut self, task: Task) {
         match task {
             Task::Emit(ev) => self.emit(ev),
+            Task::Inquiry(ev) => {
+                let done = matches!(&ev, Event::Unknown { code, .. } if *code == bthci::inquiry::EV_INQUIRY_COMPLETE);
+                self.inquiry_running &= !done;
+                self.emit(ev)
+            }
             Task::EmitAcl(packet) => self.emit_acl(packet),
             Task::Connected {
                 peer,
@@ -237,7 +242,7 @@ impl SimController {
             }
             // Either side without input or output: Just Works. A host that can
             // show a yes/no is still asked, without a number to compare.
-            (3, _) | (_, 3) if host_io == 1 => {
+            (3, _) | (_, 3) | (1, 1) if host_io == 1 => {
                 self.conns[ci].auth = Auth::WaitConfirm;
                 let numeric_value = (self.random() % 1_000_000) as u32;
                 self.after(

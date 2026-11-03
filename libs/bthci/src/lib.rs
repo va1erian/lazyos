@@ -32,6 +32,7 @@ pub mod flow;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
 pub mod init;
+pub mod inquiry;
 pub mod opcode;
 pub mod ret;
 #[cfg(test)]

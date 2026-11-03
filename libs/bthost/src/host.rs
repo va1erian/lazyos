@@ -23,6 +23,7 @@ use btl2cap::{Config as L2Config, L2cap};
 use lazyos_crypto::rng::Entropy;
 
 use crate::config::Config;
+use crate::ctl::Ctl;
 use crate::effect::Effect;
 use crate::le::LeState;
 use crate::link::{Link, MAX_LINKS};
@@ -65,6 +66,10 @@ pub struct Host {
     pub(crate) stats: Stats,
     pub(crate) le: LeState,
     pub(crate) entropy: Entropy,
+    /// Discovery, the pairing a caller asked for (`ctl.rs`).
+    pub(crate) ctl: Ctl,
+    /// The time of the latest entry point, for hooks that have no `now`.
+    pub(crate) clock: u64,
     ctrl_reported: bool,
     failed: bool,
 }
@@ -105,6 +110,8 @@ impl Host {
             stats: Stats::default(),
             le: LeState::new(),
             entropy: Entropy::new(),
+            ctl: Ctl::new(),
+            clock: now,
             ctrl_reported: false,
             failed: false,
         };
@@ -116,6 +123,7 @@ impl Host {
 
     /// An HCI event packet (`code, length, parameters`) from the controller.
     pub fn on_event(&mut self, now: u64, packet: &[u8]) {
+        self.clock = now;
         match Event::parse(packet) {
             Ok(event) => {
                 self.queue.on_event(&event);
@@ -131,6 +139,7 @@ impl Host {
 
     /// An HCI ACL data packet from the controller.
     pub fn on_acl(&mut self, now: u64, packet: &[u8]) {
+        self.clock = now;
         match acl::parse(packet) {
             Ok((header, data)) => {
                 if !self.defer_acl(now, header.handle, header.boundary, data) {
@@ -145,6 +154,8 @@ impl Host {
 
     /// Time has reached (or passed) [`Host::next_deadline`].
     pub fn on_tick(&mut self, now: u64) {
+        self.clock = now;
+        self.ctl_tick(now);
         if matches!(self.init.phase(), Phase::FastPath | Phase::SlowPath) {
             self.init_step(now, Input::Tick);
         }
@@ -193,8 +204,9 @@ impl Host {
             queue,
             self.l2.next_deadline(),
             self.links.iter().filter_map(Link::deadline).min(),
-            self.pager.deadline(),
+            self.pager_deadline(),
             self.le.deadline(),
+            self.ctl_deadline(),
             self.window_until.filter(|_| self.le.scanning),
         ]
         .into_iter()
@@ -243,7 +255,14 @@ impl Host {
     }
 
     pub(crate) fn effect(&mut self, effect: Effect) {
+        let source = match &effect {
+            Effect::OpenSource { handle, .. } | Effect::CloseSources { handle } => Some(*handle),
+            _ => None,
+        };
         self.effects.push_back(effect);
+        if let Some(handle) = source {
+            self.ctl_link_state(handle);
+        }
     }
 
     pub(crate) fn fail(&mut self, why: alloc::string::String) {
@@ -403,7 +422,10 @@ impl Host {
                 io_capability,
                 ..
             } => self.on_io_capability_response(addr, io_capability),
-            Event::UserConfirmationRequest { addr, .. } => self.on_user_confirmation(addr),
+            Event::UserConfirmationRequest {
+                addr,
+                numeric_value,
+            } => self.on_user_confirmation(addr, numeric_value),
             Event::UserPasskeyRequest { addr } => self.on_user_passkey_request(addr),
             Event::UserPasskeyNotification { addr, passkey } => {
                 self.on_user_passkey_notification(addr, passkey)
@@ -415,6 +437,7 @@ impl Host {
             | Event::LeEnhancedConnectionComplete { conn: c, .. } => self.on_le_connection(now, c),
             Event::LeAdvertisingReport(reports) => {
                 for report in &reports {
+                    self.ctl_on_adv(report);
                     self.le_on_adv(now, report);
                 }
                 self.le_pump(now);
@@ -424,12 +447,14 @@ impl Host {
                 random,
                 ediv,
             } => self.on_ltk_request(handle, random, ediv),
+            Event::Unknown { .. } => self.ctl_on_event(now, &event),
             _ => {}
         }
     }
 
     fn on_command_result(&mut self, now: u64, event: &Event) {
         self.init_step(now, Input::Event(event));
+        self.ctl_on_command(now, event);
         match event {
             Event::CommandStatus {
                 status: code,

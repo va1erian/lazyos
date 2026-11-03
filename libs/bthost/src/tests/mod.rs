@@ -7,6 +7,8 @@
 //! held when it closes).
 
 mod config;
+mod ctl;
+mod ctl_hostile;
 mod hostile;
 mod le;
 mod le_flows;
@@ -27,6 +29,7 @@ use bthid::decode::Event as HidEvent;
 use btsim::{BrPeer, Controller, HciIn, LePeer, PeerId, SimConfig, SimController};
 use usbhid::boot::KeyEdge;
 
+use crate::ctl_types::{DeviceChange, DeviceInfo, PairingState};
 use crate::{Config, Effect, Host, PairPolicy, SourceKind};
 
 pub const KBD: [u8; 6] = [0xC0, 0xFF, 0xEE, 0x00, 0x00, 0x01];
@@ -101,6 +104,9 @@ pub struct Rig {
     /// endpoints may (no order is promised between events and data).
     pub encryption_late: bool,
     late_events: Vec<HciIn>,
+    /// Every pairing notice, and every device notice, in order.
+    pub pairings: Vec<PairingState>,
+    pub device_events: Vec<(DeviceChange, DeviceInfo)>,
 }
 
 impl Rig {
@@ -126,6 +132,8 @@ impl Rig {
             recorded: Vec::new(),
             encryption_late: false,
             late_events: Vec::new(),
+            pairings: Vec::new(),
+            device_events: Vec::new(),
         }
     }
 
@@ -256,6 +264,8 @@ impl Rig {
                 self.saves += 1;
             }
             Effect::Trace(text) => self.traces.push(text),
+            Effect::Pairing(state) => self.pairings.push(state),
+            Effect::Device(change, info) => self.device_events.push((change, info)),
             Effect::Failed(why) => self.failed = Some(why),
         }
     }

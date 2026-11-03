@@ -280,6 +280,7 @@ impl Host {
                 u8::from(bond.authenticated),
                 class_word(bond.input)
             ));
+            self.ctl_paired(now, addr);
         }
         if let Some(cid) = sdp_cid {
             if let Ok(actions) = self.l2.disconnect(now, handle, cid) {
@@ -314,6 +315,7 @@ impl Host {
             self.note(format!("PAIR:FAIL addr={} reason=bond-dropped", red(addr)));
         }
         self.pager_forget(addr);
+        self.ctl_failed(addr, crate::ctl_types::FailReason::Unsupported);
         self.disconnect(handle, status::AUTHENTICATION_FAILURE);
     }
 

@@ -118,8 +118,8 @@ impl Host {
         for notice in step.notices {
             match notice {
                 Notice::DisplayPasskey(passkey) => self.show_passkey(handle, passkey),
-                // A number to compare needs a person; B5's interface.
-                Notice::ConfirmNumber(_) => declined = true,
+                // A number to compare needs a person: the caller of `pair`.
+                Notice::ConfirmNumber(number) => declined |= !self.show_number(handle, number),
                 Notice::StartEncryption {
                     ltk,
                     key_size,
@@ -157,12 +157,22 @@ impl Host {
         self.smp_apply(now, handle, step);
     }
 
+    /// Hand a number to compare to the caller of `pair`; false when nobody
+    /// can answer it.
+    fn show_number(&mut self, handle: u16, number: u32) -> bool {
+        match self.link_idx(handle).map(|i| self.links[i].addr) {
+            Some(addr) => self.ctl_number(addr, number),
+            None => false,
+        }
+    }
+
     fn show_passkey(&mut self, handle: u16, passkey: u32) {
         let Some(idx) = self.link_idx(handle) else {
             return;
         };
         let addr = self.links[idx].addr;
         self.links[idx].passkey = Some(passkey);
+        self.ctl_passkey(addr, passkey);
         if self.cfg.trace_reports {
             self.note(format!(
                 "PAIR:PASSKEY value={passkey:06} addr={}",
@@ -293,6 +303,7 @@ impl Host {
             le.smp = None;
             le.smp_deadline = None;
         }
+        self.ctl_failed(addr, crate::ctl_pair::smp_fail_reason(&error));
         self.le_deny(addr);
         self.disconnect(handle, status::AUTHENTICATION_FAILURE);
     }

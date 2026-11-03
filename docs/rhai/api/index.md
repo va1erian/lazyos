@@ -39,6 +39,7 @@ channel, buffer or ring cannot be called from a script and is listed as such.
 | [`sys::accounts`](accounts.md) | `os.lazy.accounts.v1` | The account database service (issues #101, #624; docs/accounts-plan.md U1). | [wire](../../idl/os.lazy.accounts.v1.md) |
 | [`sys::audio`](audio.md) | `os.lazy.audio.v1` | An audio card's control and data-plane interface (docs/driver-plan.md §3.8). | [wire](../../idl/os.lazy.audio.v1.md) |
 | [`sys::audio_mixer`](audio_mixer.md) | `os.lazy.audio.mixer.v1` | The system mixer's control interface (docs/audio-plan.md stage A2). | [wire](../../idl/os.lazy.audio.mixer.v1.md) |
+| [`sys::bt`](bt.md) | `os.lazy.bt.v1` | Bluetooth devices: list them, find new ones, pair and forget (docs/bluetooth-plan.md, phase B5). | [wire](../../idl/os.lazy.bt.v1.md) |
 | [`sys::clipboard`](clipboard.md) | `os.lazy.clipboard.v1` | The per-session clipboard service (issue #115). | [wire](../../idl/os.lazy.clipboard.v1.md) |
 | [`sys::confd`](confd.md) | `os.lazy.confd.v1` | The hierarchical configuration registry (issue #260). | [wire](../../idl/os.lazy.confd.v1.md) |
 | [`sys::devd`](devd.md) | `os.lazy.devd.v1` | The device manager (issue #497, docs/driver-plan.md section 3.6): matches the PCI functions the kernel enumerated against a static driver ... | [wire](../../idl/os.lazy.devd.v1.md) |

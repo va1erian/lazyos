@@ -31,6 +31,10 @@ extern crate std;
 mod chan;
 pub mod config;
 mod conn;
+mod ctl;
+mod ctl_pair;
+pub mod ctl_types;
+mod discover;
 pub mod effect;
 mod host;
 mod le;
@@ -45,6 +49,7 @@ pub mod store;
 mod tests;
 
 pub use config::{Config, PairPolicy};
+pub use ctl::{MAX_DISCOVERY_S, UI_WINDOW_MS};
 pub use effect::{Effect, SourceKind};
 pub use host::{Host, Stats};
 pub use pair::{key_authenticated, key_type_accepted};

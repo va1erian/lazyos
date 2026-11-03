@@ -40,6 +40,18 @@ pub(crate) struct Job {
     pub next_at: u64,
 }
 
+impl Job {
+    /// A page at a device the caller is pairing with.
+    pub(crate) fn pairing(addr: BdAddr, attempts: u8, now: u64) -> Job {
+        Job {
+            addr,
+            pairing: true,
+            attempts_left: attempts,
+            next_at: now,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct Pager {
     jobs: Vec<Job>,
@@ -56,7 +68,7 @@ impl Pager {
         }
     }
 
-    fn add(&mut self, job: Job) {
+    pub(crate) fn add(&mut self, job: Job) {
         if !self.jobs.iter().any(|j| j.addr == job.addr) {
             self.jobs.push(job);
         }
@@ -80,6 +92,16 @@ impl Pager {
 }
 
 impl Host {
+    /// When the pager needs the host to look. While an inquiry or a name
+    /// request owns the radio a due job cannot start and nothing is due: the
+    /// event that ends it wakes the host (a past deadline would spin).
+    pub(crate) fn pager_deadline(&self) -> Option<u64> {
+        if self.pager.in_flight.is_none() && self.ctl_radio_busy() {
+            return None;
+        }
+        self.pager.deadline()
+    }
+
     /// The fast path is done: queue the pages that wait for the host.
     pub(crate) fn pager_arm(&mut self, now: u64) {
         let waiting: Vec<BdAddr> = self
@@ -139,7 +161,8 @@ impl Host {
             }
             return;
         }
-        if !self.init.is_armed() {
+        // An inquiry or a name request owns the radio until it ends.
+        if !self.init.is_armed() || self.ctl_radio_busy() {
             return;
         }
         // A job whose device has connected by itself is done.
@@ -169,6 +192,7 @@ impl Host {
             self.pager.drop_job(addr);
             let what = if pairing { "pair" } else { "reconnect" };
             self.note(format!("RECONNECT:GIVEUP addr={} for={what}", red(addr)));
+            self.ctl_failed(addr, crate::ctl_types::FailReason::Timeout);
         }
     }
 
@@ -176,6 +200,7 @@ impl Host {
     /// failed page.
     pub(crate) fn on_command_refused(&mut self, now: u64, op: u16, code: u8) {
         self.le_command_refused(now, op);
+        self.ctl_command_refused(now, op);
         if op != opcode::CREATE_CONNECTION {
             return;
         }

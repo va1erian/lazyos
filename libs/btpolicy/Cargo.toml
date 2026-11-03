@@ -9,3 +9,7 @@ license = "GPL-3.0-or-later"
 [lib]
 name = "btpolicy"
 path = "src/lib.rs"
+
+[dev-dependencies]
+# The uid constants are checked against the account database's.
+accountdb = { path = "../accountdb" }

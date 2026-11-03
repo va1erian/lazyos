@@ -4,6 +4,8 @@ use bthci::{BdAddr, Event};
 
 pub(crate) enum Task {
     Emit(Event),
+    /// An event of the inquiry procedure; dropped when it is cancelled.
+    Inquiry(Event),
     EmitAcl(Vec<u8>),
     Connected {
         peer: usize,
