@@ -9,6 +9,8 @@
 
 #![no_std]
 
+pub mod names;
+
 /// The `_bt` system user `btd` runs as: `CAP_INPUT_SOURCE`, nothing else.
 /// (901 `_snd` .. 915 `_gpu` are taken; the next free uid is 917.)
 pub const BT_UID: u32 = 916;

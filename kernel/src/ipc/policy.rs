@@ -180,6 +180,18 @@ fn name_verdict(cred: &Cred, op: NameOp, name: &str) -> Result<u32, u32> {
             // The radios and the station manager likewise (`netpolicy::wifi`):
             // `wlanmd` gives a radio's holder its frames and temporal keys,
             // and `os.lazy.net.wifi` is where passphrases are sent.
+            // The Bluetooth names likewise (`btpolicy::names`): `btd` turns
+            // the packets of `os.lazy.usb.bt`'s holder into keystrokes, and
+            // Settings shows the passkeys `os.lazy.bt`'s holder sends.
+            if let Some(allowed) =
+                btpolicy::names::register_verdict(name, cred.uid, cred.label_id, cred.session)
+            {
+                return if allowed {
+                    Ok(reason::ALLOWED_BY_NAMESPACE)
+                } else {
+                    Err(reason::RESERVED_NAMESPACE)
+                };
+            }
             if let Some(allowed) = wifi_name_verdict(cred, name) {
                 return if allowed {
                     Ok(reason::ALLOWED_BY_NAMESPACE)

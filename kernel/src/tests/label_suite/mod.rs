@@ -12,6 +12,7 @@ use crate::ipc::{acl, audit, channels, credentials, handles, labels, policy, reg
 use credentials::Cred;
 use libmessenger::{Header, Parcel, VERSION};
 
+mod bt_names;
 mod calls;
 mod children;
 mod identity;
@@ -288,6 +289,11 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "label_wifi_names_soak",
         wifi_names::soak_owners_and_impostors,
     ),
+    (
+        "label_bt_names_only_owners_register",
+        bt_names::only_owners_register,
+    ),
+    ("label_bt_names_soak", bt_names::soak_owners_and_impostors),
     (
         "label_soak_register_load_cycles",
         soak::register_load_cycles,

@@ -67,6 +67,7 @@ messenger-generated = { path = "../libs/generated" }
 # boot, and the in-kernel suite checks what they decide.
 netpolicy = { path = "../libs/netpolicy" }
 usbpolicy = { path = "../libs/usbpolicy" }
+btpolicy = { path = "../libs/btpolicy" }
 # The file gate of confined labels (`ipc::confine`, issue #832): the one
 # judgement of a path against a label's rules, shared with `pkgstore`.
 filepolicy = { path = "../libs/filepolicy" }

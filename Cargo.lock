@@ -293,6 +293,7 @@ name = "btpolicy"
 version = "0.1.0"
 dependencies = [
  "accountdb",
+ "usbpolicy",
 ]
 
 [[package]]
@@ -1050,6 +1051,7 @@ dependencies = [
  "acpi",
  "ahci",
  "bootloader_api",
+ "btpolicy",
  "confd",
  "ext2fs",
  "fhs",
