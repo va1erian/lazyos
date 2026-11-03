@@ -330,6 +330,7 @@ impl Host {
             Phase::Complete if !self.ctrl_reported => {
                 self.ctrl_reported = true;
                 self.report_controller();
+                self.harness_flush_passkeys();
             }
             Phase::Failed(error) => self.fail(format!("bring-up failed: {error:?}")),
             _ => {}

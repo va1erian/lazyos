@@ -168,22 +168,54 @@ impl Host {
                 "PAIR:PASSKEY value={passkey:06} addr={}",
                 red(addr)
             ));
-            // The harness plays the user: tell the simulated controller what
-            // the screen shows (`bthci::opcode::HARNESS_SHOW_PASSKEY`). Only
-            // to `btsim`, which reports the SIG's testing company id: on a
-            // real radio a harness-built image must never send a vendor
-            // opcode that means something else there, nor the passkey.
-            let simulated = self
-                .init
-                .info()
-                .version
-                .is_some_and(|v| v.manufacturer == SIMULATOR_MANUFACTURER);
-            if simulated {
-                self.cmd(Command::Unknown {
-                    opcode: opcode::HARNESS_SHOW_PASSKEY,
-                    params: passkey.to_le_bytes().to_vec(),
-                });
+            if self.simulated_controller() {
+                self.harness_show_passkey(passkey);
             }
+            // Otherwise the version may not be read yet (it is the last
+            // command of bring-up, and LE pairing starts before it): the
+            // link keeps the passkey and `harness_flush_passkeys` sends it
+            // once the version names the simulator.
+        }
+    }
+
+    /// The controller is `btsim`, which reports the SIG's testing company id.
+    /// Only then may the harness opcode go out: on a real radio a
+    /// harness-built image must never send a vendor opcode that means
+    /// something else there, nor the passkey.
+    fn simulated_controller(&self) -> bool {
+        self.init
+            .info()
+            .version
+            .is_some_and(|v| v.manufacturer == SIMULATOR_MANUFACTURER)
+    }
+
+    /// The harness plays the user: tell the simulated controller what the
+    /// screen shows (`bthci::opcode::HARNESS_SHOW_PASSKEY`).
+    fn harness_show_passkey(&mut self, passkey: u32) {
+        self.cmd(Command::Unknown {
+            opcode: opcode::HARNESS_SHOW_PASSKEY,
+            params: passkey.to_le_bytes().to_vec(),
+        });
+    }
+
+    /// Called once bring-up has read the version: send the passkeys of LE
+    /// pairings that started before it was known.
+    pub(crate) fn harness_flush_passkeys(&mut self) {
+        if !self.cfg.trace_reports || !self.simulated_controller() {
+            return;
+        }
+        let pending: Vec<u32> = self
+            .links
+            .iter()
+            .filter(|l| {
+                l.le.as_ref()
+                    .and_then(|le| le.smp.as_ref())
+                    .is_some_and(|smp| smp.is_active())
+            })
+            .filter_map(|l| l.passkey)
+            .collect();
+        for passkey in pending {
+            self.harness_show_passkey(passkey);
         }
     }
 
