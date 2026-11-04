@@ -385,6 +385,15 @@ pub extern "C" fn _start() -> ! {
         while attached_to.is_some() && link::transport_object() == attached_to {
             api.idle(WAIT_TICKS);
         }
+        // Once given up on, the controller is no longer touched, so it left
+        // only because someone unplugged it: the next one (or the same one
+        // replugged, its firmware now in place) starts with clean counts. A
+        // `Gone` during a download is the expected re-enumeration and keeps
+        // them, so the cap still holds.
+        if !matches!(failure, Failure::Gone) {
+            reenumerations = 0;
+            restarts = 0;
+        }
     }
 }
 
