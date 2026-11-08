@@ -244,9 +244,10 @@ REST + JSON over `lazyhttps` (blocking, on the sync thread).
 
 esMail implements Google OAuth for installed apps (RFC 8252, loopback
 redirect on `127.0.0.1:<port>` with PKCE, `crates/esmail/src/oauth.rs` at the
-pinned revision, on tokio). **The guest has no loopback interface** (`netd`
-has none; docs/networking-plan.md lists it as not built), so a redirect to
-`127.0.0.1` cannot reach a listener in LazyCal. v1 therefore uses the same
+pinned revision, on tokio). **The guest gained a loopback interface after this
+draft** (issue #1019, built into `netd`'s stack; see
+docs/architecture/networking.md), so a redirect to `127.0.0.1` can now reach
+a listener in LazyCal. Revision 2 chose, before that existed, to use the same
 installed-app flow with the redirect **pasted**:
 
 1. The sync thread builds the consent URL (PKCE, random `state`, scope
@@ -645,8 +646,9 @@ Hashes, not titles or addresses: event content is the user's.
   MIME part (`render.rs`, `extract_attachments`), so finding a
   `text/calendar` part is a small change. Its SMTP builder makes only
   `multipart/mixed` (`smtp.rs`), so it cannot send an iMIP reply yet.
-* **The guest has no loopback interface** (docs/networking-plan.md; LazyAgent
-  plan §12), so an OAuth loopback redirect cannot reach an app.
+* **Loopback now exists** (issue #1019, docs/architecture/networking.md; this
+  draft was written before it), so an OAuth loopback redirect can reach an
+  app; the pasted redirect below is still the v1 design, not a necessity.
 * Mail keeps passwords in memory only (`xui-app/mail/src/secrets.rs`); keyd
   has no per-app secret yet (LazyAgent plan §5.3, P2b proposes one; a
   session implementing it was started 2026-10-19).
