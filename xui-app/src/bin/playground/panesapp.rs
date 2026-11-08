@@ -164,9 +164,8 @@ impl Playground {
     fn focus_reading(&self, ui: &Ui<Msg>) {
         let target = self
             .w
-            .doc_scroll
-            .try_get()
-            .map(|view| view.id())
+            .doc_reader
+            .get()
             .unwrap_or_else(|| self.w.search.get().id());
         ui.focus(target);
     }

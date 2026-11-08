@@ -135,7 +135,10 @@ mod tests {
         assert!(blink.cursor_on());
         assert!(!blink.tick(1210), "still solid");
         assert!(blink.cursor_on());
-        assert!(blink.tick(2300) && !blink.cursor_on(), "blinking again after the solid second");
+        assert!(
+            blink.tick(2300) && !blink.cursor_on(),
+            "blinking again after the solid second"
+        );
     }
 
     #[test]
@@ -143,7 +146,10 @@ mod tests {
         let mut blink = Blink::default();
         blink.activity(0);
         let busy = frames(&mut blink, 0, 60_000);
-        assert!(busy <= 21, "about ten seconds of blinks, not a minute: {busy}");
+        assert!(
+            busy <= 21,
+            "about ten seconds of blinks, not a minute: {busy}"
+        );
         assert!(!blink.wants_timer(), "the timer is killed");
         assert!(blink.cursor_on(), "it stops steady and visible");
         // A minute more of host timer ticks that never come: nothing to draw.

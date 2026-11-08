@@ -409,13 +409,18 @@ impl NetTools {
 }
 
 fn main() {
-    launch::run(xui_app::trace::Channel::Nettools, "Net Tools", WINDOW, |ui, backend| {
-        backend.on_first_frame(|| println!("NETTOOLS:UP:PASS"));
-        let widgets = Widgets::default();
-        ui.root(widgets.layout())
-            .inspect_err(|error| println!("NETTOOLS:BUILD:FAIL:{error}"))?;
-        ui.every(TICK_MILLIS, Msg::Tick);
-        ui.on_close(|| Some(Msg::Close));
-        Ok(NetTools::new(widgets))
-    })
+    launch::run(
+        xui_app::trace::Channel::Nettools,
+        "Net Tools",
+        WINDOW,
+        |ui, backend| {
+            backend.on_first_frame(|| println!("NETTOOLS:UP:PASS"));
+            let widgets = Widgets::default();
+            ui.root(widgets.layout())
+                .inspect_err(|error| println!("NETTOOLS:BUILD:FAIL:{error}"))?;
+            ui.every(TICK_MILLIS, Msg::Tick);
+            ui.on_close(|| Some(Msg::Close));
+            Ok(NetTools::new(widgets))
+        },
+    )
 }

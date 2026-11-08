@@ -239,8 +239,9 @@ impl Playground {
     }
 
     pub fn show_blocks(&mut self, blocks: &[Block]) {
-        let layout = column().child(docview::view(blocks).bind(&self.w.doc_scroll).fill(1));
+        let layout = column().child(docview::view(blocks).bind(&self.w.doc_page).fill(1));
         let _ = self.w.doc.get().set_layout(layout);
+        self.w.doc_reader.set(Some(self.w.doc_page.get().id()));
         self.probe_soon();
     }
 
@@ -254,6 +255,7 @@ impl Playground {
                 .fill(1),
         );
         let _ = self.w.doc.get().set_layout(layout);
+        self.w.doc_reader.set(Some(self.w.doc_scroll.get().id()));
         self.enable_buttons();
         self.probe_soon();
     }
@@ -308,9 +310,20 @@ impl Playground {
         self.w.form_close.get().set_enabled(open);
     }
 
-    pub fn open_link(&mut self, path: &str) {
-        if let Err(e) = xui_app::platform::launcher::open_path(path) {
-            self.note(&format!("cannot open {path}: {e}"));
+    /// A click on a link in the doc page (`xui_playground::markdown::classify`).
+    pub fn open_link(&mut self, href: &str) {
+        use xui_app::platform::launcher;
+        use xui_playground::markdown::{classify, Link};
+        let opened = match classify(href) {
+            Link::Url(url) => launcher::open_url(&url),
+            Link::File(path) => launcher::open_path(&path),
+            Link::Refused => {
+                self.note(&format!("not following the link {href}"));
+                return;
+            }
+        };
+        if let Err(e) = opened {
+            self.note(&format!("cannot open {href}: {e}"));
         }
     }
 

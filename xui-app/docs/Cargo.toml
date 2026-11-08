@@ -1,11 +1,12 @@
-# The Docs app: renders Markdown in a light view of `webd` (WebKit, docs/webd.md). A package of its own
-# (not a `xui-app` binary) so its Markdown engine and its tests stay out of `xui-app` (docs/xui-docs.md).
+# The Docs app: shows Markdown in xui's read-only Markdown view (`xui-markdown`). A package of its own
+# (not a `xui-app` binary) so its document and link logic and their tests stay out of `xui-app`
+# (docs/xui-docs.md).
 [package]
 name = "xui-docs"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Markdown viewer for LazyOS: pulldown-cmark to HTML, drawn by a light view of webd"
+description = "Markdown viewer for LazyOS, drawn by xui-markdown"
 
 [lib]
 name = "xui_docs"
@@ -19,7 +20,6 @@ path = "src/main.rs"
 xui-app = { path = ".." }
 # The documentation root the Open dialog starts in.
 fhs = { path = "../../libs/fhs" }
-xui-core = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
-# The client of webd's light views: the status the window reacts to (`xui_app::lightview` has the view).
-xui-webd-client = { path = "../crates/webd-client" }
-pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "c90f5568dedac41c99dcec106ada26bfb061e548" }
+# The read-only Markdown view: parsing, layout, scrolling, selection and links.
+xui-markdown = { git = "https://github.com/va1erian/xui", rev = "c90f5568dedac41c99dcec106ada26bfb061e548" }

@@ -70,12 +70,7 @@ pub fn paint(canvas: &mut dyn Canvas, ctx: &Ctx, hover: Option<usize>, chevron: 
         };
         let area = rect(cell.rect, s);
         if let Some(strength) = landing(tray, &cell.app) {
-            let glow = uitheme::mix(
-                palette.taskbar_bg,
-                palette.taskbar_entry_focus,
-                strength,
-                8,
-            );
+            let glow = uitheme::mix(palette.taskbar_bg, palette.taskbar_entry_focus, strength, 8);
             canvas.fill_rounded_rect(area.shrink(s), 4.0 * s as f32, color(glow));
         } else if entry.status() == Status::Attention && pulse_on {
             let glow = uitheme::mix(palette.taskbar_entry_focus, palette.taskbar_bg, 1, 4);

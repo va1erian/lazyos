@@ -9,6 +9,7 @@
 //! its layout. Two dividers (xui `Split`s) are the user's: the Explorer's width
 //! and the doc pane's share ([`crate::panes`], [`crate::panesapp`]).
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use xui_app::devtool::{strip, Notice, Strip};
@@ -27,6 +28,7 @@ use xui_core::widget::{
     TreeView,
 };
 use xui_core::{Dip, Fill};
+use xui_markdown::MarkdownView;
 
 use crate::menus::{menus, MENU_HEIGHT};
 use crate::msg::{Action, Msg};
@@ -117,8 +119,13 @@ pub struct Widgets {
     pub topics: Handle<ListView<Msg>>,
     pub gallery: Handle<ListView<Msg>>,
     pub doc: Handle<Panel<Msg>>,
-    /// The scroll view of the page the doc pane shows now.
+    /// The scroll view of the call form or Help, when the doc pane shows one.
     pub doc_scroll: Handle<ScrollView<Msg>>,
+    /// The Markdown view of the doc page, when the doc pane shows one (it scrolls itself).
+    pub doc_page: Handle<MarkdownView<Msg>>,
+    /// What reads the doc pane now, for the keyboard and the UI probe: the doc page's view or the
+    /// scroll view of the form or Help.
+    pub doc_reader: Cell<Option<WidgetId>>,
     /// Explorer | right column, and doc pane | bottom row.
     pub split_main: Handle<Split<Msg>>,
     pub split_doc: Handle<Split<Msg>>,

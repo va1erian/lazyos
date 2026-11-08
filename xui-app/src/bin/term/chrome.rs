@@ -41,7 +41,14 @@ fn color(rgb: Rgb) -> Color {
 }
 
 /// The bar's colours and one line of text, with its two buttons.
-fn paint_confirm(canvas: &mut dyn Canvas, palette: &Palette, layout: &Layout, scale: i32, prompt: &Prompt, damage: Rect) {
+fn paint_confirm(
+    canvas: &mut dyn Canvas,
+    palette: &Palette,
+    layout: &Layout,
+    scale: i32,
+    prompt: &Prompt,
+    damage: Rect,
+) {
     let c = confirm_rects(layout);
     if !overlaps(c.bar, damage) {
         return;
@@ -49,20 +56,49 @@ fn paint_confirm(canvas: &mut dyn Canvas, palette: &Palette, layout: &Layout, sc
     let fg = color(palette.fg());
     let style = xui_core::TextStyle::new(fg, xui_core::Dip(15.0));
     canvas.fill_rect(c.bar, color(palette.bg().lerp(palette.fg(), 0.16)));
-    canvas.fill_rect(Rect::new(c.bar.left, c.bar.top, c.bar.right, c.bar.top + scale), color(palette.cursor()));
+    canvas.fill_rect(
+        Rect::new(c.bar.left, c.bar.top, c.bar.right, c.bar.top + scale),
+        color(palette.cursor()),
+    );
     let text = |canvas: &mut dyn Canvas, text: &str, rect: Rect| {
-        let at = Rect::new(rect.left, rect.top + (rect.height() - 20 * scale) / 2, rect.right, rect.bottom);
+        let at = Rect::new(
+            rect.left,
+            rect.top + (rect.height() - 20 * scale) / 2,
+            rect.right,
+            rect.bottom,
+        );
         canvas.draw_text(text, at, &style);
     };
-    text(canvas, &prompt.text, Rect::new(c.bar.left + layout.pad, c.bar.top, c.paste.left, c.bar.bottom));
+    text(
+        canvas,
+        &prompt.text,
+        Rect::new(
+            c.bar.left + layout.pad,
+            c.bar.top,
+            c.paste.left,
+            c.bar.bottom,
+        ),
+    );
     for (rect, label) in [(c.paste, prompt.ok), (c.cancel, prompt.cancel)] {
         canvas.fill_rect(rect, color(palette.bg().lerp(palette.fg(), 0.32)));
-        text(canvas, label, Rect::new(rect.left + layout.pad, rect.top, rect.right, rect.bottom));
+        text(
+            canvas,
+            label,
+            Rect::new(rect.left + layout.pad, rect.top, rect.right, rect.bottom),
+        );
     }
 }
 
 /// Draw every layer that is up, over the grid already painted.
-pub fn paint(canvas: &mut dyn Canvas, chrome: &Chrome, look: &Look, palette: &Palette, laid: &Layout, dark: bool, damage: Rect) {
+pub fn paint(
+    canvas: &mut dyn Canvas,
+    chrome: &Chrome,
+    look: &Look,
+    palette: &Palette,
+    laid: &Layout,
+    dark: bool,
+    damage: Rect,
+) {
     let scale = look.metrics.scale;
     let window = (laid.width, laid.height);
     if let Some(find) = &chrome.find {

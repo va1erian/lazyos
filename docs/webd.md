@@ -4,8 +4,9 @@
 of HTML and gets the page's pixels back in shared memory, plus a few page events) and **full views** (what a
 browser needs: navigation over the network, a profile, dialogs, downloads, notifications, content blocking,
 frames that carry only what changed). Plan, security model and the phases: [`webd-plan.md`](webd-plan.md). This
-file is the as-built description of the program (P2 slices 2 and 3) and of its clients: Docs and Mail (P3:
-`xui_app::lightview`, [`xui-docs.md`](xui-docs.md), [`mail.md`](mail.md)) on light views, the test client
+file is the as-built description of the program (P2 slices 2 and 3) and of its clients: Mail (P3:
+`xui_app::lightview`, [`mail.md`](mail.md)) on light views (Docs was one until it moved to `xui-markdown`,
+[`xui-docs.md`](xui-docs.md)), the test client
 Web View Test on full views ("Full views", below). The interfaces are
 [`idl/webd_light.midl`](../idl/webd_light.midl) (served as `app.os.lazy.webd.light`) and
 [`idl/webd.midl`](../idl/webd.midl) (`os.lazy.webd.view.v1` and its scopes, served as
@@ -147,7 +148,7 @@ the same road as `/selftest`) prints one report, nothing else runs between reque
 ```
 WEBD:MEM:PROC role=service pid=5 threads=9 memory=.. private=.. resident=.. code=.. heap=.. stack=.. shared=.. files=.. tables=.. name=webd-app
 WEBD:MEM:PROC role=web pid=9 threads=12 memory=.. ... name=webproce
-WEBD:MEM:CLIENT views=2 slots=.. label=app:os.lazy.docs
+WEBD:MEM:CLIENT views=2 slots=.. label=app:os.lazy.mail
 WEBD:MEM:TOTAL processes=3 memory=.. private=.. resident=.. sharing=..
 ```
 

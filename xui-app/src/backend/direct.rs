@@ -79,7 +79,10 @@ impl LazyOSBackend {
     fn direct_target(&self, window: WindowId, damage: Rect) -> Option<(DirectPainter, Rect, Rect)> {
         let nodes = self.nodes.borrow();
         let (index, id, painter) = nodes.iter().enumerate().find_map(|(index, (id, node))| {
-            (node.window == window).then(|| painter_of(*id)).flatten().map(|painter| (index, *id, painter))
+            (node.window == window)
+                .then(|| painter_of(*id))
+                .flatten()
+                .map(|painter| (index, *id, painter))
         })?;
         if !effectively_visible(&nodes, id) {
             return None;
@@ -98,14 +101,20 @@ impl LazyOSBackend {
             node.window == window
                 && node.painter.is_some()
                 && effectively_visible(&nodes, *other)
-                && absolute_bounds(&nodes, *other).is_some_and(|rect| intersection(rect, direct).is_some())
+                && absolute_bounds(&nodes, *other)
+                    .is_some_and(|rect| intersection(rect, direct).is_some())
         });
         (!covered).then_some((painter, bounds, direct))
     }
 
     /// Composes `damage` into `dest` with a direct painter where one may draw, and through the canvas
     /// around it. `None` when no direct painter applies (the caller composes it all through the canvas).
-    pub(super) fn composite_direct(&self, window: WindowId, damage: Rect, dest: Dest) -> Option<bool> {
+    pub(super) fn composite_direct(
+        &self,
+        window: WindowId,
+        damage: Rect,
+        dest: Dest,
+    ) -> Option<bool> {
         if !has_any() {
             return None;
         }
@@ -126,7 +135,13 @@ impl LazyOSBackend {
     /// Runs `painter` on the window's frame; the rectangle it wrote, `None` (nothing written) while the
     /// frame is not the window's yet (a first frame or a resize is composed whole through the canvas) or
     /// when the painter declined.
-    fn paint_frame(&self, window: WindowId, painter: &DirectPainter, bounds: Rect, direct: Rect) -> Option<Rect> {
+    fn paint_frame(
+        &self,
+        window: WindowId,
+        painter: &DirectPainter,
+        bounds: Rect,
+        direct: Rect,
+    ) -> Option<Rect> {
         let (mut frame, stride, direct) = {
             let mut windows = self.windows.borrow_mut();
             let entry = windows.get_mut(&window.raw())?;

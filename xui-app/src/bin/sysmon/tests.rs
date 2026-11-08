@@ -6,11 +6,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use xui_app::sysinfo::{
-    ProcessMemory, ProcessTable, Snapshot, TaskClass, TaskRow, TaskState, VERSION, WORDS,
-    decode_words, header,
+    decode_words, header, ProcessMemory, ProcessTable, Snapshot, TaskClass, TaskRow, TaskState,
+    VERSION, WORDS,
 };
-use xui_canvas::OffscreenBackend;
 use xui_canvas::snapshot::Gallery;
+use xui_canvas::OffscreenBackend;
 use xui_core::app::{App, Ui};
 use xui_core::backend::Backend;
 use xui_core::{Rect, Theme};

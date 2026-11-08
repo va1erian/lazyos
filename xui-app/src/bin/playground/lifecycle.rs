@@ -143,8 +143,8 @@ impl Playground {
         }
         self.probe_dividers(&say, &abs, ui.dpi());
         // Where a session presses to grab the page's scroll thumb at the top: the bar's first 90 pixels.
-        if let Some(view) = w.doc_scroll.try_get() {
-            let r = abs(view.id());
+        if let Some(id) = w.doc_reader.get() {
+            let r = abs(id);
             let bar = 12 * scale;
             say(
                 "doc_bar_top",

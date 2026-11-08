@@ -1,14 +1,10 @@
 """Judges for the Docs sessions (docs/xui-docs.md): what the serial log and the screenshots must show when Docs
-draws its pages in a light view of webd. Pure functions over text and decoded pictures, so
-`test_judge.py` can check that each one fails when it should.
-
-Both sessions run on an image with webd (`LAZYOS_WEBD=1`): without it the window says the web engine is not
-running and the page never paints, which `judge_markers` reports as a missing `DOCS:RENDER:PASS`.
+draws its pages in xui's Markdown view. Pure functions over text and decoded pictures, so `test_judge.py` can
+check that each one fails when it should.
 """
 
 from __future__ import annotations
 
-import importlib.util
 import re
 import sys
 from pathlib import Path
@@ -18,17 +14,6 @@ sys.path.insert(0, str(ROOT / "tools" / "screenshot"))
 from pngstats import decode_png  # noqa: E402
 
 
-def _webd_judge():
-    """`tools/webd/judge.py` (webd's own label check, with the documented optional refusals of its children),
-    loaded under another name: `tools/webd` has other files of the names this directory uses."""
-    spec = importlib.util.spec_from_file_location("webd_judge", ROOT / "tools" / "webd" / "judge.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-webd_judge = _webd_judge()
-
 #: The page area of the 900x640 window, below the window frame (x0, x1, y0, y1): everything the wheel
 #: moves. The clock may tick in the taskbar, so only this box is compared.
 CONTENT = (52, 948, 52, 688)
@@ -36,14 +21,14 @@ CONTENT = (52, 948, 52, 688)
 VIEWPORT = (52, 948, 90, 688)
 
 #: What the wheel session must print, in any order.
-WHEEL_MARKERS = ["DOCS:UP:PASS", "DOCS:RENDER:PASS", "WEBD:UP:PASS", "WEBD:VIEW:CREATE client="]
+WHEEL_MARKERS = ["DOCS:UP:PASS", "DOCS:RENDER:PASS"]
 #: What the Open session must print.
 OPEN_MARKERS = WHEEL_MARKERS + [
     "DOCS:OPEN:PASS:/system/share/samples/testdoc.md",
     "DOCS:RENDER:PASS:/system/share/samples/testdoc.md",
 ]
 
-FAILURE = re.compile(r"^(?:DOCS|WEBD):(?!NOTE:)[A-Z_]+(?::[A-Z_]+)*:FAIL.*$", re.M)
+FAILURE = re.compile(r"^DOCS:(?!NOTE:)[A-Z_]+(?::[A-Z_]+)*:FAIL.*$", re.M)
 DOCS_DENY = re.compile(r"^LABEL:DENY label=app:os\.lazy\.docs(?:/\S+)?\s.*$", re.M)
 
 
@@ -57,16 +42,12 @@ def judge_markers(text: str, wanted: list[str]) -> list[str]:
         if not found:
             problems.append(f"{marker} never appeared")
     problems += [f"failure marker: {line}" for line in FAILURE.findall(text)[:8]]
-    if "DOCS:ENGINE:FAIL" in text:
-        problems.append("Docs reported the web engine missing or failing")
     return problems
 
 
 def judge_denies(text: str) -> list[str]:
-    """No refused call for Docs, and none for webd or its children beyond the documented optional ones (time
-    zone and fontconfig lookups: `tools/webd/judge.py`). The run is built with `LAZYOS_LABEL_TRACE=1`."""
-    return ([f"refused: {line}" for line in DOCS_DENY.findall(text)[:12]]
-            + webd_judge.judge_denies(text))
+    """No refused call for Docs. The run is built with `LAZYOS_LABEL_TRACE=1`."""
+    return [f"refused: {line}" for line in DOCS_DENY.findall(text)[:12]]
 
 
 def region(path: Path, box: tuple[int, int, int, int]) -> tuple[bytes, int]:

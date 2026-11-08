@@ -1,9 +1,10 @@
-//! What a click on a link in a document means. A light view loads nothing by itself: it reports the
-//! link as written (a relative one stays relative) and the app decides.
+//! What a click on a link in a document means. The Markdown view loads nothing by itself: it reports
+//! the link as written (a relative one stays relative) and the app decides.
 //!
-//! * `#section` stays on the page: a light view cannot scroll to it, so nothing happens;
+//! * `#section` stays on the page: the view scrolls to a heading it names by itself and reports only
+//!   one it does not know, which does nothing;
 //! * a link to another Markdown file opens it here, resolved against the folder of the document on
-//!   show (the documentation root when the welcome page is on show);
+//!   show (the documentation root when the welcome page is on show), scrolled to its `#section`;
 //! * any other relative or absolute path is a file for `mimed` to open with its registered app;
 //! * `http:`, `https:` and `mailto:` go to the app registered for the scheme (the browser, Mail);
 //! * every other scheme (`javascript:`, `data:`, `file:`, ...) is refused.
@@ -15,8 +16,9 @@ use std::path::{Component, Path, PathBuf};
 pub enum Link {
     /// A link within the page: nothing to do.
     Anchor,
-    /// Another Markdown document: show it in this window.
-    Document(PathBuf),
+    /// Another Markdown document: show it in this window, scrolled to the heading the fragment
+    /// names (decoded, without `#`), if any.
+    Document(PathBuf, Option<String>),
     /// Another kind of file: hand it to `mimed`.
     File(PathBuf),
     /// A web or mail address: hand it to the app registered for its scheme.
@@ -44,6 +46,10 @@ pub fn classify(href: &str, current: Option<&Path>) -> Link {
         };
     }
     let path = href.split(['#', '?']).next().unwrap_or("");
+    let fragment = href
+        .split_once('#')
+        .and_then(|(_, f)| percent_decode(f))
+        .filter(|f| !f.is_empty() && !f.chars().any(char::is_control));
     let Some(path) = percent_decode(path) else {
         return Link::Refused;
     };
@@ -59,7 +65,7 @@ pub fn classify(href: &str, current: Option<&Path>) -> Link {
         .unwrap_or_else(|| Path::new(fhs::docs::DOCS_ROOT));
     let target = normalize(&base.join(&path));
     if is_markdown(&target) {
-        Link::Document(target)
+        Link::Document(target, fragment)
     } else if target.to_string_lossy().contains(' ') {
         // `mimed.Open` carries the path in a launch line that is split at spaces: the app would get a
         // part of the name and open the wrong file.
@@ -140,28 +146,42 @@ mod tests {
         assert_eq!(classify_in("#section"), Link::Anchor);
         assert_eq!(
             classify_in("intro.md#section"),
-            Link::Document("/docs/os/guide/intro.md".into())
+            Link::Document("/docs/os/guide/intro.md".into(), Some("section".into()))
         );
         assert_eq!(classify_in("?x=1"), Link::Anchor);
+    }
+
+    #[test]
+    fn a_fragment_is_decoded_and_an_empty_or_bad_one_dropped() {
+        let doc = |anchor: Option<&str>| {
+            Link::Document("/docs/os/guide/a.md".into(), anchor.map(str::to_owned))
+        };
+        assert_eq!(
+            classify_in("a.md#%C3%A9t%C3%A9"),
+            doc(Some("\u{e9}t\u{e9}"))
+        );
+        assert_eq!(classify_in("a.md#"), doc(None));
+        assert_eq!(classify_in("a.md#%zz"), doc(None));
+        assert_eq!(classify_in("a.md#x%0Ay"), doc(None));
     }
 
     #[test]
     fn a_relative_markdown_link_opens_beside_the_current_document() {
         assert_eq!(
             classify_in("other.md"),
-            Link::Document("/docs/os/guide/other.md".into())
+            Link::Document("/docs/os/guide/other.md".into(), None)
         );
         assert_eq!(
             classify_in("./sub/a.MD"),
-            Link::Document("/docs/os/guide/sub/a.MD".into())
+            Link::Document("/docs/os/guide/sub/a.MD".into(), None)
         );
         assert_eq!(
             classify_in("../index.markdown"),
-            Link::Document("/docs/os/index.markdown".into())
+            Link::Document("/docs/os/index.markdown".into(), None)
         );
         assert_eq!(
             classify_in("a%20b.md"),
-            Link::Document("/docs/os/guide/a b.md".into())
+            Link::Document("/docs/os/guide/a b.md".into(), None)
         );
     }
 
@@ -169,7 +189,7 @@ mod tests {
     fn dot_dot_cannot_leave_the_root() {
         assert_eq!(
             classify_in("../../../../../x.md"),
-            Link::Document("/x.md".into())
+            Link::Document("/x.md".into(), None)
         );
     }
 
@@ -177,7 +197,7 @@ mod tests {
     fn an_absolute_path_is_taken_as_written() {
         assert_eq!(
             classify_in("/docs/apps/a.md"),
-            Link::Document("/docs/apps/a.md".into())
+            Link::Document("/docs/apps/a.md".into(), None)
         );
         assert_eq!(
             classify_in("/system/share/samples/x.pdf"),
@@ -187,7 +207,7 @@ mod tests {
 
     #[test]
     fn the_welcome_page_resolves_against_the_documentation_root() {
-        let Link::Document(path) = classify("os/readme.md", None) else {
+        let Link::Document(path, None) = classify("os/readme.md", None) else {
             panic!("a document");
         };
         assert_eq!(path, Path::new(fhs::docs::DOCS_ROOT).join("os/readme.md"));
@@ -230,7 +250,7 @@ mod tests {
         // A Markdown file is opened here, not launched: a space is fine.
         assert_eq!(
             classify_in("my%20doc.md"),
-            Link::Document("/docs/os/guide/my doc.md".into())
+            Link::Document("/docs/os/guide/my doc.md".into(), None)
         );
     }
 
@@ -248,7 +268,7 @@ mod tests {
     fn a_colon_after_a_slash_is_not_a_scheme() {
         assert_eq!(
             classify_in("a/b:c.md"),
-            Link::Document("/docs/os/guide/a/b:c.md".into())
+            Link::Document("/docs/os/guide/a/b:c.md".into(), None)
         );
     }
 }

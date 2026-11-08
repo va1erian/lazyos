@@ -370,7 +370,10 @@ impl Model {
         let mounted: Vec<&Drive> = self.mounted().collect();
         let of = |base: u32| {
             let number = id.checked_sub(base).filter(|n| *n <= NUMBER_MASK)?;
-            mounted.iter().copied().find(|d| number_of(&d.disk) == number)
+            mounted
+                .iter()
+                .copied()
+                .find(|d| number_of(&d.disk) == number)
         };
         match id {
             EJECT_ALL => {

@@ -162,7 +162,9 @@ impl Shown {
         let (cursor_row, cursor_col) = term.cursor();
         let first = first_row(cursor_row, visible, total);
         let rows: Vec<Vec<Cell>> = (0..visible)
-            .map(|slot| view_line(term, first, offset, slot).map_or_else(Vec::new, |l| used(l.cells)))
+            .map(|slot| {
+                view_line(term, first, offset, slot).map_or_else(Vec::new, |l| used(l.cells))
+            })
             .collect();
         let spans: Vec<Option<(usize, usize)>> = (0..visible)
             .map(|slot| {
@@ -257,13 +259,22 @@ mod tests {
         let mut grid = Term::new(80, 24);
         let mut shown = Shown::default();
         grid.feed(b"/ # ");
-        assert!(shown.update(&grid, Some(LAYOUT), 0, LookKey::default()).is_some(), "first frame");
+        assert!(
+            shown
+                .update(&grid, Some(LAYOUT), 0, LookKey::default())
+                .is_some(),
+            "first frame"
+        );
         grid.feed(b"e");
         assert_eq!(
             shown.update(&grid, Some(LAYOUT), 0, LookKey::default()),
             Some(Rect::new(0, 10, 640, 30))
         );
-        assert_eq!(shown.update(&grid, Some(LAYOUT), 0, LookKey::default()), None, "nothing changed");
+        assert_eq!(
+            shown.update(&grid, Some(LAYOUT), 0, LookKey::default()),
+            None,
+            "nothing changed"
+        );
     }
 
     #[test]
@@ -333,7 +344,11 @@ mod tests {
             Some(Rect::new(0, 0, 640, 400)),
             "a wheel notch invalidates the grid in one rectangle"
         );
-        assert_eq!(shown.update(&term, Some(LAYOUT), 3, LookKey::default()), None, "and then nothing");
+        assert_eq!(
+            shown.update(&term, Some(LAYOUT), 3, LookKey::default()),
+            None,
+            "and then nothing"
+        );
         assert_eq!(
             shown.update(&term, Some(LAYOUT), 0, LookKey::default()),
             Some(Rect::new(0, 0, 640, 400)),
@@ -356,7 +371,10 @@ mod tests {
             Some(LAYOUT.strip()),
             "the same text is in view; only the thumb moved"
         );
-        assert_eq!(shown.update(&term, Some(LAYOUT), offset, LookKey::default()), None);
+        assert_eq!(
+            shown.update(&term, Some(LAYOUT), offset, LookKey::default()),
+            None
+        );
     }
 
     #[test]
@@ -364,8 +382,12 @@ mod tests {
         let term = filled(100);
         let mut shown = Shown::default();
         shown.update(&term, Some(LAYOUT), 0, LookKey::default());
-        assert!(shown.update(&term, Some(LAYOUT), 1, LookKey::default()).is_some());
-        assert!(shown.update(&term, Some(LAYOUT), 0, LookKey::default()).is_some());
+        assert!(shown
+            .update(&term, Some(LAYOUT), 1, LookKey::default())
+            .is_some());
+        assert!(shown
+            .update(&term, Some(LAYOUT), 0, LookKey::default())
+            .is_some());
     }
 
     #[test]
@@ -374,7 +396,12 @@ mod tests {
         let first = first_row(term.cursor().0, 19, 24);
         let text = |offset: usize, slot: usize| {
             let line = view_line(&term, first, offset, slot).unwrap();
-            line.cells.iter().map(|c| c.ch).collect::<String>().trim_end().to_string()
+            line.cells
+                .iter()
+                .map(|c| c.ch)
+                .collect::<String>()
+                .trim_end()
+                .to_string()
         };
         assert_eq!(text(0, 17), "line 100");
         assert_eq!(text(5, 17), "line 95");
@@ -386,12 +413,19 @@ mod tests {
 
     #[test]
     fn the_thumb_tracks_the_offset() {
-        assert_eq!(thumb(10, 380, 1000, 0, 19, 16), None, "hidden at the bottom");
+        assert_eq!(
+            thumb(10, 380, 1000, 0, 19, 16),
+            None,
+            "hidden at the bottom"
+        );
         let (top, bottom) = thumb(10, 380, 1000, 1000, 19, 16).unwrap();
         assert_eq!(top, 10, "at the oldest line the thumb is at the top");
         assert_eq!(bottom - top, 16, "tiny thumbs keep a minimum size");
         let (top, bottom) = thumb(10, 380, 1000, 1, 19, 16).unwrap();
-        assert!((388..=390).contains(&bottom), "one line back it is at the bottom");
+        assert!(
+            (388..=390).contains(&bottom),
+            "one line back it is at the bottom"
+        );
         assert!(top < bottom);
         let (a, _) = thumb(10, 380, 1000, 500, 19, 16).unwrap();
         assert!(a > 10 && a < 374, "{a}");

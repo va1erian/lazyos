@@ -171,7 +171,11 @@ pub fn bars(rssi_dbm: i32) -> u8 {
 /// any font (`[###.] -52 dBm`).
 pub fn signal(rssi_dbm: i32) -> String {
     let lit = usize::from(bars(rssi_dbm));
-    format!("[{}{}] {rssi_dbm} dBm", "#".repeat(lit), ".".repeat(4 - lit))
+    format!(
+        "[{}{}] {rssi_dbm} dBm",
+        "#".repeat(lit),
+        ".".repeat(4 - lit)
+    )
 }
 
 /// Side of the tray icon mask, in pixels (the shell takes up to 64).
@@ -278,10 +282,7 @@ pub fn state_line(ifname: &str, state: &State) -> String {
                 signal(state.rssi_dbm)
             )
         }
-        Conn::Failed => format!(
-            "{ifname}: could not join{name}: {}",
-            why_text(state.why)
-        ),
+        Conn::Failed => format!("{ifname}: could not join{name}: {}", why_text(state.why)),
     }
 }
 
@@ -295,7 +296,9 @@ pub fn check_ssid(ssid: &str) -> Result<(), String> {
         return Err(format!("A network name is at most {MAX_SSID} bytes."));
     }
     if ssid.chars().any(char::is_control) {
-        return Err(String::from("A network name cannot hold control characters."));
+        return Err(String::from(
+            "A network name cannot hold control characters.",
+        ));
     }
     Ok(())
 }
@@ -304,7 +307,9 @@ pub fn check_ssid(ssid: &str) -> Result<(), String> {
 /// 64 hex digits (a raw PSK).
 pub fn check_passphrase(text: &str) -> Result<(), String> {
     if text.chars().any(char::is_control) {
-        return Err(String::from("The passphrase cannot hold control characters."));
+        return Err(String::from(
+            "The passphrase cannot hold control characters.",
+        ));
     }
     let len = text.len();
     if len == PSK_HEX {
@@ -385,10 +390,7 @@ mod tests {
     #[test]
     fn rows_say_what_is_known() {
         let saved = net("Home", Security::Wpa2Psk, -60, "w0123456789ab", false);
-        assert_eq!(
-            row(&saved),
-            ["Home", "[###.] -60 dBm", "WPA2", "Saved"]
-        );
+        assert_eq!(row(&saved), ["Home", "[###.] -60 dBm", "WPA2", "Saved"]);
         let up = net("Home", Security::Wpa2Psk, -40, "w0123456789ab", true);
         assert_eq!(row(&up)[3], "Connected");
         let cafe = net("Cafe", Security::Open, -80, "", false);
@@ -400,7 +402,10 @@ mod tests {
     #[test]
     fn state_lines() {
         let mut state = State::default();
-        assert_eq!(state_line("wlan0", &state), "wlan0: no Wi-Fi radio is running");
+        assert_eq!(
+            state_line("wlan0", &state),
+            "wlan0: no Wi-Fi radio is running"
+        );
         state.conn = Conn::Idle;
         assert_eq!(state_line("wlan0", &state), "wlan0: not connected");
         state.conn = Conn::Connected;
@@ -461,7 +466,11 @@ mod tests {
         assert!(signal_mask(0).chunks(4).all(|px| px[3] == 0 || px[3] == 70));
         assert_eq!(signal_mask(4)[(27 * side + 23 + 2) * 4 + 3], 255);
         // The tallest bar is taller than the shortest.
-        let column = |x: usize| (0..side).filter(|y| mask[(y * side + x) * 4 + 3] > 0).count();
+        let column = |x: usize| {
+            (0..side)
+                .filter(|y| mask[(y * side + x) * 4 + 3] > 0)
+                .count()
+        };
         assert!(column(2 + 3 * 7 + 2) > column(2 + 2));
     }
 

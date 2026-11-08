@@ -519,7 +519,8 @@ The client side of the light interface and its proof; the program, package and `
 * **Harnesses.** `python tools/docs/run.py` (two sessions, markers, pictures, label trace; `test_judge.py`),
   `python tools/mail/run.py` (hostile message appended to the INBOX over IMAP, the listener on port 18080 with a control request
   from the guest, pane pictures, `test_judge.py`), `python tools/webd/run.py` (now `--webd-demo`). The CI Docs shard runs
-  an image without webd (`LAZYOS_WEBD=0`, `docs_no_engine.json`) and proves Docs starts, says so and still takes the wheel;
+  an image without webd (`LAZYOS_WEBD=0`, `docs_no_engine.json`) and proves Docs starts, says so and still takes the wheel
+  (since gone: Docs draws Markdown with `xui-markdown` and the shard runs `xui_docs.json`, docs/xui-docs.md);
   the old pixel checks of the litehtml/Blitz era moved to `tools/docs/judge.py`. The Mail harness was already out of date on
   main: the Connect button had moved under the "Remember" row, and Python 3.13's strict TLS refuses the mock server's CA.
 * **Findings.** A view per message would have leaked a parked proxy each time: one view is reused. The wheel burst above.
@@ -940,7 +941,7 @@ each with real evidence; the rest is recorded below as still open.
   _and_a_new_view_loads_it_again`, `no_webd_says_so_and_a_page_asked_for_meanwhile_loads_when_it_comes`)
   and `xui-webd-client`'s pane (`a_lost_view_is_made_again_and_the_newest_page_comes_back`,
   `a_service_lost_while_the_view_is_made_is_tried_again_not_given_up`). The "webd not running at login"
-  case is QEMU-tested (`docs_no_engine.json`), and the per-view loss (a web process killed) is QEMU-tested
+  case was QEMU-tested (`docs_no_engine.json`, gone with Docs' move to `xui-markdown`), and the per-view loss (a web process killed) is QEMU-tested
   (`tools/webd/run.py`). The exit-4 watchdog path stays host/`webd-abi-test`-only.
 
 #### What P5 still did not do (recorded)

@@ -86,8 +86,13 @@ fn main() {
     // `panic = "abort"`: a panic on any thread ends the app, so say where on
     // the serial line first (the default hook writes to a stderr nobody reads).
     std::panic::set_hook(Box::new(|info| {
-        let place = info.location().map_or(String::new(), |l| format!(" at {}:{}", l.file(), l.line()));
-        let text = info.payload().downcast_ref::<&str>().map(|s| s.to_string())
+        let place = info
+            .location()
+            .map_or(String::new(), |l| format!(" at {}:{}", l.file(), l.line()));
+        let text = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
             .or_else(|| info.payload().downcast_ref::<String>().cloned())
             .unwrap_or_default();
         println!("SKY:PANIC:{text}{place}");
@@ -96,26 +101,31 @@ fn main() {
     // before any thread starts, as Mail does.
     lazysky_core::install_tls_provider();
     let service = service_arg();
-    launch::run(xui_app::trace::Channel::Sky, "LazySky", WINDOW, move |ui, backend| {
-        backend.on_first_frame(|| println!("SKY:UP:PASS"));
-        backend.set_size_hints(480, 360, 0, 0);
-        // The user's settings (read once, before the first frame); a
-        // `--service` argument wins for this run.
-        let mut settings = Settings::load(&LazyOs.app_dir());
-        if let Some(service) = &service {
-            settings.service = service.clone();
-        }
-        LazySkyApp::build(ui, Arc::new(LazyOs), settings, |msg| match msg {
-            Msg::Report(Report::FeedRows(n)) => println!("SKY:FEED:ROWS:{n}"),
-            Msg::Report(Report::DetailRows(n)) => println!("SKY:DETAIL:ROWS:{n}"),
-            Msg::Report(Report::Pictures(n)) => println!("SKY:IMAGES:{n}"),
-            Msg::Report(Report::SignedOut) => println!("SKY:SIGNEDOUT"),
-            Msg::Report(Report::ViewerReady(ms)) => println!("SKY:VIEWER:READY:{ms}"),
-            Msg::Report(Report::ViewerWanted(what)) => println!("SKY:VIEWER:WANT:{what}"),
-            Msg::Report(Report::ImageFailed(why)) => println!("SKY:IMAGE:FAIL:{why}"),
-            Msg::Quit => println!("SKY:QUIT:PASS"),
-            _ => {}
-        })
-        .inspect_err(|error| println!("SKY:BUILD:FAIL:{error}"))
-    })
+    launch::run(
+        xui_app::trace::Channel::Sky,
+        "LazySky",
+        WINDOW,
+        move |ui, backend| {
+            backend.on_first_frame(|| println!("SKY:UP:PASS"));
+            backend.set_size_hints(480, 360, 0, 0);
+            // The user's settings (read once, before the first frame); a
+            // `--service` argument wins for this run.
+            let mut settings = Settings::load(&LazyOs.app_dir());
+            if let Some(service) = &service {
+                settings.service = service.clone();
+            }
+            LazySkyApp::build(ui, Arc::new(LazyOs), settings, |msg| match msg {
+                Msg::Report(Report::FeedRows(n)) => println!("SKY:FEED:ROWS:{n}"),
+                Msg::Report(Report::DetailRows(n)) => println!("SKY:DETAIL:ROWS:{n}"),
+                Msg::Report(Report::Pictures(n)) => println!("SKY:IMAGES:{n}"),
+                Msg::Report(Report::SignedOut) => println!("SKY:SIGNEDOUT"),
+                Msg::Report(Report::ViewerReady(ms)) => println!("SKY:VIEWER:READY:{ms}"),
+                Msg::Report(Report::ViewerWanted(what)) => println!("SKY:VIEWER:WANT:{what}"),
+                Msg::Report(Report::ImageFailed(why)) => println!("SKY:IMAGE:FAIL:{why}"),
+                Msg::Quit => println!("SKY:QUIT:PASS"),
+                _ => {}
+            })
+            .inspect_err(|error| println!("SKY:BUILD:FAIL:{error}"))
+        },
+    )
 }

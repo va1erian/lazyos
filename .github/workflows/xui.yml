@@ -626,28 +626,35 @@ jobs:
             echo "::error::an app failed to launch"; exit 1
           fi
 
-      # Docs: Markdown drawn by a light view of webd (WebKit). CI cannot build WebKit (Docker, hours), so
-      # this image has no webd (`LAZYOS_WEBD=0`) and only proves that Docs starts and, finding no
-      # engine, says so instead of showing a blank window. The pictures of the page (the wheel, the
-      # Open dialog, the test document) are judged by `python tools/docs/run.py` on a machine that
-      # has built webd (`tools/docs/judge.py`, self-tested by `tools/docs/test_judge.py`).
-      - name: Capture Docs (starts, reports a missing web engine)
+      # Docs: Markdown drawn in the app by xui's Markdown view. The welcome page paints, Ctrl+O opens
+      # the long test document and the wheel scrolls it down and back to the same picture (`tools/docs/judge.py`, self-tested by
+      # `tools/docs/test_judge.py`); `python tools/docs/run.py` also runs the Open dialog session.
+      - name: Capture Docs (paints, wheel scrolls)
         if: ${{ !cancelled() && matrix.shard == 'docs' && steps.app.outputs.docs != '' }}
         shell: bash
         env:
           LAZYOS_DESKTOP: "1"
-          LAZYOS_WEBD: "0"
           LAZYOS_XUI_APPS: ${{ steps.app.outputs.docs }}
           LAZYOS_XUI_AUTOSTART: docs
         run: |
           set -euo pipefail
           cargo build
-          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/docs --timeout 300 --script tools/screenshot/examples/docs_no_engine.json --fail-on "INIT:AUTOSTART:FAIL"
-          # The wheel still reaches the window under the pointer through the whole input chain (the
-          # PS/2 wheel driver, `xuid`'s PointerWheel and the client backend), whatever the page shows.
-          for marker in DOCS:UP:PASS "DOCS:ENGINE:FAIL:not running" XUID:WHEEL:PASS MIME:VIEW:PASS                         "mouse: PS/2 auxiliary device enabled (wheel)"; do
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/docs --timeout 300 --script tools/screenshot/examples/xui_docs.json --fail-on "INIT:AUTOSTART:FAIL" --fail-on "DOCS:[A-Z]+:FAIL"
+          # The wheel reaches the window under the pointer through the whole input chain (the PS/2
+          # wheel driver, `xuid`'s PointerWheel and the client backend).
+          for marker in DOCS:UP:PASS DOCS:RENDER:PASS XUID:WHEEL:PASS MIME:VIEW:PASS                         "mouse: PS/2 auxiliary device enabled (wheel)"; do
             grep -qF "$marker" shots/docs/serial.log
           done
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, "tools/docs")
+          import judge
+          shot = lambda name: f"shots/docs/shot_{name}.png"
+          problems = judge.judge_wheel(shot("01_docs_top"), shot("02_docs_wheel_down"), shot("03_docs_wheel_back_up"))
+          for problem in problems:
+              print(f"::error::Docs: {problem}")
+          sys.exit(1 if problems else 0)
+          PY
           python tools/screenshot/pngstats.py shots/docs/shot_*.png --min-nonblack 0.01
           ! grep -q "^init: launch .* failed" shots/docs/serial.log
 

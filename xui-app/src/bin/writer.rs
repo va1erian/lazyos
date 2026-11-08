@@ -92,5 +92,8 @@ fn main() -> std::process::ExitCode {
     if outcome.is_ok() {
         println!("WRITER:QUIT:PASS");
     }
-    std::process::ExitCode::from(xui_app::launch::finish(xui_app::trace::Channel::Writer, outcome))
+    std::process::ExitCode::from(xui_app::launch::finish(
+        xui_app::trace::Channel::Writer,
+        outcome,
+    ))
 }

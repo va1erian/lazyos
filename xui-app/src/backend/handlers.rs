@@ -6,7 +6,7 @@ use std::sync::atomic::Ordering;
 
 use xui_canvas::Surface;
 use xui_core::backend::{
-    Backend, BackendError, Event, ImplKind, NodeKind, NodeSpec, Painter, ParentRef, PlatformSpec,
+    Backend, BackendError, Event, NodeSpec, Painter, ParentRef, PlatformSpec,
     Result as BackendResult, TextMetrics, TextStyle, TimerId, Waker, WidgetId, WindowId,
 };
 use xui_core::router::WidgetHost;
@@ -472,10 +472,6 @@ impl Backend for LazyOSBackend {
 
     fn kill_timer(&self, _window: WindowId, id: TimerId) {
         self.timers.borrow_mut().retain(|timer| timer.id != id.0);
-    }
-
-    fn supports(&self, _kind: NodeKind) -> ImplKind {
-        ImplKind::Painted
     }
 
     /// The session clipboard, via `clipboardd` (issue #115), so Copy in one app

@@ -15,9 +15,9 @@ use std::rc::Rc;
 
 use xui_canvas::OffscreenBackend;
 use xui_core::backend::{
-    Backend, Cursor, Event, FileDialogOutcome, FileDialogRequest, FontSpec, ImplKind, NodeKind,
-    NodeSpec, Painter, ParentRef, PlatformSpec, Result, TextLayout, TextMetrics, TextShaper,
-    TextStyle, TimerId, Waker, WidgetId, WindowId,
+    Backend, Cursor, Event, FileDialogOutcome, FileDialogRequest, FontSpec, NodeSpec, Painter,
+    ParentRef, PlatformSpec, Result, TextLayout, TextMetrics, TextShaper, TextStyle, TimerId,
+    Waker, WidgetId, WindowId,
 };
 use xui_core::geometry::Rect;
 use xui_core::image::Image;
@@ -132,7 +132,6 @@ impl Backend for TestBackend {
         focus(id: WidgetId);
         focus_holder(window: WindowId) -> Option<WidgetId>;
         set_text(id: WidgetId, text: &str);
-        set_cue(id: WidgetId, cue: &str);
         text(id: WidgetId) -> String;
         clipboard_text() -> Option<String>;
         set_clipboard_text(text: &str);
@@ -147,6 +146,5 @@ impl Backend for TestBackend {
         set_theme(window: WindowId, theme: &Theme);
         set_timer(window: WindowId, millis: u32) -> TimerId;
         kill_timer(window: WindowId, id: TimerId);
-        supports(kind: NodeKind) -> ImplKind;
     }
 }

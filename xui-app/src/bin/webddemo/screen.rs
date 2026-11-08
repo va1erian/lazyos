@@ -19,8 +19,8 @@ use xui_webd_client::demo::Demo;
 use xui_webd_client::page::{FIELD_BOX, LINK_BOX, TITLE};
 use xui_webd_client::MouseKind;
 
-use xui_app::lightview::keys::{char_keysym, keysym, modifier_bits};
 use crate::Msg;
+use xui_app::lightview::keys::{char_keysym, keysym, modifier_bits};
 
 /// How often the view is polled for events (ms): a frame at 60 Hz.
 const TICK_MS: u32 = 16;

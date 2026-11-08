@@ -23,7 +23,9 @@ impl Clicks {
     /// A triple-click consumes the sequence, so a fourth press starts over.
     pub fn is_triple(&mut self, now: u64, x: i32, y: i32) -> bool {
         let triple = self.double.is_some_and(|(at, dx, dy)| {
-            now.saturating_sub(at) <= WINDOW_NS && (x - dx).abs() <= DISTANCE && (y - dy).abs() <= DISTANCE
+            now.saturating_sub(at) <= WINDOW_NS
+                && (x - dx).abs() <= DISTANCE
+                && (y - dy).abs() <= DISTANCE
         });
         self.double = None;
         triple
@@ -51,7 +53,10 @@ mod tests {
         assert!(!clicks.is_triple(1600 * MS, 50, 60), "too late");
         clicks.double(2000 * MS, 50, 60);
         assert!(!clicks.is_triple(2100 * MS, 80, 60), "too far");
-        assert!(!clicks.is_triple(2200 * MS, 50, 60), "a failed try also clears it");
+        assert!(
+            !clicks.is_triple(2200 * MS, 50, 60),
+            "a failed try also clears it"
+        );
     }
 
     #[test]

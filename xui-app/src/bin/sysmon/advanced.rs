@@ -3,7 +3,7 @@
 //! classes and CPU ticks, for whoever debugs the kernel.
 
 use xui_app::format::bytes;
-use xui_app::sysinfo::{MAX_TASKS, ProcessMemory, ProcessTable, Snapshot};
+use xui_app::sysinfo::{ProcessMemory, ProcessTable, Snapshot, MAX_TASKS};
 use xui_core::prelude::*;
 
 use crate::Msg;

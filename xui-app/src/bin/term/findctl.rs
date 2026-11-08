@@ -67,11 +67,20 @@ impl Terminal {
             };
             let had_current = find.search.current().is_some();
             let done = find.search.update(&term, DEFAULT_BUDGET, anchor);
-            (done, find.search.count(), !had_current && find.search.current().is_some())
+            (
+                done,
+                find.search.count(),
+                !had_current && find.search.current().is_some(),
+            )
         };
         if done {
             Timers::stop(&self.timers.scan, ui);
-            let text_empty = self.chrome.borrow().find.as_ref().is_none_or(|f| f.text.is_empty());
+            let text_empty = self
+                .chrome
+                .borrow()
+                .find
+                .as_ref()
+                .is_none_or(|f| f.text.is_empty());
             if !text_empty && self.found_reported != Some(count) {
                 self.found_reported = Some(count);
                 println!("TERM:FIND:{count}");
@@ -117,14 +126,25 @@ impl Terminal {
     /// Scroll the view so the current match is on screen (centred when it was
     /// not).
     fn reveal_current(&mut self) {
-        let Some(current) = self.chrome.borrow().find.as_ref().and_then(|f| f.search.current()) else {
+        let Some(current) = self
+            .chrome
+            .borrow()
+            .find
+            .as_ref()
+            .and_then(|f| f.search.current())
+        else {
             return;
         };
         let (screen_top, visible, first, max) = {
             let term = self.term.borrow();
             let visible = self.page().clamp(1, term.rows());
             let first = first_row(term.cursor().0, visible, term.rows()) as u64;
-            (term.screen_top(), visible as u64, first, max_offset(&term, visible))
+            (
+                term.screen_top(),
+                visible as u64,
+                first,
+                max_offset(&term, visible),
+            )
         };
         let top = (screen_top + first).saturating_sub(self.offset.get() as u64);
         let line = current.start.line;
@@ -143,7 +163,13 @@ impl Terminal {
 impl Terminal {
     /// Output arrived while the find bar is open: its matches may have moved.
     pub(super) fn search_after_output(&mut self, ui: &mut Ui<Msg>) {
-        if self.chrome.borrow().find.as_ref().is_some_and(|f| !f.text.is_empty()) {
+        if self
+            .chrome
+            .borrow()
+            .find
+            .as_ref()
+            .is_some_and(|f| !f.text.is_empty())
+        {
             self.find_scan(ui);
         }
     }

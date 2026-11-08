@@ -20,3 +20,5 @@ rhai = { version = "=1.26.1", default-features = false }
 # Tests build service error replies with the parcel codec, as the services do.
 libmessenger = { path = "../../../libs/messenger" }
 messenger-generated = { path = "../../../libs/generated" }
+# The doc pages' Markdown is checked by parsing it as the doc pane's view does.
+xui-markdown = { git = "https://github.com/va1erian/xui", rev = "c90f5568dedac41c99dcec106ada26bfb061e548" }

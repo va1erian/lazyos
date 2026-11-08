@@ -1,9 +1,9 @@
-//! `xui-docs`: renders Markdown files in a light view of `webd` (WebKit).
+//! `xui-docs`: shows Markdown files in xui's read-only Markdown view (`xui-markdown`).
 //!
 //! A `xuid` desktop client (or the display owner in a headless session). With no
 //! path argument it shows a built-in welcome page; a document is opened with the
-//! toolbar's Open button or `Ctrl+O`. `webd` lays the page out and paints it into shared memory;
-//! `app.rs` is the window, this file the LazyOS platform start-up.
+//! toolbar's Open button or `Ctrl+O`. `app.rs` is the window, this file the LazyOS platform
+//! start-up.
 //!
 //! Serial evidence: `DOCS:UP:PASS` after the first frame, plus the markers
 //! documented in `app.rs`; `DOCS:BIND:FAIL:<code>` when the display cannot be
@@ -11,7 +11,6 @@
 
 mod app;
 
-use std::path::PathBuf;
 use std::rc::Rc;
 
 use xui_app::backend::LazyOSBackend;
@@ -19,7 +18,6 @@ use xui_app::themed::run_themed;
 use xui_app::trace::{self, Channel};
 use xui_core::backend::PlatformSpec;
 use xui_core::units::Dip;
-use xui_docs::page;
 
 use app::Docs;
 
@@ -47,10 +45,9 @@ fn main() -> std::process::ExitCode {
         // The welcome page first; a named file is then opened like any other, so
         // a bad path shows the same error page (and `DOCS:OPEN:FAIL`) as the
         // dialog does instead of ending the app.
-        let mut docs =
-            Docs::build(ui, page(WELCOME), None::<PathBuf>).expect("the Docs window was created");
+        let mut docs = Docs::build(ui, WELCOME).expect("the Docs window was created");
         if let Some(path) = path {
-            docs.open(ui, path);
+            docs.open(ui, path, None);
         }
         docs
     });

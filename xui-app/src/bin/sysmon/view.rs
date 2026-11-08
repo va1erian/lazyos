@@ -9,15 +9,15 @@ use xui_app::format::bytes;
 use xui_app::services::Services;
 use xui_app::sys::errno;
 use xui_app::sysinfo::{ProcessTable, Snapshot};
-use xui_core::Lucide;
 use xui_core::app::Ui;
 use xui_core::backend::WidgetId;
 use xui_core::prelude::*;
+use xui_core::Lucide;
 
-use crate::advanced::{Advanced, GAUGE, share};
+use crate::advanced::{share, Advanced, GAUGE};
 use crate::load::ProgramLoad;
 use crate::memory::Memory;
-use crate::overview::{Overview, friendly_uptime};
+use crate::overview::{friendly_uptime, Overview};
 use crate::{Msg, View};
 
 /// The keys the header reminds of.

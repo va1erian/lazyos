@@ -60,7 +60,11 @@ impl Outputs {
             heading,
         ];
         for (index, output) in self.list.iter().enumerate() {
-            let mut row = menu_row(FIRST_ROW + index as u32, &output.name, wire::MENU_KIND_RADIO);
+            let mut row = menu_row(
+                FIRST_ROW + index as u32,
+                &output.name,
+                wire::MENU_KIND_RADIO,
+            );
             row.checked = output.active;
             rows.push(row);
         }

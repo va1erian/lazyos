@@ -99,11 +99,21 @@ mod tests {
 
     #[test]
     fn scroll_keys_need_shift_and_no_ctrl() {
-        assert_eq!(key_move(Key::PAGE_UP, true, false, 19), Some(Move::Back(19)));
-        assert_eq!(key_move(Key::PAGE_DOWN, true, false, 19), Some(Move::Forward(19)));
+        assert_eq!(
+            key_move(Key::PAGE_UP, true, false, 19),
+            Some(Move::Back(19))
+        );
+        assert_eq!(
+            key_move(Key::PAGE_DOWN, true, false, 19),
+            Some(Move::Forward(19))
+        );
         assert_eq!(key_move(Key::HOME, true, false, 19), Some(Move::Top));
         assert_eq!(key_move(Key::END, true, false, 19), Some(Move::Bottom));
-        assert_eq!(key_move(Key::PAGE_UP, false, false, 19), None, "plain PgUp is the program's");
+        assert_eq!(
+            key_move(Key::PAGE_UP, false, false, 19),
+            None,
+            "plain PgUp is the program's"
+        );
         assert_eq!(key_move(Key::PAGE_UP, true, true, 19), None);
         assert_eq!(key_move(Key::UP, true, false, 19), None);
     }
@@ -113,7 +123,11 @@ mod tests {
         assert_eq!(wheel_move(120, false, 19), Some(Move::Back(3)));
         assert_eq!(wheel_move(-240, false, 19), Some(Move::Forward(6)));
         assert_eq!(wheel_move(120, true, 19), Some(Move::Back(19)));
-        assert_eq!(wheel_move(30, false, 19), Some(Move::Back(3)), "a fine wheel still moves");
+        assert_eq!(
+            wheel_move(30, false, 19),
+            Some(Move::Back(3)),
+            "a fine wheel still moves"
+        );
         assert_eq!(wheel_move(0, false, 19), None);
     }
 
@@ -129,10 +143,18 @@ mod tests {
 
     #[test]
     fn the_view_stays_on_its_text_as_history_grows() {
-        assert_eq!(anchored(0, 100, 130, 130), 0, "the bottom follows the output");
+        assert_eq!(
+            anchored(0, 100, 130, 130),
+            0,
+            "the bottom follows the output"
+        );
         assert_eq!(anchored(10, 100, 103, 103), 13);
         assert_eq!(anchored(10, 100, 100, 100), 10, "no new lines, no move");
-        assert_eq!(anchored(50, 100, 160, 55), 55, "clamped when the text was evicted");
+        assert_eq!(
+            anchored(50, 100, 160, 55),
+            55,
+            "clamped when the text was evicted"
+        );
         assert_eq!(anchored(5, 100, 100, 0), 0, "the history was cleared");
     }
 
@@ -141,6 +163,9 @@ mod tests {
         assert_eq!(wheel_arrows(120), b"\x1b[A\x1b[A\x1b[A".to_vec());
         assert_eq!(wheel_arrows(-120), b"\x1b[B\x1b[B\x1b[B".to_vec());
         assert_eq!(wheel_arrows(-240).len(), 6 * 3);
-        assert!(wheel_arrows(i16::MAX).len() <= 3 * 16 * 3, "a runaway wheel is bounded");
+        assert!(
+            wheel_arrows(i16::MAX).len() <= 3 * 16 * 3,
+            "a runaway wheel is bounded"
+        );
     }
 }

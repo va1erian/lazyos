@@ -9,8 +9,8 @@ use xui_core::app::Ui;
 use xui_core::{Modifiers, MouseButton};
 
 use super::geometry::{point_at, screen_cell, Edge};
-use super::view::Layout;
 use super::scroll::{wheel_arrows, wheel_move, Move};
+use super::view::Layout;
 use super::{Msg, Terminal};
 
 /// How often a drag past the edge scrolls (milliseconds): the only timer the
@@ -101,11 +101,19 @@ impl Terminal {
         // Ctrl+wheel zooms this window; the program never sees it.
         if m.ctrl && !m.alt {
             let steps = (i32::from(delta) / 120).clamp(-3, 3);
-            let steps = if steps == 0 { i32::from(delta.signum()) } else { steps };
+            let steps = if steps == 0 {
+                i32::from(delta.signum())
+            } else {
+                steps
+            };
             return self.zoom_by(ui, Some(steps));
         }
         if self.reporting(m) {
-            let which = if delta > 0 { Button::WheelUp } else { Button::WheelDown };
+            let which = if delta > 0 {
+                Button::WheelUp
+            } else {
+                Button::WheelDown
+            };
             for _ in 0..(i32::from(delta) / 120).unsigned_abs().clamp(1, 8) {
                 self.send_report(Some(which), Action::Press, m, at);
             }
@@ -125,7 +133,15 @@ impl Terminal {
         let bytes = {
             let term = self.term.borrow();
             let (col, row) = screen_cell(&layout, &term, at.0, at.1);
-            mouse_report(term.mouse_mode(), term.mouse_sgr(), which, action, mods(m), col, row)
+            mouse_report(
+                term.mouse_mode(),
+                term.mouse_sgr(),
+                which,
+                action,
+                mods(m),
+                col,
+                row,
+            )
         };
         if let Some(bytes) = bytes {
             self.send(&bytes);
@@ -187,7 +203,13 @@ impl Terminal {
         };
         let edge = {
             let mut term = self.term.borrow_mut();
-            let (at, edge) = point_at(&layout, &term, self.offset.get(), self.last_mouse.0, self.last_mouse.1);
+            let (at, edge) = point_at(
+                &layout,
+                &term,
+                self.offset.get(),
+                self.last_mouse.0,
+                self.last_mouse.1,
+            );
             term.select_update(at);
             edge
         };
@@ -204,7 +226,14 @@ impl Terminal {
         };
         let edge = {
             let term = self.term.borrow();
-            point_at(&layout, &term, self.offset.get(), self.last_mouse.0, self.last_mouse.1).1
+            point_at(
+                &layout,
+                &term,
+                self.offset.get(),
+                self.last_mouse.0,
+                self.last_mouse.1,
+            )
+            .1
         };
         match edge {
             Edge::Above => self.scroll(ui, Move::Back(1)),

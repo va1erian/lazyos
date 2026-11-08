@@ -37,27 +37,29 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/te
     --script tools/screenshot/examples/term_menu.json
 ```
 
-## Docs app and the zig toolchain
+## Docs app, Markdown and the zig toolchain
 
-`xui-docs` turns Markdown into HTML (pulldown-cmark) and shows it in a **light view of `webd`**
-(`xui_app::lightview::LightView`, over `xui_webd_client::Pane`), so `python tools/xui/build.py` builds it
-with the other apps and no zig (see [`docs/xui-docs.md`](../xui-docs.md)). The OS has **one web engine,
-WebKit in webd**: there is no Blitz, no `webfonts` and no in-process HTML renderer; an app that wants to show
-HTML asks webd for a light view (a `LightView` in an xui window; one view for the life of the window, a new page
+`xui-docs` shows Markdown in **`xui-markdown`**, xui's read-only Markdown view, parsed on a worker thread
+(see [`docs/xui-docs.md`](../xui-docs.md)); `python tools/xui/build.py` builds it with the other apps and no
+zig. **Markdown is shown with `xui-markdown`, never through a web view**: an app that shows Markdown (Docs,
+the Messenger Playground's doc pane) uses `MarkdownView` with `xui_app::markdown::style()` and
+`xui_app::markdown::RhaiCode` so pages look alike. The OS has **one web engine, WebKit in webd**, for HTML:
+there is no Blitz, no `webfonts` and no in-process HTML renderer; an app that wants to show HTML (Mail) asks
+webd for a light view (a `LightView` in an xui window; one view for the life of the window, a new page
 with `set_html`, never a view per page) and declares `os.lazy.webd.light.v1` in its manifest. zig
 (`pip install ziglang==0.16.0`) is needed only for Mail's SQLite (`--mail`); without it the script skips Mail
 with a warning and every other app still builds. `python tools/xui/test_zig.py` tests the toolchain helper.
-`python tools/docs/run.py` builds an image with Docs and webd, runs `xui_docs.json` (wheel scrolling) and
+`python tools/docs/run.py` builds an image with Docs, runs `xui_docs.json` (wheel scrolling) and
 `xui_docs_open.json` (Open dialog and `/system/share/samples/testdoc.md`) and judges the markers and pictures
-(it needs webd built: `tools/webkit/webd.py`; `tools/docs/test_judge.py` is the judge's self-test).
+(`tools/docs/test_judge.py` is the judge's self-test).
 
 ### Writing documentation for the Docs app
 
 Every `docs/**/*.md` ships at `/docs/os/<path>` and is read in the Docs app
 (start at `docs/index.md`; the welcome page and the Home button lead there). The
 app follows relative links to other `.md` files and keeps a Back/Forward/Home
-history; a `#heading` link does nothing there (a light view cannot scroll to
-it) but works elsewhere, so keep them correct (headings get GitHub-style ids and
+history; a `#heading` link scrolls to the heading there as elsewhere, so keep
+them correct (headings get GitHub-style ids and
 the checker verifies them). It draws no images and shows raw HTML as
 text, so write plain Markdown and link pages by relative path. A file over 256
 KiB is not embedded. Every fenced `rhai` block must compile and every relative

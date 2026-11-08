@@ -576,8 +576,8 @@ The draft opens in a pane:
 * On the left is the **exact text that will be posted**, editable, with the
   title and labels above it. An edit there is filtered again, by the same
   renderer rules, before posting.
-* On the right is a preview in a light view of `webd` (`xui_app::lightview::LightView`, as `xui-docs` shows
-  its pages; Blitz and `webfonts` were removed in webd's P3).
+* On the right is a preview in xui's Markdown view (`xui_markdown::MarkdownView` with
+  `xui_app::markdown::style()`, as `xui-docs` shows its pages): Markdown is never shown through a web view.
 
 Redaction markers are highlighted in both. The buttons are **File issue**,
 **Copy Markdown**, **Save .md** and **Discard**. Nothing is sent before

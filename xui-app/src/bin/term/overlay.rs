@@ -122,7 +122,12 @@ impl Terminal {
                     self.close_find(ui);
                     return;
                 }
-                let step = self.chrome.borrow_mut().find.as_mut().map(|f| f.key(key, mods));
+                let step = self
+                    .chrome
+                    .borrow_mut()
+                    .find
+                    .as_mut()
+                    .map(|f| f.key(key, mods));
                 self.find_step(ui, step.unwrap_or(FindStep::None));
             }
         }
@@ -160,7 +165,10 @@ impl Terminal {
             return false;
         };
         let scale = self.scale();
-        let down = matches!(m.kind, MouseKind::Down(MouseButton::Left) | MouseKind::Double(MouseButton::Left));
+        let down = matches!(
+            m.kind,
+            MouseKind::Down(MouseButton::Left) | MouseKind::Double(MouseButton::Left)
+        );
         if self.chrome.borrow().prompt.is_some() {
             if down {
                 if let Some(accept) = prompt::button_at(&layout, m.x, m.y) {
@@ -183,7 +191,12 @@ impl Terminal {
                 };
                 match part {
                     Some(Some(part)) => {
-                        let out = self.chrome.borrow_mut().prefs.as_mut().map(|p| p.click_part(part));
+                        let out = self
+                            .chrome
+                            .borrow_mut()
+                            .prefs
+                            .as_mut()
+                            .map(|p| p.click_part(part));
                         if let Some(out) = out {
                             self.prefs_outcome(ui, out);
                         }
@@ -206,7 +219,9 @@ impl Terminal {
                         menu.hover(&laid, m.x, m.y);
                         (menu.selected != before).then_some(MenuStep::None)
                     }
-                    MouseKind::Down(MouseButton::Left | MouseButton::Right) => Some(menu.click(&laid, m.x, m.y)),
+                    MouseKind::Down(MouseButton::Left | MouseButton::Right) => {
+                        Some(menu.click(&laid, m.x, m.y))
+                    }
                     _ => None,
                 }
             };
@@ -252,7 +267,12 @@ impl Terminal {
 
     /// Carry out a chosen entry (`TERM:MENU:<item>`).
     pub(super) fn choose(&mut self, ui: &mut Ui<Msg>, item: Item) {
-        let link = self.chrome.borrow().menu.as_ref().and_then(|m| m.link.clone());
+        let link = self
+            .chrome
+            .borrow()
+            .menu
+            .as_ref()
+            .and_then(|m| m.link.clone());
         self.chrome.borrow_mut().menu = None;
         println!("TERM:MENU:{}", item.evidence());
         match item {
@@ -283,7 +303,15 @@ impl Terminal {
     /// The preferences panel (Ctrl+,): the families offered are the ones the
     /// Terminal registered at start.
     pub(super) fn open_prefs(&mut self, ui: &mut Ui<Msg>) {
-        let prefs = Prefs::new(&self.conf.settings, self.fonts.catalog.names().into_iter().map(String::from).collect());
+        let prefs = Prefs::new(
+            &self.conf.settings,
+            self.fonts
+                .catalog
+                .names()
+                .into_iter()
+                .map(String::from)
+                .collect(),
+        );
         if let Some(layout) = self.layout.get() {
             let laid = prefs::layout(&prefs, (layout.width, layout.height), self.scale());
             self.probe_rect("prefs_panel", laid.panel);
@@ -307,7 +335,13 @@ impl Terminal {
         }
         if !out.changes.is_empty() {
             let motion_none = self.conf.motion_none;
-            self.apply_conf(ui, conf::Conf { settings, motion_none });
+            self.apply_conf(
+                ui,
+                conf::Conf {
+                    settings,
+                    motion_none,
+                },
+            );
         }
         if out.close {
             self.chrome.borrow_mut().prefs = None;

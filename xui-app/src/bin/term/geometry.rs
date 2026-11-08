@@ -66,8 +66,18 @@ pub fn confirm_rects(layout: &Layout) -> Confirm {
     let bar = Rect::new(0, layout.height - 3 * unit, layout.width, layout.height);
     let (width, height) = (8 * unit, 2 * unit);
     let top = bar.top + unit / 2;
-    let cancel = Rect::new(layout.width - unit - width, top, layout.width - unit, top + height);
-    let paste = Rect::new(cancel.left - unit - width, top, cancel.left - unit, top + height);
+    let cancel = Rect::new(
+        layout.width - unit - width,
+        top,
+        layout.width - unit,
+        top + height,
+    );
+    let paste = Rect::new(
+        cancel.left - unit - width,
+        top,
+        cancel.left - unit,
+        top + height,
+    );
     Confirm { bar, paste, cancel }
 }
 
@@ -101,13 +111,22 @@ mod tests {
     fn pixels_map_to_cells() {
         assert_eq!(cell_of(&LAYOUT, 10, 10), (0, 0));
         assert_eq!(cell_of(&LAYOUT, 10 + 9 * 5 + 4, 10 + 20 * 3 + 19), (5, 3));
-        assert_eq!(cell_of(&LAYOUT, 2, 2), (0, -1), "above and left of the grid");
+        assert_eq!(
+            cell_of(&LAYOUT, 2, 2),
+            (0, -1),
+            "above and left of the grid"
+        );
         assert_eq!(cell_of(&LAYOUT, 600, 395), (65, 19));
     }
 
     #[test]
     fn the_scale_scales_the_cells() {
-        let two = Layout { pad: 20, line_h: 40, cell_w: 18, ..LAYOUT };
+        let two = Layout {
+            pad: 20,
+            line_h: 40,
+            cell_w: 18,
+            ..LAYOUT
+        };
         assert_eq!(cell_of(&two, 20 + 18 * 5 + 2, 20 + 40 * 2), (5, 2));
     }
 
@@ -151,7 +170,10 @@ mod tests {
             assert!(button.left >= c.bar.left && button.right <= c.bar.right);
             assert!(button.top >= c.bar.top && button.bottom <= c.bar.bottom);
         }
-        assert!(c.paste.right < c.cancel.left, "side by side, Cancel at the right");
+        assert!(
+            c.paste.right < c.cancel.left,
+            "side by side, Cancel at the right"
+        );
         assert!(contains(c.paste, c.paste.left, c.paste.top));
         assert!(!contains(c.paste, c.paste.right, c.paste.top));
     }
