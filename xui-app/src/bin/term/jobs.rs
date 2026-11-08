@@ -38,15 +38,8 @@ pub fn shell_state(shell: u64) -> Option<ShellState> {
     // parked on the terminal or a poll set); a command it runs itself (`sleep`)
     // parks it on a timer, and one it waits for on a child's exit.
     let waiting_for_input = row.state != TaskState::Blocked
-        || matches!(
-            row.wait,
-            WaitKind::None | WaitKind::Terminal | WaitKind::Poll
-        );
-    Some(ShellState {
-        children,
-        waiting_for_input,
-        detail: (row.state.label(), row.wait.label()),
-    })
+        || matches!(row.wait, WaitKind::None | WaitKind::Terminal | WaitKind::Poll);
+    Some(ShellState { children, waiting_for_input, detail: (row.state.label(), row.wait.label()) })
 }
 
 /// The master's foreground process group, if the kernel will say.
@@ -61,11 +54,7 @@ pub fn foreground_group(master: RawFd) -> Option<i32> {
 mod tests {
     use super::*;
 
-    const IDLE: ShellState = ShellState {
-        children: false,
-        waiting_for_input: true,
-        detail: ("blocked", "tty"),
-    };
+    const IDLE: ShellState = ShellState { children: false, waiting_for_input: true, detail: ("blocked", "tty") };
 
     #[test]
     fn the_shell_at_its_prompt_is_not_busy() {
@@ -80,26 +69,15 @@ mod tests {
 
     #[test]
     fn a_child_of_the_shell_is_a_running_program_even_in_its_own_group() {
-        let child = ShellState {
-            children: true,
-            waiting_for_input: false,
-            detail: ("", ""),
-        };
-        assert!(
-            busy(Some(100), 100, Some(child)),
-            "ash runs commands in the shell's group"
-        );
+        let child = ShellState { children: true, waiting_for_input: false, detail: ("", "") };
+        assert!(busy(Some(100), 100, Some(child)), "ash runs commands in the shell's group");
         assert!(busy(None, 100, Some(child)));
     }
 
     #[test]
     fn a_shell_busy_itself_is_running_a_command_in_process() {
         // BusyBox runs `sleep` and other applets inside the shell.
-        let sleeping = ShellState {
-            children: false,
-            waiting_for_input: false,
-            detail: ("", ""),
-        };
+        let sleeping = ShellState { children: false, waiting_for_input: false, detail: ("", "") };
         assert!(busy(Some(100), 100, Some(sleeping)));
     }
 

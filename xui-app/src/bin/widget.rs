@@ -164,36 +164,31 @@ fn paint(canvas: &mut dyn Canvas, theme: Theme, state: &State) {
 }
 
 fn main() {
-    launch::run(
-        xui_app::trace::Channel::Widget,
-        "widget",
-        WINDOW,
-        |ui, backend| {
-            let state = Rc::new(RefCell::new(State::load()));
-            {
-                let state = Rc::clone(&state);
-                backend.on_first_frame(move || match state.borrow().error {
-                    None => println!("WIDGET:UP:PASS"),
-                    Some(code) => println!("WIDGET:UP:FAIL:{code}"),
-                });
-            }
-
-            let root = Control::new(ui, &NodeSpec::new(NodeKind::Custom, ui.client_rect()))?;
-            {
-                let state = Rc::clone(&state);
-                let theme = ui.theme_handle();
-                root.set_painter(Rc::new(move |canvas| {
-                    paint(canvas, theme.get(), &state.borrow())
-                }));
-            }
-            root.on_events(|event| match event {
-                Event::Char('q') => Some(Msg::Quit),
-                _ => None,
+    launch::run(xui_app::trace::Channel::Widget, "widget", WINDOW, |ui, backend| {
+        let state = Rc::new(RefCell::new(State::load()));
+        {
+            let state = Rc::clone(&state);
+            backend.on_first_frame(move || match state.borrow().error {
+                None => println!("WIDGET:UP:PASS"),
+                Some(code) => println!("WIDGET:UP:FAIL:{code}"),
             });
-            root.focus();
-            ui.every(REFRESH_MILLIS, Msg::Tick);
-            ui.on_close(|| Some(Msg::Quit));
-            Ok(Widget { state, root })
-        },
-    )
+        }
+
+        let root = Control::new(ui, &NodeSpec::new(NodeKind::Custom, ui.client_rect()))?;
+        {
+            let state = Rc::clone(&state);
+            let theme = ui.theme_handle();
+            root.set_painter(Rc::new(move |canvas| {
+                paint(canvas, theme.get(), &state.borrow())
+            }));
+        }
+        root.on_events(|event| match event {
+            Event::Char('q') => Some(Msg::Quit),
+            _ => None,
+        });
+        root.focus();
+        ui.every(REFRESH_MILLIS, Msg::Tick);
+        ui.on_close(|| Some(Msg::Quit));
+        Ok(Widget { state, root })
+    })
 }

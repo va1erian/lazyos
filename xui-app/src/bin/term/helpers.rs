@@ -17,10 +17,7 @@ pub const SCHEMES: [&str; 4] = ["http", "https", "mailto", "file"];
 /// no space or other character that would end a launch argument early, at most
 /// [`MAX_URL`], and one of the [`SCHEMES`].
 pub fn sanitize_url(url: &str) -> Option<String> {
-    if url.is_empty()
-        || url.len() > MAX_URL
-        || url.chars().any(|c| c.is_control() || c.is_whitespace())
-    {
+    if url.is_empty() || url.len() > MAX_URL || url.chars().any(|c| c.is_control() || c.is_whitespace()) {
         return None;
     }
     let (scheme, rest) = url.split_once(':')?;
@@ -31,11 +28,7 @@ pub fn sanitize_url(url: &str) -> Option<String> {
 /// The directory a Terminal starts in: `--cwd <path>` or a lone absolute path
 /// argument (what `init`'s `Launch` passes), if it is an existing directory;
 /// else `home` if that is one; else none (the shell's own default).
-pub fn start_dir(
-    args: impl IntoIterator<Item = OsString>,
-    home: Option<&Path>,
-    is_dir: impl Fn(&Path) -> bool,
-) -> Option<PathBuf> {
+pub fn start_dir(args: impl IntoIterator<Item = OsString>, home: Option<&Path>, is_dir: impl Fn(&Path) -> bool) -> Option<PathBuf> {
     let args: Vec<OsString> = args.into_iter().collect();
     let flagged = args
         .windows(2)
@@ -82,13 +75,7 @@ mod tests {
 
     #[test]
     fn urls_pass_only_when_clean_and_of_a_known_scheme() {
-        for ok in [
-            "http://example.com/",
-            "https://a.b/c?d=e#f",
-            "mailto:me@example.org",
-            "file:///tmp/x",
-            "HTTP://UP.example/",
-        ] {
+        for ok in ["http://example.com/", "https://a.b/c?d=e#f", "mailto:me@example.org", "file:///tmp/x", "HTTP://UP.example/"] {
             assert_eq!(sanitize_url(ok).as_deref(), Some(ok), "{ok}");
         }
         for bad in [
@@ -120,40 +107,15 @@ mod tests {
     fn a_new_window_starts_in_an_existing_absolute_directory() {
         let is_dir = |p: &Path| p == Path::new("/tmp") || p == Path::new("/home/user");
         let home = Some(Path::new("/home/user"));
-        assert_eq!(
-            start_dir(args(&["xui-term", "/tmp"]), home, is_dir),
-            Some(PathBuf::from("/tmp"))
-        );
-        assert_eq!(
-            start_dir(args(&["xui-term", "--cwd", "/tmp"]), home, is_dir),
-            Some(PathBuf::from("/tmp"))
-        );
-        assert_eq!(
-            start_dir(args(&["xui-term", "--client", "/tmp"]), home, is_dir),
-            Some(PathBuf::from("/tmp"))
-        );
+        assert_eq!(start_dir(args(&["xui-term", "/tmp"]), home, is_dir), Some(PathBuf::from("/tmp")));
+        assert_eq!(start_dir(args(&["xui-term", "--cwd", "/tmp"]), home, is_dir), Some(PathBuf::from("/tmp")));
+        assert_eq!(start_dir(args(&["xui-term", "--client", "/tmp"]), home, is_dir), Some(PathBuf::from("/tmp")));
         // Not a directory, relative, or missing: the home directory.
-        assert_eq!(
-            start_dir(args(&["xui-term", "/nonexistent"]), home, is_dir),
-            Some(PathBuf::from("/home/user"))
-        );
-        assert_eq!(
-            start_dir(args(&["xui-term", "--cwd", "relative/dir"]), home, is_dir),
-            Some(PathBuf::from("/home/user"))
-        );
-        assert_eq!(
-            start_dir(args(&["xui-term"]), home, is_dir),
-            Some(PathBuf::from("/home/user"))
-        );
+        assert_eq!(start_dir(args(&["xui-term", "/nonexistent"]), home, is_dir), Some(PathBuf::from("/home/user")));
+        assert_eq!(start_dir(args(&["xui-term", "--cwd", "relative/dir"]), home, is_dir), Some(PathBuf::from("/home/user")));
+        assert_eq!(start_dir(args(&["xui-term"]), home, is_dir), Some(PathBuf::from("/home/user")));
         // Neither: the shell's default.
-        assert_eq!(
-            start_dir(
-                args(&["xui-term", "/nonexistent"]),
-                Some(Path::new("/nope")),
-                is_dir
-            ),
-            None
-        );
+        assert_eq!(start_dir(args(&["xui-term", "/nonexistent"]), Some(Path::new("/nope")), is_dir), None);
         assert_eq!(start_dir(args(&["xui-term"]), None, is_dir), None);
         assert_eq!(start_dir(args(&["xui-term", "--cwd"]), None, is_dir), None);
     }

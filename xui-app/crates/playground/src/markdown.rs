@@ -171,12 +171,35 @@ pub fn classify(href: &str) -> Link {
     }
     // A launch line is split at spaces, and `..` would let a doc comment
     // name any file: an absolute path, written plainly, only.
-    let path = href.split('#').next().unwrap_or("");
-    let plain =
-        path.starts_with('/') && !path.contains(' ') && !path.split('/').any(|part| part == "..");
+    // The path as a file name: no query or fragment, escapes decoded.
+    let Some(path) = percent_decode(href.split(['#', '?']).next().unwrap_or("")) else {
+        return Link::Refused;
+    };
+    let plain = path.starts_with('/')
+        && !path.contains(' ')
+        && !path.chars().any(|c| c.is_control())
+        && !path.split('/').any(|part| part == "..");
     if plain {
-        Link::File(path.to_owned())
+        Link::File(path)
     } else {
         Link::Refused
     }
+}
+
+/// `%20` and the like decoded; `None` when an escape is cut short or the bytes are not UTF-8.
+fn percent_decode(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        if bytes[at] == b'%' {
+            let hex = std::str::from_utf8(bytes.get(at + 1..at + 3)?).ok()?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            at += 3;
+        } else {
+            out.push(bytes[at]);
+            at += 1;
+        }
+    }
+    String::from_utf8(out).ok()
 }

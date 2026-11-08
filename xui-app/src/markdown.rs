@@ -62,7 +62,7 @@ fn class_of(class: TokenClass) -> Option<CodeClass> {
 /// The lexer's carried state in the view's 32 bits. The Rhai lexer keeps its mode in the low four
 /// bits and a nesting depth above them; a depth too deep for the rest saturates, keeping the mode.
 fn narrow(raw: u64) -> u32 {
-    u32::try_from(raw).unwrap_or(u32::MAX & !0xF | (raw & 0xF) as u32)
+    u32::try_from(raw).unwrap_or(!0xF | (raw & 0xF) as u32)
 }
 
 #[cfg(test)]
@@ -102,6 +102,6 @@ mod tests {
     #[test]
     fn a_deep_state_saturates_keeping_its_mode() {
         assert_eq!(narrow(0x15), 0x15);
-        assert_eq!(narrow(u64::MAX & !0xF | 0x5), u32::MAX & !0xF | 0x5);
+        assert_eq!(narrow(!0xF | 0x5), !0xF_u32 | 0x5);
     }
 }

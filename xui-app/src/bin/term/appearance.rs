@@ -8,10 +8,10 @@ use xui_app::sys::monotonic_ns;
 use xui_core::app::Ui;
 use xui_core::Rect;
 
-use super::badge::BADGE_MILLIS;
 use super::conf::Conf;
 use super::fonts;
 use super::look;
+use super::badge::BADGE_MILLIS;
 use super::metrics::Metrics;
 use super::view::{max_offset, Shown};
 use super::{Msg, Terminal};
@@ -31,10 +31,7 @@ pub fn now_ms() -> u64 {
 pub fn grid_for(rect: Rect, m: &Metrics) -> (usize, usize) {
     let cols = ((rect.width() - 2 * m.pad) / m.cell_w.max(1)).max(0) as usize;
     let rows = ((rect.height() - 2 * m.pad) / m.line_h.max(1)).max(0) as usize;
-    (
-        cols.clamp(MIN_COLS, MAX_GRID_COLS),
-        rows.clamp(MIN_ROWS, MAX_GRID_ROWS),
-    )
+    (cols.clamp(MIN_COLS, MAX_GRID_COLS), rows.clamp(MIN_ROWS, MAX_GRID_ROWS))
 }
 
 impl Terminal {
@@ -199,8 +196,7 @@ impl Terminal {
         // physical pixel at scale 2 and the grid comes back one cell short.
         let width = (grid.0 as i32 * m.cell_w + 2 * m.pad + scale - 1) / scale;
         let height = (grid.1 as i32 * m.line_h + 2 * m.pad + scale - 1) / scale;
-        self.backend
-            .request_size(width.max(1) as u32, height.max(1) as u32);
+        self.backend.request_size(width.max(1) as u32, height.max(1) as u32);
     }
 
     /// The smallest window the compositor lets the user make: 20 x 5 cells and
@@ -209,8 +205,7 @@ impl Terminal {
         let scale = m.scale.max(1);
         let min_w = (MIN_COLS as i32 * m.cell_w + 2 * m.pad + scale - 1) / scale;
         let min_h = (MIN_ROWS as i32 * m.line_h + 2 * m.pad + scale - 1) / scale;
-        self.backend
-            .set_size_hints(min_w as u32, min_h as u32, 0, 0);
+        self.backend.set_size_hints(min_w as u32, min_h as u32, 0, 0);
     }
 
     /// Show `100 x 30` in the middle of the window for a moment.
@@ -308,15 +303,9 @@ mod tests {
     fn the_grid_is_whole_cells_inside_the_padding() {
         let m = metrics();
         assert_eq!(grid_for(Rect::new(0, 0, 640, 400), &m), (68, 19));
-        assert_eq!(
-            grid_for(Rect::new(0, 0, 20 + 9 * 100, 20 + 20 * 30), &m),
-            (100, 30)
-        );
+        assert_eq!(grid_for(Rect::new(0, 0, 20 + 9 * 100, 20 + 20 * 30), &m), (100, 30));
         // One pixel short of another column or row.
-        assert_eq!(
-            grid_for(Rect::new(0, 0, 20 + 9 * 100 - 1, 20 + 20 * 30 - 1), &m),
-            (99, 29)
-        );
+        assert_eq!(grid_for(Rect::new(0, 0, 20 + 9 * 100 - 1, 20 + 20 * 30 - 1), &m), (99, 29));
     }
 
     #[test]
@@ -330,10 +319,7 @@ mod tests {
     #[test]
     fn a_huge_window_stops_at_the_bounds() {
         let m = metrics();
-        assert_eq!(
-            grid_for(Rect::new(0, 0, 100_000, 100_000), &m),
-            (MAX_GRID_COLS, MAX_GRID_ROWS)
-        );
+        assert_eq!(grid_for(Rect::new(0, 0, 100_000, 100_000), &m), (MAX_GRID_COLS, MAX_GRID_ROWS));
     }
 
     #[test]

@@ -14,12 +14,7 @@ impl LazyOSBackend {
     /// The node a pointer event at window point `(x, y)` goes to, with its
     /// window-absolute bounds: the capturing node in `window` if any (so a drag
     /// survives leaving it), else the topmost node under the point.
-    pub(super) fn pointer_target(
-        &self,
-        window: WindowId,
-        x: i32,
-        y: i32,
-    ) -> Option<(WidgetId, Rect)> {
+    pub(super) fn pointer_target(&self, window: WindowId, x: i32, y: i32) -> Option<(WidgetId, Rect)> {
         let nodes = self.nodes.borrow();
         if let Some(id) = self.captured.get() {
             let in_window = nodes
@@ -36,12 +31,7 @@ impl LazyOSBackend {
 
     /// Deliver a pointer `event` (window coordinates) to `target`, translated to
     /// its local coordinates; with no target it goes to the window unchanged.
-    pub(super) fn deliver_pointer(
-        &self,
-        window: WindowId,
-        target: Option<(WidgetId, Rect)>,
-        event: Event,
-    ) {
+    pub(super) fn deliver_pointer(&self, window: WindowId, target: Option<(WidgetId, Rect)>, event: Event) {
         match target {
             Some((id, abs)) => {
                 let (x, y) = self.pointer.get();
@@ -410,10 +400,7 @@ mod tests {
         assert!(matches!(last(&log).1, Event::MouseWheel { delta: 120, .. }));
         backend.pointer_wheel(W, 10, 40, i32::MIN);
         assert_eq!(log.0.borrow().len(), 32);
-        assert!(matches!(
-            last(&log).1,
-            Event::MouseWheel { delta: -120, .. }
-        ));
+        assert!(matches!(last(&log).1, Event::MouseWheel { delta: -120, .. }));
     }
 
     #[test]

@@ -192,7 +192,10 @@ fn a_refusal_names_the_holder_and_expires() {
     for _ in 0..REFUSAL_POLLS {
         model.poll(vec![drive("usb1", "A", Phase::Mounted)]);
     }
-    assert!(!model.menu().iter().any(|r| r.label.starts_with("In use")));
+    assert!(!model
+        .menu()
+        .iter()
+        .any(|r| r.label.starts_with("In use")));
 }
 
 #[test]
@@ -226,10 +229,7 @@ fn the_mask_is_a_tilted_stick() {
     assert_eq!(alpha(side - 1, 0), 0);
     assert_eq!(alpha(15, 17), 255);
     let ink = mask.chunks(4).filter(|px| px[3] > 0).count();
-    assert!(
-        (side * side / 5..side * side / 2).contains(&ink),
-        "{ink} px"
-    );
+    assert!((side * side / 5..side * side / 2).contains(&ink), "{ink} px");
 }
 
 #[test]
@@ -240,12 +240,7 @@ fn a_stale_menu_never_acts_on_another_drive() {
         drive("usb1", "A", Phase::Mounted),
         drive("usb2", "B", Phase::Mounted),
     ]);
-    let eject_a = model
-        .menu()
-        .iter()
-        .find(|r| r.label == "Eject A")
-        .unwrap()
-        .id;
+    let eject_a = model.menu().iter().find(|r| r.label == "Eject A").unwrap().id;
     // A goes away while the menu is open: its row now asks for nothing,
     // and B (which moved up the list) is not what it ejects.
     model.poll(vec![drive("usb2", "B", Phase::Mounted)]);
@@ -259,13 +254,8 @@ fn a_pull_the_kernel_noticed_first_is_still_the_unsafe_removal() {
     let mut model = Model::new();
     model.poll(vec![]);
     model.poll(vec![drive("usb1", "A", Phase::Mounted)]);
-    let notice = model
-        .poll(vec![drive("usb1", "A", Phase::Removed)])
-        .unwrap();
-    assert!(
-        notice.contains("A was removed without ejecting"),
-        "{notice}"
-    );
+    let notice = model.poll(vec![drive("usb1", "A", Phase::Removed)]).unwrap();
+    assert!(notice.contains("A was removed without ejecting"), "{notice}");
     // And when the entry then disappears, nothing more is said.
     assert_eq!(model.poll(vec![]), None);
 }

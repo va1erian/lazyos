@@ -33,12 +33,7 @@ pub struct Find {
 
 impl Default for Find {
     fn default() -> Find {
-        Find {
-            text: String::new(),
-            caret: 0,
-            case: false,
-            search: Search::new("", false),
-        }
+        Find { text: String::new(), caret: 0, case: false, search: Search::new("", false) }
     }
 }
 
@@ -49,10 +44,7 @@ impl Find {
     }
 
     fn byte(&self, chars: usize) -> usize {
-        self.text
-            .char_indices()
-            .nth(chars)
-            .map_or(self.text.len(), |(i, _)| i)
+        self.text.char_indices().nth(chars).map_or(self.text.len(), |(i, _)| i)
     }
 
     /// Typed text (control characters are not text).
@@ -158,46 +150,13 @@ pub fn rects(layout: &Layout) -> FindRects {
     let bar = Rect::new(0, layout.height - 3 * unit, layout.width, layout.height);
     let (top, height) = (bar.top + unit / 2, 2 * unit);
     let button = 3 * unit;
-    let close = Rect::new(
-        layout.width - unit - button,
-        top,
-        layout.width - unit,
-        top + height,
-    );
-    let next = Rect::new(
-        close.left - unit / 2 - button,
-        top,
-        close.left - unit / 2,
-        top + height,
-    );
-    let prev = Rect::new(
-        next.left - unit / 2 - button,
-        top,
-        next.left - unit / 2,
-        top + height,
-    );
-    let count = Rect::new(
-        prev.left - unit - 9 * unit,
-        top,
-        prev.left - unit,
-        top + height,
-    );
-    let case = Rect::new(
-        count.left - unit / 2 - button,
-        top,
-        count.left - unit / 2,
-        top + height,
-    );
+    let close = Rect::new(layout.width - unit - button, top, layout.width - unit, top + height);
+    let next = Rect::new(close.left - unit / 2 - button, top, close.left - unit / 2, top + height);
+    let prev = Rect::new(next.left - unit / 2 - button, top, next.left - unit / 2, top + height);
+    let count = Rect::new(prev.left - unit - 9 * unit, top, prev.left - unit, top + height);
+    let case = Rect::new(count.left - unit / 2 - button, top, count.left - unit / 2, top + height);
     let field = Rect::new(unit, top, case.left - unit / 2, top + height);
-    FindRects {
-        bar,
-        field,
-        case,
-        prev,
-        next,
-        count,
-        close,
-    }
+    FindRects { bar, field, case, prev, next, count, close }
 }
 
 /// A click in the bar: which part, as a step (the field only takes the focus,
@@ -222,32 +181,15 @@ fn color(rgb: lazyterm::Rgb) -> Color {
 }
 
 /// Draw the bar.
-pub fn paint(
-    canvas: &mut dyn Canvas,
-    find: &Find,
-    layout: &Layout,
-    palette: &Palette,
-    scale: i32,
-    caret_on: bool,
-) {
+pub fn paint(canvas: &mut dyn Canvas, find: &Find, layout: &Layout, palette: &Palette, scale: i32, caret_on: bool) {
     let r = rects(layout);
     let s = scale.max(1);
     let (bg, fg) = (palette.bg(), palette.fg());
     canvas.fill_rect(r.bar, color(bg.lerp(fg, 0.16)));
-    canvas.fill_rect(
-        Rect::new(r.bar.left, r.bar.top, r.bar.right, r.bar.top + s),
-        color(palette.cursor()),
-    );
+    canvas.fill_rect(Rect::new(r.bar.left, r.bar.top, r.bar.right, r.bar.top + s), color(palette.cursor()));
     let style = xui_core::TextStyle::new(color(fg), xui_core::Dip(15.0));
     let dim = xui_core::TextStyle::new(color(fg.lerp(bg, 0.45)), xui_core::Dip(15.0));
-    let text_at = |rect: Rect, inset: i32| {
-        Rect::new(
-            rect.left + inset,
-            rect.top + (rect.height() - 20 * s) / 2,
-            rect.right,
-            rect.bottom,
-        )
-    };
+    let text_at = |rect: Rect, inset: i32| Rect::new(rect.left + inset, rect.top + (rect.height() - 20 * s) / 2, rect.right, rect.bottom);
     // The field: a darker well with the text and a caret.
     canvas.fill_rect(r.field, color(bg.lerp(fg, 0.05)));
     if find.text.is_empty() {
@@ -259,17 +201,10 @@ pub fn paint(
         // The caret sits after `caret` characters of the (proportional) UI
         // font: estimated at 8 design pixels a character.
         let x = r.field.left + 6 * s + find.caret as i32 * 8 * s;
-        canvas.fill_rect(
-            Rect::new(x, r.field.top + 3 * s, x + s, r.field.bottom - 3 * s),
-            color(fg),
-        );
+        canvas.fill_rect(Rect::new(x, r.field.top + 3 * s, x + s, r.field.bottom - 3 * s), color(fg));
     }
     let button = |canvas: &mut dyn Canvas, rect: Rect, label: &str, on: bool| {
-        let fill = if on {
-            palette.cursor().lerp(bg, 0.45)
-        } else {
-            bg.lerp(fg, 0.32)
-        };
+        let fill = if on { palette.cursor().lerp(bg, 0.45) } else { bg.lerp(fg, 0.32) };
         canvas.fill_rect(rect, color(fill));
         canvas.draw_text(label, text_at(rect, 8 * s), &style);
     };
@@ -297,24 +232,9 @@ pub fn probes(layout: &Layout) -> [(&'static str, Rect); 6] {
 mod tests {
     use super::*;
 
-    const LAYOUT: Layout = Layout {
-        width: 640,
-        height: 400,
-        pad: 10,
-        line_h: 20,
-        cell_w: 9,
-        visible: 19,
-    };
-    const NONE: Modifiers = Modifiers {
-        ctrl: false,
-        shift: false,
-        alt: false,
-        win: false,
-    };
-    const SHIFT: Modifiers = Modifiers {
-        shift: true,
-        ..NONE
-    };
+    const LAYOUT: Layout = Layout { width: 640, height: 400, pad: 10, line_h: 20, cell_w: 9, visible: 19 };
+    const NONE: Modifiers = Modifiers { ctrl: false, shift: false, alt: false, win: false };
+    const SHIFT: Modifiers = Modifiers { shift: true, ..NONE };
 
     fn typed(f: &mut Find, text: &str) {
         for c in text.chars() {
@@ -330,22 +250,14 @@ mod tests {
         assert_eq!(f.key(Key::BACK, NONE), Step::Edited);
         assert_eq!(f.text, "hell");
         f.key(Key::HOME, NONE);
-        assert_eq!(
-            f.key(Key::BACK, NONE),
-            Step::None,
-            "nothing before the caret"
-        );
+        assert_eq!(f.key(Key::BACK, NONE), Step::None, "nothing before the caret");
         assert_eq!(f.key(Key::DELETE, NONE), Step::Edited);
         assert_eq!(f.text, "ell");
         f.key(Key::END, NONE);
         f.key(Key::LEFT, NONE);
         f.insert('X');
         assert_eq!(f.text, "elXl");
-        assert_eq!(
-            f.insert('\n'),
-            Step::None,
-            "control characters are not text"
-        );
+        assert_eq!(f.insert('\n'), Step::None, "control characters are not text");
         assert_eq!(f.insert('\u{1b}'), Step::None);
     }
 
@@ -403,32 +315,15 @@ mod tests {
         let r = rects(&LAYOUT);
         let parts = [r.field, r.case, r.count, r.prev, r.next, r.close];
         for p in parts {
-            assert!(
-                p.left >= 0
-                    && p.right <= LAYOUT.width
-                    && p.top >= r.bar.top
-                    && p.bottom <= r.bar.bottom
-            );
+            assert!(p.left >= 0 && p.right <= LAYOUT.width && p.top >= r.bar.top && p.bottom <= r.bar.bottom);
         }
         for w in parts.windows(2) {
             assert!(w[0].right <= w[1].left, "{:?} {:?}", w[0], w[1]);
         }
-        assert_eq!(
-            click(&LAYOUT, r.next.left + 1, r.next.top + 1),
-            Some(Step::Next)
-        );
-        assert_eq!(
-            click(&LAYOUT, r.prev.left + 1, r.prev.top + 1),
-            Some(Step::Prev)
-        );
-        assert_eq!(
-            click(&LAYOUT, r.close.left + 1, r.close.top + 1),
-            Some(Step::Close)
-        );
-        assert_eq!(
-            click(&LAYOUT, r.case.left + 1, r.case.top + 1),
-            Some(Step::Case)
-        );
+        assert_eq!(click(&LAYOUT, r.next.left + 1, r.next.top + 1), Some(Step::Next));
+        assert_eq!(click(&LAYOUT, r.prev.left + 1, r.prev.top + 1), Some(Step::Prev));
+        assert_eq!(click(&LAYOUT, r.close.left + 1, r.close.top + 1), Some(Step::Close));
+        assert_eq!(click(&LAYOUT, r.case.left + 1, r.case.top + 1), Some(Step::Case));
         assert_eq!(click(&LAYOUT, 3, 3), None);
         assert_eq!(probes(&LAYOUT).len(), 6);
     }

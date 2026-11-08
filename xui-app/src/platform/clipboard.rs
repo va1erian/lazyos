@@ -362,21 +362,9 @@ mod tests {
     #[test]
     fn a_large_reply_is_fetched_by_its_resolved_token() {
         let size = (INLINE_BYTES + 1) as u64;
-        assert_eq!(
-            plan(reply(9, b"", size)),
-            Ok(Plan::Fetch {
-                token: 9,
-                size: INLINE_BYTES + 1
-            })
-        );
+        assert_eq!(plan(reply(9, b"", size)), Ok(Plan::Fetch { token: 9, size: INLINE_BYTES + 1 }));
         let max = MAX_BYTES as u64;
-        assert_eq!(
-            plan(reply(9, b"", max)),
-            Ok(Plan::Fetch {
-                token: 9,
-                size: MAX_BYTES
-            })
-        );
+        assert_eq!(plan(reply(9, b"", max)), Ok(Plan::Fetch { token: 9, size: MAX_BYTES }));
     }
 
     #[test]
@@ -388,16 +376,8 @@ mod tests {
 
     #[test]
     fn a_reply_that_contradicts_itself_is_refused() {
-        assert_eq!(
-            plan(reply(9, b"abc", 10)),
-            Err(-22),
-            "inline bytes shorter than the size"
-        );
-        assert_eq!(
-            plan(reply(0, b"", 100)),
-            Err(-22),
-            "a fetch needs the resolved token"
-        );
+        assert_eq!(plan(reply(9, b"abc", 10)), Err(-22), "inline bytes shorter than the size");
+        assert_eq!(plan(reply(0, b"", 100)), Err(-22), "a fetch needs the resolved token");
     }
 
     #[test]

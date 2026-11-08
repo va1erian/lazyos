@@ -31,11 +31,11 @@ use std::rc::Rc;
 use xui_app::backend::LazyOSBackend;
 use xui_app::platform::launcher;
 use xui_app::services::{self, Services};
-use xui_app::sysinfo::{self, procmem, ProcessTable, Snapshot};
+use xui_app::sysinfo::{self, ProcessTable, Snapshot, procmem};
 use xui_app::{compact, hidpi, launch};
+use xui_core::Key;
 use xui_core::app::{App, Ui};
 use xui_core::backend::{Event, WidgetId};
-use xui_core::Key;
 
 #[path = "sysmon/advanced.rs"]
 mod advanced;
@@ -177,11 +177,7 @@ impl Sysmon {
         // The walk stalls the system for as long as it takes (milliseconds, and more with
         // gigabytes of shared pages), so only the tab about it asks every second; the others
         // reuse the last answer for a few refreshes.
-        let every = if self.view == View::Memory {
-            1
-        } else {
-            MEMORY_EVERY
-        };
+        let every = if self.view == View::Memory { 1 } else { MEMORY_EVERY };
         self.memory_age += 1;
         if self.memory.is_none() || self.memory_age >= every {
             self.memory = procmem::read().ok();
@@ -307,42 +303,37 @@ fn evidence(snapshot: &Result<Snapshot, i64>) -> String {
 }
 
 fn main() {
-    launch::run(
-        xui_app::trace::Channel::Sysmon,
-        "System Monitor",
-        WINDOW,
-        |ui, backend| {
-            // Resizable, down to the compact view, so `RequestSize` is accepted.
-            backend.set_size_hints(compact::MIN_SIZE.0, compact::MIN_SIZE.1, 0, 0);
-            let first = evidence(&sysinfo::snapshot());
-            backend.on_first_frame(move || println!("{first}"));
+    launch::run(xui_app::trace::Channel::Sysmon, "System Monitor", WINDOW, |ui, backend| {
+        // Resizable, down to the compact view, so `RequestSize` is accepted.
+        backend.set_size_hints(compact::MIN_SIZE.0, compact::MIN_SIZE.1, 0, 0);
+        let first = evidence(&sysinfo::snapshot());
+        backend.on_first_frame(move || println!("{first}"));
 
-            let widgets = Widgets::new();
-            ui.root(widgets.layout())?;
-            ui.on_key(|key, _| shortcut(key));
-            ui.on_close(|| Some(Msg::Quit));
-            ui.register_events(WidgetId::NONE, |event| {
-                matches!(event, Event::Resize { .. }).then_some(Msg::Resized)
-            });
-            ui.every(REFRESH_MILLIS, Msg::Tick);
+        let widgets = Widgets::new();
+        ui.root(widgets.layout())?;
+        ui.on_key(|key, _| shortcut(key));
+        ui.on_close(|| Some(Msg::Quit));
+        ui.register_events(WidgetId::NONE, |event| {
+            matches!(event, Event::Resize { .. }).then_some(Msg::Resized)
+        });
+        ui.every(REFRESH_MILLIS, Msg::Tick);
 
-            let design = hidpi::design_rect(ui);
-            let small = compact::is_compact(design.width(), design.height());
-            let mut app = Sysmon {
-                widgets,
-                load: Load::default(),
-                backend: Rc::clone(backend),
-                view: View::Overview,
-                refreshes: 0,
-                reported: Reported::Nothing,
-                compact: small,
-                memory: None,
-                memory_age: 0,
-                full_size: WINDOW,
-            };
-            app.reload(ui);
-            app.widgets.set_compact(ui, small);
-            Ok(app)
-        },
-    )
+        let design = hidpi::design_rect(ui);
+        let small = compact::is_compact(design.width(), design.height());
+        let mut app = Sysmon {
+            widgets,
+            load: Load::default(),
+            backend: Rc::clone(backend),
+            view: View::Overview,
+            refreshes: 0,
+            reported: Reported::Nothing,
+            compact: small,
+            memory: None,
+            memory_age: 0,
+            full_size: WINDOW,
+        };
+        app.reload(ui);
+        app.widgets.set_compact(ui, small);
+        Ok(app)
+    })
 }

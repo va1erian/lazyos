@@ -225,18 +225,12 @@ fn main() {
         // holds) are known only now.
         let settings = &conf.settings;
         let family = fonts.catalog.choose(&settings.family, fonts::BUILT_IN);
-        let metrics = look::measure(
-            ui,
-            family,
-            settings.zoomed_size(0) as f32,
-            settings.line_spacing,
-        );
+        let metrics = look::measure(ui, family, settings.zoomed_size(0) as f32, settings.line_spacing);
         let styles = fonts.catalog.styles(family).unwrap_or_default();
         let look = Rc::new(RefCell::new(Look::new(metrics, family, styles)));
         // The grid fills the window, unless a size was asked for.
         let asked = settings.initial_grid();
-        let (cols, rows) =
-            asked.unwrap_or_else(|| appearance::grid_for(ui.client_rect(), &metrics));
+        let (cols, rows) = asked.unwrap_or_else(|| appearance::grid_for(ui.client_rect(), &metrics));
         let mut shell = Command::new(SHELL);
         shell.arg0(fhs::boot::BUSYBOX_ARGV0).args(["sh", "-i"]);
         shell.env("TERM", "xterm-256color");
@@ -358,8 +352,5 @@ fn main() {
     });
 
     backend.unbind();
-    std::process::exit(i32::from(xui_app::launch::finish(
-        xui_app::trace::Channel::Term,
-        outcome,
-    )))
+    std::process::exit(i32::from(xui_app::launch::finish(xui_app::trace::Channel::Term, outcome)))
 }

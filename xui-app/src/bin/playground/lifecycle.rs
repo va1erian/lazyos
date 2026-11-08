@@ -10,6 +10,7 @@ use xui_app::probe;
 use xui_app::trace::{self, Channel};
 use xui_core::app::Ui;
 use xui_core::geometry::Rect;
+use xui_core::widget::scrollbar::THICKNESS;
 
 use crate::app::Playground;
 use crate::msg::Msg;
@@ -145,7 +146,8 @@ impl Playground {
         // Where a session presses to grab the page's scroll thumb at the top: the bar's first 90 pixels.
         if let Some(id) = w.doc_reader.get() {
             let r = abs(id);
-            let bar = 12 * scale;
+            // The scroll bar's own thickness at this DPI (the page's and the scroll view's alike).
+            let bar = THICKNESS.to_px(ui.dpi()).value();
             say(
                 "doc_bar_top",
                 Rect::new(

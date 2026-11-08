@@ -49,24 +49,19 @@ impl App for Webdbrowse {
 }
 
 fn main() {
-    launch::run(
-        Channel::Webdbrowse,
-        "Web View Test",
-        WINDOW,
-        |ui, backend| {
-            backend.on_first_frame(|| trace::pass!(Channel::Webdbrowse, "UP"));
-            let screen: Handle<Screen> = Handle::new();
-            ui.root(
-                column().children((build(|ui: &Ui<Msg>| Ok(Screen::new(ui)))
-                    .bind(&screen)
-                    .fill(1),)),
-            )?;
-            ui.on_key(|key, modifiers| match key {
-                Key::Q if modifiers.ctrl => Some(Msg::Quit),
-                _ => None,
-            });
-            ui.on_close(|| Some(Msg::Quit));
-            Ok(Webdbrowse { _screen: screen })
-        },
-    )
+    launch::run(Channel::Webdbrowse, "Web View Test", WINDOW, |ui, backend| {
+        backend.on_first_frame(|| trace::pass!(Channel::Webdbrowse, "UP"));
+        let screen: Handle<Screen> = Handle::new();
+        ui.root(
+            column().children((build(|ui: &Ui<Msg>| Ok(Screen::new(ui)))
+                .bind(&screen)
+                .fill(1),)),
+        )?;
+        ui.on_key(|key, modifiers| match key {
+            Key::Q if modifiers.ctrl => Some(Msg::Quit),
+            _ => None,
+        });
+        ui.on_close(|| Some(Msg::Quit));
+        Ok(Webdbrowse { _screen: screen })
+    })
 }

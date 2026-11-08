@@ -30,27 +30,13 @@ const SHOWN: usize = 120;
 
 impl Prompt {
     pub fn paste(lines: usize) -> Prompt {
-        Prompt {
-            kind: Kind::Paste,
-            text: format!("Paste {lines} lines?"),
-            ok: "Paste",
-            cancel: "Cancel",
-        }
+        Prompt { kind: Kind::Paste, text: format!("Paste {lines} lines?"), ok: "Paste", cancel: "Cancel" }
     }
 
     pub fn link(url: &str) -> Prompt {
         let shown: String = url.chars().take(SHOWN).collect();
-        let dots = if url.chars().count() > SHOWN {
-            "..."
-        } else {
-            ""
-        };
-        Prompt {
-            kind: Kind::Link(url.to_string()),
-            text: format!("Open {shown}{dots} ?"),
-            ok: "Open",
-            cancel: "Cancel",
-        }
+        let dots = if url.chars().count() > SHOWN { "..." } else { "" };
+        Prompt { kind: Kind::Link(url.to_string()), text: format!("Open {shown}{dots} ?"), ok: "Open", cancel: "Cancel" }
     }
 
     pub fn close() -> Prompt {
@@ -91,10 +77,7 @@ mod tests {
     #[test]
     fn the_prompts_say_what_they_ask() {
         assert_eq!(Prompt::paste(3).text, "Paste 3 lines?");
-        assert_eq!(
-            Prompt::close().text,
-            "A program is still running. Close anyway?"
-        );
+        assert_eq!(Prompt::close().text, "A program is still running. Close anyway?");
         let link = Prompt::link("http://example.com/x");
         assert_eq!(link.text, "Open http://example.com/x ?");
         assert_eq!(link.kind, Kind::Link("http://example.com/x".into()));
@@ -110,23 +93,10 @@ mod tests {
 
     #[test]
     fn the_buttons_are_found_by_position() {
-        let layout = Layout {
-            width: 640,
-            height: 400,
-            pad: 10,
-            line_h: 20,
-            cell_w: 9,
-            visible: 19,
-        };
+        let layout = Layout { width: 640, height: 400, pad: 10, line_h: 20, cell_w: 9, visible: 19 };
         let rects = crate::geometry::confirm_rects(&layout);
-        assert_eq!(
-            button_at(&layout, rects.paste.left + 1, rects.paste.top + 1),
-            Some(true)
-        );
-        assert_eq!(
-            button_at(&layout, rects.cancel.left + 1, rects.cancel.top + 1),
-            Some(false)
-        );
+        assert_eq!(button_at(&layout, rects.paste.left + 1, rects.paste.top + 1), Some(true));
+        assert_eq!(button_at(&layout, rects.cancel.left + 1, rects.cancel.top + 1), Some(false));
         assert_eq!(button_at(&layout, 5, 5), None);
     }
 }

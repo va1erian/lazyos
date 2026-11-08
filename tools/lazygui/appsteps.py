@@ -131,8 +131,8 @@ def lazyweb_step(cfg: dict) -> list[dict]:
 def webd_step(cfg: dict) -> list[dict]:
     """The steps that build webd (docs/webd.md): the bundle, the port's processes and the daemon
     (the service as a static library and the program, in Docker), then the xui apps, which package
-    it as `os.lazy.webd`. Only when asked for: every desktop ships webd once it has been built (Docs and Mail
-    need it), but a launch does not start a Docker build of WebKit by itself (`run_demo --desktop` does, and
+    it as `os.lazy.webd`. Only when asked for: every desktop ships webd once it has been built (Mail
+    needs it), but a launch does not start a Docker build of WebKit by itself (`run_demo --desktop` does, and
     goes on without it when that fails)."""
     # LazyWeb's steps build the bundle, the engine processes and webd itself.
     if not osvolume.requires_webd(cfg) or cfg.get("lazyweb"):

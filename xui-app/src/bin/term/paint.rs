@@ -18,6 +18,7 @@ use super::view::{
     first_row, intersect, line_number, max_offset, overlaps, thumb, view_line, Layout,
 };
 
+
 fn color(rgb: Rgb) -> Color {
     Color::rgb(rgb.0, rgb.1, rgb.2)
 }
@@ -77,12 +78,7 @@ struct Cells {
 impl Cells {
     fn rect(&self, col: usize, cells: usize) -> Rect {
         let x0 = self.left + col as i32 * self.cell_w;
-        Rect::new(
-            x0,
-            self.top,
-            x0 + cells as i32 * self.cell_w,
-            self.top + self.line_h,
-        )
+        Rect::new(x0, self.top, x0 + cells as i32 * self.cell_w, self.top + self.line_h)
     }
 }
 
@@ -123,9 +119,7 @@ pub fn paint(canvas: &mut dyn Canvas, scene: &Scene, damage: Option<Rect>) -> La
         let span = number.and_then(|line| term.selection_span(line));
         let marks = number.map(|n| marks_on(scene, n, cols)).unwrap_or_default();
         let selected = span.filter(|&(from, _)| from < cols);
-        draw_row(
-            canvas, scene, &cells, &found, selected, select, cols, &marks,
-        );
+        draw_row(canvas, scene, &cells, &found, selected, select, cols, &marks);
     }
     // The cursor is a screen row: it is in view only while its slot is.
     let slot = (cursor_row + scene.offset).saturating_sub(first);
@@ -137,14 +131,7 @@ pub fn paint(canvas: &mut dyn Canvas, scene: &Scene, damage: Option<Rect>) -> La
             cell_w: m.cell_w,
             line_h: m.line_h,
         };
-        draw_cursor(
-            canvas,
-            scene,
-            &cells,
-            view_line(term, first, scene.offset, slot),
-            cursor_col,
-            damage,
-        );
+        draw_cursor(canvas, scene, &cells, view_line(term, first, scene.offset, slot), cursor_col, damage);
     }
     if let Some((top, bottom)) = thumb(
         bounds.top + m.pad,
@@ -170,15 +157,7 @@ pub fn paint(canvas: &mut dyn Canvas, scene: &Scene, damage: Option<Rect>) -> La
         cell_w: m.cell_w,
         visible,
     };
-    chrome::paint(
-        canvas,
-        scene.chrome,
-        look,
-        palette,
-        &laid,
-        scene.dark,
-        damage,
-    );
+    chrome::paint(canvas, scene.chrome, look, palette, &laid, scene.dark, damage);
     laid
 }
 
@@ -200,11 +179,7 @@ fn marks_on(scene: &Scene, line: u64, cols: usize) -> Marks {
     let link = scene.chrome.hover.and_then(|(a, b)| {
         (a.line <= line && line <= b.line).then(|| {
             let from = if line == a.line { a.col } else { 0 };
-            let to = if line == b.line {
-                b.col
-            } else {
-                cols.saturating_sub(1)
-            };
+            let to = if line == b.line { b.col } else { cols.saturating_sub(1) };
             (from, to)
         })
     });
@@ -228,20 +203,12 @@ fn draw_row(
     for run in found {
         let (_, bg) = cell_colors(palette, run.attr, bib);
         if bg != palette.bg() {
-            canvas.fill_rect(
-                cells.rect(run.col, run.cells.min(cols - run.col)),
-                color(bg),
-            );
+            canvas.fill_rect(cells.rect(run.col, run.cells.min(cols - run.col)), color(bg));
         }
     }
     if let Some((from, to)) = selected {
         let to = to.min(cols - 1);
-        let rect = Rect::new(
-            cells.rect(from, 1).left,
-            cells.top,
-            cells.rect(to, 1).right,
-            cells.top + cells.line_h,
-        );
+        let rect = Rect::new(cells.rect(from, 1).left, cells.top, cells.rect(to, 1).right, cells.top + cells.line_h);
         canvas.fill_rect(rect, color(select));
     }
     // Find matches over the selection, the current one stronger.
@@ -251,14 +218,8 @@ fn draw_row(
         }
         let tint = Rgb(255, 190, 40);
         let fill = palette.bg().lerp(tint, if current { 0.65 } else { 0.32 });
-        let (left, right) = (
-            cells.rect(from, 1).left,
-            cells.rect(to.min(cols - 1), 1).right,
-        );
-        canvas.fill_rect(
-            Rect::new(left, cells.top, right, cells.top + cells.line_h),
-            color(fill),
-        );
+        let (left, right) = (cells.rect(from, 1).left, cells.rect(to.min(cols - 1), 1).right);
+        canvas.fill_rect(Rect::new(left, cells.top, right, cells.top + cells.line_h), color(fill));
     }
     // Text.
     for run in found {
@@ -270,10 +231,7 @@ fn draw_row(
     // The link under the pointer (Ctrl held): underlined in the text colour.
     let light = scene.look.metrics.light;
     if let Some((from, to)) = marks.link.filter(|&(from, _)| from < cols) {
-        let (left, right) = (
-            cells.rect(from, 1).left,
-            cells.rect(to.min(cols - 1), 1).right,
-        );
+        let (left, right) = (cells.rect(from, 1).left, cells.rect(to.min(cols - 1), 1).right);
         let y = cells.top + cells.line_h - 2 * light;
         canvas.fill_rect(Rect::new(left, y, right, y + light), color(palette.fg()));
     }
@@ -320,11 +278,7 @@ fn draw_run(
         let rect = Rect::new(at.left, at.top + m.text_dy, at.left + reach, at.bottom);
         canvas.draw_text(s, rect, &style);
         if overstrike {
-            canvas.draw_text(
-                s,
-                Rect::new(rect.left + m.scale, rect.top, rect.right, rect.bottom),
-                &style,
-            );
+            canvas.draw_text(s, Rect::new(rect.left + m.scale, rect.top, rect.right, rect.bottom), &style);
         }
     };
     let mut segment = String::new();
@@ -400,9 +354,7 @@ fn draw_cursor(
     let (term, look) = (scene.term, scene.look);
     let m = &look.metrics;
     let palette = term.palette();
-    let under = line
-        .and_then(|l| l.cells.get(col).copied())
-        .unwrap_or_default();
+    let under = line.and_then(|l| l.cells.get(col).copied()).unwrap_or_default();
     let width = usize::from(under.width.max(1));
     let rect = cells.rect(col, width);
     if !overlaps(rect, damage) {
@@ -435,30 +387,16 @@ fn draw_cursor(
                     text: under.ch.to_string(),
                     attr: Attr::default(),
                 };
-                draw_run(
-                    canvas,
-                    look,
-                    cells,
-                    &glyph,
-                    bg,
-                    palette.cursor(),
-                    usize::MAX,
-                );
+                draw_run(canvas, look, cells, &glyph, bg, palette.cursor(), usize::MAX);
             }
         }
         CursorShape::Underline => {
             let h = 3 * m.scale;
-            canvas.fill_rect(
-                Rect::new(rect.left, rect.bottom - h, rect.right, rect.bottom),
-                cursor,
-            );
+            canvas.fill_rect(Rect::new(rect.left, rect.bottom - h, rect.right, rect.bottom), cursor);
         }
         CursorShape::Bar => {
             let w = 2 * m.scale;
-            canvas.fill_rect(
-                Rect::new(rect.left, rect.top, rect.left + w, rect.bottom),
-                cursor,
-            );
+            canvas.fill_rect(Rect::new(rect.left, rect.top, rect.left + w, rect.bottom), cursor);
         }
     }
 }

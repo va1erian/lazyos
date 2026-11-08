@@ -173,7 +173,15 @@ fn links_go_to_their_app_only_when_plainly_safe() {
         classify("/docs/os/a.md#part"),
         Link::File("/docs/os/a.md".into())
     );
+    assert_eq!(
+        classify("/docs/os/a%2Db.md?ref=x"),
+        Link::File("/docs/os/a-b.md".into())
+    );
     for refused in [
+        "/a%20b.md",
+        "/docs/%2E%2E/etc/shadow",
+        "/a%0Ab",
+        "/a%zz",
         "",
         "relative.md",
         "javascript:alert(1)",

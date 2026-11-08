@@ -93,28 +93,23 @@ fn up_line(view: &DevView) -> String {
 }
 
 fn main() {
-    launch::run(
-        xui_app::trace::Channel::Devices,
-        "Devices",
-        WINDOW,
-        |ui, backend| {
-            backend.set_size_hints(560, 360, 0, 0);
-            let first = DevView::read();
-            let evidence = up_line(&first);
-            backend.on_first_frame(move || println!("{evidence}"));
+    launch::run(xui_app::trace::Channel::Devices, "Devices", WINDOW, |ui, backend| {
+        backend.set_size_hints(560, 360, 0, 0);
+        let first = DevView::read();
+        let evidence = up_line(&first);
+        backend.on_first_frame(move || println!("{evidence}"));
 
-            let widgets = Widgets::default();
-            ui.root(widgets.layout())?;
-            ui.on_key(|key, _| shortcut(key));
-            ui.on_close(|| Some(Msg::Quit));
-            ui.every(REFRESH_MILLIS, Msg::Tick);
+        let widgets = Widgets::default();
+        ui.root(widgets.layout())?;
+        ui.on_key(|key, _| shortcut(key));
+        ui.on_close(|| Some(Msg::Quit));
+        ui.every(REFRESH_MILLIS, Msg::Tick);
 
-            let app = Devices {
-                widgets,
-                refreshes: 0,
-            };
-            app.widgets.show(&first, app.refreshes);
-            Ok(app)
-        },
-    )
+        let app = Devices {
+            widgets,
+            refreshes: 0,
+        };
+        app.widgets.show(&first, app.refreshes);
+        Ok(app)
+    })
 }

@@ -148,12 +148,7 @@ impl Menu {
                 },
             })
             .collect();
-        Menu {
-            at,
-            entries,
-            selected: None,
-            link,
-        }
+        Menu { at, entries, selected: None, link }
     }
 
     #[cfg(test)]
@@ -274,10 +269,7 @@ pub fn layout(menu: &Menu, window: (i32, i32), scale: i32) -> MenuLayout {
         rows.push(Rect::new(left + s, y, left + w - s, y + row));
         y += row;
     }
-    MenuLayout {
-        panel: Rect::new(left, top, left + w, top + height),
-        rows,
-    }
+    MenuLayout { panel: Rect::new(left, top, left + w, top + height), rows }
 }
 
 fn color(rgb: lazyterm::Rgb) -> Color {
@@ -285,22 +277,11 @@ fn color(rgb: lazyterm::Rgb) -> Color {
 }
 
 /// Draw the menu.
-pub fn paint(
-    canvas: &mut dyn Canvas,
-    menu: &Menu,
-    laid: &MenuLayout,
-    palette: &Palette,
-    scale: i32,
-) {
+pub fn paint(canvas: &mut dyn Canvas, menu: &Menu, laid: &MenuLayout, palette: &Palette, scale: i32) {
     let s = scale.max(1);
     let (bg, fg) = (palette.bg(), palette.fg());
     canvas.fill_rect(laid.panel, color(fg.lerp(bg, 0.6)));
-    let inner = Rect::new(
-        laid.panel.left + s,
-        laid.panel.top + s,
-        laid.panel.right - s,
-        laid.panel.bottom - s,
-    );
+    let inner = Rect::new(laid.panel.left + s, laid.panel.top + s, laid.panel.right - s, laid.panel.bottom - s);
     canvas.fill_rect(inner, color(bg.lerp(fg, 0.12)));
     let live = xui_core::TextStyle::new(color(fg), xui_core::Dip(15.0));
     let dead = xui_core::TextStyle::new(color(fg.lerp(bg, 0.55)), xui_core::Dip(15.0));
@@ -308,30 +289,17 @@ pub fn paint(
     for (i, (entry, row)) in menu.entries.iter().zip(&laid.rows).enumerate() {
         if entry.separator {
             let y = row.top - SEPARATOR * s / 2;
-            canvas.fill_rect(
-                Rect::new(row.left + 4 * s, y, row.right - 4 * s, y + s),
-                color(fg.lerp(bg, 0.7)),
-            );
+            canvas.fill_rect(Rect::new(row.left + 4 * s, y, row.right - 4 * s, y + s), color(fg.lerp(bg, 0.7)));
         }
         if menu.selected == Some(i) {
             canvas.fill_rect(*row, color(palette.cursor().lerp(bg, 0.55)));
         }
         let style = if entry.enabled { &live } else { &dead };
-        let text_at = Rect::new(
-            row.left + 10 * s,
-            row.top + (row.height() - 20 * s) / 2,
-            row.right,
-            row.bottom,
-        );
+        let text_at = Rect::new(row.left + 10 * s, row.top + (row.height() - 20 * s) / 2, row.right, row.bottom);
         canvas.draw_text(entry.item.label(), text_at, style);
         let shortcut = entry.item.shortcut();
         if !shortcut.is_empty() {
-            let at = Rect::new(
-                row.right - 104 * s,
-                row.top + (row.height() - 18 * s) / 2,
-                row.right - 4 * s,
-                row.bottom,
-            );
+            let at = Rect::new(row.right - 104 * s, row.top + (row.height() - 18 * s) / 2, row.right - 4 * s, row.bottom);
             canvas.draw_text(shortcut, at, &hint);
         }
     }
@@ -348,18 +316,10 @@ mod tests {
     #[test]
     fn copy_and_the_link_entries_follow_the_state() {
         let none = menu();
-        assert!(
-            !none.enabled(Item::Copy)
-                && !none.enabled(Item::OpenLink)
-                && !none.enabled(Item::CopyLink)
-        );
+        assert!(!none.enabled(Item::Copy) && !none.enabled(Item::OpenLink) && !none.enabled(Item::CopyLink));
         assert!(none.enabled(Item::Paste) && none.enabled(Item::Find) && none.enabled(Item::Close));
         let with = Menu::new((0, 0), true, Some("http://x.y/".into()));
-        assert!(
-            with.enabled(Item::Copy)
-                && with.enabled(Item::OpenLink)
-                && with.enabled(Item::CopyLink)
-        );
+        assert!(with.enabled(Item::Copy) && with.enabled(Item::OpenLink) && with.enabled(Item::CopyLink));
     }
 
     #[test]
@@ -367,29 +327,17 @@ mod tests {
         let mut m = menu();
         assert_eq!(m.key(Key::RETURN), Step::None, "nothing selected yet");
         m.key(Key::DOWN);
-        assert_eq!(
-            m.entries[m.selected.unwrap()].item,
-            Item::Paste,
-            "Copy is disabled: skipped"
-        );
+        assert_eq!(m.entries[m.selected.unwrap()].item, Item::Paste, "Copy is disabled: skipped");
         m.key(Key::DOWN);
         assert_eq!(m.entries[m.selected.unwrap()].item, Item::SelectAll);
         m.key(Key::UP);
         m.key(Key::UP);
-        assert_eq!(
-            m.entries[m.selected.unwrap()].item,
-            Item::Paste,
-            "does not wrap past the first enabled"
-        );
+        assert_eq!(m.entries[m.selected.unwrap()].item, Item::Paste, "does not wrap past the first enabled");
         assert_eq!(m.key(Key::RETURN), Step::Choose(Item::Paste));
         m.key(Key::END);
         assert_eq!(m.entries[m.selected.unwrap()].item, Item::Close);
         m.key(Key::DOWN);
-        assert_eq!(
-            m.entries[m.selected.unwrap()].item,
-            Item::Close,
-            "stays on the last"
-        );
+        assert_eq!(m.entries[m.selected.unwrap()].item, Item::Close, "stays on the last");
         m.key(Key::HOME);
         assert_eq!(m.entries[m.selected.unwrap()].item, Item::Paste);
         assert_eq!(m.key(Key::ESCAPE), Step::Close);
@@ -405,10 +353,7 @@ mod tests {
         let r = laid.rows[0];
         assert_eq!(m.click(&laid, r.left + 3, r.top + 3), Step::None);
         let paste = laid.rows[1];
-        assert_eq!(
-            m.click(&laid, paste.left + 3, paste.top + 3),
-            Step::Choose(Item::Paste)
-        );
+        assert_eq!(m.click(&laid, paste.left + 3, paste.top + 3), Step::Choose(Item::Paste));
         assert_eq!(m.click(&laid, 1, 1), Step::Close, "outside closes");
     }
 
@@ -419,16 +364,9 @@ mod tests {
             let window = (640 * scale, 400 * scale);
             let laid = layout(&m, window, scale);
             assert!(laid.panel.left >= 0 && laid.panel.top >= 0);
-            assert!(
-                laid.panel.right <= window.0 && laid.panel.bottom <= window.1,
-                "{:?}",
-                laid.panel
-            );
+            assert!(laid.panel.right <= window.0 && laid.panel.bottom <= window.1, "{:?}", laid.panel);
             assert_eq!(laid.rows.len(), m.entries.len());
-            assert!(laid
-                .rows
-                .iter()
-                .all(|r| laid.panel.left < r.left && r.right < laid.panel.right));
+            assert!(laid.rows.iter().all(|r| laid.panel.left < r.left && r.right < laid.panel.right));
             // Rows do not overlap, in order.
             assert!(laid.rows.windows(2).all(|w| w[0].bottom <= w[1].top));
         }
@@ -450,10 +388,7 @@ mod tests {
     fn every_entry_has_a_probe_name_and_evidence() {
         let m = menu();
         let probes: Vec<String> = m.entries.iter().map(|e| e.item.probe()).collect();
-        assert!(
-            probes.contains(&"menu:copy".to_string())
-                && probes.contains(&"menu:preferences".to_string())
-        );
+        assert!(probes.contains(&"menu:copy".to_string()) && probes.contains(&"menu:preferences".to_string()));
         assert!(probes.iter().all(|p| !p.contains(' ')), "{probes:?}");
         let mut names: Vec<&str> = m.entries.iter().map(|e| e.item.evidence()).collect();
         names.sort_unstable();

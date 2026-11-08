@@ -1,7 +1,8 @@
 //! The Docs window: a slim toolbar (Open, Back, Forward, Home and the current path) above the page,
 //! and the Open dialog behind the button and `Ctrl+O`. The page is xui's read-only Markdown view
 //! (`xui_markdown::MarkdownView`): one view for the life of the window, every document a new
-//! [`Document`] in it, read and parsed on a worker thread so a big file never stalls the window.
+//! [`Document`] in it, read and parsed by one worker thread ([`crate::loader`]) so a big file never
+//! stalls the window.
 //! Back and Forward (`Alt+Left`, `Alt+Right`) walk the documents visited, Home shows the
 //! documentation index.
 //!
@@ -26,10 +27,12 @@ use xui_core::backend::Result;
 use xui_core::layout::Insets;
 use xui_core::widget::{FileDialog, HasText, Label, StdFileSystem};
 use xui_core::{Dip, Key, Rect};
+use xui_docs::error_page;
 use xui_docs::history::{History, Place};
 use xui_docs::links::{classify, Link};
-use xui_docs::{error_page, load_file};
 use xui_markdown::{Document, MarkdownView};
+
+use crate::loader::{Done, Loader, Request};
 
 /// Height of the toolbar above the page, in design units.
 const TOOLBAR_H: f32 = 36.0;
@@ -38,9 +41,6 @@ const TOOLBAR_H: f32 = 36.0;
 /// installed apps' docs (`/docs/apps`).
 const START_DIR: &str = fhs::docs::DOCS_ROOT;
 
-/// A document read and parsed on a worker thread, or why it could not be.
-pub type Loaded = std::result::Result<Arc<Document>, String>;
-
 /// Everything the window reacts to.
 #[derive(Clone)]
 pub enum Msg {
@@ -48,8 +48,8 @@ pub enum Msg {
     Link(String),
     /// The document set last has been drawn.
     Painted,
-    /// A worker finished reading the document of load number `seq`.
-    Loaded { seq: u64, done: Arc<Done> },
+    /// The worker finished reading a document.
+    Loaded(Arc<Done>),
     /// The Open button or `Ctrl+O`.
     Open,
     /// The dialog accepted `path`.
@@ -64,16 +64,6 @@ pub enum Msg {
     Home,
 }
 
-/// What a worker hands back: the document and what the load was for.
-pub struct Done {
-    path: PathBuf,
-    result: Loaded,
-    /// The heading to scroll to once shown.
-    anchor: Option<String>,
-    /// `back`, `forward` or `home` when Back, Forward or Home asked for it.
-    nav: Option<&'static str>,
-}
-
 /// The window's widgets and state.
 pub struct Docs {
     view: Rc<MarkdownView<Msg>>,
@@ -81,16 +71,22 @@ pub struct Docs {
     open_dialog: FileDialog<Msg>,
     /// While the modal dialog is up the hotkey must not open a second one.
     dialog_open: Rc<Cell<bool>>,
-    /// The document on show (or being read), for the dialog's start folder and for relative links.
+    /// Where the window is going: the document on show, or the one being read for it (`None` is
+    /// the welcome page). The history records it.
     current: Option<PathBuf>,
+    /// The document on show, for the dialog's start folder and for relative links: until a read
+    /// finishes, the page and its links are still the previous one's.
+    shown: Option<PathBuf>,
     /// What follows `DOCS:RENDER:PASS:` when the current page first paints (empty for the welcome
     /// page, the path for a document); `None` once reported.
     render_marker: Option<String>,
     /// The welcome page, shown again by Back.
     welcome: Arc<Document>,
     history: History,
-    /// The number of the last load started: a slower earlier one that finishes after it is dropped.
+    /// The number of the last load started: an earlier one that finishes after it is dropped.
     loads: u64,
+    /// The worker that reads documents; `None` if it could not be started.
+    loader: Option<Loader>,
 }
 
 impl Docs {
@@ -161,22 +157,27 @@ impl Docs {
         view.set_document(Arc::clone(&welcome));
         // Arrow keys and `PageDown` scroll the page from the start, no click needed.
         view.focus();
+        let loader = Loader::start(ui.proxy())
+            .map_err(|error| trace::fail!(Channel::Docs, "OPEN", "no worker: {error}"))
+            .ok();
         let mut docs = Docs {
             view,
             path_label,
             open_dialog,
             dialog_open,
             current: None,
+            shown: None,
             render_marker: Some(String::new()),
             welcome,
             history: History::default(),
             loads: 0,
+            loader,
         };
         docs.show(ui, None);
         Ok(docs)
     }
 
-    /// Records `path` as the document on show: toolbar text and window title.
+    /// Records `path` as the document on show: toolbar text, window title and the base of links.
     fn show(&mut self, ui: &mut Ui<Msg>, path: Option<PathBuf>) {
         match &path {
             Some(path) => {
@@ -193,21 +194,23 @@ impl Docs {
                 ui.set_window_title("Docs");
             }
         }
-        self.current = path;
+        self.shown = path;
     }
 
     /// Shows the document at `path`, scrolled to the heading `anchor` names, or the reason it cannot
-    /// be read. What was on show goes into the history, unless it is the same document, which only
-    /// scrolls.
-    pub fn open(&mut self, ui: &mut Ui<Msg>, path: PathBuf, anchor: Option<String>) {
+    /// be read. What was on show goes into the history, unless it is the same document: that one
+    /// only scrolls to the heading, or is read again (it may have changed, or failed before).
+    pub fn open(&mut self, path: PathBuf, anchor: Option<String>) {
         if self.current.as_deref() == Some(path.as_path()) {
-            if let Some(anchor) = anchor {
-                self.view.scroll_to_anchor(&anchor);
+            if let Some(anchor) = &anchor {
+                if self.view.scroll_to_anchor(anchor) {
+                    return;
+                }
             }
-            return;
+        } else {
+            self.history.visit(self.place());
         }
-        self.history.visit(self.place());
-        self.load(ui, path, anchor, None);
+        self.load(path, anchor, None);
     }
 
     /// Where the window is now, for the history.
@@ -217,54 +220,42 @@ impl Docs {
         }
     }
 
-    /// Starts reading the document at `path` on a worker thread (no history); [`Msg::Loaded`]
-    /// shows it. The toolbar names it at once, so Back and the dialog see where the window is going.
-    fn load(
-        &mut self,
-        ui: &mut Ui<Msg>,
-        path: PathBuf,
-        anchor: Option<String>,
-        nav: Option<&'static str>,
-    ) {
+    /// Asks the worker for the document at `path` (no history); [`Msg::Loaded`] shows it. The window
+    /// is headed there at once, so Back and Forward step from it.
+    fn load(&mut self, path: PathBuf, anchor: Option<String>, nav: Option<&'static str>) {
         self.loads += 1;
-        let seq = self.loads;
-        self.show(ui, Some(path.clone()));
-        let proxy = ui.proxy();
-        let work = move || {
-            let result = load_file(&path).map_err(|e| e.to_string());
-            let done = Done {
-                path,
-                result,
-                anchor,
-                nav,
-            };
-            let _ = proxy.send(Msg::Loaded {
-                seq,
-                done: Arc::new(done),
-            });
+        self.current = Some(path.clone());
+        let request = Request {
+            seq: self.loads,
+            path,
+            anchor,
+            nav,
         };
-        if let Err(error) = std::thread::Builder::new()
-            .name("docs-load".into())
-            .spawn(work)
+        let shown = request.path.display().to_string();
+        if !self
+            .loader
+            .as_ref()
+            .is_some_and(|loader| loader.load(request))
         {
-            trace::fail!(Channel::Docs, "OPEN", "no worker: {error}");
+            trace::fail!(Channel::Docs, "OPEN", "{shown}: no worker");
         }
     }
 
-    /// Shows what a worker read, if it is still the newest load.
-    fn loaded(&mut self, seq: u64, done: &Done) {
-        if seq != self.loads {
+    /// Shows what the worker read, if it is still the newest load.
+    fn loaded(&mut self, ui: &mut Ui<Msg>, done: &Done) {
+        let request = &done.request;
+        if request.seq != self.loads {
             return;
         }
-        let shown = done.path.display();
+        let shown = request.path.display();
         match &done.result {
             Ok(document) => {
                 self.view.set_document(Arc::clone(document));
-                if let Some(anchor) = &done.anchor {
+                if let Some(anchor) = &request.anchor {
                     self.view.scroll_to_anchor(anchor);
                 }
                 trace::pass!(Channel::Docs, "OPEN", "{shown}");
-                if let Some(nav) = done.nav {
+                if let Some(nav) = request.nav {
                     trace::pass!(Channel::Docs, "NAV", "{nav}:{shown}");
                 }
             }
@@ -275,6 +266,7 @@ impl Docs {
             }
         }
         self.render_marker = Some(shown.to_string());
+        self.show(ui, Some(request.path.clone()));
     }
 
     /// Shows the welcome page again (no history).
@@ -283,6 +275,7 @@ impl Docs {
         self.loads += 1;
         self.view.set_document(Arc::clone(&self.welcome));
         self.render_marker = Some(String::new());
+        self.current = None;
         self.show(ui, None);
         trace::pass!(Channel::Docs, "NAV", "{nav}:");
     }
@@ -298,19 +291,19 @@ impl Docs {
         let Some(place) = target else { return };
         let nav = if forward { "forward" } else { "back" };
         match place.path {
-            Some(path) => self.load(ui, path, None, Some(nav)),
+            Some(path) => self.load(path, None, Some(nav)),
             None => self.load_welcome(ui, nav),
         }
     }
 
     /// What a click on `href` does (`xui_docs::links`).
-    fn follow(&mut self, ui: &mut Ui<Msg>, href: &str) {
+    fn follow(&mut self, href: &str) {
         trace::line!(Channel::Docs, "LINK:{href}");
-        match classify(href, self.current.as_deref()) {
+        match classify(href, self.shown.as_deref()) {
             Link::Anchor => {}
             Link::Document(path, anchor) => {
                 trace::line!(Channel::Docs, "LINK:OPEN:{}", path.display());
-                self.open(ui, path, anchor);
+                self.open(path, anchor);
             }
             Link::File(path) => {
                 trace::line!(Channel::Docs, "LINK:FILE:{}", path.display());
@@ -333,7 +326,7 @@ impl Docs {
         if self.dialog_open.replace(true) {
             return;
         }
-        if let Some(dir) = self.current.as_deref().and_then(|p| p.parent()) {
+        if let Some(dir) = self.shown.as_deref().and_then(|p| p.parent()) {
             self.open_dialog.set_initial_dir(dir);
         }
         self.open_dialog.open();
@@ -350,12 +343,12 @@ impl App for Docs {
                 Some(path) => trace::pass!(Channel::Docs, "RENDER", "{path}"),
                 None => {}
             },
-            Msg::Link(href) => self.follow(ui, &href),
-            Msg::Loaded { seq, done } => self.loaded(seq, &done),
+            Msg::Link(href) => self.follow(&href),
+            Msg::Loaded(done) => self.loaded(ui, &done),
             Msg::Open => self.ask_for_a_document(),
             Msg::OpenChosen(path) => {
                 self.dialog_open.set(false);
-                self.open(ui, path, None);
+                self.open(path, None);
             }
             Msg::DialogClosed => self.dialog_open.set(false),
             Msg::Back => self.step(ui, false),
@@ -364,8 +357,8 @@ impl App for Docs {
                 let index = PathBuf::from(fhs::docs::INDEX);
                 if self.current.as_deref() != Some(index.as_path()) {
                     self.history.visit(self.place());
-                    self.load(ui, index, None, Some("home"));
                 }
+                self.load(index, None, Some("home"));
             }
         }
     }

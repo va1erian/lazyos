@@ -98,7 +98,7 @@ def apply(args, flags) -> None:
 
 def wants_webkit(flags) -> bool:
     """Whether a flag set brings webd's or the browser's programs: the flags above, or any desktop (it ships
-    webd for Docs and Mail) that does not leave it out."""
+    webd for Mail) that does not leave it out."""
     flags = set(flags)
     return bool(flags & set(WEBKIT_FLAGS)) or ("desktop" in flags and "no-webd" not in flags)
 

@@ -82,12 +82,9 @@ impl Terminal {
     /// The repaint itself.
     pub(super) fn repaint(&mut self, ui: &mut Ui<Msg>) {
         let key = self.look.borrow().key();
-        let changed = self.shown.update(
-            &self.term.borrow(),
-            self.layout.get(),
-            self.offset.get(),
-            key,
-        );
+        let changed = self
+            .shown
+            .update(&self.term.borrow(), self.layout.get(), self.offset.get(), key);
         if let Some(rect) = changed {
             ui.invalidate_rect(self.root.id(), rect);
         }

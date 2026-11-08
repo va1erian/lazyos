@@ -10,6 +10,7 @@
 //! bound.
 
 mod app;
+mod loader;
 
 use std::rc::Rc;
 
@@ -47,7 +48,7 @@ fn main() -> std::process::ExitCode {
         // dialog does instead of ending the app.
         let mut docs = Docs::build(ui, WELCOME).expect("the Docs window was created");
         if let Some(path) = path {
-            docs.open(ui, path, None);
+            docs.open(path, None);
         }
         docs
     });

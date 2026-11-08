@@ -31,12 +31,12 @@
 
 mod backdrop;
 mod background;
+mod coalesce;
 #[cfg(target_os = "linux")]
 pub(crate) mod calls;
 #[cfg(not(target_os = "linux"))]
 #[path = "backend/calls_host.rs"]
 pub(crate) mod calls;
-mod coalesce;
 mod compositor;
 mod cursor;
 pub mod direct;
@@ -55,12 +55,12 @@ mod pointer;
 mod popup_focus;
 mod render;
 mod session_input;
+mod wheel;
 #[cfg(target_os = "linux")]
 mod wakeup;
 #[cfg(not(target_os = "linux"))]
 #[path = "backend/wakeup_host.rs"]
 mod wakeup;
-mod wheel;
 mod zorder;
 
 use std::cell::{Cell, RefCell};

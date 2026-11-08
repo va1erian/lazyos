@@ -15,6 +15,7 @@ use xui_core::arrange::{column, LayoutExt};
 use xui_core::widget::HasText;
 use xui_playground::catalog::{Item, NodeId};
 use xui_playground::docs::{self, Block, Chip, ChipKind};
+use xui_playground::markdown;
 use xui_playground::rhai_names::scriptable;
 use xui_playground::snippet::{self, CallOptions, TopicAction};
 
@@ -238,10 +239,22 @@ impl Playground {
         self.enable_buttons();
     }
 
+    /// Shows `blocks` in the doc pane: in the page already there (its shape cache stays warm), or in
+    /// a new one when the call form or Help is on show.
     pub fn show_blocks(&mut self, blocks: &[Block]) {
-        let layout = column().child(docview::view(blocks).bind(&self.w.doc_page).fill(1));
-        let _ = self.w.doc.get().set_layout(layout);
-        self.w.doc_reader.set(Some(self.w.doc_page.get().id()));
+        let page = self
+            .w
+            .doc_page
+            .try_get()
+            .filter(|page| self.w.doc_reader.get() == Some(page.id()));
+        match page {
+            Some(page) => page.set_markdown(&markdown::page(blocks)),
+            None => {
+                let layout = column().child(docview::view(blocks).bind(&self.w.doc_page).fill(1));
+                let _ = self.w.doc.get().set_layout(layout);
+                self.w.doc_reader.set(Some(self.w.doc_page.get().id()));
+            }
+        }
         self.probe_soon();
     }
 

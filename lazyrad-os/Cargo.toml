@@ -20,8 +20,8 @@ resolver = "2"
 # common revision, so `xui-app` resolves to it too and one `xui_core` links.
 # `default-features = false` keeps
 # winit/softbuffer/glutin/glow/arboard/xui-gpu out of the image.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "c90f5568dedac41c99dcec106ada26bfb061e548" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "c90f5568dedac41c99dcec106ada26bfb061e548", default-features = false }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "b3fcdc274c88d07f1a2044ec4e071246cd14018d" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "b3fcdc274c88d07f1a2044ec4e071246cd14018d", default-features = false }
 # The LazyOS backend (xuid client), fonts, clipboardd client and the portable
 # file-dialog plumbing.
 xui-app = { path = "../xui-app" }
@@ -85,11 +85,11 @@ xui-form = { git = "https://github.com/va1erian/lazyrad", rev = "fbd3fc417b2fae0
 # xui dependency (cargo refuses a patch that points to the same source).
 # Drop this table when LazyRAD pins the common revision.
 [patch."https://github.com/va1erian/xui"]
-xui-canvas = { git = "https://www.github.com/va1erian/xui", rev = "c90f5568dedac41c99dcec106ada26bfb061e548" }
-xui-code-editor = { git = "https://www.github.com/va1erian/xui", rev = "c90f5568dedac41c99dcec106ada26bfb061e548" }
-xui-core = { git = "https://www.github.com/va1erian/xui", rev = "c90f5568dedac41c99dcec106ada26bfb061e548" }
-xui-icons = { git = "https://www.github.com/va1erian/xui", rev = "c90f5568dedac41c99dcec106ada26bfb061e548" }
-xui-rich-text = { git = "https://www.github.com/va1erian/xui", rev = "c90f5568dedac41c99dcec106ada26bfb061e548" }
+xui-canvas = { git = "https://www.github.com/va1erian/xui", rev = "b3fcdc274c88d07f1a2044ec4e071246cd14018d" }
+xui-code-editor = { git = "https://www.github.com/va1erian/xui", rev = "b3fcdc274c88d07f1a2044ec4e071246cd14018d" }
+xui-core = { git = "https://www.github.com/va1erian/xui", rev = "b3fcdc274c88d07f1a2044ec4e071246cd14018d" }
+xui-icons = { git = "https://www.github.com/va1erian/xui", rev = "b3fcdc274c88d07f1a2044ec4e071246cd14018d" }
+xui-rich-text = { git = "https://www.github.com/va1erian/xui", rev = "b3fcdc274c88d07f1a2044ec4e071246cd14018d" }
 
 [dev-dependencies]
 # `modplay::synth` builds the songs the `modplay` script tests play.

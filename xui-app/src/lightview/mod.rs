@@ -1,5 +1,5 @@
 //! A web view of an xui window that `webd` draws: [`LightView`] shows pages of HTML the app hands it
-//! (docs/webd-plan.md, section 9.2: Docs and Mail), forwards the pointer and the keyboard to the page
+//! (docs/webd-plan.md, section 9.2: Mail), forwards the pointer and the keyboard to the page
 //! and reports links and the first picture of each page.
 //!
 //! The page is WebKit's, in `webd`; this is only a picture (the newest frame, copied out of the shared

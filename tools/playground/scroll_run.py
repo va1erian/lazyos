@@ -16,7 +16,7 @@ live in how the backend paints and routes pointer events (`xui-app/src/backend/r
 * a thumb drag showed nothing until the button came up: every pointer move re-laid the whole page
   out (35 to 60 ms on a big interface page), the input queue grew faster than it drained, and the
   frame was only presented once the queue was empty (`backend/coalesce.rs` merges a batch's moves,
-  `playground/docbody.rs` makes a scroll step a move).
+  the page, now `xui-markdown`'s view, lays out once per width and makes a scroll step a move).
 
 The session (`tools/screenshot/examples/playground_scroll.json`, generated here) opens the
 `os.lazy.files.v1` page (long enough to scroll), drags the thumb, clicks it and drags again at once,
@@ -190,11 +190,13 @@ def near(a: tuple[int, int, int], b: tuple[int, int, int], slack: int = 8) -> bo
     return all(abs(p - q) <= slack for p, q in zip(a, b))
 
 
-def thumb_top(shot: Shot, x: int, top: int, bottom: int, colour: tuple[int, int, int]) -> int | None:
-    """The first row of the scroll thumb in column `x` between `top` and `bottom`. The pane's frame is
-    skipped (in the dark theme its colour is the thumb's); a thumb at the top reads as `top + FRAME`."""
+def thumb_top(shot: Shot, x: int, top: int, bottom: int, track: tuple[int, int, int]) -> int | None:
+    """The first row of the scroll thumb in column `x` between `top` and `bottom`: the first that is not
+    the track's colour (a held thumb is drawn in its pressed colour, so the thumb's own colour varies). The
+    pane's frame is skipped (in the dark theme its colour is the thumb's); a thumb at the top reads as
+    `top + FRAME`."""
     for y in range(top + FRAME, bottom):
-        if near(shot.pixel(x, y), colour):
+        if not near(shot.pixel(x, y), track, 12):
             return y
     return None
 
@@ -226,7 +228,7 @@ def judge(out: Path) -> list[str]:
     track = shots[SHOTS[0]].pixel(x, bottom - 6)
     if near(colour, track, 12):
         return ["no scroll thumb in the idle shot (the page no longer overflows the doc pane?)"]
-    tops = [thumb_top(shots[name], x, top, bottom, colour) for name in SHOTS]
+    tops = [thumb_top(shots[name], x, top, bottom, track) for name in SHOTS]
     if None in tops:
         return [f"the scroll thumb was not found in {SHOTS[tops.index(None)]} (column {x})"]
     labels = ["a plain drag", "a drag straight after a click (the second press of a quick pair)",
@@ -235,7 +237,7 @@ def judge(out: Path) -> list[str]:
         if after - before < DRAG // 2:
             problems.append(f"{label} moved the thumb {after - before} px (from {before} to {after}), "
                             f"expected about {DRAG}")
-    problems += judge_wheel_and_live(out, x, top, bottom, colour)
+    problems += judge_wheel_and_live(out, x, top, bottom, track)
     # Nothing of the page may be painted outside the pane: the strips above (the button rows) and
     # below (the Call form row) are the same before and after scrolling.
     idle = shots[SHOTS[0]]
@@ -246,7 +248,7 @@ def judge(out: Path) -> list[str]:
     return problems
 
 
-def judge_wheel_and_live(out: Path, x: int, top: int, bottom: int, colour: tuple[int, int, int]) -> list[str]:
+def judge_wheel_and_live(out: Path, x: int, top: int, bottom: int, track: tuple[int, int, int]) -> list[str]:
     """The wheel moved the thumb over the text and over the bar; a held drag moved it live."""
     shots = {}
     for name in WHEEL_SHOTS + LIVE_SHOTS:
@@ -254,7 +256,7 @@ def judge_wheel_and_live(out: Path, x: int, top: int, bottom: int, colour: tuple
         if not path.is_file():
             return [f"missing screenshot {path.name}"]
         shots[name] = Shot(path)
-    t = {name: thumb_top(shot, x, top, bottom, colour) for name, shot in shots.items()}
+    t = {name: thumb_top(shot, x, top, bottom, track) for name, shot in shots.items()}
     missing = [name for name, at in t.items() if at is None]
     if missing:
         return [f"the scroll thumb was not found in {missing[0]} (column {x})"]

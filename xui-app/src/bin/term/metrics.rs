@@ -38,7 +38,13 @@ impl Metrics {
     /// [`PROBE_LEN`] `M`s and `text_height` the height of one line of text at
     /// `size` design pixels and `scale`; `spacing` is the line height in
     /// percent of the font size.
-    pub fn new(size: f32, scale: i32, spacing: u32, probe_width: i32, text_height: i32) -> Metrics {
+    pub fn new(
+        size: f32,
+        scale: i32,
+        spacing: u32,
+        probe_width: i32,
+        text_height: i32,
+    ) -> Metrics {
         let scale = scale.max(1);
         let advance = probe_width as f32 / PROBE_LEN as f32;
         let cell_w = (advance.round() as i32).max(1);
@@ -97,11 +103,7 @@ mod tests {
     #[test]
     fn line_spacing_sets_the_height() {
         for (spacing, expect) in [(100, 15), (130, 20), (150, 23), (200, 30)] {
-            assert_eq!(
-                Metrics::new(15.0, 1, spacing, 288, 19).line_h,
-                expect,
-                "{spacing}%"
-            );
+            assert_eq!(Metrics::new(15.0, 1, spacing, 288, 19).line_h, expect, "{spacing}%");
         }
     }
 

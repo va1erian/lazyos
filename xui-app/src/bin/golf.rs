@@ -29,68 +29,63 @@ fn main() {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(1, |d| d.as_secs() % 100_000)
         });
-    launch::run(
-        xui_app::trace::Channel::Golf,
-        "LazyGolf",
-        WINDOW,
-        move |ui, backend| {
-            backend.on_first_frame(|| println!("GOLF:UP:PASS"));
-            // Resizable down to 320 x 200 and up to the screen (maximizable):
-            // the view re-renders at the new size.
-            backend.set_size_hints(320, 200, 0, 0);
-            GolfApp::build(ui, seed, |msg| match msg {
-                Msg::Report(Report::Ready {
-                    name,
-                    seed,
-                    par,
-                    millis,
-                }) => {
-                    println!("GOLF:READY:{seed}:par={par}:ms={millis}:{name}");
-                }
-                Msg::Report(Report::Fps {
-                    fps,
-                    scale,
-                    width,
-                    height,
-                    work_ms,
-                }) => {
-                    println!("GOLF:FPS:{fps}:scale={scale}:{width}x{height}:work={work_ms:.1}");
-                }
-                Msg::Report(Report::Bench {
-                    frames,
-                    min_fps,
-                    avg_fps,
-                }) => {
-                    println!("GOLF:BENCH:frames={frames}:min={min_fps}:avg={avg_fps:.1}");
-                }
-                Msg::Report(Report::Shot {
-                    hole,
-                    stroke,
-                    club,
-                    power,
-                }) => {
-                    println!("GOLF:SHOT:{hole}:{stroke}:{club}:power={power:.2}");
-                }
-                Msg::Report(Report::Landed {
-                    hole,
-                    stroke,
-                    material,
-                    carry,
-                }) => {
-                    println!("GOLF:LAND:{hole}:{stroke}:{material}:carry={carry:.0}");
-                }
-                Msg::Report(Report::Penalty { hole, stroke, kind }) => {
-                    println!("GOLF:PENALTY:{hole}:{stroke}:{kind}");
-                }
-                Msg::Report(Report::Holed { hole, strokes, par }) => {
-                    println!("GOLF:HOLED:{hole}:{strokes}:par={par}");
-                }
-                Msg::Report(Report::PickedUp { hole, strokes, par }) => {
-                    println!("GOLF:PICKUP:{hole}:{strokes}:par={par}");
-                }
-                Msg::Quit => println!("GOLF:QUIT:PASS"),
-            })
-            .inspect_err(|error| println!("GOLF:BUILD:FAIL:{error}"))
-        },
-    )
+    launch::run(xui_app::trace::Channel::Golf, "LazyGolf", WINDOW, move |ui, backend| {
+        backend.on_first_frame(|| println!("GOLF:UP:PASS"));
+        // Resizable down to 320 x 200 and up to the screen (maximizable):
+        // the view re-renders at the new size.
+        backend.set_size_hints(320, 200, 0, 0);
+        GolfApp::build(ui, seed, |msg| match msg {
+            Msg::Report(Report::Ready {
+                name,
+                seed,
+                par,
+                millis,
+            }) => {
+                println!("GOLF:READY:{seed}:par={par}:ms={millis}:{name}");
+            }
+            Msg::Report(Report::Fps {
+                fps,
+                scale,
+                width,
+                height,
+                work_ms,
+            }) => {
+                println!("GOLF:FPS:{fps}:scale={scale}:{width}x{height}:work={work_ms:.1}");
+            }
+            Msg::Report(Report::Bench {
+                frames,
+                min_fps,
+                avg_fps,
+            }) => {
+                println!("GOLF:BENCH:frames={frames}:min={min_fps}:avg={avg_fps:.1}");
+            }
+            Msg::Report(Report::Shot {
+                hole,
+                stroke,
+                club,
+                power,
+            }) => {
+                println!("GOLF:SHOT:{hole}:{stroke}:{club}:power={power:.2}");
+            }
+            Msg::Report(Report::Landed {
+                hole,
+                stroke,
+                material,
+                carry,
+            }) => {
+                println!("GOLF:LAND:{hole}:{stroke}:{material}:carry={carry:.0}");
+            }
+            Msg::Report(Report::Penalty { hole, stroke, kind }) => {
+                println!("GOLF:PENALTY:{hole}:{stroke}:{kind}");
+            }
+            Msg::Report(Report::Holed { hole, strokes, par }) => {
+                println!("GOLF:HOLED:{hole}:{strokes}:par={par}");
+            }
+            Msg::Report(Report::PickedUp { hole, strokes, par }) => {
+                println!("GOLF:PICKUP:{hole}:{strokes}:par={par}");
+            }
+            Msg::Quit => println!("GOLF:QUIT:PASS"),
+        })
+        .inspect_err(|error| println!("GOLF:BUILD:FAIL:{error}"))
+    })
 }

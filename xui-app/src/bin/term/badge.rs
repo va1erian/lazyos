@@ -26,14 +26,7 @@ pub fn rect(layout: &Layout, text: &str) -> Rect {
 }
 
 /// Draw the badge over everything else, inside `damage`.
-pub fn paint(
-    canvas: &mut dyn Canvas,
-    palette: &Palette,
-    look: &Look,
-    layout: &Layout,
-    text: &str,
-    damage: Rect,
-) {
+pub fn paint(canvas: &mut dyn Canvas, palette: &Palette, look: &Look, layout: &Layout, text: &str, damage: Rect) {
     let panel = rect(layout, text);
     if !overlaps(panel, damage) {
         return;
@@ -42,20 +35,8 @@ pub fn paint(
     let fg = color(palette.fg());
     let edge = color(palette.cursor());
     canvas.fill_rounded_rect(panel, 6.0 * scale as f32, edge);
-    let inner = intersect(
-        Rect::new(
-            panel.left + scale,
-            panel.top + scale,
-            panel.right - scale,
-            panel.bottom - scale,
-        ),
-        panel,
-    );
-    canvas.fill_rounded_rect(
-        inner,
-        5.0 * scale as f32,
-        color(palette.bg().lerp(palette.fg(), 0.16)),
-    );
+    let inner = intersect(Rect::new(panel.left + scale, panel.top + scale, panel.right - scale, panel.bottom - scale), panel);
+    canvas.fill_rounded_rect(inner, 5.0 * scale as f32, color(palette.bg().lerp(palette.fg(), 0.16)));
     let at = Rect::new(
         panel.left + layout.cell_w,
         panel.top + (panel.height() - layout.line_h) / 2 + look.metrics.text_dy,

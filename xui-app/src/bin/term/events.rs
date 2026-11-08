@@ -5,8 +5,8 @@ use xui_core::backend::Event;
 use xui_core::{Control, WidgetId};
 
 use super::msg::Msg;
-use super::pointer::{mouse, MouseKind};
 use super::timers::Timers;
+use super::pointer::{mouse, MouseKind};
 
 /// Route the root node's keyboard, focus, wheel and pointer events.
 pub(super) fn install(root: &Control<Msg>) {
@@ -40,7 +40,9 @@ pub(super) fn install(root: &Control<Msg>) {
             button,
             modifiers,
         } => Some(mouse(MouseKind::Double(*button), *x, *y, *modifiers)),
-        Event::MouseMove { x, y, modifiers } => Some(mouse(MouseKind::Move, *x, *y, *modifiers)),
+        Event::MouseMove { x, y, modifiers } => {
+            Some(mouse(MouseKind::Move, *x, *y, *modifiers))
+        }
         _ => None,
     });
 }

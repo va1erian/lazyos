@@ -211,37 +211,32 @@ fn shortcut(key: Key) -> Option<Msg> {
 }
 
 fn main() {
-    launch::run(
-        xui_app::trace::Channel::Fabmon,
-        "fabricmon",
-        WINDOW,
-        |ui, backend| {
-            // Resizable, down to the compact view, so `RequestSize` is accepted.
-            backend.set_size_hints(compact::MIN_SIZE.0, compact::MIN_SIZE.1, 0, 0);
-            let state = State::load();
-            let first = state.evidence();
-            backend.on_first_frame(move || println!("{first}"));
+    launch::run(xui_app::trace::Channel::Fabmon, "fabricmon", WINDOW, |ui, backend| {
+        // Resizable, down to the compact view, so `RequestSize` is accepted.
+        backend.set_size_hints(compact::MIN_SIZE.0, compact::MIN_SIZE.1, 0, 0);
+        let state = State::load();
+        let first = state.evidence();
+        backend.on_first_frame(move || println!("{first}"));
 
-            let widgets = Widgets::default();
-            ui.root(widgets.layout())?;
-            ui.on_key(|key, _| shortcut(key));
-            ui.on_close(|| Some(Msg::Quit));
-            ui.register_events(WidgetId::NONE, |event| {
-                matches!(event, Event::Resize { .. }).then_some(Msg::Resized)
-            });
-            ui.every(REFRESH_MILLIS, Msg::Tick);
+        let widgets = Widgets::default();
+        ui.root(widgets.layout())?;
+        ui.on_key(|key, _| shortcut(key));
+        ui.on_close(|| Some(Msg::Quit));
+        ui.register_events(WidgetId::NONE, |event| {
+            matches!(event, Event::Resize { .. }).then_some(Msg::Resized)
+        });
+        ui.every(REFRESH_MILLIS, Msg::Tick);
 
-            widgets.show(&state, 0);
-            let design = hidpi::design_rect(ui);
-            widgets.set_compact(ui, compact::is_compact(design.width(), design.height()));
-            Ok(Fabricmon {
-                widgets,
-                backend: Rc::clone(backend),
-                state,
-                refreshes: 0,
-                ticked: false,
-                full_size: WINDOW,
-            })
-        },
-    )
+        widgets.show(&state, 0);
+        let design = hidpi::design_rect(ui);
+        widgets.set_compact(ui, compact::is_compact(design.width(), design.height()));
+        Ok(Fabricmon {
+            widgets,
+            backend: Rc::clone(backend),
+            state,
+            refreshes: 0,
+            ticked: false,
+            full_size: WINDOW,
+        })
+    })
 }

@@ -13,8 +13,7 @@
 
 use lazyterm::palette::NAMES;
 use lazyterm::settings::{
-    parse_grid, Bell, CursorShape, Settings, Value, MAX_SCROLLBACK, MAX_SIZE, MAX_SPACING,
-    MIN_SIZE, MIN_SPACING,
+    parse_grid, Bell, CursorShape, Settings, Value, MAX_SCROLLBACK, MAX_SIZE, MAX_SPACING, MIN_SIZE, MIN_SPACING,
 };
 use xui_core::{Key, Modifiers, Rect};
 
@@ -73,10 +72,7 @@ pub struct Outcome {
 
 impl Outcome {
     fn change(key: &'static str, value: Value) -> Outcome {
-        Outcome {
-            close: false,
-            changes: vec![Change { key, value }],
-        }
+        Outcome { close: false, changes: vec![Change { key, value }] }
     }
 }
 
@@ -89,17 +85,11 @@ pub struct Field {
 
 impl Field {
     fn set(text: &str) -> Field {
-        Field {
-            text: text.to_string(),
-            caret: text.chars().count(),
-        }
+        Field { text: text.to_string(), caret: text.chars().count() }
     }
 
     fn byte(&self, chars: usize) -> usize {
-        self.text
-            .char_indices()
-            .nth(chars)
-            .map_or(self.text.len(), |(i, _)| i)
+        self.text.char_indices().nth(chars).map_or(self.text.len(), |(i, _)| i)
     }
 
     /// Apply an editing key; returns whether it was one.
@@ -177,11 +167,7 @@ impl Prefs {
             keep(Ctl::WindowSize, &self.window_size),
         );
         self.show(settings);
-        for (field, kept) in [
-            (&mut self.scrollback, a),
-            (&mut self.word_chars, b),
-            (&mut self.window_size, c),
-        ] {
+        for (field, kept) in [(&mut self.scrollback, a), (&mut self.word_chars, b), (&mut self.window_size, c)] {
             if let Some(kept) = kept {
                 *field = kept;
             }
@@ -191,10 +177,7 @@ impl Prefs {
     fn show(&mut self, s: &Settings) {
         self.scrollback = Field::set(&s.scrollback.to_string());
         self.word_chars = Field::set(&s.word_chars);
-        self.window_size = Field::set(
-            &s.window_size
-                .map_or(String::new(), |(c, r)| format!("{c}x{r}")),
-        );
+        self.window_size = Field::set(&s.window_size.map_or(String::new(), |(c, r)| format!("{c}x{r}")));
     }
 
     fn field_mut(&mut self, ctl: Ctl) -> Option<&mut Field> {
@@ -210,11 +193,7 @@ impl Prefs {
     fn move_focus(&mut self, forward: bool) -> Outcome {
         let out = self.commit(self.focus);
         let at = ORDER.iter().position(|&c| c == self.focus).unwrap_or(0);
-        let next = if forward {
-            (at + 1) % ORDER.len()
-        } else {
-            (at + ORDER.len() - 1) % ORDER.len()
-        };
+        let next = if forward { (at + 1) % ORDER.len() } else { (at + ORDER.len() - 1) % ORDER.len() };
         self.focus = ORDER[next];
         out
     }
@@ -239,12 +218,8 @@ impl Prefs {
             }
             Ctl::WordChars => {
                 let text = self.word_chars.text.clone();
-                self.settings
-                    .apply("select/word_chars", &Value::Text(text.clone()));
-                return Outcome::change(
-                    "select/word_chars",
-                    Value::Text(self.settings.word_chars.clone()),
-                );
+                self.settings.apply("select/word_chars", &Value::Text(text.clone()));
+                return Outcome::change("select/word_chars", Value::Text(self.settings.word_chars.clone()));
             }
             Ctl::WindowSize => {
                 let text = self.window_size.text.trim().to_string();
@@ -270,11 +245,7 @@ impl Prefs {
         let s = &mut self.settings;
         match ctl {
             Ctl::Family => {
-                let at = self
-                    .families
-                    .iter()
-                    .position(|f| *f == s.family)
-                    .unwrap_or(0) as i32;
+                let at = self.families.iter().position(|f| *f == s.family).unwrap_or(0) as i32;
                 let next = (at + delta).clamp(0, self.families.len() as i32 - 1) as usize;
                 let Some(family) = self.families.get(next).cloned() else {
                     return Outcome::default();
@@ -287,8 +258,7 @@ impl Prefs {
                 Outcome::change("font/size", Value::Int(i64::from(s.size)))
             }
             Ctl::Spacing => {
-                s.line_spacing = (i64::from(s.line_spacing) + 5 * i64::from(delta))
-                    .clamp(MIN_SPACING, MAX_SPACING) as u32;
+                s.line_spacing = (i64::from(s.line_spacing) + 5 * i64::from(delta)).clamp(MIN_SPACING, MAX_SPACING) as u32;
                 Outcome::change("font/line_spacing", Value::Int(i64::from(s.line_spacing)))
             }
             Ctl::Scheme => {
@@ -298,10 +268,7 @@ impl Prefs {
             }
             Ctl::CursorShape => {
                 s.cursor_shape = Self::cycle(&SHAPES, s.cursor_shape, delta);
-                Outcome::change(
-                    "cursor/shape",
-                    Value::Text(s.cursor_shape.name().to_string()),
-                )
+                Outcome::change("cursor/shape", Value::Text(s.cursor_shape.name().to_string()))
             }
             Ctl::Bell => {
                 s.bell = Self::cycle(&BELLS, s.bell, delta);
@@ -344,10 +311,7 @@ impl Prefs {
     /// A key press (not text).
     pub fn key(&mut self, key: Key, mods: Modifiers) -> Outcome {
         if key == Key::ESCAPE {
-            return Outcome {
-                close: true,
-                changes: Vec::new(),
-            };
+            return Outcome { close: true, changes: Vec::new() };
         }
         if key == Key::TAB {
             return self.move_focus(!mods.shift);
@@ -374,12 +338,7 @@ impl Prefs {
             Key::DOWN if ctl == Ctl::Family => self.step(ctl, 1),
             Key::UP => self.move_focus(false),
             Key::DOWN => self.move_focus(true),
-            Key::RETURN | Key::SPACE
-                if matches!(
-                    ctl,
-                    Ctl::Blink | Ctl::Bold | Ctl::CopyOnSelect | Ctl::ConfirmPaste
-                ) =>
-            {
+            Key::RETURN | Key::SPACE if matches!(ctl, Ctl::Blink | Ctl::Bold | Ctl::CopyOnSelect | Ctl::ConfirmPaste) => {
                 self.toggle(ctl)
             }
             _ => Outcome::default(),
@@ -388,11 +347,7 @@ impl Prefs {
 
     /// A click on `part`.
     pub fn click_part(&mut self, part: Part) -> Outcome {
-        let prior = if self.field_mut(self.focus).is_some() {
-            self.commit(self.focus)
-        } else {
-            Outcome::default()
-        };
+        let prior = if self.field_mut(self.focus).is_some() { self.commit(self.focus) } else { Outcome::default() };
         let mut out = match part {
             Part::Family(name) => {
                 self.focus = Ctl::Family;
@@ -409,10 +364,7 @@ impl Prefs {
             Part::Cursor(i) => {
                 self.focus = Ctl::CursorShape;
                 self.settings.cursor_shape = SHAPES[i.min(2)];
-                Outcome::change(
-                    "cursor/shape",
-                    Value::Text(self.settings.cursor_shape.name().to_string()),
-                )
+                Outcome::change("cursor/shape", Value::Text(self.settings.cursor_shape.name().to_string()))
             }
             Part::Bell(i) => {
                 self.focus = Ctl::Bell;
@@ -427,17 +379,11 @@ impl Prefs {
                 self.focus = ctl;
                 Outcome::default()
             }
-            Part::Close => Outcome {
-                close: true,
-                changes: Vec::new(),
-            },
+            Part::Close => Outcome { close: true, changes: Vec::new() },
         };
         let mut changes = prior.changes;
         changes.append(&mut out.changes);
-        Outcome {
-            close: out.close,
-            changes,
-        }
+        Outcome { close: out.close, changes }
     }
 
     fn focus_step(&mut self, ctl: Ctl, delta: i32) -> Outcome {
@@ -470,10 +416,7 @@ pub struct PrefsLayout {
 
 impl PrefsLayout {
     pub fn part_at(&self, x: i32, y: i32) -> Option<&Part> {
-        self.parts
-            .iter()
-            .find(|(_, r, _)| contains(*r, x, y))
-            .map(|(p, _, _)| p)
+        self.parts.iter().find(|(_, r, _)| contains(*r, x, y)).map(|(p, _, _)| p)
     }
 }
 
@@ -492,134 +435,50 @@ pub fn layout(prefs: &Prefs, window: (i32, i32), scale: i32) -> PrefsLayout {
     let mut parts: Vec<(Part, Rect, String)> = Vec::new();
     let mut add = |part: Part, rect: Rect, name: String| parts.push((part, rect, name));
     // The title row holds the close button.
-    add(
-        Part::Close,
-        Rect::new(
-            panel.right - 30 * s,
-            top + 4 * s,
-            panel.right - 6 * s,
-            top + 26 * s,
-        ),
-        "prefs:close".into(),
-    );
+    add(Part::Close, Rect::new(panel.right - 30 * s, top + 4 * s, panel.right - 6 * s, top + 26 * s), "prefs:close".into());
     // Left column: the family list and the preview line under it.
     let col = left + 10 * s;
     let list_top = top + 34 * s;
     let visible = LIST_ROWS as usize;
-    let at = prefs
-        .families
-        .iter()
-        .position(|f| *f == prefs.settings.family)
-        .unwrap_or(0);
-    let first = at
-        .saturating_sub(visible - 1)
-        .min(prefs.families.len().saturating_sub(visible));
+    let at = prefs.families.iter().position(|f| *f == prefs.settings.family).unwrap_or(0);
+    let first = at.saturating_sub(visible - 1).min(prefs.families.len().saturating_sub(visible));
     for (i, name) in prefs.families.iter().skip(first).take(visible).enumerate() {
         let y = list_top + i as i32 * 22 * s;
-        add(
-            Part::Family(name.clone()),
-            Rect::new(col, y, col + 230 * s, y + 22 * s),
-            format!("prefs:family:{}", name.replace(' ', "_")),
-        );
+        add(Part::Family(name.clone()), Rect::new(col, y, col + 230 * s, y + 22 * s), format!("prefs:family:{}", name.replace(' ', "_")));
     }
-    let preview = Rect::new(
-        col,
-        list_top + LIST_ROWS * 22 * s + 8 * s,
-        col + 270 * s,
-        list_top + LIST_ROWS * 22 * s + 8 * s + 34 * s,
-    );
+    let preview = Rect::new(col, list_top + LIST_ROWS * 22 * s + 8 * s, col + 270 * s, list_top + LIST_ROWS * 22 * s + 8 * s + 34 * s);
     // Right column.
     let x0 = left + 290 * s;
     let row = |i: i32| top + 34 * s + i * ROW * s;
     let control_x = x0 + 90 * s;
     let rect = |x: i32, i: i32, w: i32| Rect::new(x, row(i), x + w, row(i) + (ROW - 3) * s);
-    add(
-        Part::SizeStep(-1),
-        rect(control_x, 0, 26 * s),
-        "prefs:size_dec".into(),
-    );
-    add(
-        Part::SizeStep(1),
-        rect(control_x + 100 * s, 0, 26 * s),
-        "prefs:size_inc".into(),
-    );
-    add(
-        Part::SpacingStep(-1),
-        rect(control_x, 1, 26 * s),
-        "prefs:spacing_dec".into(),
-    );
-    add(
-        Part::SpacingStep(1),
-        rect(control_x + 100 * s, 1, 26 * s),
-        "prefs:spacing_inc".into(),
-    );
+    add(Part::SizeStep(-1), rect(control_x, 0, 26 * s), "prefs:size_dec".into());
+    add(Part::SizeStep(1), rect(control_x + 100 * s, 0, 26 * s), "prefs:size_inc".into());
+    add(Part::SpacingStep(-1), rect(control_x, 1, 26 * s), "prefs:spacing_dec".into());
+    add(Part::SpacingStep(1), rect(control_x + 100 * s, 1, 26 * s), "prefs:spacing_inc".into());
     for (i, name) in NAMES.iter().enumerate() {
-        add(
-            Part::Scheme(i),
-            rect(x0 + i as i32 * 58 * s, 3, 54 * s),
-            format!("prefs:scheme:{name}"),
-        );
+        add(Part::Scheme(i), rect(x0 + i as i32 * 58 * s, 3, 54 * s), format!("prefs:scheme:{name}"));
     }
     let mut at = control_x;
     for (i, shape) in SHAPES.iter().enumerate() {
         let w = [58, 82, 52][i] * s;
-        add(
-            Part::Cursor(i),
-            rect(at, 4, w),
-            format!("prefs:cursor:{}", shape.name()),
-        );
+        add(Part::Cursor(i), rect(at, 4, w), format!("prefs:cursor:{}", shape.name()));
         at += w + 4 * s;
     }
-    add(
-        Part::Toggle(Ctl::Blink),
-        rect(control_x, 5, 70 * s),
-        "prefs:blink".into(),
-    );
-    add(
-        Part::Toggle(Ctl::Bold),
-        rect(control_x + 72 * s, 5, 125 * s),
-        "prefs:bold_is_bright".into(),
-    );
-    add(
-        Part::Field(Ctl::Scrollback),
-        rect(control_x, 6, 120 * s),
-        "prefs:scrollback".into(),
-    );
+    add(Part::Toggle(Ctl::Blink), rect(control_x, 5, 70 * s), "prefs:blink".into());
+    add(Part::Toggle(Ctl::Bold), rect(control_x + 72 * s, 5, 125 * s), "prefs:bold_is_bright".into());
+    add(Part::Field(Ctl::Scrollback), rect(control_x, 6, 120 * s), "prefs:scrollback".into());
     let mut at = control_x;
     for (i, bell) in BELLS.iter().enumerate() {
         let w = [46, 54, 52, 54][i] * s;
-        add(
-            Part::Bell(i),
-            rect(at, 7, w),
-            format!("prefs:bell:{}", bell.name()),
-        );
+        add(Part::Bell(i), rect(at, 7, w), format!("prefs:bell:{}", bell.name()));
         at += w + 4 * s;
     }
-    add(
-        Part::Toggle(Ctl::CopyOnSelect),
-        rect(x0, 8, 130 * s),
-        "prefs:copy_on_select".into(),
-    );
-    add(
-        Part::Toggle(Ctl::ConfirmPaste),
-        rect(x0 + 150 * s, 8, 148 * s),
-        "prefs:confirm_paste".into(),
-    );
-    add(
-        Part::Field(Ctl::WordChars),
-        rect(control_x, 9, 120 * s),
-        "prefs:word_chars".into(),
-    );
-    add(
-        Part::Field(Ctl::WindowSize),
-        rect(control_x, 10, 120 * s),
-        "prefs:window_size".into(),
-    );
-    PrefsLayout {
-        panel,
-        parts,
-        preview,
-    }
+    add(Part::Toggle(Ctl::CopyOnSelect), rect(x0, 8, 130 * s), "prefs:copy_on_select".into());
+    add(Part::Toggle(Ctl::ConfirmPaste), rect(x0 + 150 * s, 8, 148 * s), "prefs:confirm_paste".into());
+    add(Part::Field(Ctl::WordChars), rect(control_x, 9, 120 * s), "prefs:word_chars".into());
+    add(Part::Field(Ctl::WindowSize), rect(control_x, 10, 120 * s), "prefs:window_size".into());
+    PrefsLayout { panel, parts, preview }
 }
 
 #[cfg(test)]

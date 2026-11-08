@@ -4,10 +4,10 @@
 //! them. Parsing and validation are `lazyterm::settings` (host-tested).
 
 use lazyterm::settings::{Settings, Value, KEYS};
-use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 use xui_app::platform::confd_store::ConfdStore;
 use xui_app::platform::messenger::Service;
 use xui_app::platform::topic_feed::TopicFeed;
+use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 use xui_app::sys;
 use xui_settings::store::{ConfigStore, Value as StoreValue};
 
@@ -82,11 +82,7 @@ impl Follower {
                 }
             }
         }
-        let motion = if self.available {
-            self.motion()
-        } else {
-            String::new()
-        };
+        let motion = if self.available { self.motion() } else { String::new() };
         self.next_motion = sys::clock_ticks().saturating_add(MOTION_TICKS);
         self.current = Conf {
             settings,
@@ -119,9 +115,7 @@ impl Follower {
             return;
         }
         let path = format!("user/{uid}/term/window/last_size");
-        let _ = self
-            .store
-            .set(&path, StoreValue::Str(format!("{cols}x{rows}")));
+        let _ = self.store.set(&path, StoreValue::Str(format!("{cols}x{rows}")));
     }
 
     /// Write one of the Terminal's keys under `user/<uid>/term/` (the

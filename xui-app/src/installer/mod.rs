@@ -12,12 +12,12 @@ pub(crate) mod model;
 mod tool;
 mod view;
 
-pub use model::{
-    core_removal_refused, Installed, MimeHandler, Model, Package, Permission, Request, Screen,
-    WIZARD_STEPS,
-};
 pub use tool::{
     approval_note, class_counts, installed_name, is_developer_tool, refusal_text, tool_items,
     warning_text, OPERATION as DEVTOOL_OPERATION,
+};
+pub use model::{
+    core_removal_refused, Installed, MimeHandler, Model, Package, Permission, Request, Screen,
+    WIZARD_STEPS,
 };
 pub use view::{clean, elide, group_by_risk, permission_line, short_digest, Risk, RiskGroup};

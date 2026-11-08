@@ -24,19 +24,14 @@ use xui_app::platform::system::OsSystem;
 use xui_settings::app::{SettingsApp, WINDOW};
 
 fn main() {
-    launch::run(
-        xui_app::trace::Channel::Settings,
-        "Settings",
-        WINDOW,
-        |ui, backend| {
-            backend.on_first_frame(|| println!("SETTINGS:UP:PASS"));
-            SettingsApp::build(
-                ui,
-                Rc::new(ElevatingStore(ConfdStore::new())),
-                Rc::new(OsSystem::new()),
-                Rc::new(OsAccounts),
-            )
-            .inspect_err(|error| println!("SETTINGS:BUILD:FAIL:{error}"))
-        },
-    )
+    launch::run(xui_app::trace::Channel::Settings, "Settings", WINDOW, |ui, backend| {
+        backend.on_first_frame(|| println!("SETTINGS:UP:PASS"));
+        SettingsApp::build(
+            ui,
+            Rc::new(ElevatingStore(ConfdStore::new())),
+            Rc::new(OsSystem::new()),
+            Rc::new(OsAccounts),
+        )
+        .inspect_err(|error| println!("SETTINGS:BUILD:FAIL:{error}"))
+    })
 }

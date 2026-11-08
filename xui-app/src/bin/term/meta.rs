@@ -29,11 +29,7 @@ impl Terminal {
     pub(super) fn meta_changed(&mut self, ui: &mut Ui<Msg>) {
         let (generation, title, cwd) = {
             let term = self.term.borrow();
-            (
-                term.title_generation(),
-                term.title().map(str::to_string),
-                term.cwd().cloned(),
-            )
+            (term.title_generation(), term.title().map(str::to_string), term.cwd().cloned())
         };
         if generation != self.title_generation {
             self.title_generation = generation;
@@ -101,14 +97,8 @@ mod tests {
     fn the_working_directory_resolves_the_tilde() {
         assert_eq!(resolve_cwd("", "/tmp/a", None).as_deref(), Some("/tmp/a"));
         assert_eq!(resolve_cwd("lazyos", "/", None).as_deref(), Some("/"));
-        assert_eq!(
-            resolve_cwd("~", "/src", Some("/home/user")).as_deref(),
-            Some("/home/user/src")
-        );
-        assert_eq!(
-            resolve_cwd("~", "", Some("/home/user/")).as_deref(),
-            Some("/home/user")
-        );
+        assert_eq!(resolve_cwd("~", "/src", Some("/home/user")).as_deref(), Some("/home/user/src"));
+        assert_eq!(resolve_cwd("~", "", Some("/home/user/")).as_deref(), Some("/home/user"));
         assert_eq!(resolve_cwd("~", "/x", None), None, "no home to expand");
         assert_eq!(resolve_cwd("~", "/x", Some("relative")), None);
         assert_eq!(resolve_cwd("", "relative", None), None);

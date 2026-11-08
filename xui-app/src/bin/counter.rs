@@ -94,22 +94,16 @@ fn layout(
 }
 
 fn main() {
-    launch::run(
-        xui_app::trace::Channel::Xuiapp,
-        "xui counter",
-        WINDOW,
-        |ui, backend| {
-            backend.on_first_frame(|| println!("XUIAPP:COUNTER:PASS"));
-            let scale = backend.scale() as i32;
-            let area = hidpi::design_rect(ui);
-            let area = (area.width(), area.height());
-            let seed =
-                (!backend.is_client()).then(|| (POINTER_SEED.0 / scale, POINTER_SEED.1 / scale));
+    launch::run(xui_app::trace::Channel::Xuiapp, "xui counter", WINDOW, |ui, backend| {
+        backend.on_first_frame(|| println!("XUIAPP:COUNTER:PASS"));
+        let scale = backend.scale() as i32;
+        let area = hidpi::design_rect(ui);
+        let area = (area.width(), area.height());
+        let seed = (!backend.is_client()).then(|| (POINTER_SEED.0 / scale, POINTER_SEED.1 / scale));
 
-            let label = Handle::new();
-            ui.root(layout(&label, area, seed))?;
-            ui.on_close(|| Some(Msg::Close));
-            Ok(Counter { label, count: 0 })
-        },
-    )
+        let label = Handle::new();
+        ui.root(layout(&label, area, seed))?;
+        ui.on_close(|| Some(Msg::Close));
+        Ok(Counter { label, count: 0 })
+    })
 }

@@ -838,8 +838,7 @@ and `layout_stored` (run them last; they leave a dragged layout stored on the vo
 
 Host tests: `cargo test --manifest-path xui-app/Cargo.toml --bin xui-playground` (layout at four
 window sizes, hidden row, divider drags, the Markdown page, links) and `--lib backend::`
-(wheel routing, coalescing); `cargo test --release ... survey -- --ignored --nocapture` prints the
-per-page step cost. Guest: `python tools/playground/scroll_run.py` (wheel over text and bar, a held
+(wheel routing, coalescing); the page's own scroll cost is `xui-markdown`'s (its `perf` test). Guest: `python tools/playground/scroll_run.py` (wheel over text and bar, a held
 drag shot mid-drag, release without a jump; it rebuilds with a fresh OS volume by default (`run.py`'s `build` bumps `build.rs`'s mtime so the reset applies even when nothing else changed), because
 the judge measures the default doc pane and a stored layout, left by the `layout` session, makes it
 taller: `--no-build` reuses the image and the judge fails on `PLAYGROUND:LAYOUT:LOADED`) and `python tools/playground/run.py --only layout,layout_stored`.

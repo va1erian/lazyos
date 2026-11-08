@@ -33,14 +33,9 @@ impl Terminal {
 
     /// Menu: choose a file to save the output to.
     pub(super) fn open_save(&mut self) {
-        let secs = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs());
+        let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
         self.save_dialog.set_suggested_name(&suggested_name(secs));
-        if let Some(home) = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .filter(|h| h.is_absolute())
-        {
+        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from).filter(|h| h.is_absolute()) {
             self.save_dialog.set_initial_dir(home);
         }
         self.save_dialog.open();
@@ -65,10 +60,7 @@ impl Terminal {
     /// Open another Terminal (as the start menu does: `init`'s `Launch`) in the
     /// directory the shell last reported, if it still exists.
     pub(super) fn new_window(&mut self) {
-        let cwd = self
-            .cwd_path()
-            .filter(|p| Path::new(p).is_absolute() && Path::new(p).is_dir())
-            .unwrap_or_default();
+        let cwd = self.cwd_path().filter(|p| Path::new(p).is_absolute() && Path::new(p).is_dir()).unwrap_or_default();
         println!("TERM:NEWWIN:{cwd}");
         if let Err(code) = xui_app::shell::launch("terminal", &cwd) {
             println!("TERM:NEWWIN:FAIL:{}", -code);
@@ -97,12 +89,7 @@ impl Terminal {
     pub(super) fn show_prompt(&mut self, ui: &mut Ui<Msg>, prompt: Prompt) {
         if let Some(layout) = self.layout.get() {
             let rects = super::geometry::confirm_rects(&layout);
-            for (name, r) in
-                prompt
-                    .probe_names()
-                    .into_iter()
-                    .zip([rects.bar, rects.paste, rects.cancel])
-            {
+            for (name, r) in prompt.probe_names().into_iter().zip([rects.bar, rects.paste, rects.cancel]) {
                 self.probe_rect(name, r);
             }
         }
@@ -135,8 +122,7 @@ impl Terminal {
 
     /// BELs arrived: what the setting says, at most one a half second.
     pub(super) fn ring(&mut self, ui: &mut Ui<Msg>, rang: u32) {
-        let Some(kind) = bell::decide(self.conf.settings.bell, rang, &mut self.bell, now_ms())
-        else {
+        let Some(kind) = bell::decide(self.conf.settings.bell, rang, &mut self.bell, now_ms()) else {
             return;
         };
         match kind {

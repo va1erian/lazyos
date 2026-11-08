@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use xui_app::sysinfo::{cpu_percent, CpuSample, ProcessMemory, ProcessTable, Snapshot, TaskRow};
+use xui_app::sysinfo::{CpuSample, ProcessMemory, ProcessTable, Snapshot, TaskRow, cpu_percent};
 
 /// What the last snapshot said, kept to compare the next one against.
 #[derive(Default)]

@@ -234,11 +234,11 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "app's core package (opened with every session); built in Docker "
                              "(tools/webkit/deps.py, port.py, webd.py) and packaged by tools/xui/build.py. "
                              "No network stack: a light view has no network. Every --desktop image already "
-                             "ships webd (Docs and Mail draw their pages with it): it is built when its "
+                             "ships webd (Mail draws its pages with it): it is built when its "
                              "programs are missing, and the run goes on without it if that fails; this flag "
                              "makes a failure fatal and forces the big-app profile")
     parser.add_argument("--no-webd", action="store_true",
-                        help="leave webd out of a desktop (LAZYOS_WEBD=0): Docs and Mail then say the web "
+                        help="leave webd out of a desktop (LAZYOS_WEBD=0): Mail then says the web "
                              "engine is not running; no Docker build")
     parser.add_argument("--webd-demo", action="store_true",
                         help="webd plus its test clients os.lazy.webddemo, os.lazy.webdbrowse and the "
@@ -382,7 +382,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
                     or args.lazyweb or args.webd or args.lazysky or args.mail
                     or args.pictures
                     or args.traydemo or args.games or args.devtools or args.setup)
-    # Docs and Mail draw their pages with webd, which every desktop ships: asked for by no flag, built when
+    # Mail draws its pages with webd, which every desktop ships: asked for by no flag, built when
     # missing, and left out only by `--no-webd` (the run goes on without it when its build fails). LazyWeb
     # requires it and builds it itself (`build_lazyweb`), so for it the build is not implicit.
     args.webd_implicit = args.desktop and not args.webd and not args.no_webd and not args.lazyweb

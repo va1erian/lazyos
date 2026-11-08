@@ -28,23 +28,12 @@ impl Terminal {
     /// The pointer moved (or Ctrl changed): underline the link under it while
     /// Ctrl is held, and show the hand over it.
     pub(super) fn link_hover(&mut self, ui: &mut Ui<Msg>, x: i32, y: i32, ctrl: bool) {
-        let hit = if ctrl && !self.modal() {
-            self.link_at_pixel(x, y)
-        } else {
-            None
-        };
+        let hit = if ctrl && !self.modal() { self.link_at_pixel(x, y) } else { None };
         if hit == self.hover {
             return;
         }
         self.chrome.borrow_mut().hover = hit.as_ref().map(|h| (h.start, h.end));
-        ui.set_cursor(
-            self.root.id(),
-            if hit.is_some() {
-                Cursor::Hand
-            } else {
-                Cursor::Text
-            },
-        );
+        ui.set_cursor(self.root.id(), if hit.is_some() { Cursor::Hand } else { Cursor::Text });
         self.hover = hit;
         self.redraw(ui);
     }
@@ -82,13 +71,8 @@ impl Terminal {
             let visible = layout.visible.clamp(1, term.rows());
             let first = first_row(row, visible, term.rows());
             let slot = (row + self.offset.get()).saturating_sub(first);
-            let at = (
-                layout.pad + col as i32 * layout.cell_w,
-                layout.pad + (slot as i32 + 1) * layout.line_h,
-            );
-            let link = term
-                .link_hit_at(term.screen_top() + row as u64, col)
-                .and_then(|h| sanitize_url(&h.uri));
+            let at = (layout.pad + col as i32 * layout.cell_w, layout.pad + (slot as i32 + 1) * layout.line_h);
+            let link = term.link_hit_at(term.screen_top() + row as u64, col).and_then(|h| sanitize_url(&h.uri));
             (at, link)
         };
         self.open_menu(ui, at, link);

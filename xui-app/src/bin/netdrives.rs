@@ -389,26 +389,21 @@ impl Netdrives {
 }
 
 fn main() {
-    launch::run(
-        xui_app::trace::Channel::Netdrives,
-        TITLE,
-        WINDOW,
-        |ui, backend| {
-            backend.on_first_frame(|| println!("NETDRIVES:UP:PASS"));
-            let w = Widgets::default();
-            ui.root(w.layout())
-                .inspect_err(|error| println!("NETDRIVES:BUILD:FAIL:{error}"))?;
-            ui.every(REFRESH_MILLIS, Msg::Tick);
-            ui.on_close(|| Some(Msg::Close));
-            let mut app = Netdrives {
-                w,
-                mounts: Vec::new(),
-                reported: HashMap::new(),
-                reachable: None,
-                probed: false,
-            };
-            app.refresh();
-            Ok(app)
-        },
-    )
+    launch::run(xui_app::trace::Channel::Netdrives, TITLE, WINDOW, |ui, backend| {
+        backend.on_first_frame(|| println!("NETDRIVES:UP:PASS"));
+        let w = Widgets::default();
+        ui.root(w.layout())
+            .inspect_err(|error| println!("NETDRIVES:BUILD:FAIL:{error}"))?;
+        ui.every(REFRESH_MILLIS, Msg::Tick);
+        ui.on_close(|| Some(Msg::Close));
+        let mut app = Netdrives {
+            w,
+            mounts: Vec::new(),
+            reported: HashMap::new(),
+            reachable: None,
+            probed: false,
+        };
+        app.refresh();
+        Ok(app)
+    })
 }

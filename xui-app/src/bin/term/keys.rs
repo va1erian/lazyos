@@ -161,64 +161,30 @@ mod tests {
 
     #[test]
     fn the_copy_and_paste_chords() {
-        assert_eq!(
-            shortcut(letter(b'C'), mods(true, true)),
-            Some(Shortcut::Copy)
-        );
-        assert_eq!(
-            shortcut(Key::INSERT, mods(true, false)),
-            Some(Shortcut::Copy)
-        );
-        assert_eq!(
-            shortcut(letter(b'V'), mods(true, true)),
-            Some(Shortcut::Paste)
-        );
-        assert_eq!(
-            shortcut(Key::INSERT, mods(false, true)),
-            Some(Shortcut::Paste)
-        );
-        assert_eq!(
-            shortcut(letter(b'A'), mods(true, true)),
-            Some(Shortcut::SelectAll)
-        );
+        assert_eq!(shortcut(letter(b'C'), mods(true, true)), Some(Shortcut::Copy));
+        assert_eq!(shortcut(Key::INSERT, mods(true, false)), Some(Shortcut::Copy));
+        assert_eq!(shortcut(letter(b'V'), mods(true, true)), Some(Shortcut::Paste));
+        assert_eq!(shortcut(Key::INSERT, mods(false, true)), Some(Shortcut::Paste));
+        assert_eq!(shortcut(letter(b'A'), mods(true, true)), Some(Shortcut::SelectAll));
     }
 
     #[test]
     fn the_convenience_chords() {
-        assert_eq!(
-            shortcut(letter(b'F'), mods(true, true)),
-            Some(Shortcut::Find)
-        );
-        assert_eq!(
-            shortcut(letter(b'N'), mods(true, true)),
-            Some(Shortcut::NewWindow)
-        );
-        assert_eq!(
-            shortcut(Key::from_code(0xbc), mods(true, false)),
-            Some(Shortcut::Preferences)
-        );
+        assert_eq!(shortcut(letter(b'F'), mods(true, true)), Some(Shortcut::Find));
+        assert_eq!(shortcut(letter(b'N'), mods(true, true)), Some(Shortcut::NewWindow));
+        assert_eq!(shortcut(Key::from_code(0xbc), mods(true, false)), Some(Shortcut::Preferences));
         assert_eq!(shortcut(Key::F10, mods(false, true)), Some(Shortcut::Menu));
-        assert_eq!(
-            shortcut(Key::from_code(0x5d), mods(false, false)),
-            Some(Shortcut::Menu)
-        );
+        assert_eq!(shortcut(Key::from_code(0x5d), mods(false, false)), Some(Shortcut::Menu));
         // The program's own: plain Ctrl+F, F10, a plain comma.
         assert_eq!(shortcut(letter(b'F'), mods(true, false)), None);
         assert_eq!(shortcut(Key::F10, mods(false, false)), None);
         assert_eq!(shortcut(Key::from_code(0xbc), mods(false, false)), None);
-        assert!(
-            is_menu_chord(Key::F10, mods(false, true))
-                && is_find_chord(letter(b'F'), mods(true, true))
-        );
+        assert!(is_menu_chord(Key::F10, mods(false, true)) && is_find_chord(letter(b'F'), mods(true, true)));
     }
 
     #[test]
     fn plain_ctrl_letters_are_not_shortcuts() {
-        assert_eq!(
-            shortcut(letter(b'C'), mods(true, false)),
-            None,
-            "^C interrupts"
-        );
+        assert_eq!(shortcut(letter(b'C'), mods(true, false)), None, "^C interrupts");
         assert_eq!(shortcut(letter(b'V'), mods(true, false)), None);
         assert_eq!(shortcut(letter(b'A'), mods(true, false)), None);
         assert_eq!(shortcut(Key::INSERT, mods(false, false)), None);
@@ -227,46 +193,14 @@ mod tests {
     #[test]
     fn zoom_chords() {
         let ctrl = mods(true, false);
-        assert_eq!(
-            zoom_key(Key::from_code(0xbb), ctrl),
-            Some(Some(1)),
-            "Ctrl+="
-        );
-        assert_eq!(
-            zoom_key(Key::from_code(0xbb), mods(true, true)),
-            Some(Some(1)),
-            "Ctrl++"
-        );
-        assert_eq!(
-            zoom_key(Key::from_code(0x6b), ctrl),
-            Some(Some(1)),
-            "keypad +"
-        );
-        assert_eq!(
-            zoom_key(Key::from_code(0xbd), ctrl),
-            Some(Some(-1)),
-            "Ctrl+-"
-        );
-        assert_eq!(
-            zoom_key(Key::from_code(0xbd), mods(true, true)),
-            None,
-            "Ctrl+_ is the program's"
-        );
-        assert_eq!(
-            zoom_key(Key::from_code(0x30), ctrl),
-            Some(None),
-            "Ctrl+0 resets"
-        );
-        assert_eq!(
-            zoom_key(Key::from_code(0xbb), mods(false, false)),
-            None,
-            "a plain = is text"
-        );
-        let alt = Modifiers {
-            ctrl: true,
-            alt: true,
-            ..Modifiers::default()
-        };
+        assert_eq!(zoom_key(Key::from_code(0xbb), ctrl), Some(Some(1)), "Ctrl+=");
+        assert_eq!(zoom_key(Key::from_code(0xbb), mods(true, true)), Some(Some(1)), "Ctrl++");
+        assert_eq!(zoom_key(Key::from_code(0x6b), ctrl), Some(Some(1)), "keypad +");
+        assert_eq!(zoom_key(Key::from_code(0xbd), ctrl), Some(Some(-1)), "Ctrl+-");
+        assert_eq!(zoom_key(Key::from_code(0xbd), mods(true, true)), None, "Ctrl+_ is the program's");
+        assert_eq!(zoom_key(Key::from_code(0x30), ctrl), Some(None), "Ctrl+0 resets");
+        assert_eq!(zoom_key(Key::from_code(0xbb), mods(false, false)), None, "a plain = is text");
+        let alt = Modifiers { ctrl: true, alt: true, ..Modifiers::default() };
         assert_eq!(zoom_key(Key::from_code(0xbb), alt), None);
     }
 

@@ -192,68 +192,63 @@ fn main() {
         inner: PngStorage::new(path).with_max_load(EDITOR_MAX_LOAD_BYTES),
     });
 
-    launch::run(
-        xui_app::trace::Channel::Paint,
-        "Paint",
-        WINDOW,
-        move |ui, backend| {
-            // Paint's document is fixed; only the viewport follows the window, so
-            // it can be resized down to a workable drawing area.
-            backend.set_size_hints(MIN_WINDOW.0, MIN_WINDOW.1, 0, 0);
-            backend.on_first_frame(|| println!("PAINT:UP:PASS"));
-            let setup = Setup::new(storage)
-                .with_files(Rc::new(StdFileSystem))
-                .with_text(text_rasterizer());
-            let mut app = PaintApp::build_with(ui, setup)?;
-            app.set_start_dir(start_dir(requested.as_deref()));
-            app.set_system_clipboard(Rc::new(PngClipboard));
-            let default = default_file.clone();
-            app.set_reporter(move |report| announce(report, &default));
-            let startup = requested.is_some();
-            let probing = probe::enabled();
-            if probing {
-                // Only a changed rectangle is printed, so the probe can keep
-                // ticking for the whole session without flooding the serial log.
-                let seen: RefCell<HashMap<String, (i32, i32, i32, i32)>> = RefCell::default();
-                app.set_probe(move |window, name, rect| {
-                    let at = (rect.left, rect.top, rect.width(), rect.height());
-                    let key = format!(
-                        "{window}
+    launch::run(xui_app::trace::Channel::Paint, "Paint", WINDOW, move |ui, backend| {
+        // Paint's document is fixed; only the viewport follows the window, so
+        // it can be resized down to a workable drawing area.
+        backend.set_size_hints(MIN_WINDOW.0, MIN_WINDOW.1, 0, 0);
+        backend.on_first_frame(|| println!("PAINT:UP:PASS"));
+        let setup = Setup::new(storage)
+            .with_files(Rc::new(StdFileSystem))
+            .with_text(text_rasterizer());
+        let mut app = PaintApp::build_with(ui, setup)?;
+        app.set_start_dir(start_dir(requested.as_deref()));
+        app.set_system_clipboard(Rc::new(PngClipboard));
+        let default = default_file.clone();
+        app.set_reporter(move |report| announce(report, &default));
+        let startup = requested.is_some();
+        let probing = probe::enabled();
+        if probing {
+            // Only a changed rectangle is printed, so the probe can keep
+            // ticking for the whole session without flooding the serial log.
+            let seen: RefCell<HashMap<String, (i32, i32, i32, i32)>> = RefCell::default();
+            app.set_probe(move |window, name, rect| {
+                let at = (rect.left, rect.top, rect.width(), rect.height());
+                let key = format!(
+                    "{window}
 {name}"
-                    );
-                    if seen.borrow().get(&key) != Some(&at) {
-                        seen.borrow_mut().insert(key, at);
-                        probe::widget(window, name, at.0, at.1, at.2, at.3);
-                    }
-                });
-            }
-            if startup || probing {
-                // A one-shot Open loads the file named on the command line, then
-                // (with the probe on) a few slower ticks report the control
-                // rectangles. The timer kills itself when done, so an idle Paint
-                // costs no wakeups.
-                let ticks = Rc::new(Cell::new(0u32));
-                let ui_for_timer = ui.clone();
-                ui.set_timer(if startup { 1 } else { 500 });
-                ui.on_timer(move |id| {
-                    let tick = ticks.replace(ticks.get() + 1);
-                    if tick == 0 && startup {
-                        ui_for_timer.kill_timer(id);
-                        if probing {
-                            ui_for_timer.set_timer(500);
-                        }
-                        return Some(Msg::OpenStartup);
-                    }
-                    if probing {
-                        // The probe reports only what changed, so it keeps
-                        // ticking: dialogs and the colour editor open later.
-                        return Some(Msg::Probe);
-                    }
+                );
+                if seen.borrow().get(&key) != Some(&at) {
+                    seen.borrow_mut().insert(key, at);
+                    probe::widget(window, name, at.0, at.1, at.2, at.3);
+                }
+            });
+        }
+        if startup || probing {
+            // A one-shot Open loads the file named on the command line, then
+            // (with the probe on) a few slower ticks report the control
+            // rectangles. The timer kills itself when done, so an idle Paint
+            // costs no wakeups.
+            let ticks = Rc::new(Cell::new(0u32));
+            let ui_for_timer = ui.clone();
+            ui.set_timer(if startup { 1 } else { 500 });
+            ui.on_timer(move |id| {
+                let tick = ticks.replace(ticks.get() + 1);
+                if tick == 0 && startup {
                     ui_for_timer.kill_timer(id);
-                    None
-                });
-            }
-            Ok(app)
-        },
-    )
+                    if probing {
+                        ui_for_timer.set_timer(500);
+                    }
+                    return Some(Msg::OpenStartup);
+                }
+                if probing {
+                    // The probe reports only what changed, so it keeps
+                    // ticking: dialogs and the colour editor open later.
+                    return Some(Msg::Probe);
+                }
+                ui_for_timer.kill_timer(id);
+                None
+            });
+        }
+        Ok(app)
+    })
 }

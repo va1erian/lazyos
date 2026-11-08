@@ -78,7 +78,9 @@ impl Evidence {
         if marker.is_empty() || is_prompt(marker) {
             return None;
         }
-        let echoes = |command: &str| marker.ends_with(command) || joined.trim().ends_with(command);
+        let echoes = |command: &str| {
+            marker.ends_with(command) || joined.trim().ends_with(command)
+        };
         // The echo of a queued command starts its turn: whatever the one
         // before produced (or nothing) is over. Commands ahead of the echoed
         // one never reached the shell (keys typed into `vi`, say): forget them.
@@ -156,11 +158,7 @@ mod tests {
         outs(&mut evidence, &mut term, b"/ # echo hi");
         evidence.submitted("echo hi".into());
         let got = outs(&mut evidence, &mut term, b"\r\nhi\r\nmore\r\n/ # ");
-        assert_eq!(
-            got,
-            ["hi"],
-            "the echo, the second line and the prompt are not it"
-        );
+        assert_eq!(got, ["hi"], "the echo, the second line and the prompt are not it");
     }
 
     /// The Doom session's command is 75 columns: with the prompt it fills an
@@ -175,22 +173,10 @@ mod tests {
         // the margin and is completed before Enter.
         let echo = format!("/ $ {command}");
         let (head, tail) = echo.split_at(80);
-        outs(
-            &mut evidence,
-            &mut term,
-            format!("{head}\r\r\n{tail}").as_bytes(),
-        );
+        outs(&mut evidence, &mut term, format!("{head}\r\r\n{tail}").as_bytes());
         evidence.submitted(command.clone());
-        let got = outs(
-            &mut evidence,
-            &mut term,
-            format!("\r\n{}\r\n/ $ ", &command[5..]).as_bytes(),
-        );
-        assert_eq!(
-            got,
-            [command[5..].to_string()],
-            "the echo's tail is not the output"
-        );
+        let got = outs(&mut evidence, &mut term, format!("\r\n{}\r\n/ $ ", &command[5..]).as_bytes());
+        assert_eq!(got, [command[5..].to_string()], "the echo's tail is not the output");
     }
 
     /// The window's width is the pty's now, so the shell breaks its echo at
@@ -211,11 +197,7 @@ mod tests {
                 .collect();
             outs(&mut evidence, &mut term, rows.join("\r\r\n").as_bytes());
             evidence.submitted(command.clone());
-            let got = outs(
-                &mut evidence,
-                &mut term,
-                format!("\r\n{output}\r\n/ $ ").as_bytes(),
-            );
+            let got = outs(&mut evidence, &mut term, format!("\r\n{output}\r\n/ $ ").as_bytes());
             assert_eq!(got, [output.to_string()], "at {cols} columns");
         }
     }
@@ -234,11 +216,7 @@ mod tests {
         let mut term = Term::new(10, 6);
         let mut evidence = Evidence::default();
         evidence.submitted("echo x".into());
-        let got = outs(
-            &mut evidence,
-            &mut term,
-            b"/ # echo x\r\nabcdefghijklmno\r\n",
-        );
+        let got = outs(&mut evidence, &mut term, b"/ # echo x\r\nabcdefghijklmno\r\n");
         assert_eq!(got, ["abcdefghijklmno"]);
     }
 
@@ -264,11 +242,7 @@ mod tests {
         let mut evidence = Evidence::default();
         evidence.submitted("true".into());
         evidence.submitted("echo hi".into());
-        let got = outs(
-            &mut evidence,
-            &mut term,
-            b"/ $ true\r\n/ $ echo hi\r\nhi\r\n/ $ ",
-        );
+        let got = outs(&mut evidence, &mut term, b"/ $ true\r\n/ $ echo hi\r\nhi\r\n/ $ ");
         assert_eq!(got, ["hi"]);
     }
 
