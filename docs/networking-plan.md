@@ -79,8 +79,8 @@ These are the parts `netd` must own; none is a blocker for the goal.
   listening smoltcp TCP socket turns into the one connection it accepts.
   `netd` emulates a backlog by keeping a small pool of listening sockets per
   bound port and re-arming on accept.
-- **No ephemeral port allocation, no loopback routing, one device per
-  `Interface`.** `netd` allocates ports. Loopback is built (issue #1019): `Net`
+- **No ephemeral port allocation, one device per `Interface`.**
+  `netd` allocates ports. Loopback is built (issue #1019): `Net`
   keeps a second, unlisted `Stack` over a looped device that carries 127.0.0.1
   and the cards' own addresses (see
   [architecture/networking.md](architecture/networking.md#loopback-issue-1019)).
