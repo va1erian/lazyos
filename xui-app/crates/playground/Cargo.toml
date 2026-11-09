@@ -21,4 +21,4 @@ rhai = { version = "=1.26.1", default-features = false }
 libmessenger = { path = "../../../libs/messenger" }
 messenger-generated = { path = "../../../libs/generated" }
 # The doc pages' Markdown is checked by parsing it as the doc pane's view does.
-xui-markdown = { git = "https://github.com/va1erian/xui", rev = "b3fcdc274c88d07f1a2044ec4e071246cd14018d" }
+xui-markdown = { git = "https://github.com/va1erian/xui", rev = "d77768341745d8e8ed1779ae3677c00a1b74b3aa" }

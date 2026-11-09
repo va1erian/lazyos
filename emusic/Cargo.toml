@@ -39,7 +39,7 @@ xui-app = { path = "../xui-app" }
 # `Backend`, for the host description; the revision `xui-app` pins, so one
 # `xui_core` links (the `[patch]` table below overrides emusic's frontend's own
 # older xui pin with it).
-xui-core = { git = "https://github.com/va1erian/xui", rev = "b3fcdc274c88d07f1a2044ec4e071246cd14018d" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "d77768341745d8e8ed1779ae3677c00a1b74b3aa" }
 # Every well-known path (the app's per-user folder).
 fhs = { path = "../libs/fhs", features = ["alloc"] }
 # emusic at the revision `tools/emusic/build.py` pins (EMUSIC_REV there).
@@ -57,11 +57,11 @@ emusic-player = { git = "https://github.com/va1erian/emusic", rev = "a13c7cd9800
 # xui dependency (cargo refuses a patch that points to the same source).
 # Drop this table when the emusic pin moves.
 [patch."https://github.com/va1erian/xui"]
-xui = { git = "https://www.github.com/va1erian/xui", rev = "b3fcdc274c88d07f1a2044ec4e071246cd14018d" }
-xui-canvas = { git = "https://www.github.com/va1erian/xui", rev = "b3fcdc274c88d07f1a2044ec4e071246cd14018d" }
-xui-core = { git = "https://www.github.com/va1erian/xui", rev = "b3fcdc274c88d07f1a2044ec4e071246cd14018d" }
-xui-icons = { git = "https://www.github.com/va1erian/xui", rev = "b3fcdc274c88d07f1a2044ec4e071246cd14018d" }
-xui-rich-text = { git = "https://www.github.com/va1erian/xui", rev = "b3fcdc274c88d07f1a2044ec4e071246cd14018d" }
+xui = { git = "https://www.github.com/va1erian/xui", rev = "d77768341745d8e8ed1779ae3677c00a1b74b3aa" }
+xui-canvas = { git = "https://www.github.com/va1erian/xui", rev = "d77768341745d8e8ed1779ae3677c00a1b74b3aa" }
+xui-core = { git = "https://www.github.com/va1erian/xui", rev = "d77768341745d8e8ed1779ae3677c00a1b74b3aa" }
+xui-icons = { git = "https://www.github.com/va1erian/xui", rev = "d77768341745d8e8ed1779ae3677c00a1b74b3aa" }
+xui-rich-text = { git = "https://www.github.com/va1erian/xui", rev = "d77768341745d8e8ed1779ae3677c00a1b74b3aa" }
 
 [profile.release]
 opt-level = 2

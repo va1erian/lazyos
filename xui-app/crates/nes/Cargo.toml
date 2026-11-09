@@ -11,11 +11,11 @@ publish = false
 description = "NES Player, an NES emulator with sound for xui"
 
 [dependencies]
-xui-core = { git = "https://github.com/va1erian/xui", rev = "b3fcdc274c88d07f1a2044ec4e071246cd14018d" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "d77768341745d8e8ed1779ae3677c00a1b74b3aa" }
 # The emulation core: CPU, PPU, APU (all five channels), 30+ mappers, save
 # states. Pinned by `Cargo.lock`; `default-features = false` so no browser
 # or desktop-only surface is pulled in.
 tetanes-core = { version = "0.17", default-features = false }
 
 [dev-dependencies]
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "b3fcdc274c88d07f1a2044ec4e071246cd14018d", default-features = false }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "d77768341745d8e8ed1779ae3677c00a1b74b3aa", default-features = false }
