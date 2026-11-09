@@ -7,6 +7,7 @@ mod gallery_run_tests;
 mod gallery_tests;
 mod listener_decode_tests;
 mod listener_tests;
+mod markdown_tests;
 mod runner_tests;
 mod show_tests;
 mod snippet_tests;

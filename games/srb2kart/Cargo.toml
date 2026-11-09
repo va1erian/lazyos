@@ -44,7 +44,7 @@ libmessenger = { path = "../../libs/messenger" }
 messenger-generated = { path = "../../libs/generated" }
 # `Rect` for buffer-slot damage; the same revision `xui-app` pins, so one
 # `xui_core` links.
-xui-core ={ git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
+xui-core ={ git = "https://github.com/va1erian/xui", rev = "d77768341745d8e8ed1779ae3677c00a1b74b3aa" }
 
 [build-dependencies]
 cc = { version = "1", features = ["parallel"] }

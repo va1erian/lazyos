@@ -34,7 +34,7 @@ Examples
     python tools/run_demo.py --webkit-deps   # + depsproof (the WebKit dependency bundle); networking, big-app profile
     python tools/run_demo.py --webkit-port   # + the WebKit port's console proof (webkit-smoke); networking, big-app profile
     python tools/run_demo.py --lazyweb   # desktop + networking + webd + LazyWeb, the web browser (a client of webd; same profile)
-    python tools/run_demo.py --desktop       # every desktop ships webd (WebKit light views for Docs and Mail); --no-webd leaves it out
+    python tools/run_demo.py --desktop       # every desktop ships webd (WebKit light views for Mail); --no-webd leaves it out
     python tools/run_demo.py --webd          # webd required (a failed build stops the run), big-app profile; --webd-demo adds its demo client
     python tools/run_demo.py --tls           # networking + curl/wget/fetch over HTTPS
     python tools/run_demo.py --dbgd          # networking + remote inspection (tools/dbg/dbgctl.py)

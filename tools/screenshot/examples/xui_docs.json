@@ -9,14 +9,21 @@
   {"at": 1.3, "mouse_move": [-300, -300]},
   {"at": 1.5, "mouse_move": [500, 350]},
 
-  {"at": 2.2, "shot": "01_docs_top"},
+  {"at": 2.0, "key_down": "ctrl"},
+  {"at": 2.2, "key": "o"},
+  {"at": 2.4, "key_up": "ctrl"},
+  {"at": 3.2, "type": "/system/share/samples/testdoc.md"},
+  {"at": 3.8, "key": "enter", "until": "DOCS:OPEN:PASS:/system/share/samples/testdoc.md", "timeout": 60, "retries": 2},
+  {"wait_for": "DOCS:RENDER:PASS:/system/share/samples/testdoc.md", "timeout": 60},
 
-  {"at": 2.7, "mouse_scroll": -5},
-  {"at": 3.3, "mouse_scroll": -5},
-  {"at": 4.1, "shot": "02_docs_wheel_down"},
+  {"at": 1.0, "shot": "01_docs_top"},
 
-  {"at": 4.5, "mouse_scroll": 20},
-  {"at": 5.3, "shot": "03_docs_wheel_back_up"},
+  {"at": 1.5, "mouse_scroll": -5},
+  {"at": 2.1, "mouse_scroll": -5},
+  {"at": 2.9, "shot": "02_docs_wheel_down"},
 
-  {"at": 5.9, "quit": true}
+  {"at": 3.3, "mouse_scroll": 20},
+  {"at": 4.1, "shot": "03_docs_wheel_back_up"},
+
+  {"at": 4.7, "quit": true}
 ]

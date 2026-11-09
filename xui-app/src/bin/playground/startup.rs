@@ -42,15 +42,6 @@ pub fn build(ui: &mut Ui<Msg>, backend: &Rc<LazyOSBackend>) -> Result<Playground
     // One notice for the tool's windows: the strip's state, remembered per user.
     let notice = Notice::for_tool(crate::notice::SYSTEM_NAME);
     crate::notice::announce_stored(&notice);
-    // The doc pane paints only what is being repainted: where that is, in its own pixels.
-    {
-        let backend = Rc::clone(backend);
-        crate::docbody::set_damage_source(Rc::new(move |id| {
-            let damage = backend.paint_damage()?;
-            let node = backend.window_bounds(id)?;
-            Some(damage.offset(-node.left, -node.top))
-        }));
-    }
     let w = Widgets::default();
     let panes = PaneState::stored();
     ui.root(w.layout(&notice, &panes.saved))?;

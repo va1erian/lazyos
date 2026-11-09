@@ -2,7 +2,7 @@ name: docs
 
 # The documentation the Docs app shows on the guest (`docs/**/*.md`): every
 # Rhai code block must compile, every relative link must point at a file, and
-# the Docs app's own link and history logic is host-tested.
+# the Docs app's own link, history and loading logic and its harness judges are host-tested.
 
 on:
   push:
@@ -44,3 +44,6 @@ jobs:
 
       - name: Docs app link and history logic
         run: cargo test --manifest-path xui-app/Cargo.toml -p xui-docs --lib
+
+      - name: Docs harness judges fail when they should
+        run: python tools/docs/test_judge.py

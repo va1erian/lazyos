@@ -18,8 +18,7 @@ import judge as j  # noqa: E402
 WIDTH, HEIGHT = 1000, 700
 
 GOOD_LOG = "\n".join([
-    "WEBD:UP:PASS", "WEBD:SERVE:app.os.lazy.webd.light", "DOCS:UP:PASS",
-    "WEBD:VIEW:CREATE client=label#12 view=1", "DOCS:RENDER:PASS",
+    "DOCS:UP:PASS", "DOCS:RENDER:PASS",
     "DOCS:OPEN:PASS:/system/share/samples/testdoc.md", "DOCS:RENDER:PASS:/system/share/samples/testdoc.md",
 ])
 
@@ -52,31 +51,21 @@ class MarkerTests(unittest.TestCase):
         text = GOOD_LOG.replace("DOCS:RENDER:PASS\n", "")
         self.assertEqual(j.judge_markers(text, ["DOCS:UP:PASS", "DOCS:RENDER:PASS:/nowhere"]),
                          ["DOCS:RENDER:PASS:/nowhere never appeared"])
-        # The page that never paints is the symptom of an image without webd.
-        self.assertTrue(j.judge_markers("DOCS:UP:PASS\nDOCS:ENGINE:FAIL:not running", j.WHEEL_MARKERS))
+        # A page that never paints.
+        self.assertTrue(j.judge_markers("DOCS:UP:PASS", j.WHEEL_MARKERS))
 
     def test_the_welcome_render_marker_is_not_proved_by_a_documents_longer_one(self) -> None:
         only_document = chr(10).join(line for line in GOOD_LOG.splitlines() if line != "DOCS:RENDER:PASS")
         self.assertEqual(j.judge_markers(only_document, ["DOCS:RENDER:PASS"]), ["DOCS:RENDER:PASS never appeared"])
 
-    def test_a_failure_marker_fails_but_a_webd_note_does_not(self) -> None:
+    def test_a_failure_marker_fails_but_a_note_does_not(self) -> None:
         self.assertTrue(j.judge_markers(GOOD_LOG + "\nDOCS:OPEN:FAIL:/x", j.WHEEL_MARKERS))
-        self.assertTrue(j.judge_markers(GOOD_LOG + "\nWEBD:HANG:FAIL:stuck", j.WHEEL_MARKERS))
-        self.assertEqual(j.judge_markers(GOOD_LOG + "\nWEBD:NOTE:FAIL:light:x", j.WHEEL_MARKERS), [])
+        self.assertEqual(j.judge_markers(GOOD_LOG + "\nDOCS:NOTE:FAIL:x", j.WHEEL_MARKERS), [])
 
-    def test_a_refused_call_of_docs_or_webd_fails(self) -> None:
+    def test_a_refused_call_of_docs_fails(self) -> None:
         self.assertEqual(j.judge_denies(GOOD_LOG), [])
         self.assertTrue(j.judge_denies(GOOD_LOG + "\nLABEL:DENY label=app:os.lazy.docs iface=9 method=1"))
-        self.assertTrue(j.judge_denies(GOOD_LOG + "\nLABEL:DENY label=app:os.lazy.webd iface=9 method=1"))
-        self.assertTrue(j.judge_denies(
-            GOOD_LOG + "\nLABEL:DENY label=app:os.lazy.webd/webprocess file=/home/user access=read"))
         self.assertEqual(j.judge_denies(GOOD_LOG + "\nLABEL:DENY label=app:os.lazy.files iface=9 method=1"), [])
-
-    def test_the_documented_optional_refusals_of_webds_children_pass(self) -> None:
-        optional = ("LABEL:DENY label=app:os.lazy.webd/webprocess file=/etc/localtime access=stat\n"
-                    "LABEL:DENY label=app:os.lazy.webd/networkprocess file=/etc/ssl/openssl.cnf access=stat\n"
-                    "LABEL:DENY label=app:os.lazy.webd/webprocess file=/tmp/fontconfig access=write")
-        self.assertEqual(j.judge_denies(GOOD_LOG + "\n" + optional), [])
 
 
 class PictureTests(unittest.TestCase):

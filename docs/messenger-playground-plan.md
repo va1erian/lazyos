@@ -43,7 +43,7 @@ a **developer-tool package**, the class defined in
 | What is registered right now, who owns it | registry `List` (name, owner slot, interface ids, `owner_uid`, `owner_label`, `owner_session`) | `idl/registry.midl`, `xui_app::fabric::registry()` |
 | Topics the broker has seen, subscriber counts, retained flag; `Stats` per subscription; `Bell` doorbell | `os.lazy.messenger.topics.v1` | `idl/topics.midl`, `xui_app::fabric::Broker` |
 | Rhai-highlighting code editor widget with diagnostics markers | `xui-code-editor` (`rhai-syntax` feature) | `xui-app/crates/code-editor` |
-| Markdown on a Blitz view | `xui-docs` | `docs/xui-docs.md` |
+| A read-only Markdown view | `xui-markdown` (xui), styled by `xui_app::markdown` | `docs/xui-docs.md` |
 | Per-interface reference with a *Permissions* column per topic | `docs/idl/*.md`, shipped to `/docs/os/idl/` | `tools/midlc`, `build_support/docs_embed.rs` |
 | A way to derive an app's permissions from its scripts | `rhai_lazy::msg::permissions` (what Make LazyOS App uses) | `libs/rhai-lazy/src/msg/permissions.rs` |
 
@@ -831,12 +831,14 @@ and `layout_stored` (run them last; they leave a dragged layout stored on the vo
   (`backend/coalesce.rs`, order with presses kept), and the doc pane's page is one painted
   widget (`docbody.rs`) that lays out once per width and paints only the damaged part, so a step
   moves one node (0.03 to 0.3 ms per step on the same pages, a 200 fold). The page keeps the same
-  text; its blocks are tighter than the labels'.
+  text; its blocks are tighter than the labels'. Since then `docbody.rs` has given way to
+  `xui-markdown`'s `MarkdownView`, which keeps the same cost model (laid out once per width, the
+  visible blocks first, painted from cached layouts) and draws the IDL doc comments as the Markdown
+  they are (`xui_playground::markdown::page`).
 
 Host tests: `cargo test --manifest-path xui-app/Cargo.toml --bin xui-playground` (layout at four
-window sizes, hidden row, divider drags, scroll cost and live drag, links) and `--lib backend::`
-(wheel routing, coalescing); `cargo test --release ... survey -- --ignored --nocapture` prints the
-per-page step cost. Guest: `python tools/playground/scroll_run.py` (wheel over text and bar, a held
+window sizes, hidden row, divider drags, the Markdown page, links) and `--lib backend::`
+(wheel routing, coalescing); the page's own scroll cost is `xui-markdown`'s (its `perf` test). Guest: `python tools/playground/scroll_run.py` (wheel over text and bar, a held
 drag shot mid-drag, release without a jump; it rebuilds with a fresh OS volume by default (`run.py`'s `build` bumps `build.rs`'s mtime so the reset applies even when nothing else changed), because
 the judge measures the default doc pane and a stored layout, left by the `layout` session, makes it
 taller: `--no-build` reuses the image and the judge fails on `PLAYGROUND:LAYOUT:LOADED`) and `python tools/playground/run.py --only layout,layout_stored`.

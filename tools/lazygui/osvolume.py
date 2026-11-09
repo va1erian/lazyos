@@ -108,7 +108,7 @@ def leaves_webd_out(cfg: dict) -> bool:
 
 
 def wants_webd(cfg: dict) -> bool:
-    """Whether the image ships webd: every desktop does (Docs and Mail draw their pages with it) unless the
+    """Whether the image ships webd: every desktop does (Mail draws its pages with it) unless the
     launcher left it out, and `webd` / `webd_demo` ask for it outright."""
     if leaves_webd_out(cfg):
         return False

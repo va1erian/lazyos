@@ -3580,15 +3580,8 @@ checksum = "e9f068eba8e7071c5f9511831b44f32c740d5adf574e990f946ddb53db2f314e"
 dependencies = [
  "bitflags 2.13.2",
  "memchr",
- "pulldown-cmark-escape",
  "unicase",
 ]
-
-[[package]]
-name = "pulldown-cmark-escape"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "007d8adb5ddab6f8e3f491ac63566a7d5002cc7ed73901f72057943fa71ae1ae"
 
 [[package]]
 name = "pxfm"
@@ -5364,7 +5357,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -5853,6 +5846,7 @@ dependencies = [
  "xui-explorer",
  "xui-golf",
  "xui-icons",
+ "xui-markdown",
  "xui-nes",
  "xui-paint",
  "xui-pdfview",
@@ -5892,7 +5886,7 @@ dependencies = [
 [[package]]
 name = "xui-canvas"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=71dc3b5903ac94dba00466a6d6a00d69251beeab#71dc3b5903ac94dba00466a6d6a00d69251beeab"
+source = "git+https://github.com/va1erian/xui?rev=d77768341745d8e8ed1779ae3677c00a1b74b3aa#d77768341745d8e8ed1779ae3677c00a1b74b3aa"
 dependencies = [
  "arboard",
  "cosmic-text",
@@ -5930,9 +5924,10 @@ dependencies = [
 [[package]]
 name = "xui-core"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=71dc3b5903ac94dba00466a6d6a00d69251beeab#71dc3b5903ac94dba00466a6d6a00d69251beeab"
+source = "git+https://github.com/va1erian/xui?rev=d77768341745d8e8ed1779ae3677c00a1b74b3aa#d77768341745d8e8ed1779ae3677c00a1b74b3aa"
 dependencies = [
  "png 0.17.16",
+ "raw-window-handle",
  "zune-jpeg",
 ]
 
@@ -5952,10 +5947,9 @@ name = "xui-docs"
 version = "0.1.0"
 dependencies = [
  "fhs",
- "pulldown-cmark",
  "xui-app",
  "xui-core",
- "xui-webd-client",
+ "xui-markdown",
 ]
 
 [[package]]
@@ -5980,7 +5974,7 @@ dependencies = [
 [[package]]
 name = "xui-gpu"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=71dc3b5903ac94dba00466a6d6a00d69251beeab#71dc3b5903ac94dba00466a6d6a00d69251beeab"
+source = "git+https://github.com/va1erian/xui?rev=d77768341745d8e8ed1779ae3677c00a1b74b3aa#d77768341745d8e8ed1779ae3677c00a1b74b3aa"
 dependencies = [
  "glow",
  "xui-core",
@@ -5989,7 +5983,7 @@ dependencies = [
 [[package]]
 name = "xui-icons"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=71dc3b5903ac94dba00466a6d6a00d69251beeab#71dc3b5903ac94dba00466a6d6a00d69251beeab"
+source = "git+https://github.com/va1erian/xui?rev=d77768341745d8e8ed1779ae3677c00a1b74b3aa#d77768341745d8e8ed1779ae3677c00a1b74b3aa"
 dependencies = [
  "xui-core",
 ]
@@ -6033,6 +6027,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "xui-markdown"
+version = "0.1.0"
+source = "git+https://github.com/va1erian/xui?rev=d77768341745d8e8ed1779ae3677c00a1b74b3aa#d77768341745d8e8ed1779ae3677c00a1b74b3aa"
+dependencies = [
+ "pulldown-cmark",
+ "unicode-linebreak",
+ "unicode-segmentation",
+ "xui-core",
+]
+
+[[package]]
 name = "xui-nes"
 version = "0.1.0"
 dependencies = [
@@ -6070,12 +6075,13 @@ dependencies = [
  "messenger-generated",
  "rhai",
  "rhai-lazy",
+ "xui-markdown",
 ]
 
 [[package]]
 name = "xui-rich-text"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=71dc3b5903ac94dba00466a6d6a00d69251beeab#71dc3b5903ac94dba00466a6d6a00d69251beeab"
+source = "git+https://github.com/va1erian/xui?rev=d77768341745d8e8ed1779ae3677c00a1b74b3aa#d77768341745d8e8ed1779ae3677c00a1b74b3aa"
 dependencies = [
  "serde",
  "serde_json",

@@ -26,8 +26,8 @@ JSON map
 on stdout. If the musl target or toolchain is unavailable the script reports
 what it could build and exits 0, so a CI job can skip the visual run.
 
-The Docs app (``xui-docs.elf``) is pure Rust (its pages are drawn by a light view
-of webd), so it builds in the same invocation as the other apps with no zig. So does
+The Docs app (``xui-docs.elf``) is pure Rust (its pages are drawn by xui's
+Markdown view), so it builds in the same invocation as the other apps with no zig. So does
 LazyWeb (``xui-lazyweb.elf``, the cargo bin of ``xui-lazyweb``): a client of webd
 that links no WebKit.
 Mail (``xui-mail.elf``, esMail's IMAP/SMTP core, which links SQLite's C) is
@@ -128,7 +128,7 @@ BINS = {
     "xui-netstatus": "xui-netstatus.elf",
     # Network Drives: Mount FTP servers as folders under /mnt.
     "xui-netdrives": "xui-netdrives.elf",
-    # Docs (Markdown, drawn by webd): a member of the same workspace, built in the
+    # Docs (Markdown, drawn by xui-markdown): a member of the same workspace, built in the
     # same invocation.
     DOCS_PACKAGE: f"{DOCS_PACKAGE}.elf",
     # LazyWeb: the web browser, a client of webd's full views. Only a `LAZYOS_LAZYWEB=1` image ships it.

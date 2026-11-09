@@ -12,9 +12,9 @@
 //! (`os.lazy.lazyweb`, `LAZYOS_LAZYWEB=1`, [`lazyweb_enabled`]) is a plain xui app, a client of
 //! webd, so its switch needs webd shipped (an unset `LAZYOS_WEBD` is `1` with it, `0` is refused).
 //!
-//! Its clients are Docs and Mail (their pages are light views, docs/webd-plan.md P3), so **a desktop image
-//! ships it**: `LAZYOS_WEBD` is `1` (required: a missing program fails the build), `0` (left out; Docs and Mail
-//! then say the web engine is not running) or unset, which means "on a desktop whenever `target/xui/xui-webd.elf`
+//! Its client is Mail (its pages are light views, docs/webd-plan.md P3), so **a desktop image
+//! ships it**: `LAZYOS_WEBD` is `1` (required: a missing program fails the build), `0` (left out; Mail
+//! then says the web engine is not running) or unset, which means "on a desktop whenever `target/xui/xui-webd.elf`
 //! has been built" ([`Switch::Auto`]), so a checkout without Docker and WebKit still builds a desktop and
 //! says so in a warning. The test clients (`os.lazy.webddemo` and `os.lazy.webdbrowse`, [`CLIENT_PACKAGES`])
 //! are test fixtures and ship only with `LAZYOS_WEBDDEMO=1`. A client is a window, so webd wants the desktop; it needs no network stack
@@ -147,7 +147,7 @@ pub fn enabled(desktop: bool) -> bool {
     let built = built();
     if desktop && !built && switch == Switch::Auto {
         println!(
-            "cargo:warning=this desktop ships without webd (target/xui/{ELF} or the engine processes in target/webkit/bin are not built): Docs and Mail will \
+            "cargo:warning=this desktop ships without webd (target/xui/{ELF} or the engine processes in target/webkit/bin are not built): Mail will \
              say the web engine is not running; build it with `python tools/run_demo.py --webd` or \
              `python tools/webkit/webd.py` (Docker), or silence this with LAZYOS_WEBD=0"
         );

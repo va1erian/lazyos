@@ -60,7 +60,7 @@ fn the_switch_is_on_off_or_left_to_the_desktop() {
 
 #[test]
 fn a_desktop_ships_it_once_built_and_a_forced_switch_does_not_look() {
-    // Docs and Mail are in every desktop and need it: unset, a desktop that has it ships it.
+    // Mail is in every desktop and needs it: unset, a desktop that has it ships it.
     assert!(shipped(Switch::Auto, true, true));
     // A checkout that cannot build WebKit still gets a desktop.
     assert!(!shipped(Switch::Auto, true, false));

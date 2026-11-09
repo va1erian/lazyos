@@ -21,7 +21,7 @@ cc = { version = "1", features = ["parallel"] }
 xui-app = { path = ".." }
 fhs = { path = "../../libs/fhs" }
 # One xui revision for every crate, so a single `xui_core` links.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "d77768341745d8e8ed1779ae3677c00a1b74b3aa" }
 # The client of webd's light views: the status the window reacts to (`xui_app::lightview` has the view).
 xui-webd-client = { path = "../crates/webd-client" }
 # The mail core and its frontend-independent glue, with the `rustls` backend:
@@ -47,4 +47,4 @@ sha2 = { version = "0.10", default-features = false }
 
 [dev-dependencies]
 # Offscreen renders of the window (`app/window_tests.rs`).
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab", default-features = false }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "d77768341745d8e8ed1779ae3677c00a1b74b3aa", default-features = false }

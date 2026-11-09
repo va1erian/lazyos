@@ -26,7 +26,8 @@ runs:
         PACKAGES: ${{ inputs.packages }}
       run: |
         set -euo pipefail
-        hash="$(printf '%s' "$PACKAGES" | sha256sum | cut -c1-16)"
+        # `baseline`: sets cached before the amd64 variant pin hold v3 builds.
+        hash="$(printf 'baseline %s' "$PACKAGES" | sha256sum | cut -c1-16)"
         echo "key=apt-${ImageOS:-linux}-${ImageVersion:-0}-${hash}" >> "$GITHUB_OUTPUT"
 
     - uses: actions/cache@v4
@@ -54,6 +55,13 @@ runs:
         fi
         rm -rf "$cache"
         mkdir -p "$cache"
+        # The ubuntu-26.04 image selects the amd64v3 package variant, whose
+        # static musl libc.a uses AVX; a guest CPU may have none (QEMU's TCG
+        # model), so take the plain amd64 builds (the last apt.conf.d file
+        # wins).
+        echo 'APT::Architecture-Variants "amd64";' \
+          | sudo tee /etc/apt/apt.conf.d/zz-lazyos-baseline >/dev/null
+        apt-config dump | grep -i variant || true
         # Start from an empty archive so the copy below is exactly the set this
         # install needed (apt-get keeps what it downloads).
         sudo apt-get clean

@@ -1,7 +1,7 @@
 # Docs
 
-Welcome to the LazyOS documentation viewer. It renders **Markdown** on WebKit, through the
-Web Engine (`webd`) that runs with your session.
+Welcome to the LazyOS documentation viewer. It shows **Markdown** documents: the LazyOS
+manuals, and any `.md` file you open.
 
 **[Open the documentation index](/docs/os/index.md)** (or click **Home** in the toolbar).
 
@@ -23,6 +23,6 @@ Web Engine (`webd`) that runs with your session.
 | `Ctrl+A`, `Ctrl+C` | select everything, copy |
 
 `/system/share/samples/testdoc.md` shows everything the viewer can draw. Raw HTML in a
-document is shown as text, and there is no network: pictures are not loaded. A web or
-mail address opens in the app registered for it, and a link to a place on the same page
-does nothing.
+document is shown as text, and there is no network: a picture shows as its description. A
+web or mail address opens in the app registered for it, and a link to a heading scrolls
+to it.

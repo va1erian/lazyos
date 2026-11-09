@@ -176,8 +176,8 @@ def webd_built() -> bool:
 
 
 def webd_env(args, env: dict, built, build) -> None:
-    """The `LAZYOS_WEBD` and `LAZYOS_WEBDDEMO` switches of a run. Every desktop ships webd (Docs and Mail need it):
-    built when its programs are missing, and left out (the apps then say the web engine is not running)
+    """The `LAZYOS_WEBD` and `LAZYOS_WEBDDEMO` switches of a run. Every desktop ships webd (Mail needs it):
+    built when its programs are missing, and left out (Mail then says the web engine is not running)
     when that fails, as with no Docker; `--no-webd` leaves it out, `--webd` (built by the caller) requires it, and
     so does `--lazyweb` (which builds it itself and refuses `--no-webd`)."""
     if args.no_webd:
@@ -188,8 +188,8 @@ def webd_env(args, env: dict, built, build) -> None:
         if built() or build():
             env["LAZYOS_WEBD"] = "1"
         else:
-            print("warning: webd could not be built (Docker?): this desktop has none, so Docs and Mail "
-                  "cannot show their pages; `--no-webd` silences this", file=sys.stderr)
+            print("warning: webd could not be built (Docker?): this desktop has none, so Mail "
+                  "cannot show its pages; `--no-webd` silences this", file=sys.stderr)
             env["LAZYOS_WEBD"] = "0"
             args.webd_implicit = False  # the volume need not hold its programs
     if args.webd_demo:

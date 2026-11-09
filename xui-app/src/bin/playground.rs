@@ -29,8 +29,6 @@
 mod app;
 #[path = "playground/callform.rs"]
 mod callform;
-#[path = "playground/docbody.rs"]
-mod docbody;
 #[path = "playground/docview.rs"]
 mod docview;
 #[path = "playground/explorer.rs"]
@@ -86,8 +84,8 @@ mod ui;
 #[path = "playground/layout_tests.rs"]
 mod layout_tests;
 #[cfg(test)]
-#[path = "playground/scroll_tests.rs"]
-mod scroll_tests;
+#[path = "playground/page_tests.rs"]
+mod page_tests;
 #[cfg(test)]
 #[path = "playground/snapshot_tests.rs"]
 mod snapshot_tests;
@@ -103,8 +101,8 @@ use xui_app::trace::Channel;
 const WINDOW: (i32, i32) = (1180, 660);
 
 fn main() {
-    // The code editor and the doc pane's signatures are a monospace grid.
-    xui_app::font::register_mono();
+    // The code editor is a monospace grid; the doc pane's headings are bold and its code monospace.
+    xui_app::font::register_docs();
     // A panic is reported on the console (and `init` restarts the app).
     xui_app::trace::install_panic_hook(Channel::Playground);
     devtool::run(

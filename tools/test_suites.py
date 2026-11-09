@@ -98,7 +98,7 @@ class DefinitionTests(unittest.TestCase):
 
     def test_os_size_is_osvolumes(self) -> None:
         full = suites.resolve("full")
-        # The desktop ships webd (Docs and Mail need it), whose programs need the 1 GiB volume.
+        # The desktop ships webd (Mail needs it), whose programs need the 1 GiB volume.
         self.assertEqual(suites.os_size_bytes(suites.resolve("base")), osvolume.required_bytes(False, True))
         self.assertEqual(suites.os_size_bytes(["desktop", "no-webd"]), osvolume.required_bytes(False, False))
         self.assertEqual(suites.os_size_bytes(full), osvolume.required_bytes(False, True))

@@ -29,6 +29,7 @@ pub mod input;
 pub mod installer;
 pub mod launch;
 pub mod lightview;
+pub mod markdown;
 pub mod net;
 pub mod platform;
 pub mod probe;

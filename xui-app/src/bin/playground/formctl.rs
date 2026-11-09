@@ -48,6 +48,7 @@ impl Playground {
             .fill(1),
         );
         let _ = self.w.doc.get().set_layout(layout);
+        self.w.doc_reader.set(Some(self.w.doc_scroll.get().id()));
         if callform::has_text_row(&open.form) {
             self.form_first.get().focus();
         }
