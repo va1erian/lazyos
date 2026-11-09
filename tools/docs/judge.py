@@ -50,9 +50,9 @@ def judge_denies(text: str) -> list[str]:
     return [f"refused: {line}" for line in DOCS_DENY.findall(text)[:12]]
 
 
-def region(path: Path, box: tuple[int, int, int, int]) -> tuple[bytes, int]:
+def region(path: Path | str, box: tuple[int, int, int, int]) -> tuple[bytes, int]:
     """The pixels of `box` of the PNG at `path`, and the channel count."""
-    width, _height, channels, pixels = decode_png(path)
+    width, _height, channels, pixels = decode_png(Path(path))
     x0, x1, y0, y1 = box
     rows = b"".join(pixels[(y * width + x0) * channels:(y * width + x1) * channels] for y in range(y0, y1))
     return rows, channels
@@ -63,7 +63,7 @@ def colours(pixels: bytes, channels: int) -> int:
     return len({pixels[i:i + channels] for i in range(0, len(pixels), channels)})
 
 
-def judge_wheel(top: Path, down: Path, back: Path) -> list[str]:
+def judge_wheel(top: Path | str, down: Path | str, back: Path | str) -> list[str]:
     """The wheel moved the page down and the opposite turn returned it exactly, and the page has text."""
     a, channels = region(top, CONTENT)
     b, _ = region(down, CONTENT)
