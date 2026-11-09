@@ -57,7 +57,12 @@ DOCKER_TIMEOUT_SECONDS = 1800
 # The host's kernel headers are not on musl's include path. These two Debian
 # locations supply `linux/*.h` and the `asm/*.h` it includes; a host without
 # them simply fails the build and reports BusyBox unavailable.
-EXTRA_CFLAGS = "-idirafter /usr/include -idirafter /usr/include/x86_64-linux-gnu"
+# LazyOS saves no AVX state, so the shell must be baseline x86-64 whatever
+# the host compiler defaults to (Ubuntu 26.04 ships x86-64-v3 builds).
+EXTRA_CFLAGS = (
+    "-march=x86-64 -mtune=generic "
+    "-idirafter /usr/include -idirafter /usr/include/x86_64-linux-gnu"
+)
 
 
 # What the interactive `sh` (ash) needs for a comfortable prompt. Set after
