@@ -60,6 +60,11 @@ impl Column {
         Column::ALL.get(index).copied().unwrap_or(Column::Name)
     }
 
+    /// The column's position in the list (the inverse of [`from_index`](Self::from_index)).
+    pub fn index(self) -> usize {
+        Column::ALL.iter().position(|c| *c == self).unwrap_or(0)
+    }
+
     pub fn title(self) -> &'static str {
         match self {
             Column::Name => "Name",
@@ -317,6 +322,14 @@ mod tests {
         sort(&mut rows, Column::Name, false);
         let names: Vec<_> = rows.iter().map(|r| r.name.as_str()).collect();
         assert_eq!(names, ["..", "src", "docs", "readme.txt"]);
+    }
+
+    #[test]
+    fn columns_round_trip_through_their_index() {
+        for (at, column) in Column::ALL.iter().enumerate() {
+            assert_eq!(column.index(), at);
+            assert_eq!(Column::from_index(at), *column);
+        }
     }
 
     #[test]

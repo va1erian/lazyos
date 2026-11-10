@@ -43,7 +43,7 @@ use account::AccountPage;
 use compose::ComposePage;
 use layout::Widgets;
 use mailto::Mailto;
-use models::{FolderRows, MessageRows};
+use models::FolderRows;
 use reader::Reader;
 use xui_webd_client::Status;
 
@@ -161,7 +161,7 @@ impl Mail {
         self.open = None;
         self.selected = None;
         self.bodies.cancel();
-        self.message_list.set_model(MessageRows::new(&[]));
+        self.message_sort.clear(&self.message_list);
         self.folders = FolderTree::new(
             self.config
                 .accounts

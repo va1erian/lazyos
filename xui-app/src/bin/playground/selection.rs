@@ -142,7 +142,9 @@ impl Playground {
     }
 
     pub fn live_select(&mut self, ui: &mut Ui<crate::msg::Msg>, row: usize) {
-        let row = self.w.live_sort.source(row).unwrap_or(usize::MAX);
+        let Some(row) = self.w.live_sort.source(row) else {
+            return;
+        };
         let Some(name) = self.ex.live_names.get(row).cloned() else {
             return;
         };
@@ -163,7 +165,9 @@ impl Playground {
     }
 
     pub fn topic_select(&mut self, ui: &mut Ui<crate::msg::Msg>, row: usize) {
-        let row = self.w.topics_sort.source(row).unwrap_or(usize::MAX);
+        let Some(row) = self.w.topics_sort.source(row) else {
+            return;
+        };
         let Some(label) = self.ex.topic_labels.get(row).cloned() else {
             return;
         };
@@ -193,7 +197,9 @@ impl Playground {
 
     pub fn gallery_select(&mut self, ui: &mut Ui<crate::msg::Msg>, row: usize) {
         let _ = ui;
-        let row = self.w.gallery_sort.source(row).unwrap_or(usize::MAX);
+        let Some(row) = self.w.gallery_sort.source(row) else {
+            return;
+        };
         let Some(id) = self.ex.gallery_ids.get(row).copied() else {
             return;
         };

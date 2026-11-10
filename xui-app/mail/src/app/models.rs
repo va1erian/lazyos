@@ -50,20 +50,8 @@ impl ListModel for FolderRows {
     }
 }
 
-/// The message list: sender, subject and date, unread messages marked.
-pub struct MessageRows {
-    cells: Vec<[String; 3]>,
-}
-
-impl MessageRows {
-    pub fn new(rows: &[RowModel]) -> MessageRows {
-        MessageRows {
-            cells: rows.iter().map(cells).collect(),
-        }
-    }
-}
-
-/// The message list's cells, one row per message.
+/// The message list's cells, one row per message: sender, subject and
+/// date, unread messages marked.
 pub fn message_cells(rows: &[RowModel]) -> Vec<Vec<String>> {
     rows.iter().map(|row| cells(row).to_vec()).collect()
 }
@@ -95,19 +83,6 @@ fn cells(row: &RowModel) -> [String; 3] {
         format!("{}{flag}", row.subject),
         date,
     ]
-}
-
-impl ListModel for MessageRows {
-    fn rows(&self) -> usize {
-        self.cells.len()
-    }
-
-    fn cell(&self, row: usize, column: usize) -> Option<&str> {
-        self.cells
-            .get(row)
-            .and_then(|cells| cells.get(column))
-            .map(String::as_str)
-    }
 }
 
 #[cfg(test)]
@@ -151,11 +126,8 @@ mod tests {
             seen: false,
             flagged: false,
         };
-        let rows = MessageRows::new(&[row]);
-        assert_eq!(rows.cell(0, 0), Some("\u{2022} Ada"));
-        assert_eq!(rows.cell(0, 1), Some("Hello"));
-        assert_eq!(rows.cell(0, 2), Some("2026-10-03 21:00"));
-        assert_eq!(rows.cell(0, 3), None);
+        let cells = message_cells(&[row]);
+        assert_eq!(cells, [["\u{2022} Ada", "Hello", "2026-10-03 21:00"]]);
     }
 
     #[test]

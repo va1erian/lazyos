@@ -152,7 +152,13 @@ impl ArchiverApp {
         };
         // Show the starting order, so the first Name click flips it rather
         // than "turning on" an ascending sort the rows already have.
-        app.w.list.set_sort_indicator(0, SortDirection::Ascending);
+        let (column, ascending) = app.sort;
+        let direction = if ascending {
+            SortDirection::Ascending
+        } else {
+            SortDirection::Descending
+        };
+        app.w.list.set_sort_indicator(column.index(), direction);
         app.sync(ui);
         Ok(app)
     }

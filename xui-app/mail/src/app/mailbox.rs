@@ -8,7 +8,7 @@ use esmail_glue::mailbox::OpenFolder;
 use esmail_glue::{CacheEvent, FolderRef};
 use xui_core::app::Ui;
 
-use super::models::{self, MessageRows};
+use super::models;
 use super::{Mail, Msg};
 
 /// How many of a folder's newest cached messages show before the server answers.
@@ -188,7 +188,7 @@ impl Mail {
     pub(super) fn open_folder(&mut self, folder: FolderRef) {
         self.bodies.cancel();
         self.selected = None;
-        self.message_list.set_model(MessageRows::new(&[]));
+        self.message_sort.clear(&self.message_list);
         self.reader.show_notice("Select a message to read it.");
         self.set_status(&format!("Loading {}...", folder.mailbox));
         self.core_cache(|cache| {
