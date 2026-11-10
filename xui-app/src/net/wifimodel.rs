@@ -222,6 +222,13 @@ pub fn channel(freq_mhz: u32) -> Option<u32> {
     }
 }
 
+/// What [`row`]'s cells sort by: the signal by its dBm, the rest as shown.
+pub fn sort_key(network: &Network) -> Vec<String> {
+    let mut key = row(network);
+    key[1] = network.rssi_dbm.to_string();
+    key
+}
+
 /// One row of the networks table: name, signal, security, state.
 pub fn row(network: &Network) -> Vec<String> {
     let state = if network.connected {

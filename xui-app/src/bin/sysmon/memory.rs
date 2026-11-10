@@ -6,9 +6,10 @@
 use xui_app::format::bytes;
 use xui_app::sysinfo::procmem::Class;
 use xui_app::sysinfo::{ProcessMemory, ProcessTable, Snapshot};
+use xui_app::table::SortedTable;
 use xui_core::prelude::*;
 
-use crate::Msg;
+use crate::{Msg, View};
 
 /// The Memory tab's widgets.
 #[derive(Default)]
@@ -16,6 +17,7 @@ pub(crate) struct Memory {
     heading: Handle<Label<Msg>>,
     note: Handle<Label<Msg>>,
     pub(crate) processes: Handle<ListView<Msg>>,
+    pub(crate) processes_sort: SortedTable,
 }
 
 impl Memory {
@@ -32,6 +34,7 @@ impl Memory {
                 .column_right("Shared", 80)
                 .column_right("Files", 70)
                 .column_right("Private", 80)
+                .then(|list| list.on_sort(|_| Some(Msg::Sort(View::Memory))))
                 .bind(&self.processes)
                 .fill(1),
         ))
@@ -46,7 +49,7 @@ impl Memory {
         let mut rows: Vec<&ProcessMemory> = table.rows.iter().collect();
         rows.sort_by(|a, b| b.footprint().cmp(&a.footprint()).then(a.pid.cmp(&b.pid)));
         let cells: Vec<Vec<String>> = rows.iter().map(|row| cells(snapshot, row)).collect();
-        self.processes.get().refresh_model(cells);
+        self.processes_sort.show(&self.processes.get(), cells);
         // Page tables belong to one process, so they are in the footprint and not in the sharing.
         let held = table.footprint();
         let counted =
@@ -68,9 +71,7 @@ impl Memory {
             .get()
             .set_text("Memory by process is not available");
         self.note.get().set_text("");
-        self.processes
-            .get()
-            .refresh_model(Vec::<Vec<String>>::new());
+        self.processes_sort.clear(&self.processes.get());
     }
 }
 

@@ -32,6 +32,7 @@ use xui_app::launch;
 use xui_app::net::drives::{self, Form};
 use xui_app::net::mounts::{self, MountInfo};
 use xui_app::probe;
+use xui_app::table::SortedTable;
 use xui_core::prelude::*;
 
 /// The window title, which the UI probe lines name.
@@ -50,6 +51,8 @@ enum Msg {
     Mount,
     Open,
     Unmount,
+    /// A click on the mounts list's header.
+    Sort,
     Close,
 }
 
@@ -65,6 +68,8 @@ struct Widgets {
     name: Handle<Edit<Msg>>,
     mount: Handle<Button<Msg>>,
     mounts: Handle<ListView<Msg>>,
+    /// The mounts list's header order; its rows map back to `mounts`.
+    mounts_sort: SortedTable,
     open: Handle<Button<Msg>>,
     unmount: Handle<Button<Msg>>,
     message: Handle<Label<Msg>>,
@@ -137,6 +142,7 @@ impl Widgets {
                             .column("Folder", 110)
                             .column("State", Fill)
                             .on_activate(|_| Msg::Open)
+                            .then(|list| list.on_sort(|_| Some(Msg::Sort)))
                             .bind(&self.mounts)
                             .fill(1),
                         row().gap(8).children((
@@ -239,6 +245,7 @@ impl App for Netdrives {
             Msg::Mount => self.mount(),
             Msg::Open => self.open(),
             Msg::Unmount => self.unmount(),
+            Msg::Sort => self.w.mounts_sort.resort(&self.w.mounts.get()),
             Msg::Close => {
                 println!("NETDRIVES:CLOSE:PASS");
                 ui.quit();
@@ -270,12 +277,11 @@ impl Netdrives {
             self.report(info);
         }
         let selected = self.selected().map(|info| info.name.clone());
-        self.w
-            .mounts
-            .get()
-            .refresh_model(mounts.iter().map(drives::row).collect::<Vec<_>>());
+        let rows = mounts.iter().map(drives::row).collect::<Vec<_>>();
+        self.w.mounts_sort.show(&self.w.mounts.get(), rows);
         let index = selected
             .and_then(|name| mounts.iter().position(|info| info.name == name))
+            .and_then(|index| self.w.mounts_sort.shown(index))
             .or((!mounts.is_empty()).then_some(0));
         self.w.mounts.get().select(index);
         self.mounts = mounts;
@@ -309,6 +315,7 @@ impl Netdrives {
             .mounts
             .get()
             .selected()
+            .and_then(|row| self.w.mounts_sort.source(row))
             .and_then(|index| self.mounts.get(index))
     }
 

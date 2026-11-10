@@ -150,6 +150,9 @@ impl ArchiverApp {
             dialog_open,
             rendered: None,
         };
+        // Show the starting order, so the first Name click flips it rather
+        // than "turning on" an ascending sort the rows already have.
+        app.w.list.set_sort_indicator(0, SortDirection::Ascending);
         app.sync(ui);
         Ok(app)
     }

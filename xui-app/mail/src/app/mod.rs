@@ -36,6 +36,7 @@ use esmail_glue::{BodyLoads, Core, FolderRef, FolderTree};
 use secrecy::SecretString;
 use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
+use xui_app::table::SortedTable;
 use xui_core::widget::{HasText, Label, ListView, Panel};
 
 use account::AccountPage;
@@ -66,6 +67,8 @@ pub enum Msg {
     Folder(usize),
     /// A row of the message list was picked.
     Message(usize),
+    /// A click on the message list's header.
+    SortMessages,
     GetMail,
     Compose,
     Reply,
@@ -87,6 +90,8 @@ pub struct Mail {
     folder_rows: FolderRows,
     folder_list: Rc<ListView<Msg>>,
     message_list: Rc<ListView<Msg>>,
+    /// The message list's header order; its rows map back to the folder's.
+    message_sort: SortedTable,
     reader: Rc<Reader>,
     account_page: AccountPage,
     compose_page: ComposePage,
@@ -129,6 +134,7 @@ impl Mail {
             folder_rows: FolderRows::default(),
             folder_list: mounted.folder_list,
             message_list: mounted.message_list,
+            message_sort: SortedTable::new(),
             reader: mounted.reader,
             account_page,
             compose_page,
@@ -403,6 +409,7 @@ impl App for Mail {
                 }
             }
             Msg::Message(row) => self.select_message(row),
+            Msg::SortMessages => self.message_sort.resort(&self.message_list),
             Msg::GetMail => self.refresh(),
             Msg::Compose => self.open_compose(ui, Kind::New),
             Msg::Reply => self.open_compose(ui, Kind::Reply),

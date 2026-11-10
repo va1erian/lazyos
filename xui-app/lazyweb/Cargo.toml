@@ -31,7 +31,7 @@ lazydownloads = { path = "../crates/downloads" }
 # A page's notification as a toast, and its limits (shared with webd).
 lazywebnotify = { path = "../crates/webnotify" }
 # One xui revision for every crate, so a single `xui_core` links.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "d77768341745d8e8ed1779ae3677c00a1b74b3aa" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "832c61f29419bf31a0518a47e050b15c97b316e3" }
 # The seam: the engine trait, the mailbox, the page view.
 xui-webkit = { path = "../crates/webkit" }
 # The ad blocker's converter (Adblock Plus lists to WebKit rule lists; MIT, no dependencies).
@@ -53,4 +53,4 @@ lazyos-sys = { path = "../../libs/lazyos-sys", features = ["std"] }
 [dev-dependencies]
 # Seeded fuzz for the bookmark log (`places::fuzz`; FUZZ_CASES / FUZZ_SEED).
 fuzzkit = { path = "../../libs/fuzzkit" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "d77768341745d8e8ed1779ae3677c00a1b74b3aa", default-features = false }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "832c61f29419bf31a0518a47e050b15c97b316e3", default-features = false }

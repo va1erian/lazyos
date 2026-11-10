@@ -1,5 +1,6 @@
 //! The Wi-Fi page's widgets and layout (see `wifipage.rs`).
 
+use xui_app::table::SortedTable;
 use xui_core::prelude::*;
 use xui_core::widget::CheckBox;
 
@@ -13,6 +14,8 @@ pub enum Action {
     JoinHidden,
     Leave,
     Forget,
+    /// A click on the list's header.
+    Sort,
 }
 
 /// Every widget the page reads or changes after start-up.
@@ -20,6 +23,8 @@ pub enum Action {
 pub struct Widgets {
     pub(super) heading: Handle<Label<Msg>>,
     pub(super) list: Handle<ListView<Msg>>,
+    /// The list's header order; its rows map back to `networks`.
+    pub(super) sort: SortedTable,
     pub(super) passphrase: Handle<Edit<Msg>>,
     pub(super) hidden: Handle<Edit<Msg>>,
     pub(super) open: Handle<CheckBox<Msg>>,
@@ -46,6 +51,7 @@ impl Widgets {
                     .column("Security", 90)
                     .column("State", Fill)
                     .on_activate(|_| Msg::Wifi(Action::Join))
+                    .then(|list| list.on_sort(|_| Some(Msg::Wifi(Action::Sort))))
                     .bind(&self.list)
                     .fill(1),
                 row().gap(8).children((

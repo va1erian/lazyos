@@ -10,6 +10,7 @@
 use devinspect::{class_name, reason_name, Denial, Device, Uid};
 use xui_app::devinfo::{grants, DevView};
 use xui_app::format::uptime;
+use xui_app::table::SortedTable;
 use xui_core::prelude::*;
 
 use crate::Msg;
@@ -17,16 +18,27 @@ use crate::Msg;
 /// The keys the header reminds of.
 const KEYS: &str = "device syscall 23 · read-only · 2 s refresh · [r] refresh  [q] quit";
 
+/// The three tables, for a header click.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Table {
+    Devices,
+    Rules,
+    Denials,
+}
+
 /// Every widget the app changes after start-up.
 #[derive(Default)]
 pub(crate) struct Widgets {
     devices_heading: Handle<Label<Msg>>,
     devices: Handle<ListView<Msg>>,
+    devices_sort: SortedTable,
     rules_heading: Handle<Label<Msg>>,
     rules_note: Handle<Label<Msg>>,
     rules: Handle<ListView<Msg>>,
+    rules_sort: SortedTable,
     denials_heading: Handle<Label<Msg>>,
     denials: Handle<ListView<Msg>>,
+    denials_sort: SortedTable,
     status: Handle<StatusBar<Msg>>,
 }
 
@@ -55,6 +67,7 @@ impl Widgets {
                 .column("vendor:dev", 110)
                 .column("owner", 130)
                 .column("rights", Fill)
+                .then(|list| list.on_sort(|_| Some(Msg::Sort(Table::Devices))))
                 .bind(&self.devices)
                 .fill(1),
         ))
@@ -68,6 +81,7 @@ impl Widgets {
                 .column("class", 120)
                 .column("may", 220)
                 .column("verdict", Fill)
+                .then(|list| list.on_sort(|_| Some(Msg::Sort(Table::Rules))))
                 .bind(&self.rules)
                 .fill(1),
             label("").bind(&self.rules_note),
@@ -83,9 +97,19 @@ impl Widgets {
                 .column("class", 120)
                 .column_right("device", 80)
                 .column("why", Fill)
+                .then(|list| list.on_sort(|_| Some(Msg::Sort(Table::Denials))))
                 .bind(&self.denials)
                 .fill(1),
         ))
+    }
+
+    /// Re-sorts `table` after a click on its header.
+    pub(crate) fn resort(&self, table: Table) {
+        match table {
+            Table::Devices => self.devices_sort.resort(&self.devices.get()),
+            Table::Rules => self.rules_sort.resort(&self.rules.get()),
+            Table::Denials => self.denials_sort.resort(&self.denials.get()),
+        }
     }
 
     /// Fills every section and the status bar from `view`.
@@ -140,7 +164,7 @@ impl Widgets {
                 ]
             })
             .collect();
-        self.devices.get().refresh_model(rows);
+        self.devices_sort.show(&self.devices.get(), rows);
     }
 
     /// Says why the inventory cannot be read, where the device heading goes.
@@ -153,7 +177,7 @@ impl Widgets {
         self.devices_heading
             .get()
             .set_text(&format!("Device inventory unavailable: {why}"));
-        self.devices.get().refresh_model(Vec::<Vec<String>>::new());
+        self.devices_sort.clear(&self.devices.get());
     }
 
     fn show_rules(&self, view: &DevView) {
@@ -187,7 +211,7 @@ impl Widgets {
                 .collect(),
             _ => Vec::new(),
         };
-        self.rules.get().refresh_model(rows);
+        self.rules_sort.show(&self.rules.get(), rows);
     }
 
     fn show_denials(&self, denials: &std::result::Result<Vec<Denial>, i64>) {
@@ -215,6 +239,6 @@ impl Widgets {
                 ]
             })
             .collect();
-        self.denials.get().refresh_model(rows);
+        self.denials_sort.show(&self.denials.get(), rows);
     }
 }

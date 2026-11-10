@@ -112,6 +112,8 @@ pub(crate) enum Msg {
     ToggleCompact,
     Resized,
     Show(View),
+    /// A header click on that tab's table.
+    Sort(View),
     Help,
 }
 
@@ -236,6 +238,7 @@ impl App for Sysmon {
                 }
                 println!("SYSMON:VIEW:{}", view.marker());
             }
+            Msg::Sort(view) => self.widgets.resort(view),
             Msg::Help => match launcher::open_path(&help_path()) {
                 Ok(()) => println!("SYSMON:HELP:PASS"),
                 Err(error) => {

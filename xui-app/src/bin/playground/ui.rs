@@ -13,6 +13,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use xui_app::devtool::{strip, Notice, Strip};
+use xui_app::table::SortedTable;
 use xui_code_editor::{Editor, FontConfig, Options, RhaiHighlighter};
 
 use xui_core::app::Ui;
@@ -31,7 +32,7 @@ use xui_core::{Dip, Fill};
 use xui_markdown::MarkdownView;
 
 use crate::menus::{menus, MENU_HEIGHT};
-use crate::msg::{Action, Msg};
+use crate::msg::{Action, Msg, Table};
 use crate::panes::{self, Saved};
 use crate::paste::{PasteTap, TappedClipboard};
 
@@ -118,6 +119,11 @@ pub struct Widgets {
     pub live: Handle<ListView<Msg>>,
     pub topics: Handle<ListView<Msg>>,
     pub gallery: Handle<ListView<Msg>>,
+    /// The three explorer tables' header orders; their rows map back to the
+    /// explorer's `live_names`, `topic_labels` and `gallery_ids`.
+    pub live_sort: SortedTable,
+    pub topics_sort: SortedTable,
+    pub gallery_sort: SortedTable,
     pub doc: Handle<Panel<Msg>>,
     /// The scroll view of the call form or Help, when the doc pane shows one.
     pub doc_scroll: Handle<ScrollView<Msg>>,
@@ -247,6 +253,7 @@ impl Widgets {
                             .column("lease", Fill)
                             .on_select(Msg::LiveSelect)
                             .on_activate(Msg::LiveActivate)
+                            .then(|l| l.on_sort(|_| Some(Msg::Sort(Table::Live))))
                             .bind(&self.live)
                             .fill(1),
                     ),
@@ -262,6 +269,7 @@ impl Widgets {
                             .column("Subs", 40)
                             .column("Permissions", Fill)
                             .on_select(Msg::TopicSelect)
+                            .then(|l| l.on_sort(|_| Some(Msg::Sort(Table::Topics))))
                             .bind(&self.topics)
                             .fill(1),
                     ),
@@ -275,6 +283,7 @@ impl Widgets {
                             .column("Needs", Fill)
                             .on_select(Msg::GallerySelect)
                             .on_activate(Msg::GalleryActivate)
+                            .then(|l| l.on_sort(|_| Some(Msg::Sort(Table::Gallery))))
                             .bind(&self.gallery)
                             .fill(1),
                     ),

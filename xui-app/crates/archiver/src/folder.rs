@@ -7,6 +7,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use lazyarc::{Entry, EntryKind};
+use xui_core::natural_cmp;
 
 /// What a row is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -159,65 +160,57 @@ pub fn parent_row() -> Row {
 
 /// Sort `rows` by `column`: the parent row first, folders before files.
 pub fn sort(rows: &mut [Row], column: Column, ascending: bool) {
-    rows.sort_by(|a, b| {
-        let group = |row: &Row| match row.kind {
-            RowKind::Parent => 0,
-            RowKind::Folder => 1,
-            _ => 2,
-        };
-        group(a).cmp(&group(b)).then_with(|| {
-            let order = match column {
-                Column::Name => natural(&a.name, &b.name),
-                Column::Size => a.size.cmp(&b.size),
-                Column::Packed => a.packed.cmp(&b.packed),
-                Column::Modified => a.modified.cmp(&b.modified),
-                Column::Method => a.method.cmp(&b.method),
-            }
-            .then_with(|| natural(&a.name, &b.name));
-            if ascending {
-                order
-            } else {
-                order.reverse()
-            }
-        })
-    });
+    rows.sort_by(|a, b| compare(a, b, column, ascending));
 }
 
-/// Case-insensitive order, with runs of digits compared by value
-/// (`file2` before `file10`).
-pub fn natural(a: &str, b: &str) -> Ordering {
-    let (mut a, mut b) = (a.chars().peekable(), b.chars().peekable());
-    loop {
-        match (a.peek().copied(), b.peek().copied()) {
-            (None, None) => return Ordering::Equal,
-            (None, Some(_)) => return Ordering::Less,
-            (Some(_), None) => return Ordering::Greater,
-            (Some(x), Some(y)) if x.is_ascii_digit() && y.is_ascii_digit() => {
-                let take = |it: &mut std::iter::Peekable<std::str::Chars<'_>>| {
-                    let mut digits = String::new();
-                    while let Some(c) = it.peek().copied().filter(char::is_ascii_digit) {
-                        digits.push(c);
-                        it.next();
-                    }
-                    digits
-                };
-                let (x, y) = (take(&mut a), take(&mut b));
-                let (xt, yt) = (x.trim_start_matches('0'), y.trim_start_matches('0'));
-                let order = xt.len().cmp(&yt.len()).then_with(|| xt.cmp(yt));
-                if order != Ordering::Equal {
-                    return order;
-                }
-            }
-            (Some(x), Some(y)) => {
-                let order = x.to_lowercase().cmp(y.to_lowercase());
-                if order != Ordering::Equal {
-                    return order;
-                }
-                a.next();
-                b.next();
-            }
-        }
+/// Sort `rows` like [`sort`] and return where the rows in `selection` went,
+/// so a header click keeps the user's selection on the same items.
+pub fn sort_keeping(
+    rows: &mut Vec<Row>,
+    selection: &[usize],
+    column: Column,
+    ascending: bool,
+) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..rows.len()).collect();
+    order.sort_by(|&a, &b| compare(&rows[a], &rows[b], column, ascending));
+    let mut position = vec![0; rows.len()];
+    for (new, &old) in order.iter().enumerate() {
+        position[old] = new;
     }
+    let mut old: Vec<Option<Row>> = std::mem::take(rows).into_iter().map(Some).collect();
+    rows.extend(order.iter().filter_map(|&i| old[i].take()));
+    let mut kept: Vec<usize> = selection
+        .iter()
+        .filter_map(|&row| position.get(row).copied())
+        .collect();
+    kept.sort_unstable();
+    kept.dedup();
+    kept
+}
+
+/// The order of two rows: `..` first, then folders, then files, each group
+/// by `column` with the name (natural order) as the tie-break.
+fn compare(a: &Row, b: &Row, column: Column, ascending: bool) -> Ordering {
+    let group = |row: &Row| match row.kind {
+        RowKind::Parent => 0,
+        RowKind::Folder => 1,
+        _ => 2,
+    };
+    group(a).cmp(&group(b)).then_with(|| {
+        let order = match column {
+            Column::Name => natural_cmp(&a.name, &b.name),
+            Column::Size => a.size.cmp(&b.size),
+            Column::Packed => a.packed.cmp(&b.packed),
+            Column::Modified => a.modified.cmp(&b.modified),
+            Column::Method => natural_cmp(&a.method, &b.method),
+        }
+        .then_with(|| natural_cmp(&a.name, &b.name));
+        if ascending {
+            order
+        } else {
+            order.reverse()
+        }
+    })
 }
 
 /// The parent of normalised `folder` (`a/b` -> `a`, `a` -> `""`).
@@ -324,8 +317,30 @@ mod tests {
         sort(&mut rows, Column::Name, false);
         let names: Vec<_> = rows.iter().map(|r| r.name.as_str()).collect();
         assert_eq!(names, ["..", "src", "docs", "readme.txt"]);
-        assert_eq!(natural("file2", "file10"), Ordering::Less);
-        assert_eq!(natural("B", "a"), Ordering::Greater);
+    }
+
+    #[test]
+    fn sorting_keeps_the_selection_on_its_items() {
+        let mut rows: Vec<Row> = ["file10", "File2", "file1"]
+            .iter()
+            .map(|name| Row {
+                name: (*name).to_owned(),
+                kind: RowKind::File,
+                path: (*name).to_owned(),
+                ..parent_row()
+            })
+            .collect();
+        rows.insert(0, parent_row());
+        // Select `File2` (row 2) and `file1` (row 3).
+        let kept = sort_keeping(&mut rows, &[2, 3], Column::Name, true);
+        let names: Vec<_> = rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["..", "file1", "File2", "file10"]);
+        assert_eq!(kept, [1, 2]);
+        let kept = sort_keeping(&mut rows, &kept, Column::Name, false);
+        let names: Vec<_> = rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["..", "file10", "File2", "file1"]);
+        assert_eq!(kept, [2, 3]);
+        assert!(sort_keeping(&mut rows, &[99], Column::Name, true).is_empty());
     }
 
     #[test]

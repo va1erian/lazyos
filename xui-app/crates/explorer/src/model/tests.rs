@@ -63,6 +63,39 @@ fn folders_sort_before_files_case_insensitively() {
 }
 
 #[test]
+fn numbered_names_sort_by_value_both_ways() {
+    let mut entries = vec![
+        entry("file10.txt", Kind::File, Some(1)),
+        entry("File2.txt", Kind::File, Some(1)),
+        entry("file1.txt", Kind::File, Some(1)),
+        entry("track 100", Kind::Dir, None),
+        entry("track 9", Kind::Dir, None),
+    ];
+    sort_entries(&mut entries, SortOrder::default());
+    let ascending = [
+        "track 9",
+        "track 100",
+        "file1.txt",
+        "File2.txt",
+        "file10.txt",
+    ];
+    assert_eq!(names(&entries), ascending);
+    let descending = SortOrder {
+        key: SortKey::Name,
+        descending: true,
+    };
+    sort_entries(&mut entries, descending);
+    let expected = [
+        "track 100",
+        "track 9",
+        "file10.txt",
+        "File2.txt",
+        "file1.txt",
+    ];
+    assert_eq!(names(&entries), expected);
+}
+
+#[test]
 fn every_key_sorts_both_ways_with_folders_first() {
     let entries = vec![
         entry_at("b.txt", Kind::File, Some(30), Some(100)),

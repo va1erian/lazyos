@@ -178,6 +178,7 @@ impl App for Playground {
                 self.gallery_select(ui, row);
                 self.act(ui, crate::msg::Action::LoadExample);
             }
+            Msg::Sort(table) => self.resort(table),
             Msg::Do(action) => self.act(ui, action),
             Msg::OpenLink(path) => self.open_link(&path),
             Msg::Form(edit) => self.form_edit(ui, &edit),

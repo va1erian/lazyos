@@ -2,9 +2,12 @@
 
 //! The listing order: folders first, then files, each group ordered by the
 //! window's [`SortOrder`] (name, size, type or modification time, ascending
-//! or descending), with the case-folded name as the tie-break.
+//! or descending), with the name in natural order (`file2` before `file10`,
+//! case ignored) as the tie-break.
 
 use std::cmp::Ordering;
+
+use xui_core::natural_cmp;
 
 use super::Entry;
 use crate::platform::Kind;
@@ -12,7 +15,7 @@ use crate::platform::Kind;
 /// What a listing is sorted by.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SortKey {
-    /// The name, case-insensitively.
+    /// The name, case-insensitively, with digit runs compared by value.
     #[default]
     Name,
     /// A file's size (folders have none and keep name order).
@@ -84,7 +87,7 @@ impl SortOrder {
 }
 
 /// Sorts entries in place: directories first in every order, then everything
-/// else, each group ordered by `order` with a case-folded name and then a
+/// else, each group ordered by `order` with the natural name order and then a
 /// byte-order tie-break, so equal keys have a deterministic order.
 ///
 /// Works on non-UTF-8 names too: the display string is lossy, so an invalid
@@ -110,16 +113,15 @@ fn compare(a: &Entry, b: &Entry, key: SortKey) -> Ordering {
     match key {
         SortKey::Name => by_name(a, b),
         SortKey::Size => a.size.cmp(&b.size),
-        SortKey::Type => a.type_name.to_lowercase().cmp(&b.type_name.to_lowercase()),
+        SortKey::Type => natural_cmp(&a.type_name, &b.type_name),
         SortKey::Modified => a.modified.cmp(&b.modified),
     }
 }
 
-/// Case-insensitive name order, then the exact display and raw name.
+/// Natural name order (digit runs by value, case ignored), then the exact
+/// display and raw name.
 fn by_name(a: &Entry, b: &Entry) -> Ordering {
-    a.display
-        .to_lowercase()
-        .cmp(&b.display.to_lowercase())
+    natural_cmp(&a.display, &b.display)
         .then_with(|| a.display.cmp(&b.display))
         .then_with(|| a.name.cmp(&b.name))
 }
