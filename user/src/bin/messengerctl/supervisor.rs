@@ -2,7 +2,9 @@
 
 use alloc::format;
 use alloc::string::String;
-use user::messenger::{self, services};
+use user::messenger::client::Native;
+use user::messenger::services::init::Client as InitClient;
+use user::messenger::{self};
 use user::sys;
 use user::trace;
 
@@ -11,11 +13,11 @@ use super::selftest::park_tick;
 
 /// `services`: the supervisor's supervision table (issue #93).
 pub(crate) fn print_services() {
-    let endpoint = match services::resolve_service(services::INIT_NAME) {
-        Ok(endpoint) => endpoint,
+    let init = match InitClient::try_connect(Native) {
+        Ok(init) => init,
         Err(error) => return report(error.message()),
     };
-    match services::fetch_services(&endpoint) {
+    match init.services() {
         Ok(statuses) if statuses.is_empty() => {
             sys::write_str("services: no services supervised\n");
         }
@@ -38,11 +40,11 @@ pub(crate) fn print_services() {
 /// `apps`: the supervisor's built-in app registry (issue #158), the table the
 /// S5 start menu enumerates and `launch` resolves against.
 pub(crate) fn print_apps() {
-    let endpoint = match services::resolve_service(services::INIT_NAME) {
-        Ok(endpoint) => endpoint,
+    let init = match InitClient::try_connect(Native) {
+        Ok(init) => init,
         Err(error) => return report(error.message()),
     };
-    match services::fetch_apps(&endpoint) {
+    match init.list_apps() {
         Ok(apps) if apps.is_empty() => {
             sys::write_str("apps: registry is empty\n");
         }
@@ -76,7 +78,7 @@ pub(crate) fn launch_app(rest: &str) {
     if app.is_empty() {
         return report("usage: launch <app> [args]");
     }
-    match services::launch_app(app, args, 0) {
+    match InitClient::connect(Native).and_then(|init| init.launch(app, args, 0)) {
         Ok(result) => sys::write_str(&format!(
             "launch {} -> pid {} (session {})\n",
             result.app, result.pid, result.session
@@ -101,10 +103,10 @@ pub(crate) fn launch_app(rest: &str) {
 ///    console's own privilege could never restore it, and `commands()` would
 ///    serve the rest of the session as the probe's uid.
 pub(crate) fn app_selftest() {
-    let Some(endpoint) = resolve_init() else {
+    let Some(init) = resolve_init() else {
         return;
     };
-    match services::fetch_apps(&endpoint) {
+    match init.list_apps() {
         Ok(apps) => {
             // `ListApps` returns only the apps this image ships, so assert the
             // always-shipped rows (`top`, and this tool) with the path/verb the
@@ -131,7 +133,7 @@ pub(crate) fn app_selftest() {
         Err(error) => trace::print!(trace::Channel::Msgctl, "APPS:FAIL:{}", error.message()),
     }
 
-    match services::launch(&endpoint, "top", "", 0) {
+    match init.launch("top", "", 0) {
         Ok(result) => trace::print!(
             trace::Channel::Msgctl,
             "LAUNCH:PASS app={} pid={}",
@@ -160,8 +162,8 @@ pub(crate) fn app_selftest() {
 /// `MSGCTL:LAUNCH:DENIED:*` evidence line, and exit. This never runs in the
 /// console task itself: see [`app_selftest`].
 pub(crate) fn probe_role() -> ! {
-    let endpoint = match resolve_init() {
-        Some(endpoint) => endpoint,
+    let init = match resolve_init() {
+        Some(init) => init,
         None => {
             trace::print!(
                 trace::Channel::Msgctl,
@@ -178,8 +180,8 @@ pub(crate) fn probe_role() -> ! {
         );
         sys::exit(1);
     }
-    match services::launch(&endpoint, "top", "", 1) {
-        Err(error) if error.errno() == Some(-messenger::errno::EPERM) => {
+    match init.launch("top", "", 1) {
+        Err(error) if error.code() == -messenger::errno::EPERM => {
             trace::print!(trace::Channel::Msgctl, "LAUNCH:DENIED:PASS");
             sys::exit(0);
         }
@@ -221,11 +223,11 @@ fn reap_probe(pid: u64) {
 
 /// Resolve `init`, retrying while the supervisor's registration lands; `None`
 /// when it never does.
-fn resolve_init() -> Option<user::messenger::Endpoint> {
+fn resolve_init() -> Option<InitClient> {
     const ATTEMPTS: usize = 64;
     for _ in 0..ATTEMPTS {
-        if let Ok(endpoint) = services::resolve_service(services::INIT_NAME) {
-            return Some(endpoint);
+        if let Ok(init) = InitClient::try_connect(Native) {
+            return Some(init);
         }
         park_tick();
     }

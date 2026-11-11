@@ -13,8 +13,8 @@ use elevpolicy::{value_args, Operation, Value, WifiChange, NET_PREFIX, POWER_PRE
 use libmessenger::client::{CallError, Deadline};
 use user::messenger::client::Native;
 use user::messenger::confd::ValueClient;
-use user::messenger::{confd, errno, keyd, pkgd, services, timed};
-use user::sys;
+use user::messenger::services::init::Client as InitClient;
+use user::messenger::{confd, errno, keyd, pkgd, timed};
 
 use super::package::Approved;
 use super::{accounts_client, Refusal};
@@ -149,10 +149,9 @@ pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done
             done(format!("Configured {card}"))
         }
         Operation::ServiceRestart { name } => {
-            let init = services::resolve_service(services::INIT_NAME).map_err(Refusal::of)?;
-            let pid =
-                services::init::restart_service(&init, name, Some(sys::clock() + CONFD_TICKS))
-                    .map_err(Refusal::of)?;
+            let pid = InitClient::try_connect(Native)
+                .and_then(|init| init.restart_service_within(name, CONFD_BOUND))
+                .map_err(Refusal::of_call)?;
             done(format!("Restarted {name} (was pid {pid})"))
         }
         Operation::WifiSystem(change) => {

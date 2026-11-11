@@ -34,10 +34,11 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use libmessenger::client::Deadline;
+use libmessenger::client::{CallError, Deadline};
 use user::messenger::accounts::Directory;
 use user::messenger::client::Native;
 use user::messenger::confd::ValueClient;
+use user::messenger::services::init::{Client as InitClient, ClientError as InitError};
 use user::trace;
 
 use user::messenger::{
@@ -104,7 +105,7 @@ struct Desktop {
     next_session: u64,
     bus: Option<router::Bus>,
     accounts: Option<accounts::Client>,
-    init: Option<Endpoint>,
+    init: Option<InitClient>,
     greeter: bool,
     autologin_tried: bool,
 }
@@ -173,7 +174,7 @@ impl Desktop {
             self.bus = router::Bus::connect(services::INIT_NAME).ok();
         }
         if self.init.is_none() {
-            self.init = services::resolve_service(services::INIT_NAME).ok();
+            self.init = InitClient::try_connect(Native).ok();
         }
     }
 
@@ -207,14 +208,13 @@ impl Desktop {
     /// `Err(false)`: the image has none, give graphical logins up.
     fn show_greeter(&mut self) -> Result<(), bool> {
         let init = self.init.as_ref().ok_or(true)?;
-        let deadline = Some(sys::clock() + CALL_TICKS);
-        match services::launch_by(init, GREETER_APP, "", 0, deadline) {
+        match init.launch_within(GREETER_APP, "", 0, Deadline::ticks(CALL_TICKS)) {
             Ok(result) => {
                 trace::line!(trace::Channel::Login, "GREETER:PASS pid={}", result.pid);
                 self.greeter = true;
                 Ok(())
             }
-            Err(messenger::Error::Init(code)) if code == errno::ENOENT => {
+            Err(error) if error.code() == -errno::ENOENT => {
                 sys::write_str(
                     "LOGIN:GRAPHICAL:FAIL reason=no-login-screen; starting the console login\n",
                 );
@@ -226,7 +226,7 @@ impl Desktop {
 
     fn stop_greeter(&mut self) {
         if let Some(init) = self.init.as_ref() {
-            let _ = services::stop(init, GREETER_APP);
+            let _ = init.stop(GREETER_APP);
         }
         self.greeter = false;
     }
@@ -338,10 +338,9 @@ impl Desktop {
         // the session's apps), announced before the launch.
         publish_session(&mut self.bus, account, id, 0, "starting");
         let launched = match self.init.as_ref() {
-            Some(init) => {
-                services::launch_by(init, SHELL_APP, "", id, Some(sys::clock() + CALL_TICKS))
-                    .map_err(|error| error_text(&error))
-            }
+            Some(init) => init
+                .launch_within(SHELL_APP, "", id, Deadline::ticks(CALL_TICKS))
+                .map_err(|error| error_text(&error)),
             None => Err(String::from("init-unreachable")),
         };
         let pid = match launched {
@@ -469,10 +468,10 @@ fn publish_end(
 }
 
 /// A short reason for a failed `Launch`.
-fn error_text(error: &messenger::Error) -> String {
+fn error_text(error: &InitError) -> String {
     match error {
-        messenger::Error::Errno(code) => format!("errno{code}"),
-        messenger::Error::Init(code) => format!("init{code}"),
-        _ => String::from("launch-failed"),
+        CallError::Transport(errno) => format!("errno{}", errno.to_syscall()),
+        CallError::Remote { code, .. } => format!("init{code}"),
+        CallError::Service(never) => match *never {},
     }
 }

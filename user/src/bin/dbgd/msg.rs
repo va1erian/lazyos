@@ -7,7 +7,8 @@ use alloc::string::String;
 
 use dbgwire::json::{self, Object, Value};
 use dbgwire::rpc::code;
-use user::messenger::services;
+use user::messenger::client::Native;
+use user::messenger::services::init::Client as InitClient;
 
 use super::handlers::Failure;
 
@@ -37,9 +38,10 @@ pub(crate) fn msg_registry() -> Result<String, Failure> {
 
 /// `msg.services`: what `init` supervises.
 pub(crate) fn msg_services() -> Result<String, Failure> {
-    let endpoint = services::resolve_service(services::INIT_NAME)
+    let init = InitClient::try_connect(Native)
         .map_err(|e| (code::UNAVAILABLE, format!("init: {}", e.message())))?;
-    let statuses = services::fetch_services(&endpoint)
+    let statuses = init
+        .services()
         .map_err(|e| (code::UNAVAILABLE, format!("init: {}", e.message())))?;
     let rows = statuses.iter().map(|s| {
         Object::new()

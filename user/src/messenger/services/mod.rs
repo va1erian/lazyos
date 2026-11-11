@@ -20,12 +20,10 @@ pub mod sysmond;
 
 pub use health::{fetch_health, health_reply, health_report_request, health_request, HealthRecord};
 pub use init::{
-    decode_apps, decode_launch, decode_launch_request, decode_stop_request, error_field,
-    fetch_apps, fetch_apps_with, fetch_services, fetch_services_with, init_error_reply, launch,
-    launch_app, launch_by, launch_reply, launch_request, list_apps_reply, list_apps_request,
-    service_event_name, services_reply, services_request, shutdown, shutdown_reply,
-    shutdown_request, stop, stop_reply, stop_request, AppInfo, LaunchRequest, LaunchResult,
-    PowerState, ServiceEvent, ServiceStatus, POWER_MODE_POWER_OFF, POWER_MODE_REBOOT,
+    decode_launch_request, decode_stop_request, error_field, init_error_reply, launch_reply,
+    list_apps_reply, service_event_name, services_reply, shutdown_reply, stop_reply, AppInfo,
+    LaunchRequest, LaunchResult, PowerState, ServiceEvent, ServiceStatus, POWER_MODE_POWER_OFF,
+    POWER_MODE_REBOOT,
 };
 pub use logd::{
     decode_log_records, fetch_log_count, fetch_log_sources, fetch_log_tail, fetch_log_tail_file,

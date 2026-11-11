@@ -15,15 +15,16 @@ use user::messenger::client::Native;
 use user::messenger::confd::{self, Client as ConfdClient, ValueClient};
 use user::messenger::mime::{self, Client as MimeClient};
 use user::messenger::pkgd::{wire, Installed};
+use user::messenger::services::init::Client as InitClient;
 use user::messenger::{errno, services, Error, Result};
 
-use super::peers::{retry, Peer};
+use super::peers::retry;
 
 /// The connections and the operations on them.
 pub(crate) struct Registry {
     confd: Option<ConfdClient>,
     mimed: Option<MimeClient>,
-    init: Peer,
+    init: Option<InitClient>,
 }
 
 impl Registry {
@@ -31,7 +32,7 @@ impl Registry {
         Registry {
             confd: None,
             mimed: None,
-            init: Peer::new(services::INIT_NAME),
+            init: None,
         }
     }
 
@@ -139,7 +140,10 @@ impl Registry {
 
     /// Ask `init` to stop every running instance of `app`; returns how many.
     pub(crate) fn stop(&mut self, app: &str) -> Result<u64> {
-        self.init.run(|endpoint| services::stop(&endpoint, app))
+        let client = self.init.get_or_insert_with(|| {
+            InitClient::from_connection(Connection::new(Native, services::INIT_NAME))
+        });
+        retry(|| client.stop(app)).map_err(lower)
     }
 }
 

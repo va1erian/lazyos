@@ -74,7 +74,7 @@ use messenger_generated::errors::ERROR_FIELD;
 use messenger_generated::os_lazy_elevd_v1 as wire;
 use user::messenger::accounts::Directory;
 use user::messenger::client::Native;
-use user::messenger::{self, accounts, errno, pkgd, registry, services, Endpoint, Error, Message};
+use user::messenger::{self, accounts, errno, pkgd, registry, services, Endpoint, Message};
 use user::sys;
 
 use approve::Verdict;
@@ -111,12 +111,6 @@ pub(crate) struct Refusal(pub(crate) i64, pub(crate) String);
 impl Refusal {
     pub(crate) fn new(code: i64, text: &str) -> Refusal {
         Refusal(code, text.to_string())
-    }
-
-    /// A service's refusal, as it reported it.
-    pub(crate) fn of(error: Error) -> Refusal {
-        let code = error.errno().map(|code| -code).unwrap_or(errno::EIO);
-        Refusal(code, error.message().to_string())
     }
 
     /// The refusal of a generated client's call: the service's own code and

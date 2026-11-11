@@ -13,10 +13,12 @@ use user::trace;
 use accountdb::ops::OpError;
 use accountdb::policy::{authorize, Allowed, Change, Who};
 use accountdb::{Db, Verifier};
+use libmessenger::client::Deadline;
 use user::messenger::accounts::{wire, UserRecord};
 use user::messenger::client::Native;
-use user::messenger::{errno, keyd, services, Message};
-use user::sys;
+use user::messenger::services::init::Client as InitClient;
+
+use user::messenger::{errno, keyd, Message};
 
 use super::{authn, record, store, Refusal, State};
 
@@ -252,9 +254,8 @@ pub(crate) fn ensure_homes(db: &Db) {
 
 /// Ask `init` to apply `op` to the home of `name`.
 fn home(op: &str, name: &str, uid: u32, gid: u32) -> Result<(), Refusal> {
-    let result = services::resolve_service(services::INIT_NAME).and_then(|init| {
-        services::init::home(&init, op, name, uid, gid, Some(sys::clock() + HOME_TICKS))
-    });
+    let result = InitClient::try_connect(Native)
+        .and_then(|init| init.home_within(op, name, uid, gid, Deadline::ticks(HOME_TICKS)));
     match result {
         Ok(()) => {
             trace::line!(trace::Channel::Accounts, "HOME:PASS op={op} user={name}");
