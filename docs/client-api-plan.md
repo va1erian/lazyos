@@ -6,9 +6,10 @@ with a plan to make apps smaller, make every client behave the same way, and
 make the IDL the only place a protocol is written.
 
 Status: in progress (2026-11-11). Built: C1 (the client runtime, section
-3.4) and C2a (the `service`, `errors`, `scope` and `deadline` syntax, their
+3.4), C2a (the `service`, `errors`, `scope` and `deadline` syntax, their
 generated constants and the per-interface crate layout, sections 3.1 and
-3.6). The rest is not.
+3.6) and C2b (the generated Rust client, section 3.2; `user::messenger::timed`
+and the xui `platform/notify.rs` already use it). The rest is not.
 
 Related: [messenger.md](messenger.md) (sections 11 and 15),
 [midl.md](midl.md), [lazyrad-messenger-plan.md](lazyrad-messenger-plan.md)
@@ -219,6 +220,34 @@ generated `errors` module and mapped to the interface's `errors` enum.
 `call_async` form returns a `Pending<R>` whose completion a UI hands to its
 `Proxy` (section 4.3), so no UI thread ever blocks on a service.
 
+As built (C2b; the user-facing description is [midl.md](midl.md), "Generated
+client"): the client is `Client<T: Transport>` in the interface's module, behind
+`<interface>_client`, and its error alias is `ClientError`
+(`CallError<ServiceError>`, or `CallError` without `errors`). Where the runtime
+forced a change to the sketch above:
+
+* **Deadlines.** `with_deadline(&self, ..) -> Self` cannot exist (a
+  `Connection` is not `Clone`: it owns the cached handle), so the one override
+  is per call, `<method>_within(.., Deadline)`. A method without a `deadline`
+  waits `libmessenger::client::DEFAULT_DEADLINE`, 5 s: `CALL_TICKS = 500` is
+  the most common hand-written bound and the clipboard's longer bound.
+* **`_begin` is not built.** `Transport` has no asynchronous call; the xui
+  lane (`Service::call_async` over `backend::calls::begin`) is outside it.
+  Section 4.5's `Pending<R>` needs a `begin`/`complete` pair on the transport
+  first; until then a UI-thread caller keeps its existing lane for those calls.
+* **Families.** `Connection` names are `&'static str`, so a family member
+  (`os.lazy.net.nic/eth0`) needs a name the caller makes static; widening
+  `Connection` to an owned name is the follow-up.
+* **Copies.** The generated `XxxArgs` structs own their fields, so a borrowed
+  argument (`&str`, `&[u8]`) is copied once before it is encoded; a large
+  `Bytes` argument pays one extra `memcpy` (use a `Buffer`, which is shared).
+* **Mapping.** `Service(ServiceError)` carries the code only; a service's
+  sentence and detail survive on an undeclared code (`Remote`). A malformed
+  reply is `Transport(EBADMSG)`, an unencodable request `Transport(EINVAL)`.
+* **Which interfaces.** No client for a kernel scope (`KERNEL_SCOPES`) or an
+  interface no `service` serves. `Connection::send` now takes the objects of a
+  `oneway` request, and `Mock` records them.
+
 ### 3.3 Generated server
 
 ```rust
@@ -408,7 +437,7 @@ leaves `main` green.
 | C1 | `Transport`, `Connection`, `CallError`, `Errno`, `Mock` in `libmessenger`; native and std transports; registry-subscription wait | the four connect/cache implementations, `CONNECT_TICKS` copies |
 | C1b | Kernel registry: wait for a name to register (topic or `WaitFor`), with kernel correctness and stress tests; both transports block on it | the resolve sleep loops |
 | C2a | midlc: `service`, `errors`, `scope`, `deadline` syntax and their generated constants; per-interface modules and features | service-name literals, `fnv1a64` copies, confd/clipboard constant copies |
-| C2b | Rust client generation over C1's `Transport` (blocking and `_begin` forms); conformance tests for the client against the corpus through `Mock` | (enables C3) |
+| C2b | **Built.** Rust client generation over C1's `Transport` (blocking forms; `_begin` waits for an asynchronous transport call); host tests through `Mock` (`libs/generated/tests/client.rs`); `timed` and `notify` migrated as proof | (enables C3) |
 | C3 | Migrate clients interface by interface (confd, init, topics, clipboard first: the most duplicated); `user::messenger::*` and `xui_app::platform::*` keep only domain adapters | per-module `fn header`/`fn parcel`/`error_code`, `Service::call_*` |
 | C4 | Server generation and `dispatch`; migrate daemons, starting with small ones (`timed`, `mimed`, `pkgd`) then `xuid`, `netd`, `inputd` | 469 dispatch arms, 16 `error_reply`, `xui-app/src/server.rs` |
 | C5 | Typed bell subscriptions; move `init`/`healthd` off the interim router; declare or drop the undeclared topics | `topic_feed`, `router`, three ad hoc pollers |

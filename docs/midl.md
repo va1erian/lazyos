@@ -410,9 +410,10 @@ method Fetch(...) -> (...) deadline=5s;
 How long every client waits for the reply: a positive count of `ms` or `s`
 that fits 32 bits of milliseconds, refused on a `oneway` method (there is
 nothing to wait for). Generated: `METHOD_<X>_DEADLINE_MS: u32`. A method
-without a deadline has no constant (there is no interface-wide default), so a
-client that wants a bound for it still picks one. State a deadline only where
-callers already use one.
+without a deadline has no constant; the generated client then waits the
+crate-wide `libmessenger::client::DEFAULT_DEADLINE` (5 s, the bound most
+hand-written clients already used), so every client of a method behaves the
+same. State a deadline only where callers need a different one.
 
 ## Generated crate layout
 
@@ -428,6 +429,46 @@ and names its own. The `[features]` block of `libs/generated/Cargo.toml` is
 rewritten between its two markers on every run and is part of `--check`. The
 tables (`DECLARED_TOPICS`, `DECLARED_OBJECTS`, `DECLARED_SERVICES`) are data
 and are always present.
+
+## Generated client
+
+An interface with a `service` (a singleton name or a family) gets a typed
+client over `libmessenger::client` (`docs/client-api-plan.md` 3.2), in its
+module, behind the cargo feature `<interface>_client` (`confd_v1_client`, which
+implies `confd_v1`; `all` includes every one). Kernel ACL scopes and policy
+loaders, and interfaces no `service` serves (a callback channel's `oneway`
+events), get none.
+
+```rust
+use messenger_generated::os_lazy_confd_v1 as confd;
+let conf = confd::Client::connect(transport)?;            // SERVICE_NAME, the transport's connect bound
+let theme: Option<confd::Value> = conf.get("sys/ui/theme")?;
+let quick = conf.get_within("sys/ui/theme", Deadline::millis(50))?;
+```
+
+* `Client<T: Transport>` with `connect(transport)`, `try_connect(transport)`
+  (one attempt; both only when the interface has a singleton `service`),
+  `from_connection(Connection<T>)` (a family member, or a test's `Mock`) and
+  `connection()`.
+* One function per method, named in `snake_case` (a name the constructors own,
+  such as `Connect`, gets `_call`). Arguments are flattened: scalars and enums
+  by value, `&str`, `&[u8]`, `&[T]`, `&Struct` and `Option<&T>` borrowed;
+  object fields (`Buffer`, `Channel<I>`, a struct holding one) by value, moved
+  into the parcel's object list.
+* The return is `()` for an empty reply, the field's type for a one-field
+  reply and the `XxxReply` struct otherwise.
+* The request travels on the method's `scope` id when it has one, else on
+  `INTERFACE_ID`, and waits the method's `deadline` or the crate-wide default.
+  Every call has exactly one deadline override, `<method>_within(.., Deadline)`;
+  a `oneway` method has none (it sends and returns).
+* Failures are `ClientError`, an alias of `CallError<ServiceError>` (of
+  `CallError` for an interface without `errors`): a transport failure, a
+  `Remote` refusal whose code the interface does not declare, or
+  `Service(ServiceError)` for one it does. A request that cannot be encoded is
+  `Transport(EINVAL)`, a reply that does not decode `Transport(EBADMSG)`.
+* There is no non-blocking `_begin` form yet: the transport trait has no
+  asynchronous call, so a UI that must not block keeps using the runtime's own
+  lane until one exists.
 
 ## Errors
 
