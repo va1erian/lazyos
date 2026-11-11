@@ -53,8 +53,12 @@ impl<R: 'static> Sink<R> {
 impl Sink<()> {
     /// A doorbell: ringing posts `msg`. A burst of rings before the UI thread
     /// collects posts one wake (the proxy coalesces them).
-    pub fn bell<M: Clone + Send + Sync + 'static>(proxy: &Proxy<M>, msg: M) -> Sink<()> {
-        Sink::new(proxy, move |()| msg.clone())
+    pub fn bell<M: Clone + Send + 'static>(proxy: &Proxy<M>, msg: M) -> Sink<()> {
+        // A `Mutex` makes the message `Sync` whatever it holds.
+        let msg = std::sync::Mutex::new(msg);
+        Sink::new(proxy, move |()| {
+            msg.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        })
     }
 
     /// Rings the doorbell.

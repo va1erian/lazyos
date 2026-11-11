@@ -31,7 +31,7 @@ pub struct Inbox<T> {
 /// [`Inbox::drain`] or [`Inbox::take`].
 pub fn inbox<M, T>(proxy: &Proxy<M>, bell: M) -> (Sink<T>, Inbox<T>)
 where
-    M: Clone + Send + Sync + 'static,
+    M: Clone + Send + 'static,
     T: Send + 'static,
 {
     let ring = Sink::bell(proxy, bell);

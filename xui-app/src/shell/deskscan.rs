@@ -7,12 +7,12 @@
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
 use std::time::SystemTime;
 
 use lazyshell::desktop::folder::{self, DirEntry, Item};
 use lazyshell::shortcut;
 use xui_core::app::Proxy;
+use xui_work::Queue;
 
 use super::desktop::DeskMsg;
 use super::services;
@@ -79,30 +79,22 @@ impl Outcome {
 /// and an `init` call, which on the UI thread froze the taskbar and the
 /// desktop for as long as they took (`UI:STALL kind=chore`).
 pub struct Scanner {
-    pub(super) jobs: mpsc::Sender<Job>,
+    pub(super) jobs: Queue<Job>,
 }
 
 impl Scanner {
     /// Start the worker; `None` when no thread could be made (scans then run
     /// inline, as before).
     pub fn start(proxy: Proxy<DeskMsg>) -> Option<Scanner> {
-        let (jobs, queue) = mpsc::channel::<Job>();
-        std::thread::Builder::new()
-            .name("desk-scan".into())
-            .spawn(move || {
-                for job in queue {
-                    let seeded = job.seeded;
-                    // A panicking scan answers "nothing changed": the
-                    // desktop keeps its icons and the next scan tries again.
-                    let outcome =
-                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| scan(job)))
-                            .unwrap_or_else(|_| Outcome::unchanged(seeded));
-                    if proxy.send(DeskMsg::Scanned(Box::new(outcome))).is_err() {
-                        break;
-                    }
-                }
-            })
-            .ok()?;
+        let jobs = Queue::start(&proxy, "desk-scan", |job: Job| {
+            let seeded = job.seeded;
+            // A panicking scan answers "nothing changed": the desktop keeps
+            // its icons and the next scan tries again.
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| scan(job)))
+                .unwrap_or_else(|_| Outcome::unchanged(seeded));
+            DeskMsg::Scanned(Box::new(outcome))
+        })
+        .ok()?;
         Some(Scanner { jobs })
     }
 }

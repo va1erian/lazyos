@@ -5957,6 +5957,7 @@ dependencies = [
  "xui-app",
  "xui-core",
  "xui-markdown",
+ "xui-work",
 ]
 
 [[package]]
@@ -6013,6 +6014,7 @@ dependencies = [
  "xui-settings",
  "xui-webkit",
  "xui-webkit-remote",
+ "xui-work",
 ]
 
 [[package]]

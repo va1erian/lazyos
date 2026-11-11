@@ -2,24 +2,7 @@
 //! once the window is closed.
 
 use super::*;
-
-/// Wakes the window for work the other threads queued (set once the window's proxy exists; work
-/// queued before is woken for then).
-#[derive(Clone, Default)]
-struct Waker(Arc<OnceLock<Box<dyn Fn() + Send + Sync>>>);
-
-impl Waker {
-    fn wake(&self) {
-        if let Some(wake) = self.0.get() {
-            wake();
-        }
-    }
-
-    fn set(&self, wake: impl Fn() + Send + Sync + 'static) {
-        let _ = self.0.set(Box::new(wake));
-        self.wake();
-    }
-}
+use xui_work::Sink;
 
 /// The ad blocker's worker (a thread that fetches, converts and hands the lists to the engine through
 /// `relay`), started with the window: nothing waits for it, a page loads unblocked until a list is
@@ -126,10 +109,15 @@ pub(super) fn run() -> ! {
         .wait_for_display(CONNECT_WAIT)
         .at_exit(move || wind_down(&exit_blocker, exit_profile.as_ref()))
         .run(move |ui, backend| {
-            let waker = Waker::default();
+            let proxy = ui.proxy();
+            // The doorbell for work other threads queue for the window (the blocker's relay,
+            // the main-thread turns): one message, one wake per burst.
+            let jobs_bell = Sink::bell(&proxy, Msg::Jobs);
             let (relay, jobs) = relay::relay({
-                let waker = waker.clone();
-                move || waker.wake()
+                let bell = jobs_bell.clone();
+                move || {
+                    bell.ring();
+                }
             });
             start_blocker(&blocker, profile.as_ref(), memory_only, relay);
             let internal = Internal::default();
@@ -139,24 +127,14 @@ pub(super) fn run() -> ! {
             config.user_agent = useragent::PRESETS[profile.as_deref().map_or(0, useragent::load)]
                 .agent
                 .to_owned();
-            let proxy = ui.proxy();
-            waker.set({
-                let proxy = proxy.clone();
-                move || {
-                    let _ = proxy.send(Msg::Jobs);
-                }
-            });
-            main_thread::install({
-                let proxy = proxy.clone();
-                move || {
-                    let _ = proxy.send(Msg::Jobs);
-                }
+            main_thread::install(move || {
+                jobs_bell.ring();
             });
             // The shell's toasts for web notifications, on a thread of their own that wakes this window.
             let toasts = ShellWorker::spawn(LazyShell::default(), {
-                let proxy = proxy.clone();
+                let bell = Sink::bell(&proxy, Msg::Shell);
                 move || {
-                    let _ = proxy.send(Msg::Shell);
+                    bell.ring();
                 }
             })
             .map(|worker| Rc::new(worker.with_turn(main_thread::run)) as Rc<dyn Toasts>);
@@ -167,8 +145,11 @@ pub(super) fn run() -> ! {
                     keyed: !memory_only,
                     internal: internal.clone(),
                     permissions: permissions.clone(),
-                    wake: Rc::new(move || {
-                        let _ = proxy.send(Msg::Engine);
+                    wake: Rc::new({
+                        let bell = Sink::bell(&proxy, Msg::Engine);
+                        move || {
+                            bell.ring();
+                        }
                     }),
                 },
                 watch(backend),
