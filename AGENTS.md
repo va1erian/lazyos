@@ -155,7 +155,7 @@ reads off the serial port or program ring (`UP`/`QUIT`/`PASS`/`FAIL`,
 `doom`, `emusic`, `quake`, `srb2kart` use `xui_app::trace`; services and
 commands in `user/` use `user::trace`; the kernel uses `kernel/src/trace.rs`.
 Name the channel (`libs/tracefmt/src/channel.rs`), start an xui app with
-`launch::run(Channel::X, ...)`, keep free text last and unquoted, never put a
+`xui_app::app(Channel::X, ...)`, keep free text last and unquoted, never put a
 secret in a trace. CI runs `python tools/trace/check_adhoc.py --ratchet`; never
 raise a baseline entry. Macros, the diagnostic-vs-evidence rule and the lint's
 limits: [`docs/agents/tracing.md`](docs/agents/tracing.md).
@@ -240,7 +240,7 @@ regressions, not kernel-internal correctness or resource leaks.
   `games/quake/`, `games/srb2kart/`, writes `UP`/`QUIT`/`PASS`/`FAIL` lines, probe
   rectangles and stalls with `xui_app::trace::{pass!, fail!, event!, line!}`
   on a `Channel` from `libs/tracefmt`, starts with
-  `launch::run(Channel::X, ...)`, and never `println!("X:UP:PASS")`; services
+  `xui_app::app(Channel::X, ...)` (it reports `UP` and `QUIT`), and never `println!("X:UP:PASS")`; services
   use `user::trace`, the kernel `kernel/src/trace.rs`. A new app is started
   with `tools/xui/new_app.py`, which writes the calls and the channel.
   `python tools/trace/check_adhoc.py --ratchet` is a CI step: a new file with a
@@ -278,7 +278,7 @@ regressions, not kernel-internal correctness or resource leaks.
   packages). Verify it by starting it through the launcher or `run_demo.py`, not
   only by hand-built env vars. Start a desktop app with
   `python tools/xui/new_app.py <short> --name "..." --description "..."`: it
-  writes a working app on xui layouts (`xui_app::launch::run`, `UP`/`QUIT`
+  writes a working app on xui layouts (`xui_app::app`, `UP`/`QUIT`
   evidence) and registers it for (a)-(d), icons included; then derive its
   permissions from a traced run.
 - **Rhai first for small apps.** A new utility-class app (a dialog, a settings

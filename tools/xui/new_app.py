@@ -8,8 +8,8 @@ image build, `run_demo.py`, the GUI launcher, and a core package with its
 icons). This writes all of it at once:
 
 * ``xui-app/src/bin/<short>.rs``: a starting app on xui layouts that already
-  prints ``<MARKER>:UP:PASS`` and ``<MARKER>:QUIT:PASS`` through
-  ``xui_app::trace`` (a marker is never a ``println!``: docs/tracing-plan.md,
+  starts with ``xui_app::app`` (which reports ``<MARKER>:UP:PASS`` and
+  ``<MARKER>:QUIT:PASS`` through ``xui_app::trace``; a marker is never a ``println!``: docs/tracing-plan.md,
   ``tools/trace/check_adhoc.py``), and its ``Channel`` in
   ``libs/tracefmt/src/channel.rs`` (``docs/trace/channels.md`` is regenerated);
 * the ``[[bin]]`` in ``xui-app/Cargo.toml`` and the elf in
@@ -155,16 +155,11 @@ def app_source(app: App, channel: str | None = None) -> str:
     m, t, c = app.marker, app.type_name, channel or app.channel
     return f'''//! `{app.short}`: {app.description}
 //!
-//! Serial evidence: `{m}:UP:PASS` after the first frame and `{m}:QUIT:PASS` on
-//! `q` (or the window close button).
+//! Serial evidence: `{m}:UP:PASS` after the first frame and `{m}:QUIT:PASS`
+//! when the window closes (`xui_app::app` reports both).
 
-use xui_app::launch;
-use xui_app::trace::{{self, Channel}};
+use xui_app::trace::Channel;
 use xui_core::prelude::*;
-
-/// The window size when a compositor lays the app out; as the display owner
-/// it fills the screen instead.
-const WINDOW: (i32, i32) = (480, 320);
 
 #[derive(Clone)]
 enum Msg {{
@@ -185,34 +180,27 @@ impl App for {t} {{
         match msg {{
             Msg::Clicked => {{
                 self.clicks += 1;
-                let text = format!("Clicked {{}} time(s)", self.clicks);
-                self.status.get().set_text(&text);
+                self.status.get().set_text(&format!("Clicked {{}} time(s)", self.clicks));
             }}
-            Msg::Quit => {{
-                trace::pass!(Channel::{c}, "QUIT");
-                ui.quit();
-            }}
+            Msg::Quit => ui.quit(),
         }}
     }}
 }}
 
 fn main() {{
-    launch::run(Channel::{c}, {quoted(app.name)}, WINDOW, |ui, backend| {{
-        backend.on_first_frame(|| trace::pass!(Channel::{c}, "UP"));
-        let app = {t}::default();
-        ui.root(
-            column().padding(16).gap(8).children((
+    xui_app::app(Channel::{c}, {quoted(app.name)})
+        .size(480, 320)
+        .run(|ui, _| {{
+            let app = {t}::default();
+            ui.root(column().padding(16).gap(8).children((
                 label({quoted(app.name)}).title(),
                 label({quoted(app.description)}).bind(&app.status).fill(1),
-                row()
-                    .justify(Align::End)
-                    .child(button("Click me").on_click(Msg::Clicked)),
-            )),
-        )?;
-        ui.on_key(|key, _| (key == Key::Q).then_some(Msg::Quit));
-        ui.on_close(|| Some(Msg::Quit));
-        Ok(app)
-    }})
+                row().justify(Align::End).child(button("Click me").on_click(Msg::Clicked)),
+            )))?;
+            ui.on_key(|key, _| (key == Key::Q).then_some(Msg::Quit));
+            ui.on_close(|| Some(Msg::Quit));
+            Ok(app)
+        }})
 }}
 '''
 
