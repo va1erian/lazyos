@@ -6069,6 +6069,7 @@ dependencies = [
  "lazypdf",
  "xui-canvas",
  "xui-core",
+ "xui-work",
 ]
 
 [[package]]

@@ -10,11 +10,12 @@ use std::time::Instant;
 
 use lazypdf::{Document, PageSize};
 use xui_core::Image;
+use xui_work::Sink;
 
 use crate::cache::{Key, TileCache};
 use crate::host::LogFn;
 use crate::layout::{self, Layout, PxRect, Zoom};
-use crate::worker::{Job, Pool};
+use crate::worker::{Done, Job, Pool};
 
 /// The longest side of a page's preview, in pixels.
 const PREVIEW_SIDE: f32 = 360.0;
@@ -27,6 +28,10 @@ const SCREENS: usize = 6;
 pub struct Viewer {
     doc: Option<Arc<Document>>,
     pool: Option<Pool>,
+    /// Where the render threads post finished tiles (the app's message).
+    results: Sink<Done>,
+    /// Counts opened documents; a tile of another epoch is dropped.
+    epoch: u64,
     pub pages: Vec<PageSize>,
     pub zoom: Zoom,
     pub layout: Layout,
@@ -49,10 +54,12 @@ pub struct Viewer {
 }
 
 impl Viewer {
-    pub fn new(log: Rc<LogFn>, threads: usize) -> Viewer {
+    pub fn new(log: Rc<LogFn>, threads: usize, results: Sink<Done>) -> Viewer {
         Viewer {
             doc: None,
             pool: None,
+            results,
+            epoch: 0,
             pages: Vec::new(),
             zoom: Zoom::FitWidth,
             layout: Layout::default(),
@@ -75,7 +82,13 @@ impl Viewer {
         self.pages = (0..doc.page_count())
             .filter_map(|i| doc.page_size(i))
             .collect();
-        self.pool = Some(Pool::new(Arc::clone(&doc), self.threads));
+        self.epoch += 1;
+        self.pool = Some(Pool::new(
+            Arc::clone(&doc),
+            self.threads,
+            self.epoch,
+            self.results.clone(),
+        ));
         self.doc = Some(doc);
         self.error = None;
         self.zoom = Zoom::FitWidth;
@@ -88,6 +101,7 @@ impl Viewer {
     pub fn fail(&mut self, message: String) {
         self.doc = None;
         self.pool = None;
+        self.epoch += 1;
         self.pages.clear();
         self.layout = Layout::default();
         self.offset = (0, 0);
@@ -231,42 +245,34 @@ impl Viewer {
         pool.set_jobs(jobs);
     }
 
-    /// Moves finished tiles into the cache; whether any arrived.
-    pub fn drain(&mut self) -> bool {
-        let Some(pool) = &self.pool else {
-            return false;
-        };
-        let mut arrived = Vec::new();
-        while let Some(done) = pool.try_recv() {
-            arrived.push(done);
-        }
-        if arrived.is_empty() {
+    /// Takes in a finished tile (it arrived as a message); whether the page
+    /// view should repaint. A tile of a closed document is dropped.
+    pub fn accept(&mut self, done: Done) -> bool {
+        if done.epoch != self.epoch || self.pool.is_none() {
             return false;
         }
         let view = self.view_rect();
         let scale = self.layout.scale;
         let visible = self.layout.visible(view.y, view.h);
-        for done in arrived {
-            if let Key::Tile { scale: s, .. } = done.key {
-                if s == scale.to_bits() {
-                    *self.spent.entry(done.key.page()).or_default() += done.millis;
-                }
+        if let Key::Tile { scale: s, .. } = done.key {
+            if s == scale.to_bits() {
+                *self.spent.entry(done.key.page()).or_default() += done.millis;
             }
-            let Some(tile) = done.tile else {
-                (self.log)(&format!("PDF:PAGE:FAIL:{}", done.key.page() + 1));
-                continue;
-            };
-            let Ok(image) = Image::from_rgba(tile.width, tile.height, tile.rgba) else {
-                continue;
-            };
-            let keep = |key: &Key| match *key {
-                Key::Preview { page } => visible.contains(&(page as usize)),
-                Key::Tile { page, scale: s, .. } => {
-                    s == scale.to_bits() && visible.contains(&(page as usize))
-                }
-            };
-            self.cache.insert(done.key, image, &keep);
         }
+        let Some(tile) = done.tile else {
+            (self.log)(&format!("PDF:PAGE:FAIL:{}", done.key.page() + 1));
+            return false;
+        };
+        let Ok(image) = Image::from_rgba(tile.width, tile.height, tile.rgba) else {
+            return false;
+        };
+        let keep = |key: &Key| match *key {
+            Key::Preview { page } => visible.contains(&(page as usize)),
+            Key::Tile { page, scale: s, .. } => {
+                s == scale.to_bits() && visible.contains(&(page as usize))
+            }
+        };
+        self.cache.insert(done.key, image, &keep);
         self.report_drawn();
         true
     }
