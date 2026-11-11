@@ -7,17 +7,13 @@ use libmessenger::Parcel;
 use messenger_generated::os_lazy_messenger_topics_publish_v1 as publish_scope;
 
 use super::super::endpoint::syscall;
-use super::super::{
-    create_pair, errno, op, registry, Endpoint, Error, MsgArgs, MsgResult, Result, EXPIRED_DEADLINE,
-};
+use super::super::{errno, op, Endpoint, Error, MsgArgs, MsgResult, Result, EXPIRED_DEADLINE};
 use super::wire::{
     ack_request, decode_event, decode_matched, decode_stats, decode_subscription, decode_topics,
     error_field, list_request, ping_request, publish_request, request_parcel, subscribe_request,
     subscription_request,
 };
-use super::{
-    method, Event, Qos, SubscriptionStats, TopicInfo, CONNECT_ATTEMPTS, MAX_PAYLOAD, NAME,
-};
+use super::{method, Event, Qos, SubscriptionStats, TopicInfo, MAX_PAYLOAD, NAME};
 
 /// A client of the topics broker over the bootstrap channel.
 pub struct Client {
@@ -25,39 +21,13 @@ pub struct Client {
 }
 
 impl Client {
-    /// Resolve [`NAME`] and wrap the broker endpoint. Retries briefly
-    /// while `messengerd` is still registering the name at boot.
+    /// Resolve [`NAME`] and wrap the broker endpoint, waiting the runtime's
+    /// connect bound ([`crate::messenger::client::CONNECT_BOUND`]) while
+    /// `messengerd` is still registering the name at boot.
     pub fn connect() -> Result<Client> {
-        let first = match registry::resolve(NAME) {
-            Ok(endpoint) => return Ok(Client { endpoint }),
-            Err(error) => error,
-        };
-        if first.errno() != Some(-errno::ENOENT) {
-            return Err(first);
-        }
-        // Park one tick per retry on a private pair; `close` frees the
-        // pair when its last side goes (no channel is leaked). The probe
-        // recv reuses one stack buffer because the bump heap never frees.
-        let (probe, peer) = create_pair()?;
-        let mut scratch = [0u8; 64];
-        let mut client = Err(Error::Errno(-errno::ENOENT));
-        for _ in 0..CONNECT_ATTEMPTS {
-            let _ = probe.recv_into(&mut scratch, Some(EXPIRED_DEADLINE));
-            match registry::resolve(NAME) {
-                Ok(endpoint) => {
-                    client = Ok(Client { endpoint });
-                    break;
-                }
-                Err(error) if error.errno() == Some(-errno::ENOENT) => {}
-                Err(error) => {
-                    client = Err(error);
-                    break;
-                }
-            }
-        }
-        let _ = probe.close();
-        let _ = peer.close();
-        client
+        Ok(Client {
+            endpoint: crate::messenger::client::resolve_waiting(NAME)?,
+        })
     }
 
     /// Wrap an already-resolved broker endpoint.

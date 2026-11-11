@@ -30,8 +30,6 @@ use user::trace;
 const SINK: &str = "os.lazy.clipboard.owner.clipcopy";
 /// The one MIME type the demo offers.
 const DEMO_MIME: &str = "text/plain";
-/// PIT ticks `connect` retries while the supervisor's spawn settles.
-const CONNECT_ATTEMPTS: usize = 64;
 /// PIT ticks to wait for a paste's serialize request.
 const SERVE_TICKS: u64 = 1000;
 
@@ -56,7 +54,7 @@ fn run() -> messenger::Result<()> {
     registry::register(SINK, &published, &[clipboard::OWNER_INTERFACE], 0)?;
     // The changed topic lives on `messengerd`'s central broker (issue #169);
     // the broker replays the retained offer to a late subscriber.
-    let mut changes_bus = central::Bus::connect_retry(64)?;
+    let mut changes_bus = central::Bus::connect()?;
     let session_text = format!("{}", client.session());
     let changes = clipboard::subscribe_session_clipboard_changed(&mut changes_bus, &session_text)?;
     let token = client.offer_lazy("clipcopy", SINK, &[DEMO_MIME])?;
@@ -114,22 +112,7 @@ fn payload(mime: &str) -> Vec<u8> {
 
 /// Resolve `clipboardd`, retrying while its registration lands.
 fn connect() -> messenger::Result<clipboard::Client> {
-    let mut last = Error::Errno(-errno::ENOENT);
-    for _ in 0..CONNECT_ATTEMPTS {
-        match clipboard::Client::connect() {
-            Ok(client) => return Ok(client),
-            Err(error) => last = error,
-        }
-        park_tick();
-    }
-    Err(last)
-}
-
-/// Nap one PIT tick's worth between retries ([`user::sys::nap`], a real sleep;
-/// this used to park on a throwaway channel pair, since userspace had no
-/// sleep call).
-fn park_tick() {
-    user::sys::nap();
+    clipboard::Client::connect_waiting()
 }
 
 #[panic_handler]

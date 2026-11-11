@@ -16,13 +16,13 @@
 //! app needs `os.lazy.shell.tray.v1` and `subscribe:session/+/shell/tray` in
 //! its manifest (both implied by `resident` from stage T3).
 
+use libmessenger::client::Deadline;
 use libmessenger::Parcel;
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 use trayclient::{wire, Event, Transport, Tray};
 
 use crate::platform::messenger::Service;
 use crate::platform::topic_feed::TopicFeed;
-use crate::server::ERROR_FIELD;
 use crate::sys::{self, errno};
 
 /// Ticks (100 Hz) one tray call may take: the shell answers from its
@@ -55,15 +55,15 @@ impl Transport for XuiTransport {
     ) -> trayclient::Result<Vec<u8>> {
         let shell = Service::try_connect(trayclient::NAME).ok_or(-errno::ENOENT)?;
         shell
-            .call_moving_within(
+            .call_moving(
                 wire::INTERFACE_ID,
                 method,
-                ERROR_FIELD,
                 body,
                 objects,
-                CALL_TICKS,
+                Deadline::ticks(CALL_TICKS),
             )
             .map(|reply| reply.body)
+            .map_err(i64::from)
     }
 
     fn close(&mut self, handle: u64) {

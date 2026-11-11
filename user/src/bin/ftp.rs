@@ -42,8 +42,6 @@ use user::messenger::netsock::{Addr, Client};
 use user::messenger::netstack::Client as Stack;
 use user::sys;
 
-/// Ticks to wait for `netd` at boot, and for an address.
-const CONNECT_TICKS: u64 = 500;
 const ADDRESS_TICKS: u64 = 1500;
 /// Largest file `put` reads, and `put -g` generates.
 const MAX_FILE: usize = 4 * 1024 * 1024;
@@ -116,18 +114,8 @@ fn parse() -> Result<Options, String> {
 }
 
 fn connect() -> Result<(Rc<Client>, Stack), String> {
-    let deadline = sys::clock() + CONNECT_TICKS;
-    let stack = loop {
-        match Stack::connect() {
-            Ok(stack) => break stack,
-            Err(error) if sys::clock() >= deadline => {
-                return Err(format!("no network stack: {}", error.message()))
-            }
-            Err(_) => {
-                sys::nap();
-            }
-        }
-    };
+    let stack = Stack::connect_waiting()
+        .map_err(|error| format!("no network stack: {}", error.message()))?;
     let deadline = sys::clock() + ADDRESS_TICKS;
     while sys::clock() < deadline && !stack.addresses().is_ok_and(|a| !a.is_empty()) {
         sys::nap();

@@ -12,12 +12,12 @@
 //! Each call is bounded: a broker that stopped answering costs the UI thread
 //! at most [`PUBLISH_TICKS`], never a hang.
 
+use libmessenger::client::Deadline;
 use libmessenger::envelope;
 use messenger_generated::os_lazy_messenger_topics_v1 as wire;
 use messenger_generated::topics;
 
 use super::messenger::Service;
-use crate::server::ERROR_FIELD;
 
 /// The broker's registered name.
 const BROKER: &str = "os.lazy.messenger.topics";
@@ -73,11 +73,10 @@ impl topics::Publish for Broker {
             .call(
                 wire::INTERFACE_ID,
                 wire::METHOD_PUBLISH,
-                ERROR_FIELD,
                 body,
-                PUBLISH_TICKS,
+                Deadline::ticks(PUBLISH_TICKS),
             )
-            .map_err(PublishError::Errno)?;
+            .map_err(|error| PublishError::Errno(error.code()))?;
         wire::decode_publish_reply(&reply.body)
             .map(|reply| reply.matched)
             .map_err(|error| PublishError::Topic(topics::TopicError::Encode(error)))

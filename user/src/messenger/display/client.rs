@@ -5,10 +5,10 @@ use alloc::vec::Vec;
 
 use libmessenger::{flags, Buffer, Parcel};
 
-use super::super::{errno, registry, Endpoint, Error, Result};
+use super::super::{errno, Endpoint, Error, Result};
 use super::canvas::Rect;
 use super::events::{SurfaceInfo, Theme};
-use super::{error_field, request, wire, CONNECT_TICKS};
+use super::{error_field, request, wire};
 
 /// An app's connection to the compositor.
 #[derive(Clone, Copy)]
@@ -28,24 +28,13 @@ impl Client {
         self.endpoint
     }
 
-    /// Resolve [`super::NAME`] into this task, retrying briefly while the
-    /// compositor starts, and wrap the endpoint.
+    /// Resolve [`super::NAME`] into this task, waiting the runtime's connect
+    /// bound ([`crate::messenger::client::CONNECT_BOUND`]) while the compositor
+    /// starts, and wrap the endpoint.
     pub fn connect() -> Result<Client> {
-        let deadline = crate::sys::clock().saturating_add(CONNECT_TICKS);
-        loop {
-            match registry::resolve(super::NAME) {
-                Ok(endpoint) => return Ok(Client { endpoint }),
-                Err(error) => {
-                    if crate::sys::clock() >= deadline {
-                        return Err(error);
-                    }
-                    // Park one tick on the child-exit queue: no children
-                    // means this is a clean sleep (the "no clock yet"
-                    // pattern the other clients use).
-                    let _ = crate::sys::wait(crate::sys::clock() + 1);
-                }
-            }
-        }
+        Ok(Client {
+            endpoint: crate::messenger::client::resolve_waiting(super::NAME)?,
+        })
     }
 
     /// A `CreateSurface(width, height, title, events)` request. The event

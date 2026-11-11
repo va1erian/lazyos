@@ -57,6 +57,14 @@ impl Client {
         })
     }
 
+    /// [`Client::connect`] for a program that may start before `netd`:
+    /// waits the runtime's connect bound ([`super::client::CONNECT_BOUND`]).
+    pub fn connect_waiting() -> Result<Client> {
+        Ok(Client {
+            endpoint: super::client::resolve_waiting(NAME)?,
+        })
+    }
+
     /// The underlying endpoint (for callers that manage transactions
     /// themselves, like the hostile-input probe).
     pub fn endpoint(&self) -> Endpoint {

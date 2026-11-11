@@ -7,7 +7,7 @@
 //! daemon it starts. A missing `mountd` (an image without the network
 //! stack) is [`Error::NotRunning`], never a hang.
 
-use messenger_generated::errors::ERROR_FIELD;
+use libmessenger::client::Deadline;
 use messenger_generated::os_lazy_init_v1 as init_wire;
 use messenger_generated::os_lazy_mount_v1 as wire;
 use mounttable::Request;
@@ -60,9 +60,9 @@ fn call(
 ) -> Result<Vec<u8>, Error> {
     let endpoint = Service::try_connect(service).ok_or(Error::NotRunning)?;
     endpoint
-        .call(interface, method, ERROR_FIELD, body, CALL_TICKS)
+        .call(interface, method, body, Deadline::ticks(CALL_TICKS))
         .map(|reply| reply.body)
-        .map_err(Error::Code)
+        .map_err(|error| Error::Code(error.code()))
 }
 
 /// [`call`] for a read-only request, which is safe to resend once after

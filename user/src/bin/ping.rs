@@ -32,8 +32,6 @@ const PAYLOAD: u32 = 56;
 const TIMEOUT_MS: u32 = 2000;
 /// Ticks between requests.
 const INTERVAL_TICKS: u64 = 100;
-/// Ticks to wait for `netd` to register at boot.
-const CONNECT_TICKS: u64 = 500;
 
 fn parse_ipv4(text: &str) -> Option<[u8; 4]> {
     let mut octets = [0u8; 4];
@@ -49,18 +47,7 @@ fn parse_ipv4(text: &str) -> Option<[u8; 4]> {
 }
 
 fn connect() -> Result<Client, String> {
-    let deadline = sys::clock() + CONNECT_TICKS;
-    loop {
-        match Client::connect() {
-            Ok(client) => return Ok(client),
-            Err(error) if sys::clock() >= deadline => {
-                return Err(format!("no network stack: {}", error.message()))
-            }
-            Err(_) => {
-                sys::nap();
-            }
-        }
-    }
+    Client::connect_waiting().map_err(|error| format!("no network stack: {}", error.message()))
 }
 
 fn describe(error: &MsgError) -> String {

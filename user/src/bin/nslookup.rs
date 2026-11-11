@@ -24,24 +24,11 @@ use user::sys;
 
 /// How long one lookup may take, milliseconds.
 const TIMEOUT_MS: u32 = 5000;
-/// Ticks to wait for `netd` to register at boot.
-const CONNECT_TICKS: u64 = 500;
 /// Ticks to wait for an address (and so a resolver) after boot.
 const ADDRESS_TICKS: u64 = 1500;
 
 fn connect() -> Result<Client, String> {
-    let deadline = sys::clock() + CONNECT_TICKS;
-    loop {
-        match Client::connect() {
-            Ok(client) => return Ok(client),
-            Err(error) if sys::clock() >= deadline => {
-                return Err(format!("no network stack: {}", error.message()))
-            }
-            Err(_) => {
-                sys::nap();
-            }
-        }
-    }
+    Client::connect_waiting().map_err(|error| format!("no network stack: {}", error.message()))
 }
 
 /// Wait for the stack to hold an address: a lookup before that is

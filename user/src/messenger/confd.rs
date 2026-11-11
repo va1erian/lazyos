@@ -162,24 +162,14 @@ impl Client {
         })
     }
 
-    /// [`Client::connect`] with a short retry loop, for a client that starts
-    /// before `confd` has registered its name at boot. Parks one tick between
-    /// attempts (userspace has no sleep syscall).
-    pub fn connect_retry(attempts: usize) -> Result<Client> {
-        let mut last = Error::Errno(-errno::ENOENT);
-        for _ in 0..attempts {
-            match registry::resolve(NAME) {
-                Ok(endpoint) => {
-                    return Ok(Client {
-                        endpoint,
-                        timeout: None,
-                    })
-                }
-                Err(error) => last = error,
-            }
-            park_tick();
-        }
-        Err(last)
+    /// [`Client::connect`] for a client that starts before `confd` has
+    /// registered its name at boot: waits the runtime's connect bound
+    /// ([`super::client::CONNECT_BOUND`]).
+    pub fn connect_waiting() -> Result<Client> {
+        Ok(Client {
+            endpoint: super::client::resolve_waiting(NAME)?,
+            timeout: None,
+        })
     }
 
     /// Wrap an already-resolved endpoint.
@@ -269,7 +259,7 @@ impl Client {
     /// `system/confd/changed/sys/#`. Retained nothing is replayed (changes are
     /// not retained), so callers should `List`/`Get` once before watching.
     pub fn watch(&self, filter: &str) -> Result<crate::central::Subscription> {
-        let mut bus = crate::central::Bus::connect_retry(4)?;
+        let mut bus = crate::central::Bus::connect()?;
         bus.subscribe(filter)
     }
 
@@ -277,11 +267,4 @@ impl Client {
     pub fn describe(error: Error) -> &'static str {
         error.message()
     }
-}
-
-/// Nap one PIT tick's worth between retries ([`crate::sys::nap`], a real sleep;
-/// this used to park on a throwaway channel pair, since userspace had no
-/// sleep call).
-fn park_tick() {
-    crate::sys::nap();
 }

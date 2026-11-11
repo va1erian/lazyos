@@ -36,7 +36,7 @@ const PUBLISH_TICKS: u64 = 5;
 /// Ticks between probes for a `Period` subscriber while there was none.
 const PROBE_TICKS: u64 = 100;
 /// Ticks between attempts to reach the broker while it is away.
-const CONNECT_TICKS: u64 = 100;
+const RETRY_TICKS: u64 = 100;
 
 /// One card's event topic.
 pub struct EventPublisher {
@@ -105,7 +105,7 @@ impl EventPublisher {
             if now < self.next_connect {
                 return None;
             }
-            self.next_connect = now + CONNECT_TICKS;
+            self.next_connect = now + RETRY_TICKS;
             let endpoint = registry::resolve(topics_client::NAME).ok()?;
             self.bus = Some(central::Bus::from_endpoint(endpoint));
         }

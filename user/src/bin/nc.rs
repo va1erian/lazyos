@@ -39,8 +39,6 @@ use user::messenger::netstd::{is_timeout, TcpListener, TcpStream, UdpSocket};
 use user::messenger::Error as MsgError;
 use user::sys;
 
-/// Ticks to wait for `netd` to register at boot.
-const CONNECT_TICKS: u64 = 500;
 /// Ticks to wait for an address after boot.
 const ADDRESS_TICKS: u64 = 1500;
 /// Milliseconds a connection attempt may take.
@@ -141,18 +139,8 @@ fn fail(what: &'static str) -> impl Fn(MsgError) -> String {
 
 /// `netd`, once it has registered and has an address.
 fn connect() -> Result<(Rc<Client>, Stack), String> {
-    let deadline = sys::clock() + CONNECT_TICKS;
-    let stack = loop {
-        match Stack::connect() {
-            Ok(stack) => break stack,
-            Err(error) if sys::clock() >= deadline => {
-                return Err(format!("no network stack: {}", error.message()))
-            }
-            Err(_) => {
-                sys::nap();
-            }
-        }
-    };
+    let stack = Stack::connect_waiting()
+        .map_err(|error| format!("no network stack: {}", error.message()))?;
     let deadline = sys::clock() + ADDRESS_TICKS;
     while sys::clock() < deadline && !stack.addresses().is_ok_and(|a| !a.is_empty()) {
         sys::nap();

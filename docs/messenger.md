@@ -476,8 +476,9 @@ rules, the object types and the generated names are in [`midl.md`](midl.md).
 Every reply may carry a structured error instead of its declared fields: the
 standard error field (id 15, generated as `messenger_generated::errors`)
 holds a `code` (stable within a `domain`), a `message` in plain language, a
-`hint` (how to fix it) and a `docs` id; the encoding, and that `detail` is
-not implemented yet, are in [`midl.md`](midl.md), "Errors".
+`hint` (how to fix it) and a `docs` id; the encoding is in
+[`midl.md`](midl.md), "Errors". Clients read it in one place,
+`libmessenger::client` (`CallError::Remote { code, message, detail }`).
 
 The fabric reports failures as errno values on the syscall (`EINVAL` for a
 refused object list, `EPERM` for policy, `ETIMEDOUT`, `EPIPE` for a dead peer,

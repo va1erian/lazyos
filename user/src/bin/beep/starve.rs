@@ -39,7 +39,7 @@ struct Seen {
 
 /// Run the starve check; the `PASS` detail.
 pub(super) fn run() -> Result<String, String> {
-    let mut bus = Bus::connect_retry(64).map_err(|error| format!("no broker: {error:?}"))?;
+    let mut bus = Bus::connect().map_err(|error| format!("no broker: {error:?}"))?;
     let topic = wire::name_system_audio_event(user::audio_events::MIXER_CARD)
         .map_err(|_| String::from("topic name"))?;
     let sub = bus

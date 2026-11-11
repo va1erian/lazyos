@@ -33,6 +33,8 @@ extern crate alloc;
 extern crate std;
 
 pub mod abi;
+#[cfg(feature = "client")]
+pub mod client;
 pub mod cred;
 pub mod detect;
 pub mod dev;

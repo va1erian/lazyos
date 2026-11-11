@@ -188,7 +188,7 @@ fn spawn_demo() -> bool {
 /// on every publish cycle for the rest of the service's life).
 fn publish_stats(central: &mut Option<central::Bus>, announced: bool) -> Result<u64, i64> {
     if central.is_none() {
-        *central = central::Bus::connect_retry(4).ok();
+        *central = central::Bus::connect().ok();
     }
     let Some(bus) = central.as_mut() else {
         return Err(-errno::ENOENT);

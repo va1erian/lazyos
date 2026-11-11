@@ -14,9 +14,8 @@
 //! this does not claim to scrub memory (the toolkit's edit buffer and the
 //! encoded request are not zeroized).
 
+use libmessenger::client::Deadline;
 use messenger_generated::os_lazy_net_wifi_v1 as wire;
-
-use messenger_generated::errors::ERROR_FIELD;
 
 use super::wifimodel::{clean, Conn, Network, Security, State, Why, MAX_SSID};
 use crate::platform::messenger::Service;
@@ -88,9 +87,14 @@ impl Error {
 fn call(method: u32, body: Vec<u8>) -> Result<Vec<u8>, Error> {
     let service = Service::try_connect(NAME).ok_or(Error::NotRunning)?;
     service
-        .call(wire::INTERFACE_ID, method, ERROR_FIELD, body, CALL_TICKS)
+        .call(
+            wire::INTERFACE_ID,
+            method,
+            body,
+            Deadline::ticks(CALL_TICKS),
+        )
         .map(|reply| reply.body)
-        .map_err(Error::Code)
+        .map_err(|error| Error::Code(error.code()))
 }
 
 /// [`call`], once more when `wlanmd` was restarted under the cached endpoint

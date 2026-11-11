@@ -62,14 +62,6 @@ pub const MODE_SUBSCRIBE: u32 = publish_scope::MODE_SUBSCRIBE;
 /// 16 KiB call buffer so a `NextEvent` reply always fits.
 pub const MAX_PAYLOAD: usize = 8 * 1024;
 
-/// PIT ticks [`Client::connect`] waits for the broker name to appear.
-/// `messengerd` registers [`NAME`] during its own boot and is spawned
-/// before its clients, so a handful of ticks is ample; a boot without a
-/// broker should still reach the prompt promptly. Userspace has no clock
-/// syscall yet, so each retry sleeps one tick by parking on a private
-/// channel pair with an expired deadline.
-const CONNECT_ATTEMPTS: usize = 8;
-
 /// Delivery contract chosen at subscribe time; enforced by the broker.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Qos {

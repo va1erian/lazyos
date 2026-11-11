@@ -134,6 +134,17 @@ impl Client {
         })
     }
 
+    /// [`Client::connect`] for a program that may start before the driver:
+    /// waits the runtime's connect bound ([`super::client::CONNECT_BOUND`]).
+    pub fn connect_waiting(ifname: &str) -> Result<Client> {
+        if !devmatch::valid_ifname(ifname) {
+            return Err(Error::Errno(-super::errno::EINVAL));
+        }
+        Ok(Client {
+            endpoint: super::client::resolve_waiting(&service_name(ifname))?,
+        })
+    }
+
     /// Give up the handle to the driver's endpoint (it was obtained by name,
     /// so it is released, not closed: the driver and its other clients keep
     /// theirs).

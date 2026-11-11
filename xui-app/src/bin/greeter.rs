@@ -37,12 +37,12 @@
 //! `GREETER:LOGIN:FAIL user=<name> errno=<e>`; `GREETER:SETUP:PASS
 //! user=<name>` or `GREETER:SETUP:FAIL errno=<e>`.
 
-use messenger_generated::errors::ERROR_FIELD;
+use libmessenger::client::Deadline;
 use messenger_generated::os_lazy_logind_v1 as wire;
 use xui_app::launch;
 use xui_app::platform::accounts;
 use xui_app::platform::messenger::Service;
-use xui_app::sys::{self, errno};
+use xui_app::sys::errno;
 use xui_core::app::{App, Ui};
 use xui_core::arrange::Mounted;
 use xui_core::prelude::*;
@@ -263,14 +263,14 @@ impl Greeter {
         }
         message.set_text("Creating the account...");
         if let Err(refusal) = accounts::create_owner(&name, &secret) {
-            println!("GREETER:SETUP:FAIL errno={}", -refusal.code);
+            println!("GREETER:SETUP:FAIL errno={}", -refusal.code());
             // The machine may have an account after all (created meanwhile):
             // then only the login form leads anywhere.
             if Mode::from_list(list_setup()) == Mode::Login {
                 let note = "This computer has an account; log in.";
                 let _ = self.show(ui, Mode::Login, &name, note);
             } else {
-                self.w.message.get().set_text(&refusal.message);
+                self.w.message.get().set_text(refusal.message());
             }
             return;
         }
@@ -321,13 +321,11 @@ fn call_login(user: &str, secret: &str) -> std::result::Result<u64, i64> {
         secret: secret.to_string(),
     })
     .map_err(|_| -errno::EINVAL)?;
-    let deadline = sys::clock_ticks().saturating_add(LOGIN_TICKS);
-    let reply = service.call_until(
+    let reply = service.call(
         wire::INTERFACE_ID,
         wire::METHOD_LOGIN,
-        ERROR_FIELD,
         body,
-        deadline,
+        Deadline::ticks(LOGIN_TICKS),
     )?;
     wire::decode_login_reply(&reply.body)
         .map(|reply| reply.session)

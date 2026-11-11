@@ -44,28 +44,14 @@ pub struct Bus {
 }
 
 impl Bus {
-    /// Resolve [`topics_client::NAME`] and wrap the broker endpoint. Retries
-    /// briefly while `messengerd` is still registering its name at boot.
+    /// Resolve [`topics_client::NAME`] and wrap the broker endpoint, waiting the
+    /// runtime's connect bound while `messengerd` registers its name at boot.
     pub fn connect() -> Result<Bus> {
         let client = topics_client::Client::connect()?;
         Ok(Bus {
             endpoint: client.endpoint(),
             scratch: alloc::vec![0u8; DEFAULT_BUFFER],
         })
-    }
-
-    /// [`Bus::connect`] with an outer retry loop that parks one tick between
-    /// attempts, for callers that start before the broker's name lands.
-    pub fn connect_retry(attempts: usize) -> Result<Bus> {
-        let mut last = Error::Errno(-errno::ENOENT);
-        for _ in 0..attempts {
-            match Bus::connect() {
-                Ok(bus) => return Ok(bus),
-                Err(error) => last = error,
-            }
-            park_tick();
-        }
-        Err(last)
     }
 
     /// Wrap an already-resolved broker endpoint.
@@ -335,11 +321,4 @@ fn unwrap_event(event: topics_client::Event) -> Result<router::Event> {
 /// The positive errno of a structured broker error reply, if any.
 fn error_code(parcel: &Parcel) -> Option<i64> {
     topics_client::error_field(parcel).ok().flatten()
-}
-
-/// Nap one PIT tick's worth between retries ([`crate::sys::nap`], a real sleep;
-/// this used to park on a throwaway channel pair, since userspace had no
-/// sleep call).
-fn park_tick() {
-    crate::sys::nap();
 }

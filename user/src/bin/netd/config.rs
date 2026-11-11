@@ -14,7 +14,6 @@ use confd::Value;
 use netstack::config::{Mode, Raw};
 use user::messenger::confd::Client;
 
-const START_ATTEMPTS: usize = 20;
 /// Ticks between re-reads while running.
 pub(super) const REFRESH_TICKS: u64 = 500;
 
@@ -26,7 +25,7 @@ impl Config {
     /// Wait for `confd` for about a second.
     pub(super) fn load() -> Config {
         Config {
-            client: Client::connect_retry(START_ATTEMPTS).ok(),
+            client: Client::connect().ok(),
         }
     }
 

@@ -3,11 +3,11 @@
 //! the conversions between the generated wire types and `printd`'s, which
 //! the `xui-printd` binary serves with.
 
+use libmessenger::client::Deadline;
 use messenger_generated::os_lazy_print_v1 as wire;
 use printd::{JobId, JobInfo, Queue, Request, State, Ticket};
 
-use super::messenger::Service;
-use crate::server::ERROR_FIELD;
+use super::messenger::{CallError, Service};
 use crate::sys::errno::ETIMEDOUT;
 
 /// The service's registered name.
@@ -108,15 +108,15 @@ impl PrintService {
         let service = Service::connect(NAME).map_err(|_| {
             "Printing needs the print service (printd), which is not running".to_owned()
         })?;
-        match service.call_detailed(INTERFACE, method, ERROR_FIELD, body, CALL_TICKS) {
+        match service.call(INTERFACE, method, body, Deadline::ticks(CALL_TICKS)) {
             Ok(reply) => Ok(reply.body),
-            Err(error) if !error.message.is_empty() => Err(error.message),
-            Err(error) if error.code == -ETIMEDOUT => {
+            Err(CallError::Remote { message, .. }) if !message.is_empty() => Err(message),
+            Err(error) if error.code() == -ETIMEDOUT => {
                 Err("The print service is not answering".to_owned())
             }
             Err(error) => Err(format!(
                 "The print service did not answer (error {})",
-                -error.code
+                -error.code()
             )),
         }
     }

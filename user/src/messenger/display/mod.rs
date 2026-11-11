@@ -126,12 +126,6 @@ pub mod button {
     pub const MIDDLE: u32 = 3;
 }
 
-/// PIT ticks `Client::connect` waits for the compositor's name to appear.
-/// The kernel spawns `xuid` before its demo client, but the compositor must
-/// still bind the display and register the name, so a short retry window
-/// keeps the app robust to that race.
-const CONNECT_TICKS: u64 = 100;
-
 /// A request parcel of `method` carrying an encoded `body`. `ALLOW_NESTED`
 /// keeps an app's event poll from tripping the kernel's per-channel cycle
 /// check while a `Commit` call is in flight.

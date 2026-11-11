@@ -72,7 +72,7 @@ fn say(text: &str) {
 
 /// Run one command against the service.
 fn run(args: &[String]) -> Result<(), String> {
-    let client = wire::Client::connect_retry(20).map_err(|error| error.message().to_string())?;
+    let client = wire::Client::connect_waiting().map_err(|error| error.message().to_string())?;
     match args.first().map(String::as_str) {
         Some("get") => {
             let path = arg(args, 1, "get <path>")?;

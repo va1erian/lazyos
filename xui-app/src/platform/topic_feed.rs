@@ -10,12 +10,12 @@
 //! out of the platform envelope (`libmessenger::envelope`), ready for the
 //! topic's generated `decode_*`.
 
+use libmessenger::client::Deadline;
 use libmessenger::envelope;
 use messenger_generated::os_lazy_messenger_topics_v1 as wire;
 
 use super::messenger::Service;
-use crate::server::ERROR_FIELD;
-use crate::sys::{self, errno, EXPIRED_DEADLINE};
+use crate::sys::{self, errno};
 
 /// The broker's registered name.
 const BROKER: &str = "os.lazy.messenger.topics";
@@ -97,8 +97,7 @@ impl TopicFeed {
         let Some(subscription) = self.subscription.or_else(|| self.subscribe(now)) else {
             return Vec::new();
         };
-        let deadline = now.saturating_add(ticks.max(1));
-        let mut found = match next_event_until(subscription, deadline) {
+        let mut found = match next_event_until(subscription, Deadline::ticks(ticks.max(1))) {
             Ok(Some(event)) => vec![TopicEvent {
                 topic: event.topic,
                 retained: event.retained,
@@ -143,9 +142,8 @@ fn subscribe(filter: &str, qos: u32, depth: u32) -> Result<u64, i64> {
     let reply = broker()?.call(
         wire::INTERFACE_ID,
         wire::METHOD_SUBSCRIBE,
-        ERROR_FIELD,
         body,
-        SUBSCRIBE_TICKS,
+        Deadline::ticks(SUBSCRIBE_TICKS),
     )?;
     wire::decode_subscribe_reply(&reply.body)
         .map(|reply| reply.subscription)
@@ -154,24 +152,18 @@ fn subscribe(filter: &str, qos: u32, depth: u32) -> Result<u64, i64> {
 
 /// One poll `NextEvent`: `None` when nothing is queued.
 fn next_event(subscription: u64) -> Result<Option<wire::Event>, i64> {
-    next_event_until(subscription, EXPIRED_DEADLINE)
+    next_event_until(subscription, Deadline::Poll)
 }
 
-/// One `NextEvent` bounded by `deadline` (an absolute PIT tick, or
-/// `EXPIRED_DEADLINE` for a poll): `None` when nothing came.
-fn next_event_until(subscription: u64, deadline: u64) -> Result<Option<wire::Event>, i64> {
+/// One `NextEvent` bounded by `deadline` ([`Deadline::Poll`] for a poll):
+/// `None` when nothing came.
+fn next_event_until(subscription: u64, deadline: Deadline) -> Result<Option<wire::Event>, i64> {
     let body = wire::encode_next_event_args(&wire::NextEventArgs { subscription })
         .map_err(|_| -errno::EINVAL)?;
-    let reply = match broker()?.call_until(
-        wire::INTERFACE_ID,
-        wire::METHOD_NEXTEVENT,
-        ERROR_FIELD,
-        body,
-        deadline,
-    ) {
+    let reply = match broker()?.call(wire::INTERFACE_ID, wire::METHOD_NEXTEVENT, body, deadline) {
         Ok(reply) => reply,
-        Err(code) if code == -errno::ETIMEDOUT => return Ok(None),
-        Err(code) => return Err(code),
+        Err(error) if error.is_timeout() => return Ok(None),
+        Err(error) => return Err(error.code()),
     };
     let event = wire::decode_next_event_reply(&reply.body)
         .map_err(|_| -errno::EINVAL)?

@@ -66,7 +66,3 @@ pub(super) fn resolve(name: &str) -> Result<u64, i64> {
 pub(super) fn release(handle: u64) -> Result<(), i64> {
     lazyos_sys::msg::release(handle)
 }
-
-pub(super) fn close(handle: u64) -> Result<(), i64> {
-    lazyos_sys::msg::close(handle)
-}

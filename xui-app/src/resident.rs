@@ -21,6 +21,7 @@
 //! only. Any other launch shows the window, the first as a plain start and
 //! the later ones as `Reopen`.
 
+use libmessenger::client::Deadline;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -32,7 +33,6 @@ use xui_core::backend::Backend;
 
 use crate::backend::LazyOSBackend;
 use crate::platform::messenger::Service;
-use crate::server::ERROR_FIELD;
 use crate::sys::{self, errno};
 use crate::tray::TrayIcon;
 
@@ -84,14 +84,14 @@ impl Lifecycle {
                 let (body, objects) =
                     app_wire::encode_watch_args(&app_wire::WatchArgs { events: sent })
                         .map_err(|_| -errno::EINVAL)?;
-                init.call_moving_within(
+                init.call_moving(
                     app_wire::INTERFACE_ID,
                     app_wire::METHOD_WATCH,
-                    ERROR_FIELD,
                     body,
                     objects,
-                    WATCH_TICKS,
+                    Deadline::ticks(WATCH_TICKS),
                 )
+                .map_err(i64::from)
             });
         match result {
             Ok(_) => Ok(Lifecycle {

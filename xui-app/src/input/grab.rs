@@ -14,8 +14,8 @@ use messenger_generated::os_lazy_input_v1 as wire;
 pub use inputmap::keystate::Snapshot;
 use inputmap::keystate::{SharedKeys, SIZE};
 
-use super::{call, Session, NAME};
-use crate::sys::{self, errno, msg_resolve};
+use super::{call, service, Session};
+use crate::sys::{self, errno};
 
 /// One page: plenty for the 56-byte layout.
 const PAGE_BYTES: u64 = 4096;
@@ -58,7 +58,7 @@ impl Session {
             state: Buffer::whole(handle, PAGE_BYTES),
         })
         .map_err(|_| -errno::EINVAL)?;
-        on_service(|service| call(service, wire::METHOD_ATTACHKEYSTATE, body, objects))?;
+        call(&*service()?, wire::METHOD_ATTACHKEYSTATE, body, objects)?;
         Ok(page)
     }
 
@@ -70,7 +70,7 @@ impl Session {
             kind: wire::GRANT_KIND_KEYBOARD,
         })
         .map_err(|_| -errno::EINVAL)?;
-        on_service(|service| call(service, wire::METHOD_REQUESTGRANT, body, Vec::new())).map(|_| ())
+        call(&*service()?, wire::METHOD_REQUESTGRANT, body, Vec::new()).map(|_| ())
     }
 
     /// Give the grab (or a pending request) back.
@@ -79,7 +79,7 @@ impl Session {
             session: self.session,
         })
         .map_err(|_| -errno::EINVAL)?;
-        on_service(|service| call(service, wire::METHOD_RELEASEGRANT, body, Vec::new())).map(|_| ())
+        call(&*service()?, wire::METHOD_RELEASEGRANT, body, Vec::new()).map(|_| ())
     }
 
     /// `Ping`: `inputd`'s newest processed raw sequence number while this
@@ -91,20 +91,11 @@ impl Session {
             token,
         })
         .map_err(|_| -errno::EINVAL)?;
-        let reply = on_service(|service| call(service, wire::METHOD_PING, body, Vec::new()))?;
+        let reply = call(&*service()?, wire::METHOD_PING, body, Vec::new())?;
         let reply = wire::decode_ping_reply(&reply.body).map_err(|_| -errno::EINVAL)?;
         if reply.token != token {
             return Err(-errno::EINVAL);
         }
         Ok(reply.seq)
     }
-}
-
-/// Run `f` against a resolved `inputd` handle, releasing it afterwards.
-fn on_service<T>(f: impl FnOnce(u64) -> Result<T, i64>) -> Result<T, i64> {
-    let service = msg_resolve(NAME)?;
-    let result = f(service);
-    // A resolved handle: release it (closing would end inputd's side).
-    let _ = crate::display::release(service);
-    result
 }

@@ -10,7 +10,7 @@ use user::messenger::display::{Canvas, Client, Rect};
 use user::messenger::{self, clipboard, errno, Endpoint, Error};
 use user::sys;
 
-use super::{CONNECT_ATTEMPTS, H, W};
+use super::{H, W};
 
 /// A connected display client with its surface, event endpoint and pixel
 /// buffer.
@@ -67,35 +67,18 @@ impl App {
 
 /// Connect to the compositor, retrying while it binds and registers.
 pub(super) fn connect_display() -> Client {
-    for _ in 0..CONNECT_ATTEMPTS {
-        if let Ok(client) = Client::connect() {
-            return client;
-        }
-        park_tick();
-    }
-    fatal("no compositor")
+    Client::connect().unwrap_or_else(|_| fatal("no compositor"))
 }
 
 /// Resolve `clipboardd`, retrying while the supervisor starts it. `None` when
 /// it never appears (the plain `LAZYOS_XUID=1` demo boots without services).
 pub(super) fn connect_clipboard() -> Option<clipboard::Client> {
-    for _ in 0..CONNECT_ATTEMPTS {
-        if let Ok(client) = clipboard::Client::connect() {
-            return Some(client);
-        }
-        park_tick();
-    }
-    None
+    clipboard::Client::connect_waiting().ok()
 }
 
 /// Whether an error is the `recv` deadline firing.
 pub(super) fn is_timeout(error: Error) -> bool {
     matches!(error, Error::Errno(code) if code == -errno::ETIMEDOUT)
-}
-
-/// Sleep one PIT tick ([`sys::nap`]).
-pub(super) fn park_tick() {
-    sys::nap();
 }
 
 /// Report a fatal setup failure on serial, then exit non-zero.

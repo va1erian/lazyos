@@ -25,6 +25,13 @@ impl Client {
         Client::from_endpoint(registry::resolve(NAME)?)
     }
 
+    /// [`Client::connect`] for a program that may start before `clipboardd`:
+    /// waits the runtime's connect bound
+    /// ([`crate::messenger::client::CONNECT_BOUND`]).
+    pub fn connect_waiting() -> Result<Client> {
+        Client::from_endpoint(crate::messenger::client::resolve_waiting(NAME)?)
+    }
+
     /// Wrap an already-resolved endpoint.
     pub fn from_endpoint(endpoint: Endpoint) -> Result<Client> {
         let cred = sys::cred_get(None).map_err(Error::Errno)?;

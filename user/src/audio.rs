@@ -6,7 +6,7 @@
 //! endpoint resolved by name, and rings are display shared buffers.
 //!
 //! ```ignore
-//! let audio = user::audio::connect_wait(audioclient::NAME, 500)?;
+//! let audio = user::audio::connect_wait(audioclient::NAME)?;
 //! let mut out = PlaybackStream::open(&audio, Params::new(48_000, 2))?;
 //! ```
 
@@ -60,21 +60,11 @@ impl Drop for Native {
     }
 }
 
-/// Resolve `name`, retrying for up to `ticks` while the service starts.
-pub fn connect_wait(name: &str, ticks: u64) -> Result<Native> {
-    let deadline = sys::clock() + ticks;
-    loop {
-        match Native::connect(name) {
-            Ok(native) => return Ok(native),
-            Err(error) if sys::clock() >= deadline => return Err(error),
-            Err(_) => nap(),
-        }
-    }
-}
-
-/// Sleep one PIT tick ([`sys::nap`]).
-fn nap() {
-    sys::nap();
+/// Resolve `name`, waiting the runtime's connect bound
+/// ([`crate::messenger::client::CONNECT_BOUND`]) while the service starts.
+pub fn connect_wait(name: &str) -> Result<Native> {
+    let endpoint = crate::messenger::client::resolve_waiting(name).map_err(error_of)?;
+    Ok(Native { endpoint })
 }
 
 impl Transport for Native {
@@ -123,7 +113,7 @@ impl Transport for Native {
     }
 
     fn sleep(&self) {
-        nap();
+        sys::nap();
     }
 }
 

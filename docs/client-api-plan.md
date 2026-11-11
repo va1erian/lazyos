@@ -5,9 +5,10 @@ the code `midlc` generates, and the `xui-app` layer desktop apps build on),
 with a plan to make apps smaller, make every client behave the same way, and
 make the IDL the only place a protocol is written.
 
-Status: proposal (2026-11-11). C2a is built (the `service`, `errors`, `scope`
-and `deadline` syntax, their generated constants, and the per-interface crate
-layout, sections 3.1 and 3.6); the rest is not.
+Status: in progress (2026-11-11). Built: C1 (the client runtime, section
+3.4) and C2a (the `service`, `errors`, `scope` and `deadline` syntax, their
+generated constants and the per-interface crate layout, sections 3.1 and
+3.6). The rest is not.
 
 Related: [messenger.md](messenger.md) (sections 11 and 15),
 [midl.md](midl.md), [lazyrad-messenger-plan.md](lazyrad-messenger-plan.md)
@@ -256,12 +257,21 @@ Two implementations: `user::messenger` (native) and one std implementation in
 deletes the seven test-seam traits.
 
 `Connection` (generic, in `libmessenger`) owns resolve, the name cache,
-eviction on `EPIPE`/`ENOENT` and one reconnect. Waiting for a service that has
-not registered yet blocks on the registry, not on `sleep_millis(10)`: the
-registry (`idl/registry.midl`) has no way to wait for a name today, so C1
-adds one (a retained `system/registry/registered/{name}` topic, or a
-`WaitFor(name)` method answered when the name appears), and the "never poll
-on a timer" rule then holds here too. `Errno` is a named newtype
+eviction on `EPIPE`/`ENOENT` and one reconnect. **Built in C1** (module
+`libmessenger::client`; transports `user::messenger::client::Native` and
+`lazyos_sys::client::Std`; `Mock` behind the `mock` feature). Each transport
+states the flags its calls carry: native calls send none, so the kernel still
+refuses one that would close a wait cycle, and the std runtime's UI loops send
+`ALLOW_NESTED` as before.
+
+Waiting for a service that has not registered yet should block on the
+registry, not sleep. The kernel-served registry (`idl/registry.midl`) has no
+way to wait for a name, so after C1 each transport still polls inside
+`resolve` for its one runtime bound (10 s; 10 ms sleeps in std, one tick
+natively), the only polling loop per runtime. Stage C1b adds the wait (a
+retained `system/registry/registered/{name}` topic, or a `WaitFor(name)`
+method answered when the name appears), so the "never poll on a timer" rule
+holds here too. `Errno` is a named newtype
 (`Errno::INVAL`), so `Err(-22)` disappears; `CallError` implements `Display`
 with the friendly text section 12 of `messenger.md` describes.
 
@@ -396,6 +406,7 @@ leaves `main` green.
 | Stage | Content | Removes |
 |---|---|---|
 | C1 | `Transport`, `Connection`, `CallError`, `Errno`, `Mock` in `libmessenger`; native and std transports; registry-subscription wait | the four connect/cache implementations, `CONNECT_TICKS` copies |
+| C1b | Kernel registry: wait for a name to register (topic or `WaitFor`), with kernel correctness and stress tests; both transports block on it | the resolve sleep loops |
 | C2a | midlc: `service`, `errors`, `scope`, `deadline` syntax and their generated constants; per-interface modules and features | service-name literals, `fnv1a64` copies, confd/clipboard constant copies |
 | C2b | Rust client generation over C1's `Transport` (blocking and `_begin` forms); conformance tests for the client against the corpus through `Mock` | (enables C3) |
 | C3 | Migrate clients interface by interface (confd, init, topics, clipboard first: the most duplicated); `user::messenger::*` and `xui_app::platform::*` keep only domain adapters | per-module `fn header`/`fn parcel`/`error_code`, `Service::call_*` |
@@ -423,6 +434,6 @@ X2 follows X1 and uses generated clients once C3 has them.
 * Performance: no timer-driven poll left in the client runtimes; per-app
   binary size does not grow (features keep unused interfaces out), measured
   on the image before and after C3 and X1.
-* Kernel: the registry wait in C1 is the only change near the kernel; if the
+* Kernel: the registry wait (C1b) is the only kernel change; if the
   registry is kernel-served it gets correctness and stress tests in its suite
   (many waiters, names that never appear, register/unregister churn).
