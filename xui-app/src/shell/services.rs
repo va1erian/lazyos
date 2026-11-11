@@ -20,7 +20,7 @@ use crate::server::ERROR_FIELD;
 use crate::sys::{self, errno};
 
 /// `init`'s registered name (owner of the app registry).
-const INIT: &str = "os.lazy.init";
+const INIT: &str = init_wire::SERVICE_NAME;
 /// `confd`'s registered name.
 const CONFD: &str = "os.lazy.confd";
 /// `timed`'s registered name.

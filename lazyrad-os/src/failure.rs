@@ -15,7 +15,7 @@ use messenger_generated::os_lazy_init_v1 as init_wire;
 use xui_app::sys;
 
 /// `init`'s registered name.
-const INIT: &str = "os.lazy.init";
+const INIT: &str = init_wire::SERVICE_NAME;
 /// The last report line seen, as readable text.
 #[cfg_attr(not(any(unix, test)), allow(dead_code))]
 fn summarize(line: &str) -> Option<String> {

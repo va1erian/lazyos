@@ -37,7 +37,7 @@ use crate::sys::{self, errno};
 use crate::tray::TrayIcon;
 
 /// `init`'s lifecycle service.
-const INIT_APP: &str = "os.lazy.init.app";
+const INIT_APP: &str = app_wire::SERVICE_NAME;
 /// Ticks one `Watch` may take.
 const WATCH_TICKS: u64 = 100;
 /// The longest a windowless app parks before it looks at its topics again
