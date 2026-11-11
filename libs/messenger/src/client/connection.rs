@@ -147,7 +147,13 @@ impl<T: Transport> Connection<T> {
         objects: Vec<Object>,
         until: Deadline,
     ) -> Result<Parcel, CallError> {
-        let request = Self::request(interface, method, self.transport.call_flags(), body, objects);
+        let request = Self::request(
+            interface,
+            method,
+            self.transport.call_flags(),
+            body,
+            objects,
+        );
         let reply = self
             .with_retry(|handle| self.transport.call(handle, &request, until))
             .map_err(CallError::Transport)?;
