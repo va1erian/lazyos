@@ -10,18 +10,19 @@
 //! ```
 //!
 //! Nothing here parks the UI thread beyond a bounded call: [`WebdTransport::recv`] asks the channel
-//! counters first, like [`crate::tray::TrayIcon::poll`], and a call is a `Service::call_moving_within`
-//! with a tick deadline. The service is resolved without waiting (`Service::try_connect`): an app that
-//! starts before `webd` has registered retries `create` on a timer.
+//! counters first, like [`crate::tray::TrayIcon::poll`], and a call is a [`Conn::call`] with a tick
+//! deadline. The service is resolved without waiting (`Conn::try_connect`): an app that starts before
+//! `webd` has registered retries `create` on a timer. The calls stay raw (method id, body, objects)
+//! because `xui_webd_client::transport::Transport` is one seam over the light and the full interface,
+//! which a generated client per interface cannot be.
 //!
 //! A full view (`FullWebView`, `os.lazy.webd.view.v1`) takes [`WebdTransport::full`]: it talks to
 //! `app.os.lazy.webd.view`, sends every call as `os.lazy.webd.view.v1` except the `CreateView` of a
 //! scope (`ScopedTransport::call_through`), and reads events of that interface.
 
-#[cfg(unix)]
-use libmessenger::client::Deadline;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
+use libmessenger::client::{Connection, Deadline};
 use libmessenger::{Object, Parcel};
 use messenger_generated::os_lazy_webd_light_v1 as wire;
 use messenger_generated::os_lazy_webd_view_v1 as view_wire;
@@ -30,7 +31,7 @@ use xui_webd_client::transport::{
     FULL_SERVICE_NAME, SERVICE_NAME,
 };
 
-use crate::platform::messenger::Service;
+use crate::platform::messenger::{Conn, Observed};
 use crate::sys::{self, errno};
 
 /// Ticks (100 Hz) one call to `webd` may take: it answers from its service thread, and a UI
@@ -98,7 +99,7 @@ type HangupFd = ();
 /// The transport: the registered name it calls and the interface of its calls and events.
 pub struct WebdTransport {
     buf: Vec<u8>,
-    name: &'static str,
+    conn: Conn,
     interface: u64,
     /// The event channel and a descriptor watching it, made at the first empty poll
     /// ([`WebdTransport::peer_gone`]); dropped when the channel is closed.
@@ -116,7 +117,7 @@ impl WebdTransport {
     pub fn new() -> Self {
         WebdTransport {
             buf: vec![0; EVENT_BYTES],
-            name: SERVICE_NAME,
+            conn: Connection::named(Observed::default(), SERVICE_NAME.to_owned()),
             interface: wire::INTERFACE_ID,
             hangup: None,
         }
@@ -127,7 +128,7 @@ impl WebdTransport {
     pub fn full() -> Self {
         WebdTransport {
             buf: vec![0; EVENT_BYTES],
-            name: FULL_SERVICE_NAME,
+            conn: Connection::named(Observed::default(), FULL_SERVICE_NAME.to_owned()),
             interface: view_wire::INTERFACE_ID,
             hangup: None,
         }
@@ -173,8 +174,9 @@ impl WebdTransport {
         Ok(None)
     }
 
-    fn service(&self) -> Option<Service> {
-        Service::try_connect(self.name)
+    /// Whether `webd` is registered now (one attempt, never a wait).
+    fn connected(&self) -> bool {
+        self.conn.try_connect().is_ok()
     }
 
     fn call_as(
@@ -184,10 +186,10 @@ impl WebdTransport {
         body: Vec<u8>,
         objects: Vec<Object>,
     ) -> Result<Vec<u8>, i64> {
-        let Some(service) = self.service() else {
+        if !self.connected() {
             close_unsent(&objects);
             return Err(-errno::ENOENT);
-        };
+        }
         let carried = objects.clone();
         // webd's inbox is one endpoint every client shares (64 messages deep), and oneway input is not
         // counted per sender, so another client's flood can fill it: the kernel then refuses the call
@@ -197,7 +199,7 @@ impl WebdTransport {
         // thread waits at most `QUEUE_FULL_RETRIES` x `QUEUE_FULL_PAUSE`.
         let mut tries = 0;
         let result = loop {
-            let attempt = service.call_moving(
+            let attempt = self.conn.call(
                 interface,
                 method,
                 body.clone(),
@@ -246,8 +248,12 @@ impl Transport for WebdTransport {
     }
 
     fn send(&mut self, method: u32, body: Vec<u8>) -> Result<(), i64> {
-        let service = self.service().ok_or(-errno::ENOENT)?;
-        service.send_oneway(self.interface, method, body)
+        if !self.connected() {
+            return Err(-errno::ENOENT);
+        }
+        self.conn
+            .send(self.interface, method, body, Vec::new())
+            .map_err(i64::from)
     }
 
     fn create_pair(&mut self) -> Result<(u64, u64), i64> {

@@ -21,7 +21,6 @@
 //! only. Any other launch shows the window, the first as a plain start and
 //! the later ones as `Reopen`.
 
-use libmessenger::client::Deadline;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -32,14 +31,10 @@ use xui_core::app::{App, Ui};
 use xui_core::backend::Backend;
 
 use crate::backend::LazyOSBackend;
-use crate::platform::messenger::Service;
+use crate::platform::messenger::client;
 use crate::sys::{self, errno};
 use crate::tray::TrayIcon;
 
-/// `init`'s lifecycle service.
-const INIT_APP: &str = app_wire::SERVICE_NAME;
-/// Ticks one `Watch` may take.
-const WATCH_TICKS: u64 = 100;
 /// The longest a windowless app parks before it looks at its topics again
 /// (the tray's generation): half a second.
 const IDLE_MILLIS: u64 = 500;
@@ -78,21 +73,9 @@ impl Lifecycle {
     /// not launch this task.
     pub fn watch() -> Result<Lifecycle, i64> {
         let (sent, kept) = sys::msg_create_pair()?;
-        let result = Service::try_connect(INIT_APP)
-            .ok_or(-errno::ENOENT)
-            .and_then(|init| {
-                let (body, objects) =
-                    app_wire::encode_watch_args(&app_wire::WatchArgs { events: sent })
-                        .map_err(|_| -errno::EINVAL)?;
-                init.call_moving(
-                    app_wire::INTERFACE_ID,
-                    app_wire::METHOD_WATCH,
-                    body,
-                    objects,
-                    Deadline::ticks(WATCH_TICKS),
-                )
-                .map_err(i64::from)
-            });
+        let result = client(app_wire::Client::try_connect)
+            .map_err(|_| -errno::ENOENT)
+            .and_then(|init| init.watch(sent).map_err(i64::from));
         match result {
             Ok(_) => Ok(Lifecycle {
                 channel: kept,

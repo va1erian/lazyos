@@ -5,9 +5,9 @@
 //! like any other, and `dbgd` has no wait reason. So the places that can
 //! block a UI thread time themselves and say so:
 //!
-//! * every Messenger call ([`crate::sys::msg_call`]: interface id, method,
+//! * every Messenger call ([`crate::platform::messenger::Observed`]: interface id, method,
 //!   deadline, outcome),
-//! * `Service::connect` (it retries for up to 10 s),
+//! * a connect (`wire::Client::connect` retries for up to 10 s),
 //! * each pass of the backend loop and its input, update and present parts
 //!   (`backend/event_loop.rs`), and
 //! * each chore of the shell's heartbeat (`shell/desktop.rs`).

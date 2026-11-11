@@ -10,27 +10,32 @@
 //! image, or before it starts) the module falls back to a thread-local store,
 //! so an app never hangs or panics without the service.
 //!
-//! `Offer` travels on the `os.lazy.clipboard.write.v1` ACL scope and `Request`
-//! on `os.lazy.clipboard.read.v1`: both are declared with `scope` in
-//! `idl/clipboard.midl`, as are the call deadlines, and generated as
-//! `METHOD_*_SCOPE` and `METHOD_*_DEADLINE_MS`. The two methods that carry a
-//! buffer travel on the interface's own id: the kernel's declared-object gate
-//! keys on the header's interface.
+//! The generated client frames every call: `Offer` travels on the
+//! `os.lazy.clipboard.write.v1` ACL scope and `Request` on
+//! `os.lazy.clipboard.read.v1`, the two methods that carry a buffer on the
+//! interface's own id (the kernel's declared-object gate keys on the header's
+//! interface), and each waits the `deadline` `idl/clipboard.midl` states: half a
+//! second for `Offer` and `Request`, because a copy or paste key runs on the UI
+//! thread (`Backend::clipboard_text` is a plain getter) and a service that took
+//! the request and never answers must cost that, not the window (the callers
+//! fall back to the in-process copy on any error); five seconds for
+//! `OfferBuffer` and `Fetch`, where the service maps pages and copies megabytes.
 //!
 //! The wire calls sit behind the [`Transport`] seam so the fallback and the
 //! size bound can be tested on a host with no LazyOS kernel.
 
-use libmessenger::client::Deadline;
 use std::cell::{Cell, RefCell};
 
 use libmessenger::Buffer;
 use messenger_generated::os_lazy_clipboard_v1 as wire;
 
-use super::messenger::Service;
-use crate::sys;
+use super::messenger::{client, Observed};
+use crate::sys::{self, errno};
 
-/// The service's registered name.
-const NAME: &str = "os.lazy.clipboard";
+/// The service's generated client, which never waits for the service to
+/// register: a console image has none, and the callers fall back.
+type Service = wire::Client<Observed>;
+
 /// The MIME type used for plain text.
 pub const TEXT_MIME: &str = "text/plain";
 /// The largest payload either direction accepts: 16 MiB, the service's own
@@ -41,17 +46,6 @@ pub const MAX_BYTES: usize = 16 * 1024 * 1024;
 pub const INLINE_BYTES: usize = 8 * 1024;
 /// A human-readable owner label for offers from an xui app.
 const OWNER: &str = "xui-app";
-/// A call's deadline as the IDL states it in milliseconds
-/// (`deadline=` in `idl/clipboard.midl`): half a second for `Offer` and
-/// `Request`, because a copy or paste key runs on the UI thread
-/// (`Backend::clipboard_text` is a plain getter) and a service that took the
-/// request and never answers must cost that, not the window (the callers fall
-/// back to the in-process copy on any error); five seconds for `OfferBuffer`
-/// and `Fetch`, where the service maps pages and copies megabytes.
-const fn deadline(deadline_ms: u32) -> Deadline {
-    Deadline::millis(deadline_ms as u64)
-}
-
 thread_local! {
     /// The fallback store, used when `clipboardd` is absent.
     static IN_PROCESS: RefCell<String> = const { RefCell::new(String::new()) };
@@ -87,33 +81,20 @@ impl Transport for MessengerTransport {
 /// [`MAX_BYTES`].
 fn offer_payload(mime: &str, bytes: &[u8]) -> Result<u64, i64> {
     if bytes.len() > MAX_BYTES {
-        return Err(-7); // E2BIG
+        return Err(-errno::E2BIG);
     }
-    let service = Service::try_connect(NAME).ok_or(-2)?;
-    if bytes.len() > INLINE_BYTES {
-        return offer_buffer(&service, mime, bytes);
-    }
-    let body = wire::encode_offer_args(&wire::OfferArgs {
-        owner: OWNER.to_owned(),
-        sink: None,
-        mimes: vec![mime.to_owned()],
-        data: vec![wire::Payload {
+    let service = client(wire::Client::try_connect)?;
+    let token = if bytes.len() > INLINE_BYTES {
+        offer_buffer(&service, mime, bytes)?
+    } else {
+        let payload = wire::Payload {
             mime: mime.to_owned(),
             bytes: bytes.to_vec(),
-        }],
-    })
-    .map_err(|_| -22)?;
-    let reply = service.call(
-        wire::METHOD_OFFER_SCOPE,
-        wire::METHOD_OFFER,
-        body,
-        deadline(wire::METHOD_OFFER_DEADLINE_MS),
-    )?;
-    let token = wire::decode_offer_reply(&reply.body)
-        .map_err(|_| -22)?
-        .token;
+        };
+        service.offer(OWNER, None, &[mime.to_owned()], &[payload])?
+    };
     if token == 0 {
-        return Err(-22);
+        return Err(-errno::EINVAL);
     }
     Ok(token)
 }
@@ -125,31 +106,9 @@ fn offer_buffer(service: &Service, mime: &str, bytes: &[u8]) -> Result<u64, i64>
     // SAFETY: `buffer_create` mapped at least `bytes.len()` writable bytes at
     // `va`, which this task owns until `buffer_close` below.
     unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), va as *mut u8, bytes.len()) };
-    let sent = wire::encode_offer_buffer_args(&wire::OfferBufferArgs {
-        owner: OWNER.to_owned(),
-        mime: mime.to_owned(),
-        data: Buffer::whole(handle, bytes.len() as u64),
-    })
-    .map_err(|_| -22)
-    .and_then(|(body, objects)| {
-        service
-            .call_moving(
-                wire::INTERFACE_ID,
-                wire::METHOD_OFFERBUFFER,
-                body,
-                objects,
-                deadline(wire::METHOD_OFFERBUFFER_DEADLINE_MS),
-            )
-            .map_err(i64::from)
-    });
+    let sent = service.offer_buffer(OWNER, mime, Buffer::whole(handle, bytes.len() as u64));
     let _ = sys::buffer_close(handle);
-    let token = wire::decode_offer_buffer_reply(&sent?.body)
-        .map_err(|_| -22)?
-        .token;
-    if token == 0 {
-        return Err(-22);
-    }
-    Ok(token)
+    Ok(sent?)
 }
 
 /// What a `Request` reply asks of the reader.
@@ -169,13 +128,13 @@ fn plan(reply: wire::RequestReply) -> Result<Plan, i64> {
     // A service of the previous protocol answers inline with no size.
     let size = reply.size.max(reply.bytes.len() as u64);
     if size > MAX_BYTES as u64 {
-        return Err(-7); // E2BIG
+        return Err(-errno::E2BIG);
     }
     if reply.bytes.len() as u64 == size {
         return Ok(Plan::Inline(reply.bytes));
     }
     if !reply.bytes.is_empty() || reply.token == 0 {
-        return Err(-22); // EINVAL: a reply that contradicts itself
+        return Err(-errno::EINVAL); // a reply that contradicts itself
     }
     Ok(Plan::Fetch {
         token: reply.token,
@@ -185,20 +144,8 @@ fn plan(reply: wire::RequestReply) -> Result<Plan, i64> {
 
 /// Reads offer `token` (0: the newest) as `mime`, inline or through a buffer.
 fn paste_payload(token: u64, mime: &str) -> Result<Vec<u8>, i64> {
-    let service = Service::try_connect(NAME).ok_or(-2)?;
-    let body = wire::encode_request_args(&wire::RequestArgs {
-        token,
-        mime: mime.to_owned(),
-    })
-    .map_err(|_| -22)?;
-    let reply = service.call(
-        wire::METHOD_REQUEST_SCOPE,
-        wire::METHOD_REQUEST,
-        body,
-        deadline(wire::METHOD_REQUEST_DEADLINE_MS),
-    )?;
-    let reply = wire::decode_request_reply(&reply.body).map_err(|_| -22)?;
-    match plan(reply)? {
+    let service = client(wire::Client::try_connect)?;
+    match plan(service.request(token, mime)?)? {
         Plan::Inline(bytes) => Ok(bytes),
         Plan::Fetch { token, size } => fetch(&service, token, mime, size),
     }
@@ -207,29 +154,10 @@ fn paste_payload(token: u64, mime: &str) -> Result<Vec<u8>, i64> {
 /// `Fetch`: the service copies `size` bytes into a buffer this task creates.
 fn fetch(service: &Service, token: u64, mime: &str, size: usize) -> Result<Vec<u8>, i64> {
     let (handle, va, _) = sys::buffer_create(size as u64)?;
-    let sent = wire::encode_fetch_args(&wire::FetchArgs {
-        token,
-        mime: mime.to_owned(),
-        into: Buffer::whole(handle, size as u64),
-    })
-    .map_err(|_| -22)
-    .and_then(|(body, objects)| {
-        service
-            .call_moving(
-                wire::INTERFACE_ID,
-                wire::METHOD_FETCH,
-                body,
-                objects,
-                deadline(wire::METHOD_FETCH_DEADLINE_MS),
-            )
-            .map_err(i64::from)
-    });
-    let result = sent.and_then(|reply| {
-        let written = wire::decode_fetch_reply(&reply.body)
-            .map_err(|_| -22)?
-            .written;
+    let sent = service.fetch(token, mime, Buffer::whole(handle, size as u64));
+    let result = sent.map_err(i64::from).and_then(|written| {
         if written > size as u64 {
-            return Err(-22);
+            return Err(-errno::EINVAL);
         }
         // SAFETY: `buffer_create` mapped `size` readable bytes at `va`, owned
         // by this task until `buffer_close` below, and `written <= size`.
@@ -299,16 +227,17 @@ fn local_text() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use libmessenger::client::Deadline;
 
     /// A transport whose every call fails, as if `clipboardd` were absent.
     struct Absent;
 
     impl Transport for Absent {
         fn offer(&self, _text: &str) -> Result<(), i64> {
-            Err(-2)
+            Err(-errno::ENOENT)
         }
         fn request(&self) -> Result<Vec<u8>, i64> {
-            Err(-2)
+            Err(-errno::ENOENT)
         }
     }
 
@@ -322,7 +251,7 @@ mod tests {
             Ok(())
         }
         fn request(&self) -> Result<Vec<u8>, i64> {
-            self.0.borrow().clone().ok_or(-2)
+            self.0.borrow().clone().ok_or(-errno::ENOENT)
         }
     }
 
@@ -347,22 +276,45 @@ mod tests {
     #[test]
     fn a_large_reply_is_fetched_by_its_resolved_token() {
         let size = (INLINE_BYTES + 1) as u64;
-        assert_eq!(plan(reply(9, b"", size)), Ok(Plan::Fetch { token: 9, size: INLINE_BYTES + 1 }));
+        assert_eq!(
+            plan(reply(9, b"", size)),
+            Ok(Plan::Fetch {
+                token: 9,
+                size: INLINE_BYTES + 1
+            })
+        );
         let max = MAX_BYTES as u64;
-        assert_eq!(plan(reply(9, b"", max)), Ok(Plan::Fetch { token: 9, size: MAX_BYTES }));
+        assert_eq!(
+            plan(reply(9, b"", max)),
+            Ok(Plan::Fetch {
+                token: 9,
+                size: MAX_BYTES
+            })
+        );
     }
 
     #[test]
     fn untrusted_sizes_are_bounded_before_anything_is_allocated() {
-        assert_eq!(plan(reply(9, b"", MAX_BYTES as u64 + 1)), Err(-7));
-        assert_eq!(plan(reply(9, b"", u64::MAX)), Err(-7));
-        assert_eq!(plan(reply(9, b"", u64::MAX / 2)), Err(-7));
+        assert_eq!(
+            plan(reply(9, b"", MAX_BYTES as u64 + 1)),
+            Err(-errno::E2BIG)
+        );
+        assert_eq!(plan(reply(9, b"", u64::MAX)), Err(-errno::E2BIG));
+        assert_eq!(plan(reply(9, b"", u64::MAX / 2)), Err(-errno::E2BIG));
     }
 
     #[test]
     fn a_reply_that_contradicts_itself_is_refused() {
-        assert_eq!(plan(reply(9, b"abc", 10)), Err(-22), "inline bytes shorter than the size");
-        assert_eq!(plan(reply(0, b"", 100)), Err(-22), "a fetch needs the resolved token");
+        assert_eq!(
+            plan(reply(9, b"abc", 10)),
+            Err(-errno::EINVAL),
+            "inline bytes shorter than the size"
+        );
+        assert_eq!(
+            plan(reply(0, b"", 100)),
+            Err(-errno::EINVAL),
+            "a fetch needs the resolved token"
+        );
     }
 
     #[test]
@@ -378,10 +330,14 @@ mod tests {
 
     #[test]
     fn the_deadlines_are_the_bounds_the_client_always_used() {
-        assert_eq!(deadline(wire::METHOD_OFFER_DEADLINE_MS), Deadline::ticks(50));
-        assert_eq!(deadline(wire::METHOD_REQUEST_DEADLINE_MS), Deadline::ticks(50));
-        assert_eq!(deadline(wire::METHOD_OFFERBUFFER_DEADLINE_MS), Deadline::ticks(500));
-        assert_eq!(deadline(wire::METHOD_FETCH_DEADLINE_MS), Deadline::ticks(500));
+        let ms = |deadline_ms: u32| Deadline::millis(u64::from(deadline_ms));
+        assert_eq!(ms(wire::METHOD_OFFER_DEADLINE_MS), Deadline::ticks(50));
+        assert_eq!(ms(wire::METHOD_REQUEST_DEADLINE_MS), Deadline::ticks(50));
+        assert_eq!(
+            ms(wire::METHOD_OFFERBUFFER_DEADLINE_MS),
+            Deadline::ticks(500)
+        );
+        assert_eq!(ms(wire::METHOD_FETCH_DEADLINE_MS), Deadline::ticks(500));
     }
 
     #[test]

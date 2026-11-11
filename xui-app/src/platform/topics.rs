@@ -10,19 +10,14 @@
 //! subscriber reads them the same way.
 //!
 //! Each call is bounded: a broker that stopped answering costs the UI thread
-//! at most [`PUBLISH_TICKS`], never a hang.
+//! at most what `idl/topics.midl` states for `Publish`, never a hang.
 
-use libmessenger::client::Deadline;
 use libmessenger::envelope;
 use messenger_generated::os_lazy_messenger_topics_v1 as wire;
 use messenger_generated::topics;
 
-use super::messenger::Service;
-
-/// The broker's registered name.
-const BROKER: &str = "os.lazy.messenger.topics";
-/// Ticks (100 Hz) one publish may take.
-pub const PUBLISH_TICKS: u64 = 50;
+use super::messenger::client;
+use crate::sys::errno;
 
 /// Why a publish failed: a negative errno from the broker or the kernel, or a
 /// topic the generated helper refused to build.
@@ -40,8 +35,8 @@ impl From<topics::TopicError> for PublishError {
     }
 }
 
-/// The central broker, resolved on each publish (the endpoint is cached by
-/// [`Service`], and evicted when the broker restarts).
+/// The central broker, resolved on the first publish (the client is kept for
+/// the thread, and re-resolves when the broker restarts).
 #[derive(Default)]
 pub struct Broker;
 
@@ -62,23 +57,10 @@ impl topics::Publish for Broker {
     ) -> Result<u64, PublishError> {
         let wrapped = envelope::wrap(payload)
             .map_err(|error| PublishError::Topic(topics::TopicError::Encode(error)))?;
-        let body = wire::encode_publish_args(&wire::PublishArgs {
-            topic: topic.to_owned(),
-            payload: wrapped,
-            retained,
-        })
-        .map_err(|error| PublishError::Topic(topics::TopicError::Encode(error)))?;
-        let broker = Service::try_connect(BROKER).ok_or(PublishError::Errno(-2))?;
-        let reply = broker
-            .call(
-                wire::INTERFACE_ID,
-                wire::METHOD_PUBLISH,
-                body,
-                Deadline::ticks(PUBLISH_TICKS),
-            )
-            .map_err(|error| PublishError::Errno(error.code()))?;
-        wire::decode_publish_reply(&reply.body)
-            .map(|reply| reply.matched)
-            .map_err(|error| PublishError::Topic(topics::TopicError::Encode(error)))
+        let broker =
+            client(wire::Client::try_connect).map_err(|_| PublishError::Errno(-errno::ENOENT))?;
+        broker
+            .publish(topic, &wrapped, retained)
+            .map_err(|error| PublishError::Errno(error.code()))
     }
 }
