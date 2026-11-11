@@ -159,17 +159,19 @@ pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done
             // `keyd` takes a `system` secret from `elevd`'s identity alone,
             // so this call is what the approval bought. The detail names the
             // secret, never what it holds.
-            let client = keyd::Client::connect()
+            let client = keyd::Client::try_connect(Native)
                 .map_err(|_| Refusal::new(errno::ENOENT, "the key service is not running"))?;
             match change {
                 WifiChange::Store { name, passphrase } => {
                     client
                         .store_secret("system", name, passphrase.as_bytes())
-                        .map_err(Refusal::of)?;
+                        .map_err(Refusal::of_call)?;
                     done(format!("Saved the Wi-Fi password {name}"))
                 }
                 WifiChange::Delete { name } => {
-                    client.delete_secret("system", name).map_err(Refusal::of)?;
+                    client
+                        .delete_secret("system", name)
+                        .map_err(Refusal::of_call)?;
                     done(format!("Deleted the Wi-Fi password {name}"))
                 }
             }

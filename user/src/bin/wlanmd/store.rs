@@ -16,6 +16,7 @@ use user::trace;
 
 use confd::Value as ConfValue;
 use libmessenger::client::Deadline;
+use user::messenger::client::Native;
 use user::messenger::confd::{self as conf, lower, ValueClient};
 use user::messenger::{errno, keyd, Error};
 use wlansta::profile::{self, Value};
@@ -83,7 +84,7 @@ impl Store {
 
     fn keyd(&mut self) -> Option<&keyd::Client> {
         if self.keyd.is_none() {
-            self.keyd = keyd::Client::connect().ok();
+            self.keyd = keyd::Client::try_connect(Native).ok();
         }
         self.keyd.as_ref()
     }
@@ -198,7 +199,7 @@ impl Store {
                     profile.id,
                     error.message()
                 );
-                return Err(error);
+                return Err(Error::Errno(error.code()));
             }
         }
         let written = self.write_fields(profile);
@@ -275,9 +276,9 @@ impl Store {
                 user::messenger::wifi::wipe_bytes(&mut bytes);
                 pmk.map(Key::new)
             }
-            Err(error) => match error.errno().map(|code| -code) {
-                Some(errno::ENOENT) => Err(PmkError::Missing),
-                Some(code) if code == errno::EINVAL || code == errno::EPERM => {
+            Err(error) => match -error.code() {
+                errno::ENOENT => Err(PmkError::Missing),
+                code if code == errno::EINVAL || code == errno::EPERM => {
                     trace::line!(trace::Channel::Wlanmd, "PMK:REFUSED {id} errno={code}");
                     Err(PmkError::Unavailable)
                 }
