@@ -5,11 +5,15 @@
 //! halt the waiter sleeps in, and does what a peer would (register, interrupt).
 
 use super::*;
-use crate::ipc::registry::wait::{self, Ticket, MAX_WAITERS_PER_TASK};
+use crate::ipc::registry::wait::{self, Ticket};
 use crate::ipc::syscalls::OP_WAIT_FOR;
 use core::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 
+mod gate;
+mod limits;
+mod signals;
 mod soak;
+mod stress;
 
 /// The names the hook publishes, indexed by [`NAME`].
 const NAMES: [&str; 8] = [
@@ -214,14 +218,23 @@ pub fn wait_then_register_wakes() -> Result<(), String> {
     Ok(())
 }
 
-/// A registration of another name does not end the wait, and neither does a
-/// signal that is not fatal.
+/// A registration of another name does not end the wait; a signal that is
+/// not fatal ends it with `EINTR`, and the re-issued wait succeeds.
 pub fn wait_ignores_other_names_and_signals() -> Result<(), String> {
     fresh()?;
     let (_service, callable) = endpoint()?;
     for plan in [PLAN_OTHER_FIRST, PLAN_INTERRUPT_FIRST] {
         later(plan, 2, 1, callable)?;
-        let outcome = wait_until(NAMES[2], 500);
+        let mut outcome = wait_until(NAMES[2], 500);
+        if plan == PLAN_INTERRUPT_FIRST {
+            // A signal ends the wait with EINTR (the syscall must return for
+            // the handler frame); the client re-issues it.
+            check!(
+                outcome == Err(RegistryError::Interrupted),
+                "a signal gave {outcome:?}"
+            );
+            outcome = wait_until(NAMES[2], 500);
+        }
         no_later();
         let handle = outcome.map_err(reason)?;
         let other = OTHER_AT.load(Ordering::Acquire);
@@ -373,61 +386,6 @@ pub fn wait_unregister_reregister() -> Result<(), String> {
     Ok(())
 }
 
-/// Tickets are bounded per task and in all, and every way out of a wait gives
-/// the place back: a drop, the teardown hook, and a task that died parked.
-pub fn wait_limits_and_release() -> Result<(), String> {
-    fresh()?;
-    // One wait per task.
-    check!(MAX_WAITERS_PER_TASK == 1, "the per-task bound changed");
-    let first = Ticket::take(task::KERNEL_TASK, "os.example.a").map_err(reason)?;
-    check!(
-        Ticket::take(task::KERNEL_TASK, "os.example.b").err()
-            == Some(RegistryError::TooManyWaiters),
-        "a task took a second ticket"
-    );
-    check!(
-        wait_until("os.example.b", 3) == Err(RegistryError::TooManyWaiters),
-        "a task waited for a second name"
-    );
-    drop(first);
-    drop(Ticket::take(task::KERNEL_TASK, "os.example.b").map_err(reason)?);
-    // The global bound, with three live tasks and a cap of three.
-    let tasks: Vec<usize> = (0..3)
-        .map(|_| task::spawn_fork().map_err(to_string))
-        .collect::<Result<_, _>>()?;
-    let held: Vec<Ticket> = tasks
-        .iter()
-        .map(|&slot| Ticket::take_within(slot, "os.example.g", 3).map_err(reason))
-        .collect::<Result<_, _>>()?;
-    check!(
-        Ticket::take_within(task::KERNEL_TASK, "os.example.g", 3).err()
-            == Some(RegistryError::TooManyWaiters),
-        "the global bound let a fourth waiter in"
-    );
-    check!(
-        registry::stats().waiters == 3,
-        "the table holds the wrong count"
-    );
-    // The teardown hook, then a task that dies without it.
-    wait::forget_waiter(tasks[0]);
-    check!(
-        registry::stats().waiters == 2,
-        "forget_waiter kept the entry"
-    );
-    task::harness::finish(tasks[1], 0);
-    check!(
-        registry::stats().waiters == 1,
-        "a dead task's ticket survived the prune"
-    );
-    drop(held);
-    for slot in [tasks[0], tasks[2]] {
-        task::harness::finish(slot, 0);
-    }
-    nothing_waits()?;
-    registry::reset();
-    Ok(())
-}
-
 pub(crate) const WAIT_CASES: &[(&str, Test)] = &[
     (
         "ipc_registry_wait_registered_answers_at_once",
@@ -452,7 +410,25 @@ pub(crate) const WAIT_CASES: &[(&str, Test)] = &[
     ),
     (
         "ipc_registry_wait_limits_and_release",
-        wait_limits_and_release,
+        limits::wait_limits_and_release,
+    ),
+    (
+        "ipc_registry_wait_killed_waiter_is_canceled",
+        signals::killed_waiter_is_canceled,
+    ),
+    (
+        "ipc_registry_wait_deferred_frame_returns_eintr",
+        signals::deferred_frame_returns_eintr,
+    ),
+    (
+        "ipc_registry_wait_teardown_then_slot_reuse",
+        signals::teardown_then_slot_reuse,
+    ),
+    ("ipc_registry_wait_gate_errnos", gate::gate_errnos),
+    ("ipc_registry_wait_labelled_gate", gate::labelled_gate),
+    (
+        "ipc_registry_wait_parked_herd_soak",
+        stress::parked_herd_soak,
     ),
     ("ipc_registry_wait_soak", soak::wait_soak),
     (
