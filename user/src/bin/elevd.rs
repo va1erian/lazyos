@@ -68,10 +68,11 @@ use elevpolicy::approvals::{Approvals, Caller, LabelKind, LabelKinds};
 use elevpolicy::backoff::{Backoff, Hold};
 use elevpolicy::queue::Queue;
 use elevpolicy::{Class, Operation};
-use libmessenger::client::CallError;
+use libmessenger::client::{CallError, Deadline};
 use libmessenger::{Encoder, Parcel};
 use messenger_generated::errors::ERROR_FIELD;
 use messenger_generated::os_lazy_elevd_v1 as wire;
+use user::messenger::client::Native;
 use user::messenger::{self, accounts, errno, pkgd, registry, services, Endpoint, Error, Message};
 use user::sys;
 
@@ -259,10 +260,11 @@ fn label_kind(state: &mut State, caller: Caller, class: Class) -> LabelKind {
     if let Some(kind) = state.label_kinds.get(caller.label) {
         return kind;
     }
-    let deadline = sys::clock().saturating_add(LABEL_NAME_TICKS);
-    let name = pkgd::Client::connect()
-        .ok()
-        .and_then(|client| client.label_name_until(caller.label, Some(deadline)).ok());
+    let name = pkgd::Client::try_connect(Native).ok().and_then(|client| {
+        client
+            .label_name_within(caller.label, Deadline::ticks(LABEL_NAME_TICKS))
+            .ok()
+    });
     let kind = LabelKind::of(caller.label, name.as_deref());
     state.label_kinds.put(caller.label, kind);
     kind

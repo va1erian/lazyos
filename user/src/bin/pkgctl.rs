@@ -29,8 +29,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 
+use libmessenger::client::CallError;
+use user::messenger::client::Native;
 use user::messenger::mime;
-use user::messenger::pkgd::{self, Client, Failure, Installed, PackageInfo};
+use user::messenger::pkgd::{self, Client, Installed, PackageInfo};
 use user::sys;
 
 const USAGE: &str = "usage: pkgctl <inspect|install|remove|list|open|develop> [args]\n\
@@ -67,8 +69,8 @@ fn say(text: &str) {
     sys::write_str("\n");
 }
 
-fn failed(failure: Failure) -> String {
-    format!("pkgctl: {}", failure.text)
+fn failed(failure: CallError) -> String {
+    format!("pkgctl: {}", failure.message())
 }
 
 fn run(args: &[String]) -> Result<(), String> {
@@ -85,7 +87,7 @@ fn run(args: &[String]) -> Result<(), String> {
     if command == Some("develop") {
         return open_with_installer(arg(args, "develop <path>")?, "develop");
     }
-    let client = Client::connect_waiting().map_err(|error| {
+    let client = Client::connect(Native).map_err(|error| {
         format!(
             "pkgctl: the package manager is not running: {}",
             error.message()
@@ -131,7 +133,7 @@ fn run(args: &[String]) -> Result<(), String> {
 /// `pkgctl develop <path>` is the same with the `develop` verb: the route an
 /// IDE takes to have a project's development run approved (issue #529).
 fn open_with_installer(path: &str, verb: &str) -> Result<(), String> {
-    let mimed = mime::Client::connect()
+    let mimed = mime::Client::connect(user::messenger::client::Native)
         .map_err(|error| format!("pkgctl: mimed is not running: {}", error.message()))?;
     let opened = mimed
         .open(path, verb)

@@ -1,5 +1,8 @@
 //! `pkgd`'s connections to the services it drives (`confd`, `mimed`, `init`).
 //!
+//! `confd` and `mimed` are generated clients driven through [`retry`]; `init`
+//! is still a hand-resolved [`Peer`] until its client is generated.
+//!
 //! `registry::resolve` opens a fresh handle in this task each time, and `pkgd`
 //! is a long-lived service with a bounded handle table, so each peer is
 //! resolved once and cached. Two things go wrong with a shared service
@@ -9,10 +12,34 @@
 //! restarted leaves a dead endpoint (`-EPIPE`), which is released and resolved
 //! again.
 
+use libmessenger::client::{CallError, Errno};
 use user::messenger::{self, errno, registry, Endpoint, Error, Result};
 
 /// Retries before giving up on a busy or absent peer (about a second).
 const ATTEMPTS: usize = 100;
+
+/// Run `op` on a generated client, retrying a busy peer: the kernel refuses a
+/// second synchronous call while another transaction is open on the channel
+/// (`EDEADLK`, `EAGAIN`), which is retried a tick later; a peer that is gone
+/// is re-resolved by the client's connection and, if it is still absent,
+/// retried here until it registers. A service's own refusal returns at once.
+pub(crate) fn retry<T, E>(
+    mut op: impl FnMut() -> core::result::Result<T, CallError<E>>,
+) -> core::result::Result<T, CallError<E>> {
+    let mut last = CallError::Transport(Errno::NOENT);
+    for _ in 0..ATTEMPTS {
+        match op() {
+            Err(CallError::Transport(errno))
+                if [Errno::DEADLK, Errno::AGAIN, Errno::PIPE, Errno::NOENT].contains(&errno) =>
+            {
+                last = CallError::Transport(errno);
+                messenger::park_tick();
+            }
+            other => return other,
+        }
+    }
+    Err(last)
+}
 
 /// One cached connection to a named service.
 pub(crate) struct Peer {

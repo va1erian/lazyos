@@ -34,6 +34,8 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use libmessenger::client::Deadline;
+use user::messenger::confd::ValueClient;
 use user::trace;
 
 use user::messenger::{
@@ -64,8 +66,8 @@ const AUTOLOGIN: &str = env!("LAZYOS_AUTOLOGIN_NAME");
 
 /// Whether this boot's logins are graphical (see the module docs).
 pub fn requested() -> bool {
-    let configured = confd::Client::connect().ok().and_then(|client| {
-        match client.with_timeout(CALL_TICKS).get(SESSION_MODE_KEY) {
+    let configured = confd::connect().ok().and_then(|client| {
+        match client.get_value_within(SESSION_MODE_KEY, Deadline::ticks(CALL_TICKS)) {
             Ok(Some(::confd::Value::Str(mode))) => Some(mode),
             _ => None,
         }

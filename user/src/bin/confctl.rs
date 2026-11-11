@@ -29,7 +29,8 @@ use core::panic::PanicInfo;
 
 use confd::Value as StoreValue;
 use lazyos_crypto::hex;
-use user::messenger::{self, confd as wire};
+use user::messenger::confd::{self as wire, ValueClient};
+use user::messenger::{self};
 use user::sys;
 
 /// The topic `watch` subscribes to when the caller gives no filter.
@@ -70,13 +71,18 @@ fn say(text: &str) {
     sys::write_str("\n");
 }
 
+/// A store failure as the text to print.
+fn text(error: wire::ClientError) -> String {
+    String::from(wire::flatten(error).message())
+}
+
 /// Run one command against the service.
 fn run(args: &[String]) -> Result<(), String> {
-    let client = wire::Client::connect_waiting().map_err(|error| error.message().to_string())?;
+    let client = wire::connect_waiting().map_err(text)?;
     match args.first().map(String::as_str) {
         Some("get") => {
             let path = arg(args, 1, "get <path>")?;
-            match client.get(path) {
+            match client.get_value(path) {
                 Ok(Some(value)) => {
                     say(&format!("{path} = {}", render(&value)));
                     Ok(())
@@ -85,7 +91,7 @@ fn run(args: &[String]) -> Result<(), String> {
                     say(&format!("{path}: not found"));
                     Ok(())
                 }
-                Err(error) => Err(format!("{path}: {}", error.message())),
+                Err(error) => Err(format!("{path}: {}", text(error))),
             }
         }
         Some("set") => {
@@ -97,8 +103,8 @@ fn run(args: &[String]) -> Result<(), String> {
                 .ok_or_else(|| String::from("set <path> <type> <value>"))?;
             let value = parse_value(kind, &raw.join(" "))?;
             client
-                .set(path, &value)
-                .map_err(|error| format!("{path}: {}", error.message()))?;
+                .set_value(path, &value)
+                .map_err(|error| format!("{path}: {}", text(error)))?;
             say(&format!("{path} set"));
             Ok(())
         }
@@ -106,15 +112,13 @@ fn run(args: &[String]) -> Result<(), String> {
             let path = arg(args, 1, "delete <path>")?;
             client
                 .delete(path)
-                .map_err(|error| format!("{path}: {}", error.message()))?;
+                .map_err(|error| format!("{path}: {}", text(error)))?;
             say(&format!("{path} deleted"));
             Ok(())
         }
         Some("list") | Some("ls") => {
             let prefix = args.get(1).map(String::as_str).unwrap_or("");
-            let paths = client
-                .list(prefix)
-                .map_err(|error| error.message().to_string())?;
+            let paths = client.list(prefix).map_err(text)?;
             if paths.is_empty() {
                 say("(empty)");
             }
@@ -128,7 +132,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 .get(1)
                 .cloned()
                 .unwrap_or_else(|| String::from(DEFAULT_FILTER));
-            watch(&client, &filter)
+            watch(&filter)
         }
         // `confd` spawns this at boot (`demo=1`) to prove the whole path over
         // the real Messenger transport and VFS; the kernel suite covers the
@@ -170,29 +174,29 @@ fn run_selftest(client: &wire::Client) -> Result<(), String> {
 
     let fail = |step: &str, error: String| format!("{step}: {error}");
     client
-        .set(&path, &StoreValue::U64(42))
-        .map_err(|error| fail("set", error.message().to_string()))?;
+        .set_value(&path, &StoreValue::U64(42))
+        .map_err(|error| fail("set", text(error)))?;
     let got = client
-        .get(&path)
-        .map_err(|error| fail("get", error.message().to_string()))?;
+        .get_value(&path)
+        .map_err(|error| fail("get", text(error)))?;
     if got != Some(StoreValue::U64(42)) {
         return Err(format!("get returned {got:?}, expected 42"));
     }
     let paths = client
         .list(&scope)
-        .map_err(|error| fail("list", error.message().to_string()))?;
+        .map_err(|error| fail("list", text(error)))?;
     if !paths.iter().any(|known| known == &path) {
         return Err(format!("list did not include {path}"));
     }
     client
-        .set(&path, &StoreValue::Str(String::from("hello")))
-        .map_err(|error| fail("replace", error.message().to_string()))?;
+        .set_value(&path, &StoreValue::Str(String::from("hello")))
+        .map_err(|error| fail("replace", text(error)))?;
     client
         .delete(&path)
-        .map_err(|error| fail("delete", error.message().to_string()))?;
+        .map_err(|error| fail("delete", text(error)))?;
     let gone = client
-        .get(&path)
-        .map_err(|error| fail("get-after-delete", error.message().to_string()))?;
+        .get_value(&path)
+        .map_err(|error| fail("get-after-delete", text(error)))?;
     if gone.is_some() {
         return Err(String::from("delete left the value behind"));
     }
@@ -264,10 +268,9 @@ fn hex_digit(byte: u8) -> Option<u8> {
 }
 
 /// Print every change event until the process is killed.
-fn watch(client: &wire::Client, filter: &str) -> Result<(), String> {
-    let subscription = client
-        .watch(filter)
-        .map_err(|error| format!("watch {filter}: {}", error.message()))?;
+fn watch(filter: &str) -> Result<(), String> {
+    let subscription =
+        wire::watch(filter).map_err(|error| format!("watch {filter}: {}", error.message()))?;
     say(&format!("watching {filter}"));
     let mut buffer = vec![0u8; messenger::DEFAULT_BUFFER];
     loop {

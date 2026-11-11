@@ -42,13 +42,13 @@ pub(crate) fn install(params: &Value, current: &mut Option<Upload>) -> Result<St
         .total;
     let relaunch = !matches!(params.get("relaunch"), Some(Value::Bool(false)));
     let path = control::staged_package_path();
-    let installed = user::messenger::pkgd::Client::connect()
+    let installed = user::messenger::pkgd::Client::connect(user::messenger::client::Native)
         .map_err(|e| (code::UNAVAILABLE, format!("pkgd: {}", e.message())))
         .and_then(|pkgd| {
             pkgd.install_debug(&path, sha256).map_err(|f| {
                 (
                     code::DENIED,
-                    format!("pkgd refused the package: {}", f.text),
+                    format!("pkgd refused the package: {}", f.message()),
                 )
             })
         });

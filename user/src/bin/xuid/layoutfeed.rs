@@ -19,7 +19,7 @@ use inputmap::session_layout::{user_layout_key, USER_FILTER_PATH};
 use inputmap::Layout;
 use messenger_generated::topics;
 use user::central::Subscription;
-use user::messenger::confd::{wire, Client};
+use user::messenger::confd::{wire, Client, ValueClient};
 use user::messenger::DEFAULT_BUFFER;
 use user::sys;
 
@@ -113,7 +113,7 @@ impl LayoutFeed {
         if self.stale {
             let read = confd
                 .zip(user_layout_key(uid))
-                .map(|(client, key)| client.get(&key));
+                .map(|(client, key)| client.get_value(&key));
             // A failing `confd` keeps the layout already in effect.
             if let Some(Ok(value)) = read {
                 self.stale = false;

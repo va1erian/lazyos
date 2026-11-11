@@ -10,7 +10,9 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use elevpolicy::{value_args, Operation, Value, WifiChange, NET_PREFIX, POWER_PREFIX};
+use libmessenger::client::{CallError, Deadline};
 use user::messenger::client::Native;
+use user::messenger::confd::ValueClient;
 use user::messenger::{accounts, confd, errno, keyd, pkgd, services, timed};
 use user::sys;
 
@@ -19,6 +21,8 @@ use super::{accounts_endpoint, Refusal};
 
 /// How long a configuration call may take (PIT ticks).
 const CONFD_TICKS: u64 = 300;
+/// [`CONFD_TICKS`] as a call bound.
+const CONFD_BOUND: Deadline = Deadline::ticks(CONFD_TICKS);
 /// How long an account change may take: Argon2id and a home under TCG.
 const ACCOUNT_TICKS: u64 = 9000;
 /// Most keys `conf.list` returns.
@@ -46,29 +50,33 @@ pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done
             // `pkg.install-devtool` led with the developer-tool warning, and
             // `pkgd` installs a tool from no other.
             let devtool = matches!(op, Operation::PkgInstallDevtool { .. });
-            let client = pkgd::Client::connect().map_err(Refusal::of)?;
+            let client = pkgd::Client::connect(Native).map_err(Refusal::of_call)?;
             let app = client
                 .install_approved(&approved.path, &approved.digest, approved.core, devtool)
-                .map_err(|failure| Refusal(failure.code, failure.text))?;
+                .map_err(Refusal::of_call)?;
             done(format!("Installed {} {}", app.system_name, app.version))
         }
         Operation::PkgRemove { system_name } => {
-            let client = pkgd::Client::connect().map_err(Refusal::of)?;
-            client
-                .remove(system_name)
-                .map_err(|failure| Refusal(failure.code, failure.text))?;
+            let client = pkgd::Client::connect(Native).map_err(Refusal::of_call)?;
+            client.remove(system_name).map_err(Refusal::of_call)?;
             done(format!("Removed {system_name}"))
         }
         Operation::ConfSet { path, value } => {
-            conf()?.set(path, value).map_err(Refusal::of)?;
+            conf()?
+                .set_value_within(path, value, CONFD_BOUND)
+                .map_err(confd_refusal)?;
             done(format!("Set {path}"))
         }
         Operation::ConfDelete { path } => {
-            conf()?.delete(path).map_err(Refusal::of)?;
+            conf()?
+                .delete_within(path, CONFD_BOUND)
+                .map_err(confd_refusal)?;
             done(format!("Deleted {path}"))
         }
         Operation::ConfGet { path } => {
-            let value = conf()?.get(path).map_err(Refusal::of)?;
+            let value = conf()?
+                .get_value_within(path, CONFD_BOUND)
+                .map_err(confd_refusal)?;
             let values = match value {
                 Some(value) => {
                     let (kind, text) = value_args(&value);
@@ -79,7 +87,9 @@ pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done
             Ok((format!("Read {path}"), values))
         }
         Operation::ConfList { prefix } => {
-            let mut paths = conf()?.list(prefix).map_err(Refusal::of)?;
+            let mut paths = conf()?
+                .list_within(prefix, CONFD_BOUND)
+                .map_err(confd_refusal)?;
             paths.truncate(MAX_KEYS);
             Ok((format!("{} keys", paths.len()), paths))
         }
@@ -118,8 +128,8 @@ pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done
         Operation::PowerPolicy { key, value } => {
             let path = format!("{POWER_PREFIX}{key}");
             conf()?
-                .set(&path, &Value::Str(value.clone()))
-                .map_err(Refusal::of)?;
+                .set_value_within(&path, &Value::Str(value.clone()), CONFD_BOUND)
+                .map_err(confd_refusal)?;
             done(format!("Set {path}"))
         }
         Operation::NetConfig {
@@ -168,8 +178,8 @@ fn net_config(card: &str, address: &str, gateway: &str, dns: &str) -> Result<(),
     let key = |name: &str| format!("{NET_PREFIX}{card}/{name}");
     let set = |name: &str, value: &str| {
         client
-            .set(&key(name), &Value::Str(value.to_string()))
-            .map_err(Refusal::of)
+            .set_value_within(&key(name), &Value::Str(value.to_string()), CONFD_BOUND)
+            .map_err(confd_refusal)
     };
     if address.is_empty() {
         return set("mode", "dhcp");
@@ -178,10 +188,10 @@ fn net_config(card: &str, address: &str, gateway: &str, dns: &str) -> Result<(),
     for (name, value) in [("gateway", gateway), ("dns", dns)] {
         if !value.is_empty() {
             set(name, value)?;
-        } else if let Err(error) = client.delete(&key(name)) {
+        } else if let Err(error) = client.delete_within(&key(name), CONFD_BOUND) {
             // Clearing a value that was never set is fine.
-            if error.errno() != Some(-errno::ENOENT) {
-                return Err(Refusal::of(error));
+            if error != CallError::Service(confd::StoreError::NotFound) {
+                return Err(confd_refusal(error));
             }
         }
     }
@@ -196,9 +206,12 @@ fn deadline() -> Option<u64> {
     Some(sys::clock() + ACCOUNT_TICKS)
 }
 
-/// A bounded `confd` client.
+/// A `confd` client; each call is bounded by [`CONFD_BOUND`].
 fn conf() -> Result<confd::Client, Refusal> {
-    confd::Client::connect()
-        .map(|client| client.with_timeout(CONFD_TICKS))
-        .map_err(|_| Refusal::new(errno::ENOENT, "the settings service is not running"))
+    confd::connect().map_err(|_| Refusal::new(errno::ENOENT, "the settings service is not running"))
+}
+
+/// A store failure as the refusal the asker gets.
+fn confd_refusal(error: confd::ClientError) -> Refusal {
+    Refusal::of_call(confd::flatten(error))
 }

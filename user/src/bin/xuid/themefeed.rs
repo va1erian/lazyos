@@ -25,7 +25,7 @@ use alloc::vec::Vec;
 use messenger_generated::topics;
 use uitheme::Settings;
 use user::central::{Bus, Subscription};
-use user::messenger::confd::{wire, Client};
+use user::messenger::confd::{connect, wire, Client, ValueClient};
 use user::messenger::topics_client::Qos;
 use user::messenger::{DEFAULT_BUFFER, EXPIRED_DEADLINE};
 use user::sys;
@@ -104,10 +104,10 @@ impl ThemeFeed {
     /// simply leaves the default. The client stays held for the feed.
     pub(super) fn decide_scale(&mut self, width: u32, height: u32) -> u32 {
         if self.client.is_none() {
-            self.client = Client::connect().ok();
+            self.client = connect().ok();
         }
         let stored = match &self.client {
-            Some(client) => match client.get(uitheme::KEY_SCALE) {
+            Some(client) => match client.get_value(uitheme::KEY_SCALE) {
                 Ok(Some(value)) => Some(uitheme::UiScale::from_value(Some(&value))),
                 _ => None,
             },
@@ -198,7 +198,7 @@ impl ThemeFeed {
     fn connect(&mut self, now: u64) -> bool {
         if self.client.is_none() {
             // Expected to fail until `confd` registers; retried quietly.
-            self.client = Client::connect().ok();
+            self.client = connect().ok();
         }
         if self.client.is_none() {
             return false;
@@ -234,12 +234,12 @@ impl ThemeFeed {
         };
         let mut settings = Settings::default();
         for key in uitheme::ALL_KEYS {
-            let Ok(machine) = client.get(key) else {
+            let Ok(machine) = client.get_value(key) else {
                 // A failing service keeps the previous theme.
                 return false;
             };
             let own = match self.user.and_then(|uid| uitheme::user_key(uid, key)) {
-                Some(path) => match client.get(&path) {
+                Some(path) => match client.get_value(&path) {
                     Ok(value) => value,
                     Err(_) => return false,
                 },
@@ -248,24 +248,24 @@ impl ThemeFeed {
             settings.apply(key, uitheme::overlay(machine, own).as_ref());
         }
         self.settings = settings;
-        if let Ok(value) = client.get(uitheme::KEY_CURSOR_SIZE) {
+        if let Ok(value) = client.get_value(uitheme::KEY_CURSOR_SIZE) {
             self.cursor_size = uitheme::cursor_size_from_value(value.as_ref());
         }
         // The user's own cursor theme shadows the machine's, like the keys.
-        if let Ok(machine) = client.get(uitheme::KEY_CURSOR_THEME) {
+        if let Ok(machine) = client.get_value(uitheme::KEY_CURSOR_THEME) {
             let own = self
                 .user
                 .and_then(|uid| uitheme::user_key(uid, uitheme::KEY_CURSOR_THEME))
-                .and_then(|path| client.get(&path).ok().flatten());
+                .and_then(|path| client.get_value(&path).ok().flatten());
             self.cursor_theme =
                 uitheme::cursor_theme_from_value(uitheme::overlay(machine, own).as_ref());
         }
         // The user's own delay shadows the machine's, like the theme keys.
-        if let Ok(machine) = client.get(uitheme::KEY_SCREEN_OFF) {
+        if let Ok(machine) = client.get_value(uitheme::KEY_SCREEN_OFF) {
             let own = self
                 .user
                 .and_then(|uid| uitheme::user_key(uid, uitheme::KEY_SCREEN_OFF))
-                .and_then(|path| client.get(&path).ok().flatten());
+                .and_then(|path| client.get_value(&path).ok().flatten());
             self.screen_off =
                 uitheme::screen_off_from_value(uitheme::overlay(machine, own).as_ref());
         }

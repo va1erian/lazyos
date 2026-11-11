@@ -40,6 +40,7 @@ use elevpolicy::package::{self, Facts, Permission};
 use elevpolicy::Operation;
 use pkgstore::{access, toolgate};
 use user::messenger::accounts::UserRecord as User;
+use user::messenger::client::Native;
 use user::messenger::errno;
 use user::messenger::pkgd::{self, wire, PackageInfo};
 
@@ -116,8 +117,8 @@ fn source(path: &str, caller: Caller, asker: Option<&User>) -> Result<String, Re
 }
 
 fn inspect(path: &str, kind: Install) -> Result<Approved, Refusal> {
-    let client = pkgd::Client::connect().map_err(Refusal::of)?;
-    let failure = |failure: pkgd::Failure| Refusal(failure.code, failure.text);
+    let client = pkgd::Client::connect(Native).map_err(Refusal::of_call)?;
+    let failure = Refusal::of_call;
     let info = client.inspect(path).map_err(failure)?;
     if let Some(problem) = info.problems.first() {
         return Err(Refusal::new(errno::EINVAL, problem));

@@ -12,7 +12,7 @@ use alloc::string::String;
 
 use confd::Value;
 use netstack::config::{Mode, Raw};
-use user::messenger::confd::Client;
+use user::messenger::confd::{connect, Client, ValueClient};
 
 /// Ticks between re-reads while running.
 pub(super) const REFRESH_TICKS: u64 = 500;
@@ -25,7 +25,7 @@ impl Config {
     /// Wait for `confd` for about a second.
     pub(super) fn load() -> Config {
         Config {
-            client: Client::connect().ok(),
+            client: connect().ok(),
         }
     }
 
@@ -34,7 +34,7 @@ impl Config {
     /// so a `confd` that started late, or restarted, is picked up.
     pub(super) fn read(&mut self, interface: &str) -> Option<Mode> {
         if self.client.is_none() {
-            self.client = Client::connect().ok();
+            self.client = connect().ok();
         }
         let client = self.client.as_ref()?;
         // A cheap probe: if the registry answers nothing at all, treat it as
@@ -49,7 +49,7 @@ impl Config {
 
 fn text(client: &Client, interface: &str, key: &str) -> Option<String> {
     match client
-        .get(&format!("sys/net/{interface}/{key}"))
+        .get_value(&format!("sys/net/{interface}/{key}"))
         .ok()
         .flatten()?
     {
