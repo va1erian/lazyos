@@ -16,9 +16,9 @@ pub type Handle = u64;
 /// moves parcels and knows nothing of interfaces, errors or retries; that
 /// is [`Connection`].
 pub trait Transport {
-    /// The one bound this runtime waits for a service to register (`docs/
-    /// client-api-plan.md` 3.4: the registry cannot wake a waiter yet, so
-    /// each transport polls inside [`Transport::resolve`] for this long).
+    /// The one bound this runtime waits for a service to register
+    /// (`docs/client-api-plan.md` 3.4: [`Transport::resolve`] blocks in the
+    /// kernel on the registry for at most this long).
     fn connect_bound(&self) -> Deadline;
 
     /// The flags every synchronous request of this runtime carries. Native

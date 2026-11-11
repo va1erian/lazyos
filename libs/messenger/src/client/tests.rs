@@ -67,11 +67,30 @@ fn the_request_header_is_built_for_the_interface_and_method() {
 fn the_first_resolve_waits_the_runtimes_bound_and_try_connect_does_not() {
     let mock = Mock::new().with_connect_bound(Deadline::secs(3));
     let conn = Connection::new(mock, NAME);
-    assert_eq!(conn.connect(), Err(Errno::NOENT));
+    // A wait that reaches its bound is the timeout, a plain resolve is ENOENT.
+    assert_eq!(conn.connect(), Err(Errno::TIMEDOUT));
     assert_eq!(conn.try_connect(), Err(Errno::NOENT));
     let resolves = conn.transport().resolves();
     assert_eq!(resolves[0].1, Deadline::secs(3));
     assert_eq!(resolves[1].1, Deadline::Poll);
+}
+
+#[test]
+fn a_service_that_registers_while_connect_waits_is_connected_in_one_resolve() {
+    let mock = Mock::new();
+    mock.registers_when_waited_for(NAME);
+    let conn = Connection::new(mock, NAME);
+    // A poll does not wait, so it does not see the registration.
+    assert_eq!(conn.try_connect(), Err(Errno::NOENT));
+    let handle = conn.connect().unwrap();
+    assert_eq!(conn.connect(), Ok(handle));
+    let resolves = conn.transport().resolves();
+    assert_eq!(
+        resolves.len(),
+        2,
+        "the wait is one resolve, not a retry loop"
+    );
+    assert_eq!(resolves[1].1, Deadline::secs(10));
 }
 
 #[test]
@@ -100,9 +119,10 @@ fn a_peer_that_stays_dead_is_tried_twice_and_the_handle_dropped() {
     assert_eq!(conn.transport().calls().len(), 3, "no retry loop");
     assert!(!conn.is_connected());
     assert_eq!(conn.transport().open_handles(), 0);
-    // A reaped name is ENOENT on the retry's resolve.
+    // A reaped name is waited for (nothing is cached after the eviction) and
+    // never registers: the wait's timeout.
     conn.transport().unregister(NAME);
-    assert_eq!(call(&conn), Err(CallError::Transport(Errno::NOENT)));
+    assert_eq!(call(&conn), Err(CallError::Transport(Errno::TIMEDOUT)));
 }
 
 #[test]

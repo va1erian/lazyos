@@ -3,7 +3,6 @@
 //! [`libmessenger::client::Connection`]s on. The native `user` runtime has
 //! its own over its `Endpoint`; both speak the same trait.
 
-use std::time::Duration;
 use std::vec;
 
 use libmessenger::client::{Deadline, Errno, Handle, Transport};
@@ -22,9 +21,6 @@ const REPLY_BUF: usize = 64 * 1024;
 /// of the std runtime.
 const CONNECT_BOUND: Deadline = Deadline::secs(10);
 
-/// Pause between two attempts to resolve a name that is not registered yet.
-const RESOLVE_PAUSE: Duration = Duration::from_millis(10);
-
 /// The std transport. Stateless: the handle cache is the `Connection`'s.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Std;
@@ -40,24 +36,15 @@ impl Transport for Std {
         libmessenger::flags::ALLOW_NESTED
     }
 
-    /// The runtime's one bounded wait for a name. The kernel-served registry
-    /// has no "wait for name" operation, so this retries every
-    /// [`RESOLVE_PAUSE`] until `until`; `docs/client-api-plan.md` 3.4 is the
-    /// follow-up that replaces the sleep with a wake-up.
+    /// A name that is not registered yet is waited for in the kernel
+    /// (`WaitFor`): the thread parks until it registers or `until` passes,
+    /// and nothing polls. [`Deadline::Poll`] is one plain `Resolve`.
     fn resolve(&self, name: &str, until: Deadline) -> Result<Handle, Errno> {
-        let stop = until.absolute_ticks(clock());
-        loop {
-            match parcel::resolve(name) {
-                Ok(handle) => return Ok(handle),
-                Err(code) => {
-                    let expired = until == Deadline::Poll || (stop != 0 && clock() >= stop);
-                    if expired {
-                        return Err(Errno::from_syscall(code));
-                    }
-                    std::thread::sleep(RESOLVE_PAUSE);
-                }
-            }
-        }
+        let found = match until {
+            Deadline::Poll => parcel::resolve(name),
+            _ => parcel::wait_for(name, until.absolute_ticks(clock())),
+        };
+        found.map_err(Errno::from_syscall)
     }
 
     fn call(&self, handle: Handle, request: &Parcel, until: Deadline) -> Result<Parcel, Errno> {

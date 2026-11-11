@@ -6,7 +6,7 @@
 use libmessenger::client::{Deadline, Errno, Handle, Transport};
 use libmessenger::Parcel;
 
-use super::{park_tick, registry, Endpoint, Error, Result};
+use super::{registry, Endpoint, Error, Result};
 use crate::sys;
 
 /// How long a native program waits for a service to register: the one connect
@@ -25,20 +25,12 @@ fn errno_of(error: Error) -> Errno {
 
 /// Resolve `name`, waiting for it to register no longer than `until`.
 ///
-/// The kernel-served registry has no "wait for name" operation, so this is
-/// the runtime's one bounded polling loop (one tick between attempts);
-/// `docs/client-api-plan.md` 3.4 is the follow-up that wakes on the
-/// registration instead. [`Deadline::Poll`] makes one attempt.
+/// The kernel parks the task until the name registers or `until` passes
+/// (`WaitFor`), so nothing polls; [`Deadline::Poll`] is one plain `Resolve`.
 pub fn resolve_within(name: &str, until: Deadline) -> Result<Endpoint> {
-    let stop = until.absolute_ticks(sys::clock());
-    loop {
-        match registry::resolve(name) {
-            Ok(endpoint) => return Ok(endpoint),
-            Err(error) if until == Deadline::Poll || (stop != 0 && sys::clock() >= stop) => {
-                return Err(error)
-            }
-            Err(_) => park_tick(),
-        }
+    match until {
+        Deadline::Poll => registry::resolve(name),
+        _ => registry::wait_for(name, until.absolute_ticks(sys::clock())),
     }
 }
 
