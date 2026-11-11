@@ -41,10 +41,6 @@ const USAGE: &str = "usage: pkgctl <inspect|install|remove|list|open|develop> [a
     open <path>      hand the package to the GUI installer through mimed\n\
     develop <path>   ask the installer to approve a development run of it\n";
 
-/// Attempts to reach `pkgd`: it is a supervised service that may be starting,
-/// or restarting to recycle its memory.
-const CONNECT_ATTEMPTS: usize = 600;
-
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     let args = args();
@@ -89,7 +85,7 @@ fn run(args: &[String]) -> Result<(), String> {
     if command == Some("develop") {
         return open_with_installer(arg(args, "develop <path>")?, "develop");
     }
-    let client = Client::connect_retry(CONNECT_ATTEMPTS).map_err(|error| {
+    let client = Client::connect_waiting().map_err(|error| {
         format!(
             "pkgctl: the package manager is not running: {}",
             error.message()

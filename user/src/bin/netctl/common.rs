@@ -8,8 +8,6 @@ use user::messenger::netstack::Client;
 use user::messenger::Error as MsgError;
 use user::sys;
 
-/// Ticks (100 Hz) to wait for `netd` to register at boot.
-const CONNECT_TICKS: u64 = 1000;
 /// Ticks to wait for an address after a renewal or a reattach.
 const ADDRESS_TICKS: u64 = 1500;
 
@@ -55,16 +53,7 @@ pub(super) fn ip_text(addr: &[u8]) -> String {
 
 /// Resolve the stack service, retrying while it is still starting up.
 pub(super) fn connect() -> Result<Client, String> {
-    let deadline = sys::clock() + CONNECT_TICKS;
-    loop {
-        match Client::connect() {
-            Ok(client) => return Ok(client),
-            Err(error) if sys::clock() >= deadline => {
-                return Err(format!("no network stack: {}", error.message()))
-            }
-            Err(_) => nap(),
-        }
-    }
+    Client::connect_waiting().map_err(|error| format!("no network stack: {}", error.message()))
 }
 
 /// Wait until the stack reports an address; returns it.

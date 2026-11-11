@@ -110,18 +110,13 @@ impl Client {
         })
     }
 
-    /// [`Client::connect`] retrying for a client that starts before `pkgd` is
-    /// up, or while it restarts to recycle its memory.
-    pub fn connect_retry(attempts: usize) -> Result<Client> {
-        let mut last = Error::Errno(-errno::ENOENT);
-        for _ in 0..attempts {
-            match registry::resolve(NAME) {
-                Ok(endpoint) => return Ok(Client { endpoint }),
-                Err(error) => last = error,
-            }
-            super::park_tick();
-        }
-        Err(last)
+    /// [`Client::connect`] for a client that starts before `pkgd` is up, or
+    /// while it restarts to recycle its memory: waits the runtime's connect
+    /// bound ([`super::client::CONNECT_BOUND`]).
+    pub fn connect_waiting() -> Result<Client> {
+        Ok(Client {
+            endpoint: super::client::resolve_waiting(NAME)?,
+        })
     }
 
     /// One request; a service failure becomes its [`Failure`].

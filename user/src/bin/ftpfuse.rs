@@ -50,8 +50,6 @@ use user::sys;
 
 const DEFAULT_PORT: u16 = 21;
 const DEFAULT_NAME: &str = "ftp";
-/// Ticks to wait for `netd` at boot, and for an address.
-const CONNECT_TICKS: u64 = 500;
 const ADDRESS_TICKS: u64 = 1500;
 /// Idle ticks between keep-alive `NOOP`s.
 const KEEPALIVE_TICKS: u64 = 6000;
@@ -133,17 +131,10 @@ fn parse() -> Result<Options, Failed> {
 
 /// The stack and socket services, once `netd` is up and has an address.
 fn connect() -> Result<(Rc<Client>, Stack), Failed> {
-    let deadline = sys::clock() + CONNECT_TICKS;
-    let stack = loop {
-        match Stack::connect() {
-            Ok(stack) => break stack,
-            Err(error) if sys::clock() >= deadline => {
-                let why = format!("no network stack: {}", error.message());
-                return Err((Failure::Network, why));
-            }
-            Err(_) => sys::nap(),
-        }
-    };
+    let stack = Stack::connect_waiting().map_err(|error| {
+        let why = format!("no network stack: {}", error.message());
+        (Failure::Network, why)
+    })?;
     let deadline = sys::clock() + ADDRESS_TICKS;
     while sys::clock() < deadline && !stack.addresses().is_ok_and(|a| !a.is_empty()) {
         sys::nap();

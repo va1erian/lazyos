@@ -10,8 +10,6 @@ use user::messenger::net::{self as api, Attachment};
 use user::messenger::Error as MsgError;
 use user::sys;
 
-/// Ticks (100 Hz) to wait for the driver to register before giving up.
-const CONNECT_TICKS: u64 = 500;
 /// The address QEMU's user-mode network gives the guest, and its gateway.
 pub(super) const OUR_IP: [u8; 4] = [10, 0, 2, 15];
 pub(super) const GATEWAY_IP: [u8; 4] = [10, 0, 2, 2];
@@ -54,17 +52,8 @@ pub(super) fn ifname() -> String {
 
 /// Resolve the driver, retrying while it is still starting up.
 pub(super) fn connect() -> Result<api::Client, String> {
-    let deadline = sys::clock() + CONNECT_TICKS;
-    let ifname = ifname();
-    loop {
-        match api::Client::connect(&ifname) {
-            Ok(client) => return Ok(client),
-            Err(error) if sys::clock() >= deadline => {
-                return Err(format!("no NIC service: {}", error.message()))
-            }
-            Err(_) => nap(),
-        }
-    }
+    api::Client::connect_waiting(&ifname())
+        .map_err(|error| format!("no NIC service: {}", error.message()))
 }
 
 /// Whether `result` failed with exactly `errno` (a positive errno value).

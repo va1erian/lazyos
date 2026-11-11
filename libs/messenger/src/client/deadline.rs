@@ -31,6 +31,12 @@ impl Deadline {
         Deadline::Within(Duration::from_millis(millis))
     }
 
+    /// At most `ticks` PIT ticks (100 Hz), for the many call budgets
+    /// written in ticks.
+    pub const fn ticks(ticks: u64) -> Deadline {
+        Deadline::millis(ticks.saturating_mul(TICK_MILLIS))
+    }
+
     /// At most `secs` seconds.
     pub const fn secs(secs: u64) -> Deadline {
         Deadline::Within(Duration::from_secs(secs))

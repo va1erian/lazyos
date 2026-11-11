@@ -28,8 +28,6 @@ use user::trace;
 
 /// MIME type the demo copies and pastes.
 const DEMO_MIME: &str = "text/plain";
-/// PIT ticks `connect` retries while the supervisor's spawn settles.
-const CONNECT_ATTEMPTS: usize = 64;
 /// PIT ticks to wait for the changed event.
 const CHANGED_TICKS: u64 = 1000;
 /// The uid the denial probe switches to.
@@ -54,7 +52,7 @@ fn run() -> messenger::Result<()> {
     let client = connect()?;
     // Watch the session's retained changed topic on the central broker first
     // (issue #169); a late subscriber is handed the offer.
-    let mut changes_bus = central::Bus::connect_retry(64)?;
+    let mut changes_bus = central::Bus::connect()?;
     let session_text = format!("{}", client.session());
     let changes = clipboard::subscribe_session_clipboard_changed(&mut changes_bus, &session_text)?;
     let mut changed_buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
@@ -152,22 +150,7 @@ fn fail(name: &str, detail: &str) -> ! {
 
 /// Resolve `clipboardd`, retrying while its registration lands.
 fn connect() -> messenger::Result<clipboard::Client> {
-    let mut last = Error::Errno(-errno::ENOENT);
-    for _ in 0..CONNECT_ATTEMPTS {
-        match clipboard::Client::connect() {
-            Ok(client) => return Ok(client),
-            Err(error) => last = error,
-        }
-        park_tick();
-    }
-    Err(last)
-}
-
-/// Nap one PIT tick's worth between retries ([`user::sys::nap`], a real sleep;
-/// this used to park on a throwaway channel pair, since userspace had no
-/// sleep call).
-fn park_tick() {
-    user::sys::nap();
+    clipboard::Client::connect_waiting()
 }
 
 #[panic_handler]

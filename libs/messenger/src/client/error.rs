@@ -82,17 +82,37 @@ impl CallError {
         }
     }
 
-    /// The service's sentence for a refusal, empty for a transport failure.
+    /// A refusal with this errno-style `code` and friendly `message`, for
+    /// a caller that has its own sentence (no detail record).
+    pub fn refusal(code: u32, message: &str) -> CallError {
+        CallError::Remote {
+            code,
+            message: message.to_string(),
+            detail: Detail::default(),
+        }
+    }
+
+    /// Plain text to show: the service's sentence for a refusal, the
+    /// errno's description for a transport failure.
     pub fn message(&self) -> &str {
         match self {
+            CallError::Transport(errno) => errno.describe(),
             CallError::Remote { message, .. } => message,
-            _ => "",
+            CallError::Service(never) => match *never {},
         }
     }
 
     /// Re-type an untyped error for a client with a declared error enum.
     pub fn widen<E>(self) -> CallError<E> {
         self.map_service(|never| match never {})
+    }
+}
+
+/// For callers that report a plain negative errno (`?` in a function that
+/// returns `Result<_, i64>`).
+impl From<CallError> for i64 {
+    fn from(error: CallError) -> i64 {
+        error.code()
     }
 }
 

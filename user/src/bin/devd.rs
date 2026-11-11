@@ -45,8 +45,6 @@ use devices::{State, Tracked};
 /// Ticks between inventory reads (100 Hz): devices change only when a driver
 /// claims or lets go, so twice a second is plenty.
 const RESCAN_TICKS: u64 = 50;
-/// Attempts to reach `init` and the broker at start (a tick apart).
-const CONNECT_ATTEMPTS: usize = 200;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -70,13 +68,7 @@ pub extern "C" fn _start() -> ! {
 
 /// Resolve `init`, retrying while the boot is still registering names.
 fn init_endpoint() -> Result<Endpoint, &'static str> {
-    for _ in 0..CONNECT_ATTEMPTS {
-        if let Ok(endpoint) = services::resolve_service(INIT_NAME) {
-            return Ok(endpoint);
-        }
-        sys::nap();
-    }
-    Err("init is not reachable")
+    user::messenger::client::resolve_waiting(INIT_NAME).map_err(|_| "init is not reachable")
 }
 
 fn run() -> Result<(), &'static str> {
@@ -98,7 +90,7 @@ fn run() -> Result<(), &'static str> {
         tracked.len()
     );
     services::init::notify_ready();
-    let mut bus = central::Bus::connect_retry(CONNECT_ATTEMPTS).ok();
+    let mut bus = central::Bus::connect().ok();
     publish_changes(&mut bus, &mut tracked);
     serve(&server, &mut bus, &mut tracked)
 }

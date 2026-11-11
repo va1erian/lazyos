@@ -122,7 +122,7 @@ impl topics::Publish for TopicSink {
     /// bus is stale.
     fn publish_topic(&mut self, topic: &str, payload: &[u8], retained: bool) -> Result<u64, Error> {
         if self.bus.is_none() {
-            self.bus = central::Bus::connect_retry(4).ok();
+            self.bus = central::Bus::connect().ok();
         }
         let result = match &mut self.bus {
             Some(bus) => bus.publish(topic, payload, retained),

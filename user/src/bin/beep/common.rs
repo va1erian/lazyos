@@ -8,9 +8,6 @@ use audioclient::Error;
 use user::audio::{self, Native};
 use user::sys;
 
-/// Ticks (100 Hz) to wait for the mixer to register before giving up.
-const CONNECT_TICKS: u64 = 500;
-
 /// The PIT tick counter.
 pub(super) fn now() -> u64 {
     sys::clock()
@@ -23,8 +20,7 @@ pub(super) fn fail(what: &str) -> impl Fn(Error) -> String + '_ {
 
 /// Resolve the mixer (`os.lazy.audio`), retrying while it is still starting.
 pub(super) fn connect() -> Result<Native, String> {
-    audio::connect_wait(audio::NAME, CONNECT_TICKS)
-        .map_err(|error| format!("no audio service: {error}"))
+    audio::connect_wait(audio::NAME).map_err(|error| format!("no audio service: {error}"))
 }
 
 /// Whether `result` failed with exactly `errno` (a positive errno value).

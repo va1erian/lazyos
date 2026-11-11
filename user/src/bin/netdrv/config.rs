@@ -17,8 +17,6 @@ use virtio_net::settings::{Raw, Settings};
 
 use super::device::Kind;
 
-/// Resolve attempts at start (about a second of ticks).
-const START_ATTEMPTS: usize = 20;
 /// Ticks between re-reads of the keys while the driver runs.
 pub(super) const REFRESH_TICKS: u64 = 500;
 
@@ -39,7 +37,7 @@ pub(super) struct Config {
 impl Config {
     /// Connect to `confd` if it is up and read the settings under `prefix`.
     pub(super) fn load(prefix: &'static str) -> (Config, Settings) {
-        let client = Client::connect_retry(START_ATTEMPTS).ok();
+        let client = Client::connect().ok();
         let settings = client
             .as_ref()
             .map_or(Settings::DEFAULT, |client| read(client, prefix));

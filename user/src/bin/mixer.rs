@@ -30,8 +30,6 @@ use audioclient::{control_wire as control, wire, Client, Error, MixerControl, UN
 use user::audio::{self, Native};
 use user::sys;
 
-/// Ticks (100 Hz) to wait for the mixer to register.
-const CONNECT_TICKS: u64 = 500;
 const EINVAL: i64 = 22;
 const ENOENT: i64 = 2;
 
@@ -65,8 +63,7 @@ pub extern "C" fn _start() -> ! {
 }
 
 fn connect() -> Result<Native, String> {
-    audio::connect_wait(audio::NAME, CONNECT_TICKS)
-        .map_err(|error| format!("no audio service: {error}"))
+    audio::connect_wait(audio::NAME).map_err(|error| format!("no audio service: {error}"))
 }
 
 fn fail(what: &str) -> impl Fn(Error) -> String + '_ {

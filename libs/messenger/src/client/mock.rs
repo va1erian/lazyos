@@ -181,7 +181,10 @@ impl Transport for Mock {
             until: Some(until),
         });
         Mock::peer_alive(&state, handle)?;
-        state.script.pop_front().unwrap_or_else(|| Ok(Parcel::default()))
+        state
+            .script
+            .pop_front()
+            .unwrap_or_else(|| Ok(Parcel::default()))
     }
 
     fn send(&self, handle: Handle, request: &Parcel) -> Result<(), Errno> {

@@ -26,6 +26,7 @@
 //! [`accounts`], [`logind`] (issue #101), [`display`] (issue #113),
 //! [`mime`] and [`clipboard`] (issue #115).
 
+pub mod client;
 mod endpoint;
 mod message;
 mod types;
