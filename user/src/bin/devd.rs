@@ -32,8 +32,10 @@ use core::panic::PanicInfo;
 use user::trace;
 
 use user::central;
+use user::messenger::client::Native;
 use user::messenger::devd::{self as api, wire};
-use user::messenger::services::{self, drivers, INIT_NAME};
+use user::messenger::services::init::Client as InitClient;
+use user::messenger::services::{self};
 use user::messenger::{self, errno, registry, Endpoint, Error as MsgError, Message, Parcel};
 use user::sys;
 
@@ -66,18 +68,16 @@ pub extern "C" fn _start() -> ! {
     }
 }
 
-/// Resolve `init`, retrying while the boot is still registering names.
-fn init_endpoint() -> Result<Endpoint, &'static str> {
-    user::messenger::client::resolve_waiting(INIT_NAME).map_err(|_| "init is not reachable")
+/// Reach `init`, waiting while the boot is still registering names.
+fn init_client() -> Result<InitClient, &'static str> {
+    InitClient::connect(Native).map_err(|_| "init is not reachable")
 }
 
 fn run() -> Result<(), &'static str> {
     let rows = user::dev::inspect::inventory().map_err(|_| "the device inventory is refused")?;
     let mut tracked = devices::track(rows);
-    let init = init_endpoint()?;
-    start_drivers(&init, &mut tracked);
-    // Released: a resolved name aliases `init`'s own endpoint.
-    let _ = init.release();
+    // Dropped after the starts: a resolved name aliases `init`'s own endpoint.
+    start_drivers(&init_client()?, &mut tracked);
 
     let (published, server) = messenger::create_pair().map_err(|_| "no endpoint")?;
     registry::register(api::NAME, &published, &[api::INTERFACE], 0)
@@ -97,7 +97,7 @@ fn run() -> Result<(), &'static str> {
 
 /// Ask `init` for each driver start the manifest plans; a device of a driver
 /// row that serves one device only, after the first, is `busy`.
-fn start_drivers(init: &Endpoint, tracked: &mut [Tracked]) {
+fn start_drivers(init: &InitClient, tracked: &mut [Tracked]) {
     let functions: Vec<_> = tracked.iter().map(Tracked::function).collect();
     let plan = devmatch::plan_with(&functions, devices::EXTRA_MANIFEST);
     for item in tracked.iter_mut().filter(|t| t.entry.is_some()) {
@@ -116,7 +116,7 @@ fn start_drivers(init: &Endpoint, tracked: &mut [Tracked]) {
             planned.entry.model
         );
         item.ifname = String::from(ifname);
-        match drivers::start_driver(init, driver, u64::from(id), ifname) {
+        match init.start_driver(driver, u64::from(id), ifname) {
             Ok(started) => {
                 item.pid = started.pid;
                 if item.device.owner.is_none() {
@@ -131,7 +131,7 @@ fn start_drivers(init: &Endpoint, tracked: &mut [Tracked]) {
             }
             // The image does not ship this driver (an e1000 QEMU adds by
             // default to a sound-only image): nothing to start, not a fault.
-            Err(MsgError::Init(code)) if code == errno::ENOENT => {
+            Err(error) if error.code() == -errno::ENOENT => {
                 item.state = State::NoDriver;
                 trace::line!(
                     trace::Channel::Devd,

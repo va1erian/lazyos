@@ -7,6 +7,7 @@
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use libmessenger::client::CallError;
 use user::central;
 use user::messenger::client::Native;
 use user::messenger::mime::wire;
@@ -222,6 +223,7 @@ fn launch_via_init(
                 return Ok(result);
             }
             Err(error) if error.code() == -errno::EDEADLK => park_tick(),
+            Err(CallError::Remote { code, .. }) => return Err(Error::Init(i64::from(code))),
             Err(error) => return Err(Error::Errno(error.code())),
         }
     }
