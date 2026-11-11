@@ -3,11 +3,10 @@
 //! interface id so the kernel's label rules can refuse an app whose package
 //! did not ask for the scope.
 
-use libmessenger::{flags, Header, Parcel, VERSION};
 use messenger_generated::os_lazy_display_cursor_v1 as wire;
 
 use super::Client;
-use crate::sys::errno;
+use crate::platform::messenger::client;
 
 /// What a host test sees of the calls a detached client makes.
 #[cfg(test)]
@@ -38,25 +37,10 @@ impl Client {
     /// know, `-EINVAL` for a shape it cannot draw.
     pub fn set_cursor(&self, surface: u64, shape: u32) -> Result<(), i64> {
         #[cfg(test)]
-        if self.endpoint == 0 {
+        if self.detached {
             probe::SENT.with(|sent| sent.borrow_mut().push((surface, shape)));
             return probe::FAIL.with(|fail| fail.get()).map_or(Ok(()), Err);
         }
-        let body = wire::encode_set_cursor_args(&wire::SetCursorArgs { surface, shape })
-            .map_err(|_| -errno::EINVAL)?;
-        let parcel = Parcel {
-            header: Header {
-                version: VERSION,
-                flags: flags::ALLOW_NESTED,
-                interface_id: wire::INTERFACE_ID,
-                method: wire::METHOD_SETCURSOR,
-                txn_id: 0,
-                reply_to: 0,
-                deadline_ns: 0,
-            },
-            body,
-            objects: Vec::new(),
-        };
-        self.call(&parcel).map(|_| ())
+        Ok(client(wire::Client::connect)?.set_cursor(surface, shape)?)
     }
 }

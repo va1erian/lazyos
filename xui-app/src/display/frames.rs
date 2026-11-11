@@ -5,12 +5,13 @@
 //! A surface that has used `Present` refuses the legacy `AttachBuffer`
 //! (`EBUSY`), so an xui window uses these from its first buffer on.
 
-use libmessenger::{flags, Buffer, Parcel};
+use libmessenger::{Buffer, Parcel};
 use messenger_generated::os_lazy_display_v1 as wire;
 use xui_core::Rect;
 
-use super::{request, Client};
-use crate::sys::{self, errno};
+#[cfg(test)]
+use super::request;
+use super::Client;
 
 /// A compositor event about a presented frame, on the surface's event
 /// endpoint.
@@ -42,57 +43,28 @@ impl Client {
     /// The compositor refuses the slot it is currently reading (`EBUSY`) and a
     /// buffer too small for the surface's current size (`EINVAL`).
     pub fn attach_slot(&self, surface: u64, slot: u32, buffer: u64, len: u64) -> Result<(), i64> {
-        let (body, objects) = wire::encode_attach_buffer_slot_args(&wire::AttachBufferSlotArgs {
-            surface,
-            slot,
-            pixels: Buffer::whole(buffer, len),
-        })
-        .map_err(|_| -errno::EINVAL)?;
-        let parcel = request(wire::METHOD_ATTACHBUFFERSLOT, body, objects);
-        self.call(&parcel).map(|_| ())
+        Ok(self
+            .wire()?
+            .attach_buffer_slot(surface, slot, Buffer::whole(buffer, len))?)
     }
 
     /// `Present` (one-way): make `slot` the surface's current buffer and
     /// composite `damage` (content-relative). The answer arrives later as
     /// [`FrameEvent`]s; nothing here waits for the compositor.
     pub fn present(&self, surface: u64, slot: u32, seq: u64, damage: Rect) -> Result<(), i64> {
-        sys::msg_send(self.handle(), &present_parcel(surface, slot, seq, damage)?)
-    }
-}
-
-/// The one-way `Present` parcel carrying one damage rectangle.
-fn present_parcel(surface: u64, slot: u32, seq: u64, damage: Rect) -> Result<Parcel, i64> {
-    let body = wire::encode_present_args(&wire::PresentArgs {
-        surface,
-        slot,
-        seq,
-        damage: vec![wire::Rect {
+        let rect = wire::Rect {
             x: damage.left.max(0) as u32,
             y: damage.top.max(0) as u32,
             w: damage.width().max(0) as u32,
             h: damage.height().max(0) as u32,
-        }],
-    })
-    .map_err(|_| -errno::EINVAL)?;
-    let mut parcel = request(wire::METHOD_PRESENT, body, Vec::new());
-    parcel.header.flags |= flags::ONE_WAY;
-    Ok(parcel)
+        };
+        Ok(self.wire()?.present(surface, slot, seq, &[rect])?)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_present_parcel_is_one_way_and_carries_the_damage() {
-        let parcel = present_parcel(5, 1, 9, Rect::new(10, 20, 40, 25)).expect("encodes");
-        assert_eq!(parcel.header.method, wire::METHOD_PRESENT);
-        assert_ne!(parcel.header.flags & flags::ONE_WAY, 0);
-        let args = wire::decode_present_args(&parcel.body).expect("decodes");
-        assert_eq!((args.surface, args.slot, args.seq), (5, 1, 9));
-        let rect = &args.damage[0];
-        assert_eq!((rect.x, rect.y, rect.w, rect.h), (10, 20, 30, 5));
-    }
 
     #[test]
     fn release_and_frame_done_decode_and_input_does_not() {

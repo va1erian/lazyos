@@ -2,21 +2,19 @@
 //! task holding the `shell` subscription may make, and the shell events the
 //! compositor sends on that subscription's endpoint.
 //!
-//! Every call is bounded by [`SHELL_TICKS`]: the shell must keep its own UI
-//! responsive when the compositor is slow, and an older compositor that does
+//! Every call is bounded by the `.midl` deadline (two seconds): the shell must
+//! keep its own UI responsive when the compositor is slow, and an older compositor that does
 //! not know a method answers `EINVAL` at once, which callers treat as "not
 //! available" and degrade.
 
 use libmessenger::Parcel;
 use messenger_generated::os_lazy_display_v1 as wire;
 
-use super::{request, Client};
-use crate::sys::{self, errno};
-
-/// PIT ticks (100 Hz) a shell call may wait for its reply: two seconds.
-const SHELL_TICKS: u64 = 200;
-/// Reply buffer for `ListSurfaces`: dozens of rows with 128-byte titles.
-const LIST_BYTES: usize = 64 * 1024;
+#[cfg(test)]
+use super::request;
+use super::Client;
+#[cfg(test)]
+use crate::sys;
 
 /// One `SurfaceChanged` event.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -80,115 +78,65 @@ impl Client {
     /// `Subscribe(role)`, moving `events` (this task's peer end of a fresh
     /// pair) to the compositor. With `"shell"` this task becomes the shell.
     pub fn subscribe(&self, role: &str, events: u64) -> Result<(), i64> {
-        let (body, objects) = wire::encode_subscribe_args(&wire::SubscribeArgs {
-            subscriber_role: role.into(),
-            events,
-        })
-        .map_err(|_| -errno::EINVAL)?;
-        self.shell_call(request(wire::METHOD_SUBSCRIBE, body, objects))
-            .map(|_| ())
+        Ok(self.wire()?.subscribe(role, events)?)
     }
 
     /// `ListSurfaces`: every surface, bottom of the z-order first.
     pub fn list_surfaces(&self) -> Result<Vec<wire::SurfaceRow>, i64> {
-        let parcel = request(wire::METHOD_LISTSURFACES, Vec::new(), Vec::new());
-        let mut buf = vec![0u8; LIST_BYTES];
-        let reply = self.call_into(&parcel, &mut buf, deadline())?;
-        wire::decode_list_surfaces_reply(&reply.body)
-            .map(|reply| reply.surfaces)
-            .map_err(|_| -errno::EINVAL)
+        Ok(self.wire()?.list_surfaces()?)
     }
 
     /// `GetWorkArea` as `(x, y, w, h)`.
     pub fn get_work_area(&self) -> Result<(i32, i32, i32, i32), i64> {
-        let parcel = request(wire::METHOD_GETWORKAREA, Vec::new(), Vec::new());
-        let reply = self.shell_call(parcel)?;
-        let area = wire::decode_get_work_area_reply(&reply.body).map_err(|_| -errno::EINVAL)?;
+        let area = self.wire()?.get_work_area()?;
         Ok((area.x, area.y, area.w, area.h))
     }
 
     /// `SetWorkArea`: the rectangle windows may use.
     pub fn set_work_area(&self, x: i32, y: i32, w: i32, h: i32) -> Result<(), i64> {
-        let body = wire::encode_set_work_area_args(&wire::SetWorkAreaArgs { x, y, w, h })
-            .map_err(|_| -errno::EINVAL)?;
-        self.unit(wire::METHOD_SETWORKAREA, body)
+        Ok(self.wire()?.set_work_area(x, y, w, h)?)
     }
 
     /// `PlaceSurface`: move a panel this task created to screen `(x, y)`.
     pub fn place_surface(&self, surface: u64, x: i32, y: i32) -> Result<(), i64> {
-        let body = wire::encode_place_surface_args(&wire::PlaceSurfaceArgs { surface, x, y })
-            .map_err(|_| -errno::EINVAL)?;
-        self.unit(wire::METHOD_PLACESURFACE, body)
+        Ok(self.wire()?.place_surface(surface, x, y)?)
     }
 
     /// `ActivateSurface`: restore, raise and focus a window.
     pub fn activate_surface(&self, surface: u64) -> Result<(), i64> {
-        let body = wire::encode_activate_surface_args(&wire::ActivateSurfaceArgs { surface })
-            .map_err(|_| -errno::EINVAL)?;
-        self.unit(wire::METHOD_ACTIVATESURFACE, body)
+        Ok(self.wire()?.activate_surface(surface)?)
     }
 
     /// `ActivateApp`: restore, raise and focus every window of the app (package label `label`,
     /// `session`) that a click on one of its toasts names. `-ENOENT` when it has none.
     pub fn activate_app(&self, label: u32, session: u64) -> Result<(), i64> {
-        let body = wire::encode_activate_app_args(&wire::ActivateAppArgs { label, session })
-            .map_err(|_| -errno::EINVAL)?;
-        self.unit(wire::METHOD_ACTIVATEAPP, body)
+        Ok(self.wire()?.activate_app(label, session)?)
     }
 
     /// `MinimizeSurface`.
     pub fn minimize_surface(&self, surface: u64) -> Result<(), i64> {
-        let body = wire::encode_minimize_surface_args(&wire::MinimizeSurfaceArgs { surface })
-            .map_err(|_| -errno::EINVAL)?;
-        self.unit(wire::METHOD_MINIMIZESURFACE, body)
+        Ok(self.wire()?.minimize_surface(surface)?)
     }
 
     /// `SetIconGeometry`: where `surface`'s taskbar entry is on screen (an
     /// empty rectangle forgets it).
     pub fn set_icon_geometry(&self, surface: u64, rect: (i32, i32, i32, i32)) -> Result<(), i64> {
         let (x, y, w, h) = rect;
-        let body = wire::encode_set_icon_geometry_args(&wire::SetIconGeometryArgs {
-            surface,
-            x,
-            y,
-            w,
-            h,
-        })
-        .map_err(|_| -errno::EINVAL)?;
-        self.unit(wire::METHOD_SETICONGEOMETRY, body)
+        Ok(self.wire()?.set_icon_geometry(surface, x, y, w, h)?)
     }
 
     /// `HintLaunchOrigin`: the next window any task opens zooms from this
     /// screen rectangle.
     pub fn hint_launch_origin(&self, rect: (i32, i32, u32, u32)) -> Result<(), i64> {
         let (x, y, w, h) = rect;
-        let body = wire::encode_hint_launch_origin_args(&wire::HintLaunchOriginArgs { x, y, w, h })
-            .map_err(|_| -errno::EINVAL)?;
-        self.unit(wire::METHOD_HINTLAUNCHORIGIN, body)
+        Ok(self.wire()?.hint_launch_origin(x, y, w, h)?)
     }
 
     /// `GrabPanelKeys`: take (or give back) the keyboard for the shell's
     /// panel menus; keys then arrive as [`ShellEvent::PanelKey`].
     pub fn grab_panel_keys(&self, grab: bool) -> Result<(), i64> {
-        let body = wire::encode_grab_panel_keys_args(&wire::GrabPanelKeysArgs { grab })
-            .map_err(|_| -errno::EINVAL)?;
-        self.unit(wire::METHOD_GRABPANELKEYS, body)
+        Ok(self.wire()?.grab_panel_keys(grab)?)
     }
-
-    /// A bounded call whose reply carries no fields.
-    fn unit(&self, method: u32, body: Vec<u8>) -> Result<(), i64> {
-        self.shell_call(request(method, body, Vec::new()))
-            .map(|_| ())
-    }
-
-    fn shell_call(&self, parcel: Parcel) -> Result<Parcel, i64> {
-        self.call_until(&parcel, deadline())
-    }
-}
-
-/// The absolute tick a shell call gives up at.
-fn deadline() -> u64 {
-    sys::clock_ticks().saturating_add(SHELL_TICKS)
 }
 
 #[cfg(test)]
