@@ -34,6 +34,12 @@ impl Transport for Std {
         CONNECT_BOUND
     }
 
+    /// The UI and LazyRAD loops serve and call on one thread, so their calls
+    /// must not trip the kernel's cycle check.
+    fn call_flags(&self) -> u16 {
+        libmessenger::flags::ALLOW_NESTED
+    }
+
     /// The runtime's one bounded wait for a name. The kernel-served registry
     /// has no "wait for name" operation, so this retries every
     /// [`RESOLVE_PAUSE`] until `until`; `docs/client-api-plan.md` 3.4 is the

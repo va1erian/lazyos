@@ -38,6 +38,10 @@ impl Transport for Observed {
         self.0.connect_bound()
     }
 
+    fn call_flags(&self) -> u16 {
+        self.0.call_flags()
+    }
+
     fn resolve(&self, name: &str, until: Deadline) -> Result<Handle, Errno> {
         let began = crate::stall::start();
         let result = self.0.resolve(name, until);

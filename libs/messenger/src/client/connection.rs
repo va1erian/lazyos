@@ -21,6 +21,13 @@ pub trait Transport {
     /// each transport polls inside [`Transport::resolve`] for this long).
     fn connect_bound(&self) -> Deadline;
 
+    /// The flags every synchronous request of this runtime carries. Native
+    /// programs send none, so the kernel refuses a call that would close a
+    /// wait cycle (`Deadlock`, `docs/messenger.md` 6); the std runtime's UI
+    /// loops send `ALLOW_NESTED`, as they always have. Required, not
+    /// defaulted, so a new transport decides it explicitly.
+    fn call_flags(&self) -> u16;
+
     /// Resolve the registry name `name` into a handle, waiting for it to
     /// register no longer than `until` ([`Deadline::Poll`]: one attempt).
     fn resolve(&self, name: &str, until: Deadline) -> Result<Handle, Errno>;
@@ -131,9 +138,7 @@ impl<T: Transport> Connection<T> {
     /// `until`. A reply that is the standard error field becomes
     /// [`CallError::Remote`].
     ///
-    /// The request carries `ALLOW_NESTED`: the caller's own receive loop
-    /// must not trip the kernel's per-channel cycle check while the call
-    /// is in flight.
+    /// The request carries the transport's [`Transport::call_flags`].
     pub fn call(
         &self,
         interface: u64,
@@ -142,7 +147,7 @@ impl<T: Transport> Connection<T> {
         objects: Vec<Object>,
         until: Deadline,
     ) -> Result<Parcel, CallError> {
-        let request = Self::request(interface, method, flags::ALLOW_NESTED, body, objects);
+        let request = Self::request(interface, method, self.transport.call_flags(), body, objects);
         let reply = self
             .with_retry(|handle| self.transport.call(handle, &request, until))
             .map_err(CallError::Transport)?;

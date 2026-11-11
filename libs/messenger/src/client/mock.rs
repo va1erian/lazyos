@@ -157,6 +157,10 @@ impl Transport for Mock {
         self.bound
     }
 
+    fn call_flags(&self) -> u16 {
+        0
+    }
+
     fn resolve(&self, name: &str, until: Deadline) -> Result<Handle, Errno> {
         let mut state = self.state.borrow_mut();
         state.resolves.push((name.to_string(), until));

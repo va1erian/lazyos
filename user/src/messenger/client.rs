@@ -53,6 +53,12 @@ impl Transport for Native {
         CONNECT_BOUND
     }
 
+    /// No `ALLOW_NESTED`: a native call that would close a wait cycle is
+    /// refused with `Deadlock`, as before the shared runtime.
+    fn call_flags(&self) -> u16 {
+        0
+    }
+
     fn resolve(&self, name: &str, until: Deadline) -> core::result::Result<Handle, Errno> {
         resolve_within(name, until)
             .map(Endpoint::handle)

@@ -54,7 +54,7 @@ fn the_request_header_is_built_for_the_interface_and_method() {
     assert_eq!(seen.header.interface_id, IFACE);
     assert_eq!(seen.header.method, 7);
     assert_eq!(seen.header.version, crate::VERSION);
-    assert_eq!(seen.header.flags, flags::ALLOW_NESTED);
+    assert_eq!(seen.header.flags, 0);
     assert_eq!(seen.body, [1, 2]);
     assert_eq!(seen.until, Some(Deadline::millis(500)));
     conn.send(IFACE, 9, vec![3]).unwrap();
