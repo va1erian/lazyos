@@ -2,62 +2,62 @@
 //! manager (`docs/packages.md`, phase 5).
 //!
 //! `pkgd` owns `/apps`; this app only asks it to inspect, install, remove
-//! and list. Bodies are built and parsed with the generated
-//! `messenger-generated` stubs, never by hand. Every reply is untrusted: a
-//! decode failure or a malformed field becomes a friendly [`String`] error, so
-//! a hostile package or a buggy service cannot make the app panic.
+//! and list through the generated client. Every reply is untrusted: a decode
+//! failure or a malformed field becomes a friendly [`String`] error, so a
+//! hostile package or a buggy service cannot make the app panic.
 //!
-//! The registered service name is `os.lazy.pkgd` (the interface name differs
-//! from the registered name, as with `mimed`). Failures arrive as the shared
-//! structured error field (id 15), which [`Service::call`] turns into a
-//! negative errno.
+//! Every call waits what `idl/pkgd.midl` states: `pkgd` takes a reason to be
+//! slow (`Install` unpacks and hashes the package, everything else reads real
+//! files behind it), and a stalled package service must not hold the UI thread
+//! hostage. The screens explain a timeout as "pkgd did not answer". The
+//! install's bound is long (a slow machine, a big package; a timed-out install
+//! still completes on disk, and a retry finds the app installed rather than
+//! racing a second unpack), and the Installer's own install left the bounded
+//! shape for the async lane ([`install_async`]).
 
-use libmessenger::client::Deadline;
+use std::rc::Rc;
+
+use libmessenger::client::Errno;
 use messenger_generated::os_lazy_pkgd_v1 as wire;
 
 use crate::installer::{Installed, MimeHandler, Package, Permission};
 
-use super::messenger::{CallError, Service};
+use super::messenger::{call_async, client, CallError, Deadline, Observed};
 
-/// The registered service name (not the `os.lazy.pkgd.v1` interface id).
-const NAME: &str = "os.lazy.pkgd";
+type Pkgd = wire::Client<Observed>;
 
-/// `pkgd` takes a reason to be slow: `install` unpacks and hashes the
-/// package, and everything below reads real files behind it. Bounded calls
-/// keep a stalled package service from holding the UI thread hostage (the
-/// synchronous forms the Installer still uses for inspect/remove/list):
-/// their screens explain a `-ETIMEDOUT` as "pkgd did not answer". The
-/// install itself left the bounded shape for the async lane
-/// ([`install_async`]).
-const TASK_TICKS: u64 = 1_200;
-/// The install/uninstall itself (`pkgd` writes `/apps`): a slow machine
-/// (TCG, a big package) gets two minutes and an explicit "pkgd did not
-/// answer" instead of an unbounded park on the UI thread; a timed-out
-/// install still completes on disk, and a retry finds the app installed
-/// (`pkgd.Installed`) rather than racing a second unpack.
-const INSTALL_TICKS: u64 = 12_000;
-
-/// Resolves `pkgd` and performs one bounded call, turning a missing service, a
-/// refused request and a dead peer into the same friendly error shape. A refusal shows
-/// `pkgd`'s own words (why the install was declined) when it sent any.
-fn call(method: u32, body: Vec<u8>) -> Result<libmessenger::Parcel, String> {
-    call_within(method, body, TASK_TICKS)
+/// The `pkgd` client, waiting for the service to register.
+fn pkgd() -> Result<Rc<Pkgd>, String> {
+    client(wire::Client::connect).map_err(|error| {
+        format!(
+            "The package service (pkgd) is unavailable (errno {}).",
+            error.code()
+        )
+    })
 }
 
-/// [`call`] with its own bound (the install's).
-fn call_within(method: u32, body: Vec<u8>, ticks: u64) -> Result<libmessenger::Parcel, String> {
-    let service = Service::connect(NAME)
-        .map_err(|code| format!("The package service (pkgd) is unavailable (errno {code})."))?;
-    service
-        .call(wire::INTERFACE_ID, method, body, Deadline::ticks(ticks))
-        .map_err(|error| {
-            words(&error).map(str::to_owned).unwrap_or_else(|| {
-                format!(
-                    "The package service refused the request (errno {}).",
-                    error.code()
-                )
-            })
-        })
+/// One bounded call, turning a missing service, a refused request and a dead
+/// peer into the same friendly error shape. A refusal shows `pkgd`'s own words
+/// (why the install was declined) when it sent any.
+fn call<R>(run: impl FnOnce(&Pkgd) -> Result<R, CallError>) -> Result<R, String> {
+    let pkgd = pkgd()?;
+    run(&pkgd).map_err(|error| refusal(&error))
+}
+
+/// The friendly text of a failed call.
+fn refusal(error: &CallError) -> String {
+    if let Some(words) = words(error) {
+        return words.to_owned();
+    }
+    match error {
+        CallError::Transport(errno) if *errno == Errno::BADMSG => {
+            "pkgd sent a reply this app cannot read.".to_owned()
+        }
+        _ => format!(
+            "The package service refused the request (errno {}).",
+            error.code()
+        ),
+    }
 }
 
 /// Whether `pkgd` refused to replace a core app (docs/accounts-plan.md U2).
@@ -75,14 +75,7 @@ fn words(error: &CallError) -> Option<&str> {
 
 /// Open and validate the `.lzp` at `path` without changing anything.
 pub fn inspect(path: &str) -> Result<Package, String> {
-    let body = wire::encode_inspect_args(&wire::InspectArgs {
-        path: path.to_owned(),
-    })
-    .map_err(|_| "The package path is too long for pkgd.".to_owned())?;
-    let reply = call(wire::METHOD_INSPECT, body)?;
-    let decoded = wire::decode_inspect_reply(&reply.body)
-        .map_err(|_| "pkgd sent a reply this app cannot read.".to_owned())?;
-    Ok(package_from_wire(decoded.info))
+    call(|pkgd| pkgd.inspect(path)).map(package_from_wire)
 }
 
 /// Install the package at `path` **on the installer's async call lane**
@@ -96,7 +89,9 @@ pub fn inspect(path: &str) -> Result<Package, String> {
 /// "pkgd did not answer" after 2 minutes was exactly the failure this lane
 /// replaces); the Installer's busy screen stands in for it, and a retry of
 /// a wedged install finds the app already recorded (`pkgd.Installed`)
-/// rather than racing a second unpack.
+/// rather than racing a second unpack. The generated client has no
+/// asynchronous form yet, so this is the one call that frames its request
+/// through [`call_async`].
 pub fn install_async(path: &str, on_done: impl FnOnce(Result<Installed, String>) + 'static) {
     let body = match wire::encode_install_args(&wire::InstallArgs {
         path: path.to_owned(),
@@ -109,12 +104,10 @@ pub fn install_async(path: &str, on_done: impl FnOnce(Result<Installed, String>)
             return;
         }
     };
-    let service = match Service::connect(NAME) {
-        Ok(service) => service,
-        Err(code) => {
-            on_done(Err(format!(
-                "The package service (pkgd) is unavailable (errno {code})."
-            )));
+    let pkgd = match pkgd() {
+        Ok(pkgd) => pkgd,
+        Err(message) => {
+            on_done(Err(message));
             return;
         }
     };
@@ -129,44 +122,46 @@ pub fn install_async(path: &str, on_done: impl FnOnce(Result<Installed, String>)
         callback: std::cell::Cell::new(Some(Box::new(on_done))),
     });
     let reply_answer = std::rc::Rc::clone(&answer);
-    service
-        .call_async(
-            wire::INTERFACE_ID,
-            wire::METHOD_INSTALL,
-            body,
-            // Unbounded: `pkgd` unpacks at its own pace, and the bounded form's
-            // "pkgd did not answer" is the failure this lane replaces; the UI
-            // loop is never parked, so no window waits behind the unpack.
-            Deadline::Never,
-            Box::new(move |result| {
-                let result = match result {
-                    // The install keeps its core-app rule (issue #529 /
-                    // U2): `pkgd` refuses the replace, and the lane's
-                    // refusal text says so, so the fallback runs here, on
-                    // the UI thread, as the bounded form it always was.
-                    Err(error) if refused_core_app(&error) => install_as_admin(&path),
-                    Err(error) => Err(words(&error).map(str::to_owned).unwrap_or_else(|| {
-                        format!(
-                            "The package service did not answer (errno {}).",
-                            error.code()
-                        )
-                    })),
-                    Ok(reply) => match wire::decode_install_reply(&reply.body) {
-                        Ok(decoded) => Ok(installed_from_wire(decoded.app)),
-                        Err(_) => Err("pkgd sent a reply this app cannot read.".to_owned()),
-                    },
-                };
-                reply_answer.fire(result);
-            }),
-        )
-        // Refused before it registered (a dead peer): the same answer
-        // through the callback, so the app keeps its one result path.
-        .map_err(|code| {
-            answer.fire(Err(format!(
-                "The package service (pkgd) is unavailable (errno {code})."
-            )))
-        })
-        .ok();
+    call_async(
+        &pkgd,
+        Pkgd::connection,
+        wire::INTERFACE_ID,
+        wire::METHOD_INSTALL,
+        body,
+        // Unbounded: `pkgd` unpacks at its own pace, and the bounded form's
+        // "pkgd did not answer" is the failure this lane replaces; the UI
+        // loop is never parked, so no window waits behind the unpack.
+        Deadline::Never,
+        Box::new(move |result| {
+            let result = match result {
+                // The install keeps its core-app rule (issue #529 /
+                // U2): `pkgd` refuses the replace, and the lane's
+                // refusal text says so, so the fallback runs here, on
+                // the UI thread, as the bounded form it always was.
+                Err(error) if refused_core_app(&error) => install_as_admin(&path),
+                Err(error) => Err(words(&error).map(str::to_owned).unwrap_or_else(|| {
+                    format!(
+                        "The package service did not answer (errno {}).",
+                        error.code()
+                    )
+                })),
+                Ok(reply) => match wire::decode_install_reply(&reply.body) {
+                    Ok(decoded) => Ok(installed_from_wire(decoded.app)),
+                    Err(_) => Err("pkgd sent a reply this app cannot read.".to_owned()),
+                },
+            };
+            reply_answer.fire(result);
+        }),
+    )
+    // Refused before it registered (a dead peer): the same answer
+    // through the callback, so the app keeps its one result path.
+    .map_err(|errno| {
+        answer.fire(Err(format!(
+            "The package service (pkgd) is unavailable (errno {}).",
+            errno.to_syscall()
+        )))
+    })
+    .ok();
 }
 
 /// Install the package at `path`, returning the recorded app on success.
@@ -176,32 +171,11 @@ pub fn install_async(path: &str, on_done: impl FnOnce(Result<Installed, String>)
 /// `elevd` (`pkg.update-core`), where an administrator approves on the
 /// trusted prompt and `elevd` installs it.
 pub fn install(path: &str) -> Result<Installed, String> {
-    let body = wire::encode_install_args(&wire::InstallArgs {
-        path: path.to_owned(),
-    })
-    .map_err(|_| "The package path is too long for pkgd.".to_owned())?;
-    let service = Service::connect(NAME)
-        .map_err(|code| format!("The package service (pkgd) is unavailable (errno {code})."))?;
-    let reply = match service.call(
-        wire::INTERFACE_ID,
-        wire::METHOD_INSTALL,
-        body,
-        Deadline::ticks(INSTALL_TICKS),
-    ) {
-        Ok(reply) => reply,
-        Err(error) if refused_core_app(&error) => return install_as_admin(path),
-        Err(error) => {
-            return Err(words(&error).map(str::to_owned).unwrap_or_else(|| {
-                format!(
-                    "The package service refused the request (errno {}).",
-                    error.code()
-                )
-            }))
-        }
-    };
-    let decoded = wire::decode_install_reply(&reply.body)
-        .map_err(|_| "pkgd sent a reply this app cannot read.".to_owned())?;
-    Ok(installed_from_wire(decoded.app))
+    match pkgd()?.install(path) {
+        Ok(app) => Ok(installed_from_wire(app)),
+        Err(error) if refused_core_app(&error) => install_as_admin(path),
+        Err(error) => Err(refusal(&error)),
+    }
 }
 
 /// A core app's replacement, through `elevd` once an administrator approved.
@@ -218,54 +192,30 @@ fn install_as_admin(path: &str) -> Result<Installed, String> {
 /// package at `path`. Returns its `dev:` label and whether it is approved
 /// (`false` only without `confirm`: the user must be asked first).
 pub fn develop(path: &str, confirm: bool) -> Result<(String, bool), String> {
-    let body = wire::encode_develop_args(&wire::DevelopArgs {
-        path: path.to_owned(),
-        confirm,
-    })
-    .map_err(|_| "The package path is too long for pkgd.".to_owned())?;
-    let reply = call(wire::METHOD_DEVELOP, body)?;
-    let decoded = wire::decode_develop_reply(&reply.body)
-        .map_err(|_| "pkgd sent a reply this app cannot read.".to_owned())?;
-    Ok((decoded.label, decoded.approved))
+    call(|pkgd| pkgd.develop(path, confirm)).map(|reply| (reply.label, reply.approved))
 }
 
 /// `DevelopDeclined(path)`: the user refused the development consent, so
 /// `pkgd` publishes the refusal the waiting IDE stops on.
 pub fn develop_declined(path: &str) -> Result<(), String> {
-    let body = wire::encode_develop_declined_args(&wire::DevelopDeclinedArgs {
-        path: path.to_owned(),
-    })
-    .map_err(|_| "The package path is too long for pkgd.".to_owned())?;
-    call(wire::METHOD_DEVELOPDECLINED, body).map(|_| ())
+    call(|pkgd| pkgd.develop_declined(path))
 }
 
 /// Remove `system_name`. `pkgd` keeps the user's documents under `/home`.
 pub fn remove(system_name: &str) -> Result<(), String> {
-    let body = wire::encode_remove_args(&wire::RemoveArgs {
-        system_name: system_name.to_owned(),
-    })
-    .map_err(|_| "The application id is too long for pkgd.".to_owned())?;
-    call(wire::METHOD_REMOVE, body).map(|_| ())
+    call(|pkgd| pkgd.remove(system_name))
 }
 
 /// Every installed app, in install order.
 pub fn list() -> Result<Vec<Installed>, String> {
-    let reply = call(wire::METHOD_LIST, Vec::new())?;
-    let decoded = wire::decode_list_reply(&reply.body)
-        .map_err(|_| "pkgd sent a reply this app cannot read.".to_owned())?;
-    Ok(decoded.apps.into_iter().map(installed_from_wire).collect())
+    let apps = call(|pkgd| pkgd.list())?;
+    Ok(apps.into_iter().map(installed_from_wire).collect())
 }
 
 /// One installed app by `system_name`, if present.
 pub fn installed(system_name: &str) -> Result<Option<Installed>, String> {
-    let body = wire::encode_installed_args(&wire::InstalledArgs {
-        system_name: system_name.to_owned(),
-    })
-    .map_err(|_| "The application id is too long for pkgd.".to_owned())?;
-    let reply = call(wire::METHOD_INSTALLED, body)?;
-    let decoded = wire::decode_installed_reply(&reply.body)
-        .map_err(|_| "pkgd sent a reply this app cannot read.".to_owned())?;
-    Ok(decoded.app.map(installed_from_wire))
+    let app = call(|pkgd| pkgd.installed(system_name))?;
+    Ok(app.map(installed_from_wire))
 }
 
 /// The wire `PackageInfo` as the view-model's [`Package`].

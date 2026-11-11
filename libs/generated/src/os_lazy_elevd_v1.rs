@@ -86,8 +86,12 @@ pub fn decode_record(body: &[u8]) -> Result<Record, Error> {
 
 /// `Request` method id.
 pub const METHOD_REQUEST: u32 = 38093138;
+/// How long a client waits for `Request`'s reply, in milliseconds.
+pub const METHOD_REQUEST_DEADLINE_MS: u32 = 400000;
 /// `Release` method id.
 pub const METHOD_RELEASE: u32 = 1830722334;
+/// How long a client waits for `Release`'s reply, in milliseconds.
+pub const METHOD_RELEASE_DEADLINE_MS: u32 = 1000;
 
 /// Perform `operation` (a row of the operation table, e.g.
 /// `account.create`, `conf.set`, `time.set`) with its `args`, after an
@@ -288,9 +292,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `values` carries the operation's results (`conf.list`'s paths,
     /// `conf.get`'s kind and value).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 400000 ms (`deadline` in the `.midl`).
     pub fn request(&self, operation: &str, args: &[alloc::string::String]) -> Result<RequestReply, ClientError> {
-        self.request_within(operation, args, libmessenger::client::DEFAULT_DEADLINE)
+        self.request_within(operation, args, libmessenger::client::Deadline::millis(METHOD_REQUEST_DEADLINE_MS as u64))
     }
 
     /// [`Self::request`] with the caller's deadline instead of the IDL's.
@@ -306,9 +310,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// End the caller's standing approvals now (an elevated editor closing).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
     pub fn release(&self) -> Result<(), ClientError> {
-        self.release_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.release_within(libmessenger::client::Deadline::millis(METHOD_RELEASE_DEADLINE_MS as u64))
     }
 
     /// [`Self::release`] with the caller's deadline instead of the IDL's.

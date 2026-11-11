@@ -156,14 +156,24 @@ pub fn decode_volume_info(body: &[u8]) -> Result<VolumeInfo, Error> {
 
 /// `Mount` method id.
 pub const METHOD_MOUNT: u32 = 1041399898;
+/// How long a client waits for `Mount`'s reply, in milliseconds.
+pub const METHOD_MOUNT_DEADLINE_MS: u32 = 2000;
 /// `Unmount` method id.
 pub const METHOD_UNMOUNT: u32 = 2047171115;
+/// How long a client waits for `Unmount`'s reply, in milliseconds.
+pub const METHOD_UNMOUNT_DEADLINE_MS: u32 = 2000;
 /// `List` method id.
 pub const METHOD_LIST: u32 = 220805025;
+/// How long a client waits for `List`'s reply, in milliseconds.
+pub const METHOD_LIST_DEADLINE_MS: u32 = 2000;
 /// `Volumes` method id.
 pub const METHOD_VOLUMES: u32 = 2053774420;
+/// How long a client waits for `Volumes`'s reply, in milliseconds.
+pub const METHOD_VOLUMES_DEADLINE_MS: u32 = 2000;
 /// `Eject` method id.
 pub const METHOD_EJECT: u32 = 819391126;
+/// How long a client waits for `Eject`'s reply, in milliseconds.
+pub const METHOD_EJECT_DEADLINE_MS: u32 = 2000;
 
 /// The mount's name: it is served at `path`, `/mnt/<name>`.
 /// The filesystem daemon's protocol (`ftp` or `smb`).
@@ -502,9 +512,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// password reaches `smbfuse` through its environment, never its
     /// arguments. `path` is the mount point the daemon will serve.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn mount(&self, name: &str, host: &str, port: u32, user: &str, password: &str, kind: &str, share: &str) -> Result<alloc::string::String, ClientError> {
-        self.mount_within(name, host, port, user, password, kind, share, libmessenger::client::DEFAULT_DEADLINE)
+        self.mount_within(name, host, port, user, password, kind, share, libmessenger::client::Deadline::millis(METHOD_MOUNT_DEADLINE_MS as u64))
     }
 
     /// [`Self::mount`] with the caller's deadline instead of the IDL's.
@@ -523,9 +533,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// The daemon is stopped at once; the kernel takes the dead mount out of
     /// `/mnt` within a few seconds, and until then it fails every call.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn unmount(&self, name: &str) -> Result<(), ClientError> {
-        self.unmount_within(name, libmessenger::client::DEFAULT_DEADLINE)
+        self.unmount_within(name, libmessenger::client::Deadline::millis(METHOD_UNMOUNT_DEADLINE_MS as u64))
     }
 
     /// [`Self::unmount`] with the caller's deadline instead of the IDL's.
@@ -541,9 +551,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Every mount the service knows about, in the order they were asked for.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn list(&self) -> Result<alloc::vec::Vec<MountInfo>, ClientError> {
-        self.list_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.list_within(libmessenger::client::Deadline::millis(METHOD_LIST_DEADLINE_MS as u64))
     }
 
     /// [`Self::list`] with the caller's deadline instead of the IDL's.
@@ -573,9 +583,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// plug first. An ended volume stays listed until its stick is pulled,
     /// so its outcome can be read.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn volumes(&self) -> Result<alloc::vec::Vec<VolumeInfo>, ClientError> {
-        self.volumes_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.volumes_within(libmessenger::client::Deadline::millis(METHOD_VOLUMES_DEADLINE_MS as u64))
     }
 
     /// [`Self::volumes`] with the caller's deadline instead of the IDL's.
@@ -600,9 +610,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// volume), `EINVAL` (not a disk name) and `EAGAIN` (still starting:
     /// ask again in a moment).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn eject(&self, disk: &str, force: bool) -> Result<EjectReply, ClientError> {
-        self.eject_within(disk, force, libmessenger::client::DEFAULT_DEADLINE)
+        self.eject_within(disk, force, libmessenger::client::Deadline::millis(METHOD_EJECT_DEADLINE_MS as u64))
     }
 
     /// [`Self::eject`] with the caller's deadline instead of the IDL's.

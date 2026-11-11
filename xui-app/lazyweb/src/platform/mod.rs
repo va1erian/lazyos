@@ -21,7 +21,6 @@ use std::time::{Duration, Instant};
 
 use xui_app::backend::LazyOSBackend;
 use xui_app::platform::confd_store::ConfdStore;
-use xui_app::platform::messenger::Service;
 use xui_app::platform::webd::WebdTransport;
 use xui_app::platform::{launcher, notify};
 use xui_app::trace::Channel;

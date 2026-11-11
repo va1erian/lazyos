@@ -236,12 +236,13 @@ forced a change to the sketch above:
   waits `libmessenger::client::DEFAULT_DEADLINE`, 5 s: `CALL_TICKS = 500` is
   the most common hand-written bound and the clipboard's longer bound.
 * **`_begin` is not built.** `Transport` has no asynchronous call; the xui
-  lane (`Service::call_async` over `backend::calls::begin`) is outside it.
+  lane (`platform::messenger::call_async` over `backend::calls::begin`) is
+  outside it.
   Section 4.5's `Pending<R>` needs a `begin`/`complete` pair on the transport
   first; until then a UI-thread caller keeps its existing lane for those calls.
-* **Families.** `Connection` names are `&'static str`, so a family member
-  (`os.lazy.net.nic/eth0`) needs a name the caller makes static; widening
-  `Connection` to an owned name is the follow-up.
+* **Families.** A family member (`os.lazy.net.nic/eth0`) is a
+  `Connection::named(.., format!("{prefix}{instance}"))` handed to
+  `Client::from_connection`; the connection owns its name.
 * **Copies.** The generated `XxxArgs` structs own their fields, so a borrowed
   argument (`&str`, `&[u8]`) is copied once before it is encoded; a large
   `Bytes` argument pays one extra `memcpy` (use a `Buffer`, which is shared).
@@ -251,6 +252,38 @@ forced a change to the sketch above:
 * **Which interfaces.** No client for a kernel scope (`KERNEL_SCOPES`) or an
   interface no `service` serves. `Connection::send` now takes the objects of a
   `oneway` request, and `Mock` records them.
+
+As built (C3, the xui half): every client in `xui-app` and `lazyrad-os`'s
+failure report goes through the generated `wire::Client<Observed>`, and
+`Service`'s `call`, `call_moving` and `send_oneway` are gone. One helper holds
+them: `xui_app::platform::messenger::client(wire::Client::connect)` (or
+`try_connect`, for a caller that must not wait for the service) returns this
+thread's `Rc<Client>`, made on first use and kept for the thread, so no module
+keeps a cache of its own; `instance_client(prefix, instance,
+wire::Client::from_connection)` does the same for a family member. What stays
+hand-framed, and why:
+
+* `platform::messenger::call_async`, the pkgd install's non-parking lane (no
+  generated `_begin` yet, see above).
+* The raw transports of libraries whose seam is method id, body and objects:
+  `libs/audioclient` (`platform::audio`), `libs/trayclient` (`tray`) and
+  `xui-webd-client` (`platform::webd`, one seam over the light and the full
+  interface). They hold a `Connection` of their own (`Connection::named`) and
+  call `Connection::call`/`send`; moving them to generated clients is a change
+  of those libraries' `Transport` traits, not of the xui side.
+* The topic subscriptions (`fabric`, `platform::topic_feed`,
+  `shell::failures`, the LazyRAD handoff): C5. Their `Subscribe`/`NextEvent`
+  calls already use the generated client, but the pull loops stay.
+* The LazyRAD handoff's `Transport` seam (`lazyrad-os/src/transport.rs`):
+  its 426 lines of tests script that trait, and the crate does not build on
+  this tree's xui pin (its `lazyrad-ide` git dependency is older than the xui
+  revision), so it keeps the seam over `instance_client("", name,
+  identity)` until it can be built and migrated onto `Mock`.
+
+`tools/xui/check_call_bounds.py` polices the new form: a file that builds a
+generated client of an interface may not call a method the `.midl` gives no
+`deadline=` (it would wait the 5 s default unseen); use `<method>_within`
+where one caller needs another bound.
 
 ### 3.3 Generated server
 

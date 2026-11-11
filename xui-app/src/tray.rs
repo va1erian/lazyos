@@ -16,12 +16,12 @@
 //! app needs `os.lazy.shell.tray.v1` and `subscribe:session/+/shell/tray` in
 //! its manifest (both implied by `resident` from stage T3).
 
-use libmessenger::client::Deadline;
+use libmessenger::client::{Connection, Deadline};
 use libmessenger::Parcel;
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 use trayclient::{wire, Event, Transport, Tray};
 
-use crate::platform::messenger::Service;
+use crate::platform::messenger::{Conn, Observed};
 use crate::platform::topic_feed::TopicFeed;
 use crate::sys::{self, errno};
 
@@ -39,8 +39,20 @@ const PER_POLL: usize = 16;
 /// bytes).
 const EVENT_BYTES: usize = 512;
 
-/// [`trayclient::Transport`] over this task's Messenger syscalls.
-struct XuiTransport;
+/// [`trayclient::Transport`] over this task's Messenger syscalls. `libs/trayclient` frames its own
+/// requests (its `Transport` takes the method id, body and objects), so the shell is reached
+/// through a raw [`Conn`], not a generated client.
+struct XuiTransport {
+    shell: Conn,
+}
+
+impl XuiTransport {
+    fn new() -> XuiTransport {
+        XuiTransport {
+            shell: Connection::named(Observed::default(), trayclient::NAME.to_owned()),
+        }
+    }
+}
 
 impl Transport for XuiTransport {
     fn create_pair(&mut self) -> trayclient::Result<(u64, u64)> {
@@ -53,9 +65,9 @@ impl Transport for XuiTransport {
         body: Vec<u8>,
         objects: Vec<trayclient::Object>,
     ) -> trayclient::Result<Vec<u8>> {
-        let shell = Service::try_connect(trayclient::NAME).ok_or(-errno::ENOENT)?;
-        shell
-            .call_moving(
+        self.shell.try_connect().map_err(|_| -errno::ENOENT)?;
+        self.shell
+            .call(
                 wire::INTERFACE_ID,
                 method,
                 body,
@@ -96,7 +108,7 @@ impl TrayIcon {
             .and_then(|session| wire::name_session_shell_tray(&session.to_string()).ok())
             .map(|topic| TopicFeed::new(topic, topics::QOS_LATEST, 1, GENERATION_TICKS));
         TrayIcon {
-            tray: Tray::new(XuiTransport),
+            tray: Tray::new(XuiTransport::new()),
             generation,
             next_retry: 0,
             buf: vec![0; EVENT_BYTES],

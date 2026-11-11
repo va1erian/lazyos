@@ -269,8 +269,12 @@ pub fn decode_login_end(body: &[u8]) -> Result<LoginEnd, Error> {
 pub const METHOD_SESSIONS: u32 = 916097772;
 /// `Login` method id.
 pub const METHOD_LOGIN: u32 = 1441655762;
+/// How long a client waits for `Login`'s reply, in milliseconds.
+pub const METHOD_LOGIN_DEADLINE_MS: u32 = 30000;
 /// `Logout` method id.
 pub const METHOD_LOGOUT: u32 = 125463051;
+/// How long a client waits for `Logout`'s reply, in milliseconds.
+pub const METHOD_LOGOUT_DEADLINE_MS: u32 = 3000;
 
 /// Snapshot the session table, oldest session first.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -656,9 +660,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `_greeter` system uid, unlabelled) may call it; a refused password is
     /// `EACCES` after the failed-login delay, a session already open `EBUSY`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 30000 ms (`deadline` in the `.midl`).
     pub fn login(&self, user: &str, secret: &str) -> Result<u64, ClientError> {
-        self.login_within(user, secret, libmessenger::client::DEFAULT_DEADLINE)
+        self.login_within(user, secret, libmessenger::client::Deadline::millis(METHOD_LOGIN_DEADLINE_MS as u64))
     }
 
     /// [`Self::login`] with the caller's deadline instead of the IDL's.
@@ -678,9 +682,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// a task of the active graphical session may call it (`EPERM`
     /// otherwise).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 3000 ms (`deadline` in the `.midl`).
     pub fn logout(&self) -> Result<u64, ClientError> {
-        self.logout_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.logout_within(libmessenger::client::Deadline::millis(METHOD_LOGOUT_DEADLINE_MS as u64))
     }
 
     /// [`Self::logout`] with the caller's deadline instead of the IDL's.

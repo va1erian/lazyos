@@ -199,14 +199,24 @@ pub fn decode_change(body: &[u8]) -> Result<Change, Error> {
 
 /// `Get` method id.
 pub const METHOD_GET: u32 = 915881719;
+/// How long a client waits for `Get`'s reply, in milliseconds.
+pub const METHOD_GET_DEADLINE_MS: u32 = 2000;
 /// `Set` method id.
 pub const METHOD_SET: u32 = 682729123;
+/// How long a client waits for `Set`'s reply, in milliseconds.
+pub const METHOD_SET_DEADLINE_MS: u32 = 2000;
 /// `Delete` method id.
 pub const METHOD_DELETE: u32 = 1469573738;
+/// How long a client waits for `Delete`'s reply, in milliseconds.
+pub const METHOD_DELETE_DEADLINE_MS: u32 = 2000;
 /// `List` method id.
 pub const METHOD_LIST: u32 = 220805025;
+/// How long a client waits for `List`'s reply, in milliseconds.
+pub const METHOD_LIST_DEADLINE_MS: u32 = 2000;
 /// `Info` method id.
 pub const METHOD_INFO: u32 = 266462757;
+/// How long a client waits for `Info`'s reply, in milliseconds.
+pub const METHOD_INFO_DEADLINE_MS: u32 = 2000;
 
 /// The service errors of this interface (`errors` in the `.midl`). A failed
 /// call carries one of these codes in the standard error field.
@@ -619,9 +629,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Read the value at `path`. An absent path has an empty `value`.
     /// A path the caller may not read fails with `Denied`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn get(&self, path: &str) -> Result<core::option::Option<Value>, ClientError> {
-        self.get_within(path, libmessenger::client::DEFAULT_DEADLINE)
+        self.get_within(path, libmessenger::client::Deadline::millis(METHOD_GET_DEADLINE_MS as u64))
     }
 
     /// [`Self::get`] with the caller's deadline instead of the IDL's.
@@ -638,9 +648,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Create or overwrite `path`; the change is persisted before the reply.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn set(&self, path: &str, value: &Value) -> Result<(), ClientError> {
-        self.set_within(path, value, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_within(path, value, libmessenger::client::Deadline::millis(METHOD_SET_DEADLINE_MS as u64))
     }
 
     /// [`Self::set`] with the caller's deadline instead of the IDL's.
@@ -656,9 +666,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Remove `path`; deleting an absent path succeeds.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn delete(&self, path: &str) -> Result<(), ClientError> {
-        self.delete_within(path, libmessenger::client::DEFAULT_DEADLINE)
+        self.delete_within(path, libmessenger::client::Deadline::millis(METHOD_DELETE_DEADLINE_MS as u64))
     }
 
     /// [`Self::delete`] with the caller's deadline instead of the IDL's.
@@ -674,9 +684,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Every path the caller may read under `prefix`, in sorted order.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn list(&self, prefix: &str) -> Result<alloc::vec::Vec<alloc::string::String>, ClientError> {
-        self.list_within(prefix, libmessenger::client::DEFAULT_DEADLINE)
+        self.list_within(prefix, libmessenger::client::Deadline::millis(METHOD_LIST_DEADLINE_MS as u64))
     }
 
     /// [`Self::list`] with the caller's deadline instead of the IDL's.
@@ -696,9 +706,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `/transient/conf`).
     /// Not restricted by path, so any caller may ask.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn info(&self) -> Result<InfoReply, ClientError> {
-        self.info_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.info_within(libmessenger::client::Deadline::millis(METHOD_INFO_DEADLINE_MS as u64))
     }
 
     /// [`Self::info`] with the caller's deadline instead of the IDL's.

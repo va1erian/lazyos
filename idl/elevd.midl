@@ -32,10 +32,10 @@ interface os.lazy.elevd.v1 {
     /// `Release`. `detail` describes what was done,
     /// `values` carries the operation's results (`conf.list`'s paths,
     /// `conf.get`'s kind and value).
-    method Request(operation: String = 1, args: Array<String> = 2) -> (detail: String = 1, values: Array<String> = 2);
+    method Request(operation: String = 1, args: Array<String> = 2) -> (detail: String = 1, values: Array<String> = 2) deadline=400s;
 
     /// End the caller's standing approvals now (an elevated editor closing).
-    method Release() -> ();
+    method Release() -> () deadline=1s;
 
     /// One request's audit record: the payload of
     /// `system/events/elevd/request`.

@@ -36,6 +36,13 @@ apps for the prompt, or the performing service's own error.
 
 - Served under the registry name `os.lazy.elevd`; registered once.
 
+## Scopes and deadlines
+
+| Method | Scope interface | Scope id | Deadline |
+|---|---|---|---|
+| Request | this interface | - | 400000 ms |
+| Release | this interface | - | 1000 ms |
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

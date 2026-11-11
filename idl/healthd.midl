@@ -12,7 +12,7 @@ interface os.lazy.healthd.v1 {
     method Report(name: String = 1, status: String = 2, detail: String = 3) -> (summary: HealthRecord = 1, records: Array<HealthRecord> = 2);
 
     /// Snapshot retained health rows plus the aggregate.
-    method Status() -> (summary: HealthRecord = 1, records: Array<HealthRecord> = 2);
+    method Status() -> (summary: HealthRecord = 1, records: Array<HealthRecord> = 2) deadline=500ms;
 
     /// One retained health row.
     struct HealthRecord {

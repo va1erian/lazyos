@@ -14,15 +14,11 @@ use libmessenger::client::Deadline;
 use libmessenger::envelope;
 use messenger_generated::os_lazy_messenger_topics_v1 as wire;
 
-use super::messenger::Service;
+use super::messenger::{client, Observed};
 use crate::sys::{self, errno};
 
-/// The broker's registered name.
-const BROKER: &str = "os.lazy.messenger.topics";
 /// Most events taken per look.
 const PER_LOOK: usize = 8;
-/// Ticks the subscribe call may take.
-const SUBSCRIBE_TICKS: u64 = 50;
 /// Ticks between subscription attempts while the broker is away.
 const RETRY_TICKS: u64 = 200;
 
@@ -128,26 +124,13 @@ impl TopicFeed {
     }
 }
 
-fn broker() -> Result<Service, i64> {
-    Service::try_connect(BROKER).ok_or(-errno::ENOENT)
+fn broker() -> Result<std::rc::Rc<wire::Client<Observed>>, i64> {
+    client(wire::Client::try_connect).map_err(|_| -errno::ENOENT)
 }
 
 fn subscribe(filter: &str, qos: u32, depth: u32) -> Result<u64, i64> {
-    let body = wire::encode_subscribe_args(&wire::SubscribeArgs {
-        filter: filter.to_owned(),
-        qos,
-        depth,
-    })
-    .map_err(|_| -errno::EINVAL)?;
-    let reply = broker()?.call(
-        wire::INTERFACE_ID,
-        wire::METHOD_SUBSCRIBE,
-        body,
-        Deadline::ticks(SUBSCRIBE_TICKS),
-    )?;
-    wire::decode_subscribe_reply(&reply.body)
-        .map(|reply| reply.subscription)
-        .map_err(|_| -errno::EINVAL)
+    let broker = broker()?;
+    Ok(broker.subscribe(filter, qos, depth)?)
 }
 
 /// One poll `NextEvent`: `None` when nothing is queued.
@@ -158,15 +141,11 @@ fn next_event(subscription: u64) -> Result<Option<wire::Event>, i64> {
 /// One `NextEvent` bounded by `deadline` ([`Deadline::Poll`] for a poll):
 /// `None` when nothing came.
 fn next_event_until(subscription: u64, deadline: Deadline) -> Result<Option<wire::Event>, i64> {
-    let body = wire::encode_next_event_args(&wire::NextEventArgs { subscription })
-        .map_err(|_| -errno::EINVAL)?;
-    let reply = match broker()?.call(wire::INTERFACE_ID, wire::METHOD_NEXTEVENT, body, deadline) {
-        Ok(reply) => reply,
+    let broker = broker()?;
+    let event = match broker.next_event_within(subscription, deadline) {
+        Ok(event) => event,
         Err(error) if error.is_timeout() => return Ok(None),
         Err(error) => return Err(error.code()),
     };
-    let event = wire::decode_next_event_reply(&reply.body)
-        .map_err(|_| -errno::EINVAL)?
-        .event;
     Ok((!event.topic.is_empty()).then_some(event))
 }

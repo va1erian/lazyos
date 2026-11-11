@@ -8,58 +8,73 @@
 //! while Config maps the `CONFD_*` codes onto [`ConfStoreError`] so it can tell
 //! `DENIED` from `NOT_FOUND`.
 
-use libmessenger::client::Deadline;
+use libmessenger::client::CallError;
 use messenger_generated::os_lazy_confd_v1 as wire;
 use messenger_generated::os_lazy_init_v1 as init_wire;
 use xui_confd_editor::store::{ConfStore, StoreError as ConfStoreError, StoreInfo};
 use xui_settings::store::{AppChoice, ConfigStore, StoreError as SettingsError, Value};
 
-use super::messenger::Service;
+use super::messenger::{client, Observed};
 
-/// The registered service name (not the interface name).
-const NAME: &str = "os.lazy.confd";
-/// `init`'s registered service name (owner of the app registry).
-const INIT_NAME: &str = "os.lazy.init";
-
-/// How long each call waits for `confd` (PIT ticks, 2 s): confd commits its
-/// store behind ext2 write-back and a `List` of a deep tree walks it, so a
-/// stalled `confd` must not hold the UI thread past this.
-const CONF_TICKS: u64 = 200;
-
-/// Reads and writes settings through `confd`.
+/// Reads and writes settings through `confd`. Every call waits at most what
+/// `idl/confd.midl` states (a stalled `confd` must not hold the UI thread past
+/// it; it commits behind ext2 write-back and a `List` of a deep tree walks it).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ConfdStore;
+
+/// A failed call as the negative number the stores report: the errno of a
+/// transport failure, a declared store error's code (`1001..`) or an undeclared
+/// remote code, negated.
+fn code_of(error: &wire::ClientError) -> i64 {
+    match error {
+        CallError::Transport(errno) => errno.to_syscall(),
+        CallError::Remote { code, .. } => -i64::from(*code),
+        CallError::Service(declared) => -i64::from(declared.code()),
+    }
+}
 
 impl ConfdStore {
     pub const fn new() -> ConfdStore {
         ConfdStore
     }
 
-    fn call(&self, method: u32, body: Vec<u8>) -> Result<libmessenger::Parcel, SettingsError> {
-        let service =
-            Service::connect(NAME).map_err(|code| format!("confd unavailable ({code})"))?;
-        service
-            .call(
-                wire::INTERFACE_ID,
-                method,
-                body,
-                Deadline::ticks(CONF_TICKS),
-            )
-            .map_err(|code| format!("confd error {code}"))
+    /// Whether `confd` is registered now: one attempt, never a wait, for a
+    /// caller that runs on the defaults rather than block (a browser that starts
+    /// before `confd`, the Terminal).
+    pub fn registered(&self) -> bool {
+        client(wire::Client::try_connect).is_ok()
     }
 
-    /// The same call with the raw code kept, so the Config app can map the
+    /// Run `call` on `confd`'s client, waiting for the service to register
+    /// (the stores' callers start with it); an unreachable service is the
+    /// connect failure.
+    fn with_confd<R>(
+        &self,
+        call: impl FnOnce(&wire::Client<Observed>) -> Result<R, wire::ClientError>,
+    ) -> Result<R, wire::ClientError> {
+        let confd = client(wire::Client::connect)?;
+        call(&confd)
+    }
+
+    /// [`ConfdStore::with_confd`] with the failure as Settings' display text.
+    fn call<R>(
+        &self,
+        call: impl FnOnce(&wire::Client<Observed>) -> Result<R, wire::ClientError>,
+    ) -> Result<R, SettingsError> {
+        self.with_confd(call).map_err(|error| match error {
+            CallError::Transport(_) => format!("confd unavailable ({})", code_of(&error)),
+            _ => format!("confd error {}", code_of(&error)),
+        })
+    }
+
+    /// The same call with the code kept, so the Config app can map the
     /// `CONFD_*` codes onto [`ConfStoreError`] instead of a display string.
-    fn call_raw(&self, method: u32, body: Vec<u8>) -> Result<libmessenger::Parcel, i64> {
-        let service = Service::connect(NAME)?;
-        service
-            .call(
-                wire::INTERFACE_ID,
-                method,
-                body,
-                Deadline::ticks(CONF_TICKS),
-            )
-            .map_err(i64::from)
+    fn call_raw<R>(
+        &self,
+        call: impl FnOnce(&wire::Client<Observed>) -> Result<R, wire::ClientError>,
+    ) -> Result<R, ConfStoreError> {
+        self.with_confd(call)
+            .map_err(|error| ConfStoreError::from_confd_code(code_of(&error)))
     }
 }
 
@@ -106,44 +121,21 @@ pub fn from_wire(value: &wire::Value) -> Option<Value> {
 
 impl ConfigStore for ConfdStore {
     fn get(&self, key: &str) -> Option<Value> {
-        let body = wire::encode_get_args(&wire::GetArgs {
-            path: key.to_owned(),
-        })
-        .ok()?;
-        let reply = self.call(wire::METHOD_GET, body).ok()?;
-        let decoded = wire::decode_get_reply(&reply.body).ok()?;
-        from_wire(&decoded.value?)
+        let value = self.call(|confd| confd.get(key)).ok()??;
+        from_wire(&value)
     }
 
     fn set(&self, key: &str, value: Value) -> Result<(), SettingsError> {
-        let body = wire::encode_set_args(&wire::SetArgs {
-            path: key.to_owned(),
-            value: to_wire(&value),
-        })
-        .map_err(|_| String::from("value too large"))?;
-        self.call(wire::METHOD_SET, body).map(|_| ())
+        self.call(|confd| confd.set(key, &to_wire(&value)))
     }
 
     fn delete(&self, key: &str) -> Result<(), SettingsError> {
-        let body = wire::encode_delete_args(&wire::DeleteArgs {
-            path: key.to_owned(),
-        })
-        .map_err(|_| String::from("path too long"))?;
-        self.call(wire::METHOD_DELETE, body).map(|_| ())
+        self.call(|confd| confd.delete(key))
     }
 
     /// The paths under `prefix` this task may read; empty on any failure.
     fn list(&self, prefix: &str) -> Vec<String> {
-        let Ok(body) = wire::encode_list_args(&wire::ListArgs {
-            prefix: prefix.to_owned(),
-        }) else {
-            return Vec::new();
-        };
-        self.call(wire::METHOD_LIST, body)
-            .ok()
-            .and_then(|reply| wire::decode_list_reply(&reply.body).ok())
-            .map(|reply| reply.paths)
-            .unwrap_or_default()
+        self.call(|confd| confd.list(prefix)).unwrap_or_default()
     }
 
     /// This task's kernel-stamped uid: confd checks `user/<uid>/**` writes
@@ -155,21 +147,12 @@ impl ConfigStore for ConfdStore {
     /// The apps `init` can launch (its registry); empty when `init` cannot be
     /// reached, in which case the menu editor only reorders and renames.
     fn apps(&self) -> Vec<AppChoice> {
-        let Ok(service) = Service::connect(INIT_NAME) else {
+        let Ok(init) = client(init_wire::Client::connect) else {
             return Vec::new();
         };
-        let Ok(reply) = service.call(
-            init_wire::INTERFACE_ID,
-            init_wire::METHOD_LISTAPPS,
-            Vec::new(),
-            Deadline::ticks(CONF_TICKS),
-        ) else {
-            return Vec::new();
-        };
-        init_wire::decode_list_apps_reply(&reply.body)
-            .map(|list| {
-                list.apps
-                    .into_iter()
+        init.list_apps()
+            .map(|apps| {
+                apps.into_iter()
                     .map(|app| AppChoice {
                         desktop: app.installed || !app.category.is_empty(),
                         id: app.id,
@@ -185,10 +168,8 @@ impl ConfigStore for ConfdStore {
     /// read-only or fails its probe write, which a directory check cannot see.
     /// An unreachable confd counts as not persistent (writes fail anyway).
     fn persistent(&self) -> bool {
-        self.call(wire::METHOD_INFO, Vec::new())
-            .ok()
-            .and_then(|reply| wire::decode_info_reply(&reply.body).ok())
-            .is_some_and(|info| info.persistent)
+        self.call(|confd| confd.info())
+            .is_ok_and(|info| info.persistent)
     }
 }
 
@@ -197,56 +178,24 @@ impl ConfigStore for ConfdStore {
 /// absent key and show a read-only state instead of a crash.
 impl ConfStore for ConfdStore {
     fn list(&self, prefix: &str) -> Result<Vec<String>, ConfStoreError> {
-        let body = wire::encode_list_args(&wire::ListArgs {
-            prefix: prefix.to_owned(),
-        })
-        .map_err(|_| ConfStoreError::BadValue)?;
-        let reply = self
-            .call_raw(wire::METHOD_LIST, body)
-            .map_err(ConfStoreError::from_confd_code)?;
-        wire::decode_list_reply(&reply.body)
-            .map(|reply| reply.paths)
-            .map_err(|_| ConfStoreError::BadValue)
+        self.call_raw(|confd| confd.list(prefix))
     }
 
     fn get(&self, path: &str) -> Result<Option<Value>, ConfStoreError> {
-        let body = wire::encode_get_args(&wire::GetArgs {
-            path: path.to_owned(),
-        })
-        .map_err(|_| ConfStoreError::BadValue)?;
-        let reply = self
-            .call_raw(wire::METHOD_GET, body)
-            .map_err(ConfStoreError::from_confd_code)?;
-        let decoded = wire::decode_get_reply(&reply.body).map_err(|_| ConfStoreError::BadValue)?;
-        Ok(decoded.value.as_ref().and_then(from_wire))
+        let value = self.call_raw(|confd| confd.get(path))?;
+        Ok(value.as_ref().and_then(from_wire))
     }
 
     fn set(&self, path: &str, value: Value) -> Result<(), ConfStoreError> {
-        let body = wire::encode_set_args(&wire::SetArgs {
-            path: path.to_owned(),
-            value: to_wire(&value),
-        })
-        .map_err(|_| ConfStoreError::TooLarge)?;
-        self.call_raw(wire::METHOD_SET, body)
-            .map_err(ConfStoreError::from_confd_code)
-            .map(|_| ())
+        self.call_raw(|confd| confd.set(path, &to_wire(&value)))
     }
 
     fn delete(&self, path: &str) -> Result<(), ConfStoreError> {
-        let body = wire::encode_delete_args(&wire::DeleteArgs {
-            path: path.to_owned(),
-        })
-        .map_err(|_| ConfStoreError::BadPath)?;
-        self.call_raw(wire::METHOD_DELETE, body)
-            .map_err(ConfStoreError::from_confd_code)
-            .map(|_| ())
+        self.call_raw(|confd| confd.delete(path))
     }
 
     fn info(&self) -> Result<StoreInfo, ConfStoreError> {
-        let reply = self
-            .call_raw(wire::METHOD_INFO, Vec::new())
-            .map_err(ConfStoreError::from_confd_code)?;
-        let info = wire::decode_info_reply(&reply.body).map_err(|_| ConfStoreError::BadValue)?;
+        let info = self.call_raw(|confd| confd.info())?;
         Ok(StoreInfo {
             store_dir: info.store_dir,
             persistent: info.persistent,

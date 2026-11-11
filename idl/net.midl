@@ -191,14 +191,14 @@ interface os.lazy.net.nic.v1 {
 /// when the resolver replies, `ETIMEDOUT` when `timeout_ms` passes.
 interface os.lazy.net.stack.v1 {
     /// The interfaces the stack drives, one per attached card.
-    method Interfaces() -> (list: Array<InterfaceInfo> = 1);
+    method Interfaces() -> (list: Array<InterfaceInfo> = 1) deadline=500ms;
     /// The addresses configured on every interface.
-    method Addresses() -> (list: Array<AddressInfo> = 1);
+    method Addresses() -> (list: Array<AddressInfo> = 1) deadline=500ms;
     /// The routing table: every interface's on-link route and default route,
     /// the default routes ordered by metric (the lowest wins).
-    method Routes() -> (list: Array<RouteInfo> = 1);
+    method Routes() -> (list: Array<RouteInfo> = 1) deadline=500ms;
     /// Stack counters since it started.
-    method Stats() -> (stats: StackStats = 1);
+    method Stats() -> (stats: StackStats = 1) deadline=500ms;
     /// Send one ICMP echo request to `dst` (four octets) with `payload_len`
     /// bytes of payload (0 to 1400) and wait for its reply. `timeout_ms`
     /// (10 to 60000) bounds the wait. Fails with `EINVAL` for a bad argument,
@@ -216,7 +216,7 @@ interface os.lazy.net.stack.v1 {
     /// quad needs no query and is answered at once.
     method Resolve(name: String = 1, timeout_ms: U32 = 2) -> (addrs: Array<Bytes> = 1);
     /// Ask for a fresh DHCP lease (drops the current one). Gated by the ACL.
-    method Renew() -> ();
+    method Renew() -> () deadline=500ms;
     /// Drop the attachment to the NIC driver and establish it again, as after
     /// a driver restart: the stack keeps its lease and timers. A recovery and
     /// test call; gated by the ACL.

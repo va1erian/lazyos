@@ -3,22 +3,18 @@
 //! the conversions between the generated wire types and `printd`'s, which
 //! the `xui-printd` binary serves with.
 
-use libmessenger::client::Deadline;
+use libmessenger::client::Errno;
 use messenger_generated::os_lazy_print_v1 as wire;
 use printd::{JobId, JobInfo, Queue, Request, State, Ticket};
 
-use super::messenger::{CallError, Service};
-use crate::sys::errno::ETIMEDOUT;
+use super::messenger::{client, CallError, Observed};
 
-/// The service's registered name.
-pub const NAME: &str = "os.lazy.print";
-/// The interface id every call carries.
+/// The service's registered name (the spooler serves it).
+pub const NAME: &str = wire::SERVICE_NAME;
+/// The interface id the spooler dispatches on.
 pub const INTERFACE: u64 = wire::INTERFACE_ID;
 /// Most document bytes one `Write` carries; a longer write is split.
 pub const MAX_WRITE: usize = 256 * 1024;
-/// How long one call may take, in 100 Hz PIT ticks (10 s): LazyWriter calls
-/// from its UI thread, so a stalled printd must not freeze the window.
-const CALL_TICKS: u64 = 1000;
 
 /// The ticket on the wire: an unset choice is `0` or empty.
 pub fn ticket_to_wire(ticket: &Ticket) -> wire::Ticket {
@@ -94,36 +90,34 @@ fn info_from_wire(info: wire::JobInfo) -> Result<JobInfo, String> {
     })
 }
 
-/// The spooler over Messenger.
+/// The spooler over Messenger. Every call waits what `idl/print.midl` states
+/// (LazyWriter calls from its UI thread, so a stalled printd must not freeze
+/// the window).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PrintService;
 
 impl PrintService {
-    fn call(
+    fn call<R>(
         &self,
-        method: u32,
-        body: Result<Vec<u8>, libmessenger::Error>,
-    ) -> Result<Vec<u8>, String> {
-        let body = body.map_err(|_| "The print request could not be encoded".to_owned())?;
-        let service = Service::connect(NAME).map_err(|_| {
+        run: impl FnOnce(&wire::Client<Observed>) -> Result<R, CallError>,
+    ) -> Result<R, String> {
+        let printd = client(wire::Client::connect).map_err(|_| {
             "Printing needs the print service (printd), which is not running".to_owned()
         })?;
-        match service.call(INTERFACE, method, body, Deadline::ticks(CALL_TICKS)) {
-            Ok(reply) => Ok(reply.body),
-            Err(CallError::Remote { message, .. }) if !message.is_empty() => Err(message),
-            Err(error) if error.code() == -ETIMEDOUT => {
-                Err("The print service is not answering".to_owned())
+        run(&printd).map_err(|error| match error {
+            CallError::Remote { message, .. } if !message.is_empty() => message,
+            CallError::Transport(errno) if errno == Errno::TIMEDOUT => {
+                "The print service is not answering".to_owned()
             }
-            Err(error) => Err(format!(
-                "The print service did not answer (error {})",
-                -error.code()
-            )),
-        }
+            CallError::Transport(errno) if errno == Errno::INVAL => {
+                "The print request could not be encoded".to_owned()
+            }
+            CallError::Transport(errno) if errno == Errno::BADMSG => {
+                "The print service sent a reply that does not read".to_owned()
+            }
+            error => format!("The print service did not answer (error {})", -error.code()),
+        })
     }
-}
-
-fn bad_reply(_: libmessenger::Error) -> String {
-    "The print service sent a reply that does not read".to_owned()
 }
 
 impl Queue for PrintService {
@@ -132,40 +126,27 @@ impl Queue for PrintService {
         if !request.fields_fit() {
             return Err("A print job field is too long".into());
         }
-        let body = wire::encode_open_args(&wire::OpenArgs {
-            printer: request.printer.clone(),
-            user: request.user.clone(),
-            ticket: ticket_to_wire(&request.ticket),
-        });
-        let reply = self.call(wire::METHOD_OPEN, body)?;
-        Ok(wire::decode_open_reply(&reply).map_err(bad_reply)?.job)
+        let ticket = ticket_to_wire(&request.ticket);
+        self.call(|printd| printd.open(&request.printer, &request.user, &ticket))
     }
 
     fn write(&self, job: JobId, bytes: &[u8]) -> Result<(), String> {
         for piece in bytes.chunks(MAX_WRITE) {
-            let body = wire::encode_write_args(&wire::WriteArgs {
-                job,
-                bytes: piece.to_vec(),
-            });
-            self.call(wire::METHOD_WRITE, body)?;
+            self.call(|printd| printd.write(job, piece))?;
         }
         Ok(())
     }
 
     fn close(&self, job: JobId) -> Result<(), String> {
-        let body = wire::encode_close_args(&wire::CloseArgs { job });
-        self.call(wire::METHOD_CLOSE, body).map(drop)
+        self.call(|printd| printd.close(job))
     }
 
     fn cancel(&self, job: JobId) -> Result<(), String> {
-        let body = wire::encode_cancel_args(&wire::CancelArgs { job });
-        self.call(wire::METHOD_CANCEL, body).map(drop)
+        self.call(|printd| printd.cancel(job))
     }
 
     fn status(&self, job: JobId) -> Result<JobInfo, String> {
-        let body = wire::encode_status_args(&wire::StatusArgs { job });
-        let reply = self.call(wire::METHOD_STATUS, body)?;
-        info_from_wire(wire::decode_status_reply(&reply).map_err(bad_reply)?.info)
+        info_from_wire(self.call(|printd| printd.status(job))?)
     }
 }
 

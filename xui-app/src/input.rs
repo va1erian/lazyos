@@ -1,33 +1,25 @@
 //! The `os.lazy.input.v1` client: an app's keyboard session with `inputd`.
 //!
 //! The static-musl counterpart of the native `user::messenger::input` module,
-//! built on the raw syscall-5 shim in [`crate::sys`] and the generated stubs
-//! (`idl/input.midl`). A window opens a session for its surface right after
+//! built on the generated client (`idl/input.midl`). A window opens a session for its surface right after
 //! `CreateSurface`, handing `inputd` its own event endpoint; from then on keys
 //! arrive there — `KeyEvent` for the physical key and its meaning,
 //! `TextInput` for composed characters — instead of as `KeyDown`/`KeyUp` from
 //! the compositor. Without `inputd` (an image built without the service) the
 //! open fails and the window simply stays on the compositor's legacy keys.
 
-use libmessenger::client::Deadline;
-use libmessenger::{Object, Parcel};
+use libmessenger::Parcel;
 use messenger_generated::os_lazy_input_v1 as wire;
 
-use crate::platform::messenger::{shared, Conn};
+use crate::platform::messenger::{client, Observed};
 use crate::sys::{errno, msg_create_pair};
 use std::rc::Rc;
 
 mod grab;
 pub use grab::{KeyStatePage, Snapshot};
 
-/// Well-known service name.
-pub const NAME: &str = "os.lazy.input.v1";
 /// Interface id every input parcel carries.
 pub const INTERFACE: u64 = wire::INTERFACE_ID;
-
-/// PIT ticks an `Open`/`Close` call may wait: `inputd` answers from its
-/// receive loop, and a hung service must not freeze window creation.
-const CALL_TICKS: u64 = 100;
 
 /// Modifier bits in `KeyEvent.mods` (the wire values documented in
 /// `idl/input.midl`).
@@ -159,34 +151,17 @@ impl Session {
         Session::open_on(&service, surface)
     }
 
-    fn open_on(service: &Conn, surface: u64) -> Result<Session, i64> {
+    fn open_on(service: &Inputd, surface: u64) -> Result<Session, i64> {
         let (events, peer) = msg_create_pair()?;
-        let (body, objects) = match wire::encode_open_args(&wire::OpenArgs {
-            surface: Some(surface),
-            events: peer,
-        }) {
-            Ok(encoded) => encoded,
-            Err(_) => {
-                let _ = crate::display::close(events);
-                let _ = crate::display::close(peer);
-                return Err(-errno::EINVAL);
-            }
-        };
-        let reply = call(service, wire::METHOD_OPEN, body, objects);
-        match reply
-            .and_then(|parcel| wire::decode_open_reply(&parcel.body).map_err(|_| -errno::EINVAL))
-        {
+        match service.open(Some(surface), peer) {
             // Session ids start at 1; zero is a missing field.
-            Ok(reply) if reply.session != 0 => Ok(Session {
-                session: reply.session,
-                events,
-            }),
+            Ok(session) if session != 0 => Ok(Session { session, events }),
             other => {
                 // The peer may or may not have moved; closing a stale handle
                 // only fails harmlessly.
                 let _ = crate::display::close(peer);
                 let _ = crate::display::close(events);
-                Err(other.err().unwrap_or(-errno::EINVAL))
+                Err(other.err().map_or(-errno::EINVAL, i64::from))
             }
         }
     }
@@ -195,36 +170,21 @@ impl Session {
     /// destroying the surface ends it too.
     pub fn close(&self) {
         if let Ok(service) = service() {
-            if let Ok(body) = wire::encode_close_args(&wire::CloseArgs {
-                session: self.session,
-            }) {
-                let _ = call(&service, wire::METHOD_CLOSE, body, Vec::new());
-            }
+            let _ = service.close(self.session);
         }
         let _ = crate::display::close(self.events);
     }
 }
 
-/// This thread's connection to `inputd`, without waiting for it to
-/// register: an image without it falls back to the compositor's legacy keys
-/// at once.
-fn service() -> Result<Rc<Conn>, i64> {
-    let service = shared(NAME);
-    service.try_connect().map_err(|errno| errno.to_syscall())?;
-    Ok(service)
-}
+/// The generated client of `inputd`, which waits `inputd` for what the `.midl`
+/// states for `Open`/`Close` and the rest: it answers from its receive loop,
+/// and a hung service must not freeze window creation.
+type Inputd = wire::Client<Observed>;
 
-/// One synchronous call; a structured error reply becomes its negative errno.
-fn call(service: &Conn, method: u32, body: Vec<u8>, objects: Vec<Object>) -> Result<Parcel, i64> {
-    service
-        .call(
-            INTERFACE,
-            method,
-            body,
-            objects,
-            Deadline::ticks(CALL_TICKS),
-        )
-        .map_err(i64::from)
+/// This thread's client of `inputd`, without waiting for it to register: an
+/// image without it falls back to the compositor's legacy keys at once.
+fn service() -> Result<Rc<Inputd>, i64> {
+    Ok(client(wire::Client::try_connect)?)
 }
 
 #[cfg(test)]

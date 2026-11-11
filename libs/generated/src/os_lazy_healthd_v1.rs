@@ -72,6 +72,8 @@ pub fn decode_health_record(body: &[u8]) -> Result<HealthRecord, Error> {
 pub const METHOD_REPORT: u32 = 1182923275;
 /// `Status` method id.
 pub const METHOD_STATUS: u32 = 6222351;
+/// How long a client waits for `Status`'s reply, in milliseconds.
+pub const METHOD_STATUS_DEADLINE_MS: u32 = 500;
 
 /// Publish `health/<name>` with `status`/`detail`.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -354,9 +356,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Snapshot retained health rows plus the aggregate.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`).
     pub fn status(&self) -> Result<StatusReply, ClientError> {
-        self.status_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.status_within(libmessenger::client::Deadline::millis(METHOD_STATUS_DEADLINE_MS as u64))
     }
 
     /// [`Self::status`] with the caller's deadline instead of the IDL's.

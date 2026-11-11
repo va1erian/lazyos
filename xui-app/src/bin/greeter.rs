@@ -37,10 +37,9 @@
 //! `GREETER:LOGIN:FAIL user=<name> errno=<e>`; `GREETER:SETUP:PASS
 //! user=<name>` or `GREETER:SETUP:FAIL errno=<e>`.
 
-use libmessenger::client::Deadline;
 use messenger_generated::os_lazy_logind_v1 as wire;
 use xui_app::platform::accounts;
-use xui_app::platform::messenger::Service;
+use xui_app::platform::messenger::client;
 use xui_app::sys::errno;
 use xui_app::trace::{self, Channel};
 use xui_core::app::{App, Ui};
@@ -49,11 +48,6 @@ use xui_core::prelude::*;
 
 /// The window size when the compositor lays it out (design pixels).
 const WINDOW: (i32, i32) = (420, 250);
-/// `logind`'s registered name.
-const LOGIND: &str = "os.lazy.logind";
-/// How long a login may take (PIT ticks, 100 Hz): the Argon2id check, the
-/// failed-login delay and starting the desktop shell under emulation.
-const LOGIN_TICKS: u64 = 3000;
 /// The width of the field captions and of the fields.
 const CAPTION_W: i32 = 90;
 const FIELD_W: i32 = 240;
@@ -313,23 +307,12 @@ fn list_setup() -> Option<bool> {
     accounts::list().ok().map(|(_, setup)| setup)
 }
 
-/// `logind.Login`: the new session's id, or the negative errno.
+/// `logind.Login`: the new session's id, or the negative errno. It waits what
+/// `idl/logind.midl` states: the Argon2id check, the failed-login delay and
+/// starting the desktop shell under emulation.
 fn call_login(user: &str, secret: &str) -> std::result::Result<u64, i64> {
-    let service = Service::try_connect(LOGIND).ok_or(-errno::ENOENT)?;
-    let body = wire::encode_login_args(&wire::LoginArgs {
-        user: user.to_string(),
-        secret: secret.to_string(),
-    })
-    .map_err(|_| -errno::EINVAL)?;
-    let reply = service.call(
-        wire::INTERFACE_ID,
-        wire::METHOD_LOGIN,
-        body,
-        Deadline::ticks(LOGIN_TICKS),
-    )?;
-    wire::decode_login_reply(&reply.body)
-        .map(|reply| reply.session)
-        .map_err(|_| -errno::EINVAL)
+    let logind = client(wire::Client::try_connect).map_err(|_| -errno::ENOENT)?;
+    Ok(logind.login(user, secret)?)
 }
 
 /// What the user reads for a refused login.

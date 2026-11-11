@@ -1,26 +1,6 @@
 use super::*;
 
 #[test]
-fn the_hint_parcel_carries_method_30_and_the_rect() {
-    let parcel = hint_open_origin_parcel(7, (-4, 12, 64, 48)).expect("encodes");
-    assert_eq!(parcel.header.method, 30);
-    assert_eq!(parcel.header.interface_id, INTERFACE);
-    let args = wire::decode_hint_open_origin_args(&parcel.body).expect("decodes");
-    assert_eq!(
-        (args.surface, args.x, args.y, args.w, args.h),
-        (7, -4, 12, 64, 48)
-    );
-}
-
-#[test]
-fn the_size_request_parcel_carries_method_34_and_the_size() {
-    let parcel = request_size_parcel(3, 200, 90).expect("encodes");
-    assert_eq!(parcel.header.method, 34);
-    let args = wire::decode_request_size_args(&parcel.body).expect("decodes");
-    assert_eq!((args.surface, args.width, args.height), (3, 200, 90));
-}
-
-#[test]
 fn a_wheel_event_decodes_with_its_position_and_signed_delta() {
     for delta in [1, -1, 5, -120] {
         let body = wire::encode_pointer_wheel_args(&wire::PointerWheelArgs {

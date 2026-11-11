@@ -46,6 +46,8 @@ pub const CURSOR_SHAPE_RESIZE_NESW: u32 = 7;
 
 /// `SetCursor` method id.
 pub const METHOD_SETCURSOR: u32 = 1;
+/// How long a client waits for `SetCursor`'s reply, in milliseconds.
+pub const METHOD_SETCURSOR_DEADLINE_MS: u32 = 1000;
 
 /// Set the shape shown while the pointer is over `surface`'s content. The
 /// caller must own the surface (`EACCES` otherwise); an unknown surface is
@@ -136,9 +138,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// The shape stays until the next call or until the surface goes away;
     /// `Default` restores the arrow.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
     pub fn set_cursor(&self, surface: u64, shape: u32) -> Result<(), ClientError> {
-        self.set_cursor_within(surface, shape, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_cursor_within(surface, shape, libmessenger::client::Deadline::millis(METHOD_SETCURSOR_DEADLINE_MS as u64))
     }
 
     /// [`Self::set_cursor`] with the caller's deadline instead of the IDL's.

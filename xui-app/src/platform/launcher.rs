@@ -7,7 +7,6 @@
 //! A path no app handles, or a launch `init` refuses, becomes
 //! [`io::ErrorKind::Unsupported`], which the explorer shows in its status bar.
 
-use libmessenger::client::Deadline;
 use std::io;
 use std::path::Path;
 
@@ -15,12 +14,7 @@ use messenger_generated::os_lazy_mimed_v1 as wire;
 use xui_explorer::platform::Launcher;
 
 use super::argv::is_acceptable;
-use super::messenger::Service;
-
-/// The `mimed` service name. This is the *registered* name
-/// (`user::messenger::mime::NAME`), not the `os.lazy.mimed.v1` interface id:
-/// the two differ, and resolving the interface name finds no service.
-const NAME: &str = "os.lazy.mimed";
+use super::messenger::client;
 
 /// Opens files through `mimed` / `init`.
 #[derive(Clone, Copy, Debug, Default)]
@@ -86,32 +80,20 @@ pub fn is_acceptable_url(url: &str) -> bool {
 /// The longest URL handed on: `init`'s launch argument limit.
 const MAX_URL_BYTES: usize = 1024;
 
-/// How long `mimed.Open` waits (PIT ticks, 2 s): `mimed` resolves the app
-/// and launches; a full queue or a stalled service answers here instead of
-/// holding the UI thread.
-const OPEN_TICKS: u64 = 200;
-
 /// `mimed.Open(target, "open")`: guess, resolve and launch. `unhandled` is
-/// the error text when no app takes it.
+/// the error text when no app takes it. The call waits what `idl/mimed.midl`
+/// states for `Open`: `mimed` resolves the app and launches, and a full queue
+/// or a stalled service answers there instead of holding the UI thread.
 fn open_with_mimed(target: &str, unhandled: &str) -> io::Result<()> {
-    let service = Service::connect(NAME)
-        .map_err(|code| io::Error::other(format!("mimed unavailable (errno {code})")))?;
-    let body = wire::encode_open_args(&wire::OpenArgs {
-        path: target.to_owned(),
-        verb: "open".to_owned(),
-    })
-    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path too long for mimed"))?;
-    let reply = service
-        .call(
-            wire::INTERFACE_ID,
-            wire::METHOD_OPEN,
-            body,
-            Deadline::ticks(OPEN_TICKS),
-        )
-        .map_err(|code| io::Error::other(format!("mimed: errno {code}")))?;
-    match wire::decode_open_reply(&reply.body) {
-        Ok(reply) if reply.launched && !reply.app.is_empty() => Ok(()),
-        _ => Err(io::Error::new(io::ErrorKind::Unsupported, unhandled)),
+    let mimed = client(wire::Client::connect)
+        .map_err(|error| io::Error::other(format!("mimed unavailable (errno {})", error.code())))?;
+    let reply = mimed
+        .open(target, "open")
+        .map_err(|error| io::Error::other(format!("mimed: errno {}", error.code())))?;
+    if reply.launched && !reply.app.is_empty() {
+        Ok(())
+    } else {
+        Err(io::Error::new(io::ErrorKind::Unsupported, unhandled))
     }
 }
 

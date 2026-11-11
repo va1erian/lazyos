@@ -391,10 +391,12 @@ impl Page {
         match wifi::add_network(ssid, security, hidden, passphrase) {
             Ok(id) => self.start_join(&id, ssid),
             // Saved already (not in the list yet): join that one.
-            Err(wifi::Error::Code(code)) if code == -wifi::EEXIST => match self.saved_id(ssid) {
-                Some(id) => self.start_join(&id, ssid),
-                None => self.refuse(&format!("\"{ssid}\" is saved already.")),
-            },
+            Err(wifi::Error::Code(code)) if code == -xui_app::sys::errno::EEXIST => {
+                match self.saved_id(ssid) {
+                    Some(id) => self.start_join(&id, ssid),
+                    None => self.refuse(&format!("\"{ssid}\" is saved already.")),
+                }
+            }
             Err(error) => self.refuse(&format!("Could not save \"{ssid}\": {}", error.describe())),
         }
     }

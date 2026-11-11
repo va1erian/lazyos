@@ -5,7 +5,7 @@
 //! [`MessengerTransport`] talks to the real services, tests script a mock.
 
 use libmessenger::client::{CallError, Deadline, Errno};
-use xui_app::platform::messenger::shared;
+use xui_app::platform::messenger::{instance_client, Conn};
 use xui_app::sys::errno;
 
 /// A refused or failed call: the service's own sentence, or the transport's.
@@ -55,7 +55,7 @@ pub trait Transport {
     fn pause(&self, millis: u64);
 }
 
-/// The real transport: the shared Messenger client of `xui_app`
+/// The real transport: this thread's Messenger connection of `xui_app`
 /// (`libmessenger::client::Connection` over the std transport), which
 /// resolves once, keeps the handle, reconnects after a restart and reads the
 /// structured error field, text included, from a refusal.
@@ -75,7 +75,9 @@ impl Transport for MessengerTransport {
             Wait::Forever => Deadline::Never,
             Wait::Poll => Deadline::Poll,
         };
-        shared(service)
+        // The handoff names its services by registry name and frames no request itself beyond
+        // the generated stubs' bodies, so a family of one raw connection per name is the seam.
+        instance_client("", service, std::convert::identity::<Conn>)
             .call(interface, method, body, Vec::new(), until)
             .map(|reply| reply.body)
             .map_err(|error| failure(service, error))

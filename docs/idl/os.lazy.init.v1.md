@@ -33,6 +33,16 @@ reply, so the error field is hand-written next to these stubs.
 
 - Served under the registry name `os.lazy.init`; registered once.
 
+## Scopes and deadlines
+
+| Method | Scope interface | Scope id | Deadline |
+|---|---|---|---|
+| Services | this interface | - | 500 ms |
+| Launch | this interface | - | 10000 ms |
+| ListApps | this interface | - | 2000 ms |
+| Stop | this interface | - | 5000 ms |
+| Shutdown | this interface | - | 3000 ms |
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

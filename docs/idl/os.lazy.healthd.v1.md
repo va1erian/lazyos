@@ -21,6 +21,12 @@ error field (errno-style code, friendly text), not as a typed reply.
 
 - Served under the registry name `os.lazy.healthd`; registered once.
 
+## Scopes and deadlines
+
+| Method | Scope interface | Scope id | Deadline |
+|---|---|---|---|
+| Status | this interface | - | 500 ms |
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

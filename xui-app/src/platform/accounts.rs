@@ -8,19 +8,11 @@
 //! window. Replies are untrusted, so names and homes are checked before they
 //! reach the painter.
 
-use libmessenger::client::Deadline;
 use messenger_generated::os_lazy_accounts_v1 as wire;
 
-use super::messenger::{CallError, Service};
+use super::messenger::{client, CallError};
 use crate::sys::errno;
 
-/// `accountsd`'s registered name.
-const NAME: &str = "os.lazy.accountsd";
-/// How long a lookup may take (PIT ticks, 100 Hz).
-const LIST_TICKS: u64 = 300;
-/// How long a password change or account creation may take: Argon2id in
-/// `keyd`, the brake's delay and, for an account, its home (under TCG).
-const CHANGE_TICKS: u64 = 6000;
 /// The most accounts shown (the database holds at most 64).
 const MAX_USERS: usize = 64;
 
@@ -35,26 +27,17 @@ pub struct Account {
 /// What a refused call says: the errno and the service's friendly text.
 pub type Refusal = CallError;
 
-fn service() -> Result<Service, Refusal> {
-    Service::try_connect(NAME).ok_or_else(|| {
-        CallError::refusal(errno::ENOENT as u32, "the account service is not running")
-    })
-}
-
-fn encode_error(_: impl core::fmt::Debug) -> Refusal {
-    CallError::refusal(errno::EINVAL as u32, "the request could not be encoded")
+/// The service's client; one attempt, because a missing service is a refusal the
+/// caller shows, never a wait.
+fn service() -> Result<std::rc::Rc<wire::Client<super::messenger::Observed>>, Refusal> {
+    client(wire::Client::try_connect)
+        .map_err(|_| CallError::refusal(errno::ENOENT as u32, "the account service is not running"))
 }
 
 /// The accounts, and whether the machine still waits for its owner (the
 /// first-boot setup).
 pub fn list() -> Result<(Vec<Account>, bool), Refusal> {
-    let reply = service()?.call(
-        wire::INTERFACE_ID,
-        wire::METHOD_LISTUSERS,
-        Vec::new(),
-        Deadline::ticks(LIST_TICKS),
-    )?;
-    let reply = wire::decode_list_users_reply(&reply.body).map_err(encode_error)?;
+    let reply = service()?.list_users()?;
     let users = reply
         .users
         .into_iter()
@@ -72,38 +55,12 @@ pub fn list() -> Result<(Vec<Account>, bool), Refusal> {
 /// Create the machine's first account, an administrator (the login screen
 /// during the first-boot setup; refused once any account exists).
 pub fn create_owner(name: &str, secret: &str) -> Result<(), Refusal> {
-    let body = wire::encode_create_args(&wire::CreateArgs {
-        name: name.to_string(),
-        secret: secret.to_string(),
-        admin: true,
-    })
-    .map_err(encode_error)?;
-    service()?
-        .call(
-            wire::INTERFACE_ID,
-            wire::METHOD_CREATE,
-            body,
-            Deadline::ticks(CHANGE_TICKS),
-        )
-        .map(|_| ())
+    service()?.create(name, secret, true).map(drop)
 }
 
 /// Change `name`'s own password from `old` to `secret`.
 pub fn change_own_password(name: &str, old: &str, secret: &str) -> Result<(), Refusal> {
-    let body = wire::encode_set_password_args(&wire::SetPasswordArgs {
-        name: name.to_string(),
-        old: Some(old.to_string()),
-        secret: secret.to_string(),
-    })
-    .map_err(encode_error)?;
-    service()?
-        .call(
-            wire::INTERFACE_ID,
-            wire::METHOD_SETPASSWORD,
-            body,
-            Deadline::ticks(CHANGE_TICKS),
-        )
-        .map(|_| ())
+    service()?.set_password(name, Some(old), secret)
 }
 
 /// The Settings app's [`xui_settings::Accounts`]: the list and the user's

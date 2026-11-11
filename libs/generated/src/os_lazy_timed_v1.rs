@@ -78,16 +78,28 @@ pub fn decode_tick(body: &[u8]) -> Result<Tick, Error> {
 
 /// `Now` method id.
 pub const METHOD_NOW: u32 = 188597655;
+/// How long a client waits for `Now`'s reply, in milliseconds.
+pub const METHOD_NOW_DEADLINE_MS: u32 = 2000;
 /// `GetZone` method id.
 pub const METHOD_GETZONE: u32 = 697211125;
+/// How long a client waits for `GetZone`'s reply, in milliseconds.
+pub const METHOD_GETZONE_DEADLINE_MS: u32 = 250;
 /// `SetZone` method id.
 pub const METHOD_SETZONE: u32 = 1574816713;
+/// How long a client waits for `SetZone`'s reply, in milliseconds.
+pub const METHOD_SETZONE_DEADLINE_MS: u32 = 15000;
 /// `SetTime` method id.
 pub const METHOD_SETTIME: u32 = 670376986;
+/// How long a client waits for `SetTime`'s reply, in milliseconds.
+pub const METHOD_SETTIME_DEADLINE_MS: u32 = 15000;
 /// `NtpStatus` method id.
 pub const METHOD_NTPSTATUS: u32 = 209271495;
+/// How long a client waits for `NtpStatus`'s reply, in milliseconds.
+pub const METHOD_NTPSTATUS_DEADLINE_MS: u32 = 2000;
 /// `SyncNow` method id.
 pub const METHOD_SYNCNOW: u32 = 1100029530;
+/// How long a client waits for `SyncNow`'s reply, in milliseconds.
+pub const METHOD_SYNCNOW_DEADLINE_MS: u32 = 2000;
 
 /// The current instant and its local-time parameters.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -372,9 +384,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// The current instant and its local-time parameters.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn now(&self) -> Result<NowReply, ClientError> {
-        self.now_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.now_within(libmessenger::client::Deadline::millis(METHOD_NOW_DEADLINE_MS as u64))
     }
 
     /// [`Self::now`] with the caller's deadline instead of the IDL's.
@@ -390,9 +402,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// The configured zone name (`UTC` when none is set).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 250 ms (`deadline` in the `.midl`).
     pub fn get_zone(&self) -> Result<alloc::string::String, ClientError> {
-        self.get_zone_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.get_zone_within(libmessenger::client::Deadline::millis(METHOD_GETZONE_DEADLINE_MS as u64))
     }
 
     /// [`Self::get_zone`] with the caller's deadline instead of the IDL's.
@@ -414,9 +426,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// (a session asks `elevd` to write `sys/time/zone`, which `timed`
     /// follows).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 15000 ms (`deadline` in the `.midl`).
     pub fn set_zone(&self, name: &str) -> Result<(), ClientError> {
-        self.set_zone_within(name, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_zone_within(name, libmessenger::client::Deadline::millis(METHOD_SETZONE_DEADLINE_MS as u64))
     }
 
     /// [`Self::set_zone`] with the caller's deadline instead of the IDL's.
@@ -437,9 +449,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// 2200 fails with `EINVAL`: the service would lift an earlier clock again
     /// the next time it starts.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 15000 ms (`deadline` in the `.midl`).
     pub fn set_time(&self, unix_secs: i64) -> Result<(), ClientError> {
-        self.set_time_within(unix_secs, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_time_within(unix_secs, libmessenger::client::Deadline::millis(METHOD_SETTIME_DEADLINE_MS as u64))
     }
 
     /// [`Self::set_time`] with the caller's deadline instead of the IDL's.
@@ -460,9 +472,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `offset_ms` and `delay_ms` are the last accepted exchange's server
     /// minus local clock and round trip.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn ntp_status(&self) -> Result<NtpStatusReply, ClientError> {
-        self.ntp_status_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.ntp_status_within(libmessenger::client::Deadline::millis(METHOD_NTPSTATUS_DEADLINE_MS as u64))
     }
 
     /// [`Self::ntp_status`] with the caller's deadline instead of the IDL's.
@@ -485,9 +497,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// says is still judged by the same clock-step policy as a scheduled
     /// exchange, so a caller cannot choose the time, only when to ask.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn sync_now(&self) -> Result<(), ClientError> {
-        self.sync_now_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.sync_now_within(libmessenger::client::Deadline::millis(METHOD_SYNCNOW_DEADLINE_MS as u64))
     }
 
     /// [`Self::sync_now`] with the caller's deadline instead of the IDL's.

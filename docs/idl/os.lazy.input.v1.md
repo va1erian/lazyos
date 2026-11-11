@@ -52,6 +52,17 @@ errno-style code plus friendly text) instead of the declared reply fields.
 
 - Served under the registry name `os.lazy.input.v1`; registered once.
 
+## Scopes and deadlines
+
+| Method | Scope interface | Scope id | Deadline |
+|---|---|---|---|
+| Open | this interface | - | 1000 ms |
+| Close | this interface | - | 1000 ms |
+| RequestGrant | this interface | - | 1000 ms |
+| ReleaseGrant | this interface | - | 1000 ms |
+| Ping | this interface | - | 1000 ms |
+| AttachKeyState | this interface | - | 1000 ms |
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

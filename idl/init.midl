@@ -9,7 +9,7 @@ service "os.lazy.init" implements os.lazy.init.v1;
 /// reply, so the error field is hand-written next to these stubs.
 interface os.lazy.init.v1 {
     /// Snapshot the supervision table.
-    method Services() -> (services: Array<ServiceStatus> = 1);
+    method Services() -> (services: Array<ServiceStatus> = 1) deadline=500ms;
 
     /// Launch an app as a session child. `session` 0 means the caller's own
     /// session; only the session's owner (or root) may launch into it. `args`
@@ -19,13 +19,13 @@ interface os.lazy.init.v1 {
     /// (`AppInfo.resident`) already running in that session starts nothing:
     /// `init` sends its instance `Reopen(args)` (`os.lazy.init.app.events.v1`)
     /// and answers `existing` true with that instance's pid.
-    method Launch(app: String = 1, args: String = 2, session: U64 = 3) -> (app: String = 1, pid: U64 = 2, session: U64 = 3, existing: Bool = 4);
+    method Launch(app: String = 1, args: String = 2, session: U64 = 3) -> (app: String = 1, pid: U64 = 2, session: U64 = 3, existing: Bool = 4) deadline=10s;
 
     /// Enumerate the app registry: the built-in apps first, then the apps the
     /// package manager installed (`AppInfo.installed`; the core packages
     /// first, then the others by `system_name`), read afresh from the
     /// configuration registry on every call. `hidden` is the caller's own.
-    method ListApps() -> (apps: Array<AppInfo> = 1);
+    method ListApps() -> (apps: Array<AppInfo> = 1) deadline=2s;
 
     /// Stop every running instance of the app `app` (the app id, as `Launch`
     /// takes it), retiring its supervision row without a restart: an
@@ -37,7 +37,7 @@ interface os.lazy.init.v1 {
     /// `CAP_SETUID` (the package manager) or the session owner may stop; an
     /// owner reaches only instances in their own session. Unknown or idle apps
     /// are not an error, `stopped` is just 0.
-    method Stop(app: String = 1) -> (stopped: U64 = 1);
+    method Stop(app: String = 1) -> (stopped: U64 = 1) deadline=5s;
 
     /// Begin an orderly shutdown (docs/shutdown.md): `mode` is a `PowerMode`
     /// value. The reply is immediate; `init` then stops the session apps, the
@@ -48,7 +48,7 @@ interface os.lazy.init.v1 {
     /// while a shutdown is already running is not an error: `accepted` is true
     /// and `phase` is the current phase. `force` skips the graceful stop: every
     /// remaining child is killed at once and the machine stops.
-    method Shutdown(mode: U32 = 1, reason: String = 2, force: Bool = 3) -> (accepted: Bool = 1, phase: String = 2);
+    method Shutdown(mode: U32 = 1, reason: String = 2, force: Bool = 3) -> (accepted: Bool = 1, phase: String = 2) deadline=3s;
 
     /// Start the driver row `driver` for device `device` (issue #497,
     /// docs/driver-plan.md section 3.6). Only the running task of the `devd`

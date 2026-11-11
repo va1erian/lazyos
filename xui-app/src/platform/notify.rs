@@ -9,36 +9,21 @@
 //! [`listen`] and polls the [`Listener`]; a toast must never be the only way to
 //! do something, so nothing here is required.
 
-use std::cell::RefCell;
-
 use libmessenger::Parcel;
 use messenger_generated::os_lazy_notify_events_v1 as events;
 use messenger_generated::os_lazy_notify_v1 as wire;
 
-use super::messenger::Observed;
+use super::messenger::{client, Observed};
 use crate::sys::{self, errno};
 
-/// The generated client of the shell, over the stall-tracing transport. Every call is bounded by
-/// the deadline `idl/notify.midl` declares (the UI thread calls them).
-type Shell = wire::Client<Observed>;
-
-thread_local! {
-    /// This thread's connection to the shell, made on the first call that finds it registered.
-    static SHELL: RefCell<Option<Shell>> = const { RefCell::new(None) };
-}
-
-/// Run `call` on the shell: `-ENOENT` when there is none (no desktop, an older image), else the
-/// call's own negative errno.
-fn with_shell<R>(call: impl FnOnce(&Shell) -> Result<R, wire::ClientError>) -> Result<R, i64> {
-    SHELL.with(|cell| {
-        if cell.borrow().is_none() {
-            let shell = Shell::try_connect(Observed::default()).map_err(|_| -errno::ENOENT)?;
-            *cell.borrow_mut() = Some(shell);
-        }
-        let held = cell.borrow();
-        let shell = held.as_ref().ok_or(-errno::ENOENT)?;
-        call(shell).map_err(i64::from)
-    })
+/// Run `call` on the shell's generated client (bounded by the deadlines
+/// `idl/notify.midl` declares, because the UI thread calls them): `-ENOENT` when
+/// there is none (no desktop, an older image), else the call's own negative errno.
+fn with_shell<R>(
+    call: impl FnOnce(&wire::Client<Observed>) -> Result<R, wire::ClientError>,
+) -> Result<R, i64> {
+    let shell = client(wire::Client::try_connect).map_err(|_| -errno::ENOENT)?;
+    call(&shell).map_err(i64::from)
 }
 
 /// How serious a notice is.
