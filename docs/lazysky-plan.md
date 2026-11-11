@@ -97,8 +97,9 @@ impl Events {
 * **Core images are `Bitmap { w, h, rgba: Vec<u8> }`**, already downscaled and
   cropped to the box the UI asked for (R4). The UI turns a `Bitmap` into
   `xui_core::Image::from_rgba`.
-* **The core has no wake-up callback.** LazyOS's backend has no cross-thread
-  waker, so the UI polls `try_next` from a timer. A desktop front end may use
+* **The core has no wake-up callback.** The UI polls `try_next` from a
+  timer (the layout thread's rows, by contrast, arrive through an
+  `xui_app::work` inbox and a doorbell message). A desktop front end may use
   a wake hook if its backend has one; an optional `Core::set_notify(Fn())`
   exists for that, and is `None` on LazyOS.
 

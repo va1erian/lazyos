@@ -129,8 +129,9 @@ set-up written differently:
   golf, LazySky) and `Host.log` closures; three panic hooks.
 * **Worker to UI thread:** four mechanisms (`Proxy::send`; mpsc polled from a
   timer; an `Arc<Mutex<Option<..>>>` slot polled from a timer; custom wake
-  callbacks). `archiver/src/job.rs:4` and `pdfview/src/worker.rs:5` say the
-  backend has no cross-thread waker; `backend/wakeup.rs` is one.
+  callbacks). `archiver/src/job.rs:4` and `pdfview/src/worker.rs:5` said the
+  backend has no cross-thread waker; `backend/wakeup.rs` is one. (X3 replaced
+  all four with `xui_app::work`, section 4.3.)
 * **Per-app services re-derived:** settings (confd keys built with `format!`
   in six places, a TOML file in LazySky, environment variables in Mail, a
   `recent.txt` in NES); the app data directory three ways; `$HOME` resolved
@@ -383,6 +384,46 @@ the timer-polled mpsc and mutex slots in pdfview, archiver, golf, LazySky
 and `net/web.rs`, and is how a `Pending<R>` from a generated async call
 reaches the UI. Progress uses the same channel.
 
+**As built (X3).** The helper is the tiny crate `xui-app/crates/work`
+(`xui-work`, re-exported as `xui_app::work`), over xui's `Proxy` (whose
+`send` already ends in the backend's waker). It lives in its own crate rather
+than in `xui-app` because the portable, host-tested app crates (pdfview,
+archiver, golf, lazysky-ui, explorer, settings) depend on `xui-core` only and
+must not gain `xui-app`; `xui-work` needs nothing else. There is no
+`AppContext` yet (X2), so the calls take the window's `ui.proxy()` (or a
+`Sink`) instead of `cx`:
+
+* `work::spawn(&proxy, "name", || work(), |result| Msg::Done(result))`: a
+  named thread; `result` is `Result<R, Failed>`, so a thread that cannot
+  start or a panic still answers (under the image's `panic = "abort"` a panic
+  ends the process, as everywhere).
+* `work::spawn_with(&proxy, name, |report| .., Msg::Progress, Msg::Done)`: the
+  same with `report.report(p)`, `report.paced(gap, || p)` and
+  `report.cancelled()`; the returned `Job` cancels on drop (`detach()` opts
+  out).
+* `work::Queue`: one long-lived worker for a stream of requests (`start`, or
+  `start_latest` to skip a burst's stale ones): the docs loader and the
+  desktop scanner.
+* `work::Sink<R>` (a handle that posts `R` as the app's message; `Sink::bell`
+  for a doorbell) and `work::inbox` (a queue of small results behind one
+  doorbell message, drained in batches): pdfview's render threads, LazySky's
+  layout thread, the explorer's thumbnails and paste, LazyWeb's relay.
+
+Migrated: pdfview (tiles as `Msg::Tile`, a document epoch drops tiles of a
+closed file; the 30 ms drain timer is gone), archiver (`Msg::Progress` and
+`Msg::Finished`; `lazyarc::Progress::observed` tells the window at most every
+100 ms; the poll timer is gone), golf (`Msg::Gen`, a generation number drops
+a superseded search), lazysky-ui (layout rows through an inbox; a `Msg::Laid`
+doorbell promotes the tick), explorer (thumbnails through an inbox, paste
+through `spawn`), settings (elevated changes through `spawn`, `Done::Lost` on
+failure), docs loader and `desk-scan` (`Queue`), Net Tools' fetch (`spawn`,
+the status refresh timer stays), LazyWeb (`Waker` replaced by `Sink::bell`).
+Not migrated, on purpose: frame clocks (golf's and the video player's frame
+timers pace drawing, they do not poll for a result), LazySky's tick for the
+core's events and pictures (its own design, R5/R8), the Playground's runner
+wake, and LazyWeb's helper threads whose doorbell already is a `Proxy`
+send.
+
 ### 4.4 Shared plumbing, once
 
 * One `atomic_write` (in `libs/fhs` or a small std helper crate) for the 16
@@ -447,7 +488,7 @@ leaves `main` green.
 | C6 | `check_handrolled.py --ratchet` in CI | (keeps it from coming back) |
 | X1 | `xui_app::app(..)` builder, `.opens`, panic hook, `finish`; new template; migrate every bin | `themed.rs`, outboxes, seven launch paths |
 | X2 | `AppContext`: settings, dirs, recent, dialogs, error, files | four `Host` structs, `format!` confd keys, `$HOME` lookups |
-| X3 | `cx.spawn` | four worker handoff mechanisms |
+| X3 | **Built** (`xui_app::work`, section 4.3; `cx.spawn` follows X2) | four worker handoff mechanisms |
 | X4 | Shared plumbing (4.4) and the marker migration | atomic-write, image, zip, HTTP copies; `println!` markers |
 
 C1, C2a and X1 are independent and run in parallel; C2b needs C1 and C2a;
