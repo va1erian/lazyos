@@ -46,12 +46,13 @@ pub(crate) fn install(params: &Value, current: &mut Option<Upload>) -> Result<St
     let installed = user::messenger::pkgd::Client::connect(user::messenger::client::Native)
         .map_err(|e| (code::UNAVAILABLE, format!("pkgd: {}", e.message())))
         .and_then(|pkgd| {
-            pkgd.install_debug(&path, sha256).map_err(|f| {
-                (
-                    code::DENIED,
-                    format!("pkgd refused the package: {}", f.message()),
-                )
-            })
+            pkgd.install_debug_within(&path, sha256, Deadline::Never)
+                .map_err(|f| {
+                    (
+                        code::DENIED,
+                        format!("pkgd refused the package: {}", f.message()),
+                    )
+                })
         });
     *current = None;
     let _ = user::files::remove(&path);

@@ -26,7 +26,7 @@ use super::peers::retry;
 use super::provision::Pass;
 use super::registry::Registry;
 use super::store;
-use libmessenger::client::Connection;
+use libmessenger::client::{Connection, Deadline};
 
 pub(crate) const EPERM: i64 = 1;
 pub(crate) const ENOENT: i64 = 2;
@@ -275,7 +275,7 @@ impl Pkgd {
         let client = self.accounts.get_or_insert_with(|| {
             accounts::Client::from_connection(Connection::new(Native, accounts::NAME))
         });
-        let record = retry(|| client.lookup_uid(uid)).ok()??;
+        let record = retry(|| client.lookup_uid_within(uid, Deadline::Never)).ok()??;
         Some(record.home)
     }
 }

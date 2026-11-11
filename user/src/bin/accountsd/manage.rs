@@ -207,7 +207,9 @@ fn provision(name: &str, secret: &str) -> Result<Verifier, Refusal> {
         Refusal::new(errno::EIO, "the key service could not store the password")
     };
     let client = keyd::Client::try_connect(Native).map_err(unavailable)?;
-    let text = client.provision(name, secret).map_err(unavailable)?;
+    let text = client
+        .provision_within(name, secret, Deadline::Never)
+        .map_err(unavailable)?;
     Verifier::parse(&text).ok_or_else(|| Refusal::new(errno::EIO, "keyd returned no verifier"))
 }
 

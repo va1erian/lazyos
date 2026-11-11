@@ -29,7 +29,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 
-use libmessenger::client::CallError;
+use libmessenger::client::{CallError, Deadline};
 use user::messenger::client::Native;
 use user::messenger::mime;
 use user::messenger::pkgd::{self, Client, Installed, PackageInfo};
@@ -96,12 +96,18 @@ fn run(args: &[String]) -> Result<(), String> {
     match command {
         Some("inspect") => {
             let path = arg(args, "inspect <path>")?;
-            show_info(&client.inspect(path).map_err(failed)?);
+            show_info(
+                &client
+                    .inspect_within(path, Deadline::Never)
+                    .map_err(failed)?,
+            );
             Ok(())
         }
         Some("install") => {
             let path = arg(args, "install <path>")?;
-            let app = client.install(path).map_err(failed)?;
+            let app = client
+                .install_within(path, Deadline::Never)
+                .map_err(failed)?;
             say(&format!(
                 "PKGCTL:INSTALL:PASS {} {} {}",
                 app.system_name, app.version, app.install_dir
@@ -110,12 +116,14 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         Some("remove") => {
             let name = arg(args, "remove <system-name>")?;
-            client.remove(name).map_err(failed)?;
+            client
+                .remove_within(name, Deadline::Never)
+                .map_err(failed)?;
             say(&format!("PKGCTL:REMOVE:PASS {name}"));
             Ok(())
         }
         _ => {
-            let apps = client.list().map_err(failed)?;
+            let apps = client.list_within(Deadline::Never).map_err(failed)?;
             say(&format!("PKGCTL:LIST:{}", apps.len()));
             for app in &apps {
                 show_installed(app);
@@ -136,7 +144,7 @@ fn open_with_installer(path: &str, verb: &str) -> Result<(), String> {
     let mimed = mime::Client::connect(user::messenger::client::Native)
         .map_err(|error| format!("pkgctl: mimed is not running: {}", error.message()))?;
     let opened = mimed
-        .open(path, verb)
+        .open_within(path, verb, Deadline::Never)
         .map_err(|error| format!("pkgctl: open failed: {}", error.message()))?;
     if !opened.launched {
         return Err(format!(

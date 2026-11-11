@@ -7,7 +7,7 @@
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use libmessenger::client::CallError;
+use libmessenger::client::{CallError, Deadline};
 use user::central;
 use user::messenger::client::Native;
 use user::messenger::mime::wire;
@@ -214,7 +214,7 @@ fn launch_via_init(
             park_tick();
             continue;
         };
-        match active.launch(app, path, session) {
+        match active.launch_within(app, path, session, Deadline::Never) {
             Ok(result) => {
                 sys::write_str(&format!(
                     "mimed: launched {} pid {} (session {})\n",

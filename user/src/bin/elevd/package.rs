@@ -38,6 +38,7 @@ use alloc::vec::Vec;
 use elevpolicy::approvals::Caller;
 use elevpolicy::package::{self, Facts, Permission};
 use elevpolicy::Operation;
+use libmessenger::client::Deadline;
 use pkgstore::{access, toolgate};
 use user::messenger::accounts::UserRecord as User;
 use user::messenger::client::Native;
@@ -119,7 +120,9 @@ fn source(path: &str, caller: Caller, asker: Option<&User>) -> Result<String, Re
 fn inspect(path: &str, kind: Install) -> Result<Approved, Refusal> {
     let client = pkgd::Client::connect(Native).map_err(Refusal::of_call)?;
     let failure = Refusal::of_call;
-    let info = client.inspect(path).map_err(failure)?;
+    let info = client
+        .inspect_within(path, Deadline::Never)
+        .map_err(failure)?;
     if let Some(problem) = info.problems.first() {
         return Err(Refusal::new(errno::EINVAL, problem));
     }
@@ -135,7 +138,9 @@ fn inspect(path: &str, kind: Install) -> Result<Approved, Refusal> {
         }
         _ => {}
     }
-    let installed = client.installed(&info.system_name).map_err(failure)?;
+    let installed = client
+        .installed_within(&info.system_name, Deadline::Never)
+        .map_err(failure)?;
     let core = installed
         .as_ref()
         .filter(|row| row.origin == wire::ORIGIN_CORE);

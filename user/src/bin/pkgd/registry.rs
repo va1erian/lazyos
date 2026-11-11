@@ -9,7 +9,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use libmessenger::client::{CallError, Connection};
+use libmessenger::client::{CallError, Connection, Deadline};
 use pkgstore::layout;
 use user::messenger::client::Native;
 use user::messenger::confd::{self, Client as ConfdClient, ValueClient};
@@ -19,6 +19,11 @@ use user::messenger::services::init::Client as InitClient;
 use user::messenger::{errno, services, Error, Result};
 
 use super::peers::retry;
+
+/// `pkgd` has always waited as long as its peers take (an install writes to
+/// disk through `confd` and holds a whole boot's provisioning behind it), so
+/// none of its calls takes the crate's default bound.
+const UNBOUNDED: Deadline = Deadline::Never;
 
 /// The connections and the operations on them.
 pub(crate) struct Registry {
@@ -53,7 +58,7 @@ impl Registry {
     pub(crate) fn get(&mut self, system_name: &str) -> Result<Option<Installed>> {
         let key = row_key(system_name)?;
         let client = self.confd();
-        let value = retry(|| client.get_value(&key)).map_err(confd::lower)?;
+        let value = retry(|| client.get_value_within(&key, UNBOUNDED)).map_err(confd::lower)?;
         match value {
             Some(::confd::Value::Bytes(bytes)) => decode_row(&bytes).map(Some),
             Some(_) => Err(Error::Errno(-errno::EINVAL)),
@@ -67,21 +72,22 @@ impl Registry {
         let bytes = wire::encode_installed(row).map_err(Error::Parcel)?;
         let value = ::confd::Value::Bytes(bytes);
         let client = self.confd();
-        retry(|| client.set_value(&key, &value)).map_err(confd::lower)
+        retry(|| client.set_value_within(&key, &value, UNBOUNDED)).map_err(confd::lower)
     }
 
     /// Forget an app; deleting an absent row succeeds.
     pub(crate) fn delete(&mut self, system_name: &str) -> Result<()> {
         let key = row_key(system_name)?;
         let client = self.confd();
-        retry(|| client.delete(&key)).map_err(confd::lower)
+        retry(|| client.delete_within(&key, UNBOUNDED)).map_err(confd::lower)
     }
 
     /// Every installed app in install order (oldest first). A row that does not
     /// decode is skipped, so one corrupt value cannot hide the others.
     pub(crate) fn list(&mut self) -> Result<Vec<Installed>> {
         let client = self.confd();
-        let keys = retry(|| client.list(layout::CONFD_PREFIX)).map_err(confd::lower)?;
+        let keys =
+            retry(|| client.list_within(layout::CONFD_PREFIX, UNBOUNDED)).map_err(confd::lower)?;
         let mut rows = Vec::new();
         for key in keys {
             let Some(name) = layout::system_name_of_key(&key) else {
@@ -105,8 +111,8 @@ impl Registry {
     /// one was stored.
     pub(crate) fn stamp(&mut self) -> Result<Option<String>> {
         let client = self.confd();
-        let value =
-            retry(|| client.get_value(pkgstore::provision::STAMP_KEY)).map_err(confd::lower)?;
+        let value = retry(|| client.get_value_within(pkgstore::provision::STAMP_KEY, UNBOUNDED))
+            .map_err(confd::lower)?;
         Ok(match value {
             Some(::confd::Value::Str(text)) => Some(text),
             _ => None,
@@ -117,7 +123,8 @@ impl Registry {
     pub(crate) fn set_stamp(&mut self, stamp: &str) -> Result<()> {
         let value = ::confd::Value::Str(String::from(stamp));
         let client = self.confd();
-        retry(|| client.set_value(pkgstore::provision::STAMP_KEY, &value)).map_err(confd::lower)
+        retry(|| client.set_value_within(pkgstore::provision::STAMP_KEY, &value, UNBOUNDED))
+            .map_err(confd::lower)
     }
 
     /// Register `app` as the handler of `mime` for `verb`.
@@ -129,13 +136,13 @@ impl Registry {
         owner: u32,
     ) -> Result<()> {
         let client = self.mimed();
-        retry(|| client.register(mime, app, verb, owner)).map_err(lower)
+        retry(|| client.register_within(mime, app, verb, owner, UNBOUNDED)).map_err(lower)
     }
 
     /// Withdraw `app`'s registration of `mime` for `verb`.
     pub(crate) fn mime_unregister(&mut self, mime: &str, app: &str, verb: &str) -> Result<()> {
         let client = self.mimed();
-        retry(|| client.unregister(mime, app, verb)).map_err(lower)
+        retry(|| client.unregister_within(mime, app, verb, UNBOUNDED)).map_err(lower)
     }
 
     /// Ask `init` to stop every running instance of `app`; returns how many.
@@ -143,7 +150,7 @@ impl Registry {
         let client = self.init.get_or_insert_with(|| {
             InitClient::from_connection(Connection::new(Native, services::INIT_NAME))
         });
-        retry(|| client.stop(app)).map_err(lower)
+        retry(|| client.stop_within(app, UNBOUNDED)).map_err(lower)
     }
 }
 
