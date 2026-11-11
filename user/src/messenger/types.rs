@@ -105,6 +105,9 @@ impl Error {
                 }
                 code if code == -errno::ETIMEDOUT => "the call timed out before a reply arrived",
                 code if code == -errno::ECANCELED => "the call was canceled",
+                code if code == -errno::ENOSYS => {
+                    "that call is served by the kernel gate only, not by the Messenger daemon"
+                }
                 _ => "the Messenger call failed",
             },
         }

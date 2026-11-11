@@ -5,8 +5,9 @@
 
 use std::vec;
 
-use libmessenger::client::{Deadline, Errno, Handle, Transport};
+use libmessenger::client::{resolve_waiting, Deadline, Errno, Handle, Transport};
 use libmessenger::Parcel;
+use std::time::Duration;
 
 use crate::msg::parcel;
 use crate::time::clock;
@@ -20,6 +21,10 @@ const REPLY_BUF: usize = 64 * 1024;
 /// How long a program waits for a service to register: the one connect bound
 /// of the std runtime.
 const CONNECT_BOUND: Deadline = Deadline::secs(10);
+
+/// Pause between plain resolves while the kernel has no room for another
+/// waiter (`EAGAIN`): the overload path only, never the normal wait.
+const OVERLOAD_PAUSE: Duration = Duration::from_millis(10);
 
 /// The std transport. Stateless: the handle cache is the `Connection`'s.
 #[derive(Clone, Copy, Debug, Default)]
@@ -40,11 +45,17 @@ impl Transport for Std {
     /// (`WaitFor`): the thread parks until it registers or `until` passes,
     /// and nothing polls. [`Deadline::Poll`] is one plain `Resolve`.
     fn resolve(&self, name: &str, until: Deadline) -> Result<Handle, Errno> {
-        let found = match until {
-            Deadline::Poll => parcel::resolve(name),
-            _ => parcel::wait_for(name, until.absolute_ticks(clock())),
-        };
-        found.map_err(Errno::from_syscall)
+        if until == Deadline::Poll {
+            return parcel::resolve(name).map_err(Errno::from_syscall);
+        }
+        // Fixed once, so a re-issued wait keeps the caller's bound.
+        let stop = until.absolute_ticks(clock());
+        resolve_waiting(
+            || parcel::wait_for(name, stop).map_err(Errno::from_syscall),
+            || parcel::resolve(name).map_err(Errno::from_syscall),
+            || stop != 0 && clock() >= stop,
+            || std::thread::sleep(OVERLOAD_PAUSE),
+        )
     }
 
     fn call(&self, handle: Handle, request: &Parcel, until: Deadline) -> Result<Parcel, Errno> {

@@ -325,6 +325,9 @@ pub fn serve_request(request: &Parcel, sender: u64) -> Result<Parcel> {
             let entries = list()?;
             encode_entries(&entries)
         }
+        // A wait would park the daemon for every client: the kernel gate
+        // (`op::WAIT_FOR`, `registry::wait_for`) serves it, never `messengerd`.
+        wire::METHOD_WAITFOR => Err(Error::Errno(-errno::ENOSYS)),
         _ => Err(Error::Errno(-errno::EINVAL)),
     }
 }

@@ -3,10 +3,10 @@
 //! [`libmessenger::client::Connection`] on, and the one bounded wait for a
 //! service that has not registered yet.
 
-use libmessenger::client::{Deadline, Errno, Handle, Transport};
+use libmessenger::client::{resolve_waiting as wait_resolving, Deadline, Errno, Handle, Transport};
 use libmessenger::Parcel;
 
-use super::{registry, Endpoint, Error, Result};
+use super::{errno, park_tick, registry, Endpoint, Error, Result};
 use crate::sys;
 
 /// How long a native program waits for a service to register: the one connect
@@ -28,10 +28,34 @@ fn errno_of(error: Error) -> Errno {
 /// The kernel parks the task until the name registers or `until` passes
 /// (`WaitFor`), so nothing polls; [`Deadline::Poll`] is one plain `Resolve`.
 pub fn resolve_within(name: &str, until: Deadline) -> Result<Endpoint> {
-    match until {
-        Deadline::Poll => registry::resolve(name),
-        _ => registry::wait_for(name, until.absolute_ticks(sys::clock())),
+    if until == Deadline::Poll {
+        return registry::resolve(name);
     }
+    // Fixed once, so a re-issued wait keeps the caller's bound.
+    let stop = until.absolute_ticks(sys::clock());
+    let mut last = Error::Errno(-errno::EAGAIN);
+    let found = wait_resolving(
+        || {
+            registry::wait_for(name, stop)
+                .map(Endpoint::handle)
+                .map_err(|error| {
+                    last = error;
+                    errno_of(error)
+                })
+        },
+        // The overload path (`EAGAIN`): a plain resolve every tick.
+        || {
+            registry::resolve(name)
+                .map(Endpoint::handle)
+                .map_err(errno_of)
+        },
+        || stop != 0 && sys::clock() >= stop,
+        park_tick,
+    );
+    found.map(Endpoint::from_raw).map_err(|code| match code {
+        Errno::TIMEDOUT => Error::Errno(-errno::ETIMEDOUT),
+        _ => last,
+    })
 }
 
 /// [`registry::resolve`] for a program that may start before the service:
