@@ -113,6 +113,7 @@ fn mail_view(w: &Widgets) -> impl LayoutExt<Msg> {
                                 .column("Subject", Fill)
                                 .column("Date", Dip(124.0))
                                 .on_select(Msg::Message)
+                                .then(|list| list.on_sort(|_| Some(Msg::SortMessages)))
                                 .bind(&w.message_list)
                                 .width(Dip(LIST_W)),
                             build(Reader::new).bind(&w.reader).fill(1),

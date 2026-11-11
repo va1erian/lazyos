@@ -9,6 +9,7 @@ use xui_app::format::bytes;
 use xui_app::services::Services;
 use xui_app::sys::errno;
 use xui_app::sysinfo::{ProcessTable, Snapshot};
+use xui_app::table::SortedTable;
 use xui_core::Lucide;
 use xui_core::app::Ui;
 use xui_core::backend::WidgetId;
@@ -68,6 +69,7 @@ pub(crate) struct Widgets {
     services_heading: Handle<Label<Msg>>,
     services_note: Handle<Label<Msg>>,
     services: Handle<ListView<Msg>>,
+    services_sort: SortedTable,
     compact: [Meter; 3],
     pub(crate) status: Handle<StatusBar<Msg>>,
 }
@@ -125,9 +127,26 @@ impl Widgets {
                 .column("health", 80)
                 .column("depends on", 110)
                 .column("detail", Fill)
+                .then(|list| list.on_sort(|_| Some(Msg::Sort(View::Services))))
                 .bind(&self.services)
                 .fill(1),
         ))
+    }
+
+    /// Re-sorts `view`'s table after a click on its header.
+    pub(crate) fn resort(&self, view: View) {
+        match view {
+            View::Overview => {
+                let overview = &self.overview;
+                overview.programs_sort.resort(&overview.programs.get());
+            }
+            View::Memory => {
+                let memory = &self.memory;
+                memory.processes_sort.resort(&memory.processes.get());
+            }
+            View::Services => self.services_sort.resort(&self.services.get()),
+            View::Advanced => self.advanced.resort(),
+        }
     }
 
     /// Shows the full view, or only the header title and the meters.
@@ -226,7 +245,7 @@ impl Widgets {
                 ]
             })
             .collect();
-        self.services.get().refresh_model(rows);
+        self.services_sort.show(&self.services.get(), rows);
     }
 }
 

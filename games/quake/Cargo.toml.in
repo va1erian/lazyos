@@ -49,7 +49,7 @@ fhs = { path = "{ROOT}/libs/fhs", features = ["alloc"] }
 # session, the syscall shim); xui is pinned to the same revision `doom` uses,
 # so one `xui_core` links across the apps.
 xui-app = { path = "{ROOT}/xui-app" }
-xui-core = { git = "https://github.com/va1erian/xui", rev = "d77768341745d8e8ed1779ae3677c00a1b74b3aa" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "832c61f29419bf31a0518a47e050b15c97b316e3" }
 libmessenger = { path = "{ROOT}/libs/messenger" }
 
 [profile.release]

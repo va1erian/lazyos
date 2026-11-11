@@ -134,6 +134,7 @@ impl Page {
             Action::JoinHidden => self.join_hidden(),
             Action::Leave => self.leave(),
             Action::Forget => self.forget(),
+            Action::Sort => self.w.sort.resort(&self.w.list.get()),
         }
     }
 
@@ -182,15 +183,19 @@ impl Page {
         let Ok(networks) = wifi::networks(&card) else {
             return;
         };
-        let previous = self.w.list.get().selected();
+        let previous = self.selected_index();
         let selected = self.selected().map(|n| (n.ssid.clone(), n.id.clone()));
         let rows: Vec<Vec<String>> = networks.iter().map(model::row).collect();
         if rows != self.shown {
-            self.w.list.get().refresh_model(rows.clone());
+            // The signal column sorts by its dBm, not by the bars it draws.
+            let keys = networks.iter().map(model::sort_key).collect();
+            self.w
+                .sort
+                .show_keyed(&self.w.list.get(), rows.clone(), keys);
             let index = selected
                 .and_then(|(ssid, id)| {
                     if ssid.is_empty() {
-                        // Hidden networks all look alike: keep the row.
+                        // Hidden networks all look alike: keep the network.
                         previous.filter(|at| *at < networks.len())
                     } else {
                         networks
@@ -199,6 +204,7 @@ impl Page {
                             .or_else(|| networks.iter().position(|n| n.ssid == ssid))
                     }
                 })
+                .and_then(|index| self.w.sort.shown(index))
                 .or((!networks.is_empty()).then_some(0));
             self.w.list.get().select(index);
             self.shown = rows;
@@ -232,11 +238,17 @@ impl Page {
     }
 
     fn selected(&self) -> Option<&Network> {
+        self.selected_index()
+            .and_then(|index| self.networks.get(index))
+    }
+
+    /// The index in `networks` of the selected row (the list may be sorted).
+    fn selected_index(&self) -> Option<usize> {
         self.w
             .list
             .get()
             .selected()
-            .and_then(|index| self.networks.get(index))
+            .and_then(|row| self.w.sort.source(row))
     }
 
     /// The radio's interface, or a message saying there is none yet.

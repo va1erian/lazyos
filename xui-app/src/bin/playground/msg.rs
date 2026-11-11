@@ -58,6 +58,8 @@ pub enum Msg {
     TopicsRefresh,
     GallerySelect(usize),
     GalleryActivate(usize),
+    /// A click on an explorer table's header.
+    Sort(Table),
     // ---- doc pane ------------------------------------------------------
     Do(Action),
     OpenLink(String),
@@ -144,4 +146,12 @@ impl Msg {
                 | Msg::ExplorerTab(_)
         )
     }
+}
+
+/// The explorer's tables, for a header click.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Table {
+    Live,
+    Topics,
+    Gallery,
 }

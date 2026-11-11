@@ -44,9 +44,15 @@ pub fn dispatch(app: &mut ArchiverApp, msg: Msg, ui: &mut Ui<Msg>) {
         }
         Msg::Activate(row) => activate(app, ui, row),
         Msg::Sort(column) => {
+            // The list moved its own arrow before raising this; follow it.
             app.sort = app.header_sort(column);
-            folder::sort(&mut app.rows, app.sort.0, app.sort.1);
-            app.selection.clear();
+            let (column, ascending) = app.sort;
+            app.selection = folder::sort_keeping(&mut app.rows, &app.selection, column, ascending);
+            app.previous.clear();
+            app.sync(ui);
+            if let Some(&first) = app.selection.first() {
+                app.w.list.ensure_visible(first);
+            }
         }
         Msg::Context(row, at) => context(app, ui, row, at),
         Msg::Menu(id) => {

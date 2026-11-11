@@ -86,19 +86,30 @@ impl Playground {
     pub fn refill_live(&mut self) {
         let rows = self.ex.live_table();
         if rows != self.last_live {
-            self.w.live.get().refresh_model(rows.clone());
+            self.w.live_sort.show(&self.w.live.get(), rows.clone());
             self.last_live = rows;
         }
     }
 
     pub fn refill_topics(&mut self) {
         let rows = self.ex.topic_table();
-        self.w.topics.get().refresh_model(rows);
+        self.w.topics_sort.show(&self.w.topics.get(), rows);
     }
 
     pub fn refill_gallery(&mut self) {
         let rows = self.ex.gallery_table();
-        self.w.gallery.get().refresh_model(rows);
+        self.w.gallery_sort.show(&self.w.gallery.get(), rows);
+    }
+
+    /// A header click: re-sort that table, the selection following its item.
+    pub fn resort(&mut self, table: crate::msg::Table) {
+        use crate::msg::Table;
+        let w = &self.w;
+        match table {
+            Table::Live => w.live_sort.resort(&w.live.get()),
+            Table::Topics => w.topics_sort.resort(&w.topics.get()),
+            Table::Gallery => w.gallery_sort.resort(&w.gallery.get()),
+        }
     }
 
     /// Read the broker's topic list: when the user asks, or when the Topics tab
@@ -131,6 +142,9 @@ impl Playground {
     }
 
     pub fn live_select(&mut self, ui: &mut Ui<crate::msg::Msg>, row: usize) {
+        let Some(row) = self.w.live_sort.source(row) else {
+            return;
+        };
         let Some(name) = self.ex.live_names.get(row).cloned() else {
             return;
         };
@@ -151,6 +165,9 @@ impl Playground {
     }
 
     pub fn topic_select(&mut self, ui: &mut Ui<crate::msg::Msg>, row: usize) {
+        let Some(row) = self.w.topics_sort.source(row) else {
+            return;
+        };
         let Some(label) = self.ex.topic_labels.get(row).cloned() else {
             return;
         };
@@ -180,6 +197,9 @@ impl Playground {
 
     pub fn gallery_select(&mut self, ui: &mut Ui<crate::msg::Msg>, row: usize) {
         let _ = ui;
+        let Some(row) = self.w.gallery_sort.source(row) else {
+            return;
+        };
         let Some(id) = self.ex.gallery_ids.get(row).copied() else {
             return;
         };

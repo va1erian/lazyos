@@ -8,7 +8,7 @@ use esmail_glue::mailbox::OpenFolder;
 use esmail_glue::{CacheEvent, FolderRef};
 use xui_core::app::Ui;
 
-use super::models::MessageRows;
+use super::models;
 use super::{Mail, Msg};
 
 /// How many of a folder's newest cached messages show before the server answers.
@@ -188,7 +188,7 @@ impl Mail {
     pub(super) fn open_folder(&mut self, folder: FolderRef) {
         self.bodies.cancel();
         self.selected = None;
-        self.message_list.set_model(MessageRows::new(&[]));
+        self.message_sort.clear(&self.message_list);
         self.reader.show_notice("Select a message to read it.");
         self.set_status(&format!("Loading {}...", folder.mailbox));
         self.core_cache(|cache| {
@@ -293,13 +293,21 @@ impl Mail {
             open.folder().mailbox,
             open.loaded()
         );
-        self.message_list.set_model(MessageRows::new(&rows));
+        let (cells, keys) = (models::message_cells(&rows), models::message_keys(&rows));
+        self.message_sort
+            .show_keyed(&self.message_list, cells, keys);
+        let selected = selected.and_then(|row| self.message_sort.shown(row));
         self.message_list.select(selected);
         self.set_status(&status);
     }
 
+    /// `row` is a row of the list as shown (sorted); the folder's own row
+    /// is found through the sort.
     pub(super) fn select_message(&mut self, row: usize) {
         let Some(open) = self.open.as_ref() else {
+            return;
+        };
+        let Some(row) = self.message_sort.source(row) else {
             return;
         };
         let Some(header) = open.header(row).cloned() else {

@@ -50,17 +50,24 @@ impl ListModel for FolderRows {
     }
 }
 
-/// The message list: sender, subject and date, unread messages marked.
-pub struct MessageRows {
-    cells: Vec<[String; 3]>,
+/// The message list's cells, one row per message: sender, subject and
+/// date, unread messages marked.
+pub fn message_cells(rows: &[RowModel]) -> Vec<Vec<String>> {
+    rows.iter().map(|row| cells(row).to_vec()).collect()
 }
 
-impl MessageRows {
-    pub fn new(rows: &[RowModel]) -> MessageRows {
-        MessageRows {
-            cells: rows.iter().map(cells).collect(),
-        }
-    }
+/// What the message list's columns sort by: the sender and subject without
+/// the unread and flag marks (so a click on From does not put every unread
+/// message first), and the date as `YYYY-MM-DD HH:MM`, which sorts as text.
+pub fn message_keys(rows: &[RowModel]) -> Vec<Vec<String>> {
+    rows.iter()
+        .map(|row| {
+            let mut key = cells(row).to_vec();
+            key[0] = row.sender.clone();
+            key[1] = row.subject.clone();
+            key
+        })
+        .collect()
 }
 
 fn cells(row: &RowModel) -> [String; 3] {
@@ -76,19 +83,6 @@ fn cells(row: &RowModel) -> [String; 3] {
         format!("{}{flag}", row.subject),
         date,
     ]
-}
-
-impl ListModel for MessageRows {
-    fn rows(&self) -> usize {
-        self.cells.len()
-    }
-
-    fn cell(&self, row: usize, column: usize) -> Option<&str> {
-        self.cells
-            .get(row)
-            .and_then(|cells| cells.get(column))
-            .map(String::as_str)
-    }
 }
 
 #[cfg(test)]
@@ -132,10 +126,24 @@ mod tests {
             seen: false,
             flagged: false,
         };
-        let rows = MessageRows::new(&[row]);
-        assert_eq!(rows.cell(0, 0), Some("\u{2022} Ada"));
-        assert_eq!(rows.cell(0, 1), Some("Hello"));
-        assert_eq!(rows.cell(0, 2), Some("2026-10-03 21:00"));
-        assert_eq!(rows.cell(0, 3), None);
+        let cells = message_cells(&[row]);
+        assert_eq!(cells, [["\u{2022} Ada", "Hello", "2026-10-03 21:00"]]);
+    }
+
+    #[test]
+    fn sort_keys_drop_the_marks() {
+        let row = RowModel {
+            sender: "Ada".into(),
+            subject: "Hello".into(),
+            from: String::new(),
+            raw_subject: String::new(),
+            raw_date: String::new(),
+            local_date_time: Some(("2026-10-03".into(), "21:00".into())),
+            seen: false,
+            flagged: true,
+        };
+        let rows = [row];
+        assert_eq!(message_cells(&rows)[0][1], "Hello \u{2605}");
+        assert_eq!(message_keys(&rows), [["Ada", "Hello", "2026-10-03 21:00"]]);
     }
 }

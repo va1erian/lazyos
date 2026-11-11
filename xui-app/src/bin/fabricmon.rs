@@ -29,7 +29,7 @@ use xui_core::Key;
 #[path = "fabricmon/view.rs"]
 mod view;
 
-use view::Widgets;
+use view::{Table, Widgets};
 
 /// The window size when a compositor lays the app out (issue #215); as the
 /// display owner it fills the screen instead.
@@ -52,6 +52,8 @@ pub(crate) enum Msg {
     Resized,
     /// Show the tab at this index.
     Show(usize),
+    /// A header click on one of the tables.
+    Sort(Table),
 }
 
 /// The last readings of each view; a failed read keeps the previous value
@@ -169,6 +171,7 @@ impl App for Fabricmon {
                 }
             }
             Msg::Show(index) => self.widgets.tabs.get().select(index),
+            Msg::Sort(table) => self.widgets.resort(table),
             Msg::Quit => {
                 println!("FABMON:QUIT:PASS");
                 ui.quit();

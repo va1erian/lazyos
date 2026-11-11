@@ -8,6 +8,7 @@
 use xui_app::fabric::{errno_text, FabricStats, Topics};
 use xui_app::format::{bytes, hex_id};
 use xui_core::app::Ui;
+use xui_app::table::SortedTable;
 use xui_core::prelude::*;
 
 use crate::{Msg, State};
@@ -56,6 +57,14 @@ struct Headline {
     value: Handle<Label<Msg>>,
 }
 
+/// The three tables, for a header click.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Table {
+    Tasks,
+    Registry,
+    Topics,
+}
+
 /// Every widget the app changes after start-up.
 #[derive(Default)]
 pub(crate) struct Widgets {
@@ -64,11 +73,14 @@ pub(crate) struct Widgets {
     counters: [Handle<Label<Msg>>; COUNTERS.len()],
     tasks_heading: Handle<Label<Msg>>,
     tasks: Handle<ListView<Msg>>,
+    tasks_sort: SortedTable,
     registry_heading: Handle<Label<Msg>>,
     registry: Handle<ListView<Msg>>,
+    registry_sort: SortedTable,
     topics_heading: Handle<Label<Msg>>,
     topics_note: Handle<Label<Msg>>,
     topics: Handle<ListView<Msg>>,
+    topics_sort: SortedTable,
     headlines: [Headline; 4],
     status: Handle<StatusBar<Msg>>,
 }
@@ -125,6 +137,7 @@ impl Widgets {
                 .column_right("handles", 90)
                 .column_right("buffers", 90)
                 .column_right("buffer bytes", 120)
+                .then(|list| list.on_sort(|_| Some(Msg::Sort(Table::Tasks))))
                 .bind(&self.tasks)
                 .fill(1),
         ))
@@ -137,6 +150,7 @@ impl Widgets {
                 .column("name", 260)
                 .column("owner", 90)
                 .column("interfaces", Fill)
+                .then(|list| list.on_sort(|_| Some(Msg::Sort(Table::Registry))))
                 .bind(&self.registry)
                 .fill(2),
             label("Topics — broker").bind(&self.topics_heading),
@@ -145,6 +159,7 @@ impl Widgets {
                 .column("topic", 260)
                 .column_right("subscribers", 100)
                 .column("retained", Fill)
+                .then(|list| list.on_sort(|_| Some(Msg::Sort(Table::Topics))))
                 .bind(&self.topics)
                 .fill(1),
         ))
@@ -162,6 +177,15 @@ impl Widgets {
             self.status.get().id(),
         ] {
             ui.set_visible(id, !compact);
+        }
+    }
+
+    /// Re-sorts `table` after a click on its header.
+    pub(crate) fn resort(&self, table: Table) {
+        match table {
+            Table::Tasks => self.tasks_sort.resort(&self.tasks.get()),
+            Table::Registry => self.registry_sort.resort(&self.registry.get()),
+            Table::Topics => self.topics_sort.resort(&self.topics.get()),
         }
     }
 
@@ -217,7 +241,7 @@ impl Widgets {
         self.tasks_heading
             .get()
             .set_text(&format!("Per-task usage — {} live slot(s)", rows.len()));
-        self.tasks.get().refresh_model(rows);
+        self.tasks_sort.show(&self.tasks.get(), rows);
     }
 
     fn show_registry(&self, state: &State) {
@@ -250,7 +274,7 @@ impl Widgets {
                 ]
             })
             .collect();
-        self.registry.get().refresh_model(rows);
+        self.registry_sort.show(&self.registry.get(), rows);
     }
 
     fn show_topics(&self, topics: Option<&Topics>) {
@@ -290,7 +314,7 @@ impl Widgets {
         };
         self.topics_heading.get().set_text(&heading);
         self.topics_note.get().set_text(note);
-        self.topics.get().refresh_model(rows);
+        self.topics_sort.show(&self.topics.get(), rows);
     }
 
     /// The status bar: tick, refreshes, headline counts and the source (or the

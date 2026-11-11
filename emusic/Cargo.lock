@@ -4605,7 +4605,7 @@ dependencies = [
 [[package]]
 name = "xui"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=d77768341745d8e8ed1779ae3677c00a1b74b3aa#d77768341745d8e8ed1779ae3677c00a1b74b3aa"
+source = "git+https://www.github.com/va1erian/xui?rev=832c61f29419bf31a0518a47e050b15c97b316e3#832c61f29419bf31a0518a47e050b15c97b316e3"
 dependencies = [
  "xui-core",
 ]
@@ -4690,7 +4690,7 @@ dependencies = [
 [[package]]
 name = "xui-canvas"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=d77768341745d8e8ed1779ae3677c00a1b74b3aa#d77768341745d8e8ed1779ae3677c00a1b74b3aa"
+source = "git+https://www.github.com/va1erian/xui?rev=832c61f29419bf31a0518a47e050b15c97b316e3#832c61f29419bf31a0518a47e050b15c97b316e3"
 dependencies = [
  "cosmic-text",
  "tiny-skia",
@@ -4717,7 +4717,7 @@ dependencies = [
 [[package]]
 name = "xui-core"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=d77768341745d8e8ed1779ae3677c00a1b74b3aa#d77768341745d8e8ed1779ae3677c00a1b74b3aa"
+source = "git+https://www.github.com/va1erian/xui?rev=832c61f29419bf31a0518a47e050b15c97b316e3#832c61f29419bf31a0518a47e050b15c97b316e3"
 dependencies = [
  "png 0.17.16",
  "raw-window-handle",
@@ -4753,7 +4753,7 @@ dependencies = [
 [[package]]
 name = "xui-icons"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=d77768341745d8e8ed1779ae3677c00a1b74b3aa#d77768341745d8e8ed1779ae3677c00a1b74b3aa"
+source = "git+https://www.github.com/va1erian/xui?rev=832c61f29419bf31a0518a47e050b15c97b316e3#832c61f29419bf31a0518a47e050b15c97b316e3"
 dependencies = [
  "xui-core",
 ]
@@ -4761,7 +4761,7 @@ dependencies = [
 [[package]]
 name = "xui-markdown"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=d77768341745d8e8ed1779ae3677c00a1b74b3aa#d77768341745d8e8ed1779ae3677c00a1b74b3aa"
+source = "git+https://github.com/va1erian/xui?rev=832c61f29419bf31a0518a47e050b15c97b316e3#832c61f29419bf31a0518a47e050b15c97b316e3"
 dependencies = [
  "pulldown-cmark",
  "unicode-linebreak",
@@ -4806,7 +4806,7 @@ dependencies = [
 [[package]]
 name = "xui-rich-text"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=d77768341745d8e8ed1779ae3677c00a1b74b3aa#d77768341745d8e8ed1779ae3677c00a1b74b3aa"
+source = "git+https://www.github.com/va1erian/xui?rev=832c61f29419bf31a0518a47e050b15c97b316e3#832c61f29419bf31a0518a47e050b15c97b316e3"
 dependencies = [
  "serde",
  "serde_json",

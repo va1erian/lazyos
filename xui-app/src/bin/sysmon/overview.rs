@@ -5,11 +5,12 @@
 
 use xui_app::format::bytes;
 use xui_app::sysinfo::{MemoryUse, Snapshot};
+use xui_app::table::SortedTable;
 use xui_core::prelude::*;
 
 use crate::load::ProgramLoad;
 use crate::paint::{self, CpuGraph, History, MemoryBar, Share};
-use crate::Msg;
+use crate::{Msg, View};
 
 /// What each share is called and what it means, in [`Share::ALL`] order.
 const SHARES: [(&str, &str); 4] = [
@@ -31,6 +32,7 @@ pub(crate) struct Overview {
     bar: Handle<MemoryBar>,
     shares: [Handle<Label<Msg>>; 4],
     pub(crate) programs: Handle<ListView<Msg>>,
+    pub(crate) programs_sort: SortedTable,
 }
 
 impl Overview {
@@ -45,6 +47,7 @@ impl Overview {
                 .column_right("Memory", 110)
                 .column_right("Processor", 110)
                 .column("Status", 130)
+                .then(|list| list.on_sort(|_| Some(Msg::Sort(View::Overview))))
                 .bind(&self.programs)
                 .fill(1),
         ))
@@ -121,7 +124,7 @@ impl Overview {
                 ]
             })
             .collect();
-        self.programs.get().refresh_model(rows);
+        self.programs_sort.show(&self.programs.get(), rows);
     }
 
     fn show_memory(&self, memory: &MemoryUse) {
@@ -157,7 +160,7 @@ impl Overview {
         for value in &self.shares {
             value.get().set_text("");
         }
-        self.programs.get().refresh_model(Vec::<Vec<String>>::new());
+        self.programs_sort.clear(&self.programs.get());
     }
 }
 

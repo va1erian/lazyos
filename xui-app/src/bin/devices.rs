@@ -23,7 +23,7 @@ use xui_core::Key;
 #[path = "devices/view.rs"]
 mod view;
 
-use view::Widgets;
+use view::{Table, Widgets};
 
 /// The window size when a compositor lays the app out.
 const WINDOW: (i32, i32) = (900, 640);
@@ -35,6 +35,8 @@ const REFRESH_MILLIS: u32 = 2000;
 pub(crate) enum Msg {
     Tick,
     Refresh,
+    /// A header click on one of the tables.
+    Sort(Table),
     Quit,
 }
 
@@ -55,6 +57,7 @@ impl App for Devices {
                     println!("DEVICES:REFRESH:PASS");
                 }
             }
+            Msg::Sort(table) => self.widgets.resort(table),
             Msg::Quit => {
                 println!("DEVICES:QUIT:PASS");
                 ui.quit();

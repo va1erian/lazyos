@@ -6,7 +6,7 @@ publish = false
 description = "The Calculator app core: a pocket-calculator engine and its window (host-testable)"
 
 [dependencies]
-xui-core = { git = "https://github.com/va1erian/xui", rev = "d77768341745d8e8ed1779ae3677c00a1b74b3aa" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "832c61f29419bf31a0518a47e050b15c97b316e3" }
 
 [dev-dependencies]
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "d77768341745d8e8ed1779ae3677c00a1b74b3aa", default-features = false }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "832c61f29419bf31a0518a47e050b15c97b316e3", default-features = false }

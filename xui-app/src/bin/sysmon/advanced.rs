@@ -4,9 +4,10 @@
 
 use xui_app::format::bytes;
 use xui_app::sysinfo::{MAX_TASKS, ProcessMemory, ProcessTable, Snapshot};
+use xui_app::table::SortedTable;
 use xui_core::prelude::*;
 
-use crate::Msg;
+use crate::{Msg, View};
 
 /// A gauge's progress bar counts in thousandths.
 pub(crate) const GAUGE: i32 = 1000;
@@ -62,6 +63,7 @@ pub(crate) struct Advanced {
     heap: Gauge,
     tasks_heading: Handle<Label<Msg>>,
     pub(crate) tasks: Handle<ListView<Msg>>,
+    tasks_sort: SortedTable,
 }
 
 impl Default for Advanced {
@@ -72,11 +74,17 @@ impl Default for Advanced {
             heap: Gauge::new(3),
             tasks_heading: Handle::new(),
             tasks: Handle::new(),
+            tasks_sort: SortedTable::new(),
         }
     }
 }
 
 impl Advanced {
+    /// A header click on the task table.
+    pub(crate) fn resort(&self) {
+        self.tasks_sort.resort(&self.tasks.get());
+    }
+
     pub(crate) fn layout(&self) -> Layout<Msg> {
         column().padding(8).gap(10).children((
             grid([Track::Fill(1); 3]).gap(16).children((
@@ -105,6 +113,7 @@ impl Advanced {
                 .column_right("private", 90)
                 .column_right("resident", 90)
                 .column("name", Fill)
+                .then(|list| list.on_sort(|_| Some(Msg::Sort(View::Advanced))))
                 .bind(&self.tasks)
                 .fill(1),
         ))
@@ -183,7 +192,7 @@ impl Advanced {
                 ]
             })
             .collect();
-        self.tasks.get().refresh_model(rows);
+        self.tasks_sort.show(&self.tasks.get(), rows);
     }
 
     /// Clears every value so no tab keeps the last successful read.
@@ -194,7 +203,7 @@ impl Advanced {
         for gauge in [&self.frames, &self.slab, &self.heap] {
             gauge.show(0.0, &[]);
         }
-        self.tasks.get().refresh_model(Vec::<Vec<String>>::new());
+        self.tasks_sort.clear(&self.tasks.get());
     }
 }
 
