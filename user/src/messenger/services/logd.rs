@@ -1,14 +1,16 @@
 //! `logd`: the structured, hash-chained event log service (issue #93).
 //!
 //! The wire shapes are the `midlc`-generated `os.lazy.logd.v1` stubs
-//! (`idl/logd.midl`). Only the structured error field is hand-written.
+//! (`idl/logd.midl`), and so is the blocking [`Client`]; the replies are the
+//! daemon's (stage C4).
 
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use libmessenger::Parcel;
 
-use crate::messenger::{Endpoint, Error, Result};
+use crate::messenger::client::Native;
+use crate::messenger::{Error, Result};
 
 use super::header;
 
@@ -18,40 +20,14 @@ pub use messenger_generated::os_lazy_logd_v1 as wire;
 /// The interface id every `logd` parcel carries.
 pub const INTERFACE: u64 = wire::INTERFACE_ID;
 
+/// A blocking client of `logd`: `Client::try_connect(Native)`.
+pub type Client = wire::Client<Native>;
+
 /// The generated method ids.
 pub use wire::{METHOD_COUNT, METHOD_SOURCES, METHOD_TAIL, METHOD_TAILFILE, METHOD_VERIFY};
 
 /// One `logd` record (the hash chains over the previous record's hash).
 pub use wire::LogRecord;
-
-/// `logd`'s `Tail` request. The count is optional on the wire; an absent one
-/// means the service's default.
-pub fn log_tail_request(count: u64) -> Parcel {
-    // A fresh encoder has room for one small option; an encoding error is
-    // impossible and would fall back to the default count.
-    let body = wire::encode_tail_args(&wire::TailArgs { count: Some(count) }).unwrap_or_default();
-    Parcel {
-        header: header(INTERFACE, wire::METHOD_TAIL),
-        body,
-        ..Parcel::default()
-    }
-}
-
-/// `logd`'s `Count` request.
-pub fn log_count_request() -> Parcel {
-    Parcel {
-        header: header(INTERFACE, wire::METHOD_COUNT),
-        ..Parcel::default()
-    }
-}
-
-/// `logd`'s `Verify` request.
-pub fn log_verify_request() -> Parcel {
-    Parcel {
-        header: header(INTERFACE, wire::METHOD_VERIFY),
-        ..Parcel::default()
-    }
-}
 
 /// Encode `logd`'s `Tail` reply.
 pub fn log_records_reply(records: &[LogRecord]) -> Result<Parcel> {
@@ -88,32 +64,6 @@ pub fn log_verify_reply(ok: bool, index: u64) -> Result<Parcel> {
     })
 }
 
-/// Decode a `Tail` reply into records.
-pub fn decode_log_records(parcel: &Parcel) -> Result<Vec<LogRecord>> {
-    let reply = wire::decode_tail_reply(&parcel.body).map_err(Error::Parcel)?;
-    Ok(reply.records)
-}
-
-/// Call `logd`'s `Tail`.
-pub fn fetch_log_tail(endpoint: &Endpoint, count: u64) -> Result<Vec<LogRecord>> {
-    let reply = endpoint.call(&log_tail_request(count), None)?;
-    decode_log_records(&reply)
-}
-
-/// Call `logd`'s `Count`.
-pub fn fetch_log_count(endpoint: &Endpoint) -> Result<u64> {
-    let reply = endpoint.call(&log_count_request(), None)?;
-    let decoded = wire::decode_count_reply(&reply.body).map_err(Error::Parcel)?;
-    Ok(decoded.count)
-}
-
-/// Call `logd`'s `Verify`; returns `(intact, first bad index)`.
-pub fn fetch_log_verify(endpoint: &Endpoint) -> Result<(bool, u64)> {
-    let reply = endpoint.call(&log_verify_request(), None)?;
-    let decoded = wire::decode_verify_reply(&reply.body).map_err(Error::Parcel)?;
-    Ok((decoded.ok, decoded.index))
-}
-
 /// Encode `logd`'s `Sources` reply.
 pub fn log_sources_reply(sources: Vec<String>) -> Result<Parcel> {
     let body =
@@ -134,46 +84,4 @@ pub fn log_tail_file_reply(lines: Vec<String>) -> Result<Parcel> {
         body,
         ..Parcel::default()
     })
-}
-
-/// The error a reply carries, if any (`Sources` and `TailFile` refuse
-/// callers other than uid 0).
-fn reply_error(parcel: &Parcel) -> Result<()> {
-    match super::init::error_field(parcel)? {
-        Some(code) => Err(Error::Errno(-code)),
-        None => Ok(()),
-    }
-}
-
-/// Call `logd`'s `Sources`: the persisted journals (uid 0 only).
-pub fn fetch_log_sources(endpoint: &Endpoint) -> Result<Vec<String>> {
-    let request = Parcel {
-        header: header(INTERFACE, wire::METHOD_SOURCES),
-        ..Parcel::default()
-    };
-    let reply = endpoint.call(&request, None)?;
-    reply_error(&reply)?;
-    Ok(wire::decode_sources_reply(&reply.body)
-        .map_err(Error::Parcel)?
-        .sources)
-}
-
-/// Call `logd`'s `TailFile`: the newest `count` lines of `/logs/<source>.log`
-/// (uid 0 only).
-pub fn fetch_log_tail_file(endpoint: &Endpoint, source: &str, count: u64) -> Result<Vec<String>> {
-    let body = wire::encode_tail_file_args(&wire::TailFileArgs {
-        source: String::from(source),
-        count,
-    })
-    .map_err(Error::Parcel)?;
-    let request = Parcel {
-        header: header(INTERFACE, wire::METHOD_TAILFILE),
-        body,
-        ..Parcel::default()
-    };
-    let reply = endpoint.call(&request, None)?;
-    reply_error(&reply)?;
-    Ok(wire::decode_tail_file_reply(&reply.body)
-        .map_err(Error::Parcel)?
-        .lines)
 }

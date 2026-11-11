@@ -5,7 +5,7 @@
 
 use libmessenger::Parcel;
 
-use crate::messenger::{errno, Endpoint, Error, Result};
+use crate::messenger::{errno, Error, Result};
 
 use super::header;
 
@@ -15,16 +15,11 @@ pub use messenger_generated::os_lazy_sysmond_v1 as wire;
 /// The interface id every `sysmond` parcel carries.
 pub const INTERFACE: u64 = wire::INTERFACE_ID;
 
+/// A blocking client of `sysmond`: `Client::try_connect(Native)`.
+pub type Client = wire::Client<crate::messenger::client::Native>;
+
 /// The generated `Snapshot` method id.
 pub use wire::METHOD_SNAPSHOT;
-
-/// `sysmond`'s `Snapshot` request (issue #144).
-pub fn sysinfo_request() -> Parcel {
-    Parcel {
-        header: header(INTERFACE, wire::METHOD_SNAPSHOT),
-        ..Parcel::default()
-    }
-}
 
 /// Encode `sysmond`'s `Snapshot` reply: the raw fixed-layout `sysinfo`
 /// snapshot bytes.
@@ -42,15 +37,4 @@ pub fn sysinfo_reply(snapshot: &crate::sysinfo::Snapshot) -> Result<Parcel> {
         body,
         ..Parcel::default()
     })
-}
-
-/// Call `sysmond`'s `Snapshot` and decode the fixed-layout reply; a service
-/// failure comes back as its original errno.
-pub fn fetch_sysinfo(endpoint: &Endpoint) -> Result<crate::sysinfo::Snapshot> {
-    let reply = endpoint.call(&sysinfo_request(), None)?;
-    if let Some(code) = super::error_field(&reply)? {
-        return Err(Error::Errno(-code));
-    }
-    let decoded = wire::decode_snapshot_reply(&reply.body).map_err(Error::Parcel)?;
-    crate::sysinfo::decode_bytes(&decoded.data).ok_or(Error::Errno(-errno::EINVAL))
 }

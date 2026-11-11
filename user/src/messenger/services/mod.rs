@@ -18,7 +18,7 @@ pub mod lifecycle;
 pub mod logd;
 pub mod sysmond;
 
-pub use health::{fetch_health, health_reply, health_report_request, health_request, HealthRecord};
+pub use health::{health_reply, HealthRecord};
 pub use init::{
     decode_launch_request, decode_stop_request, error_field, init_error_reply, launch_reply,
     list_apps_reply, service_event_name, services_reply, shutdown_reply, stop_reply, AppInfo,
@@ -26,11 +26,10 @@ pub use init::{
     POWER_MODE_REBOOT,
 };
 pub use logd::{
-    decode_log_records, fetch_log_count, fetch_log_sources, fetch_log_tail, fetch_log_tail_file,
-    fetch_log_verify, log_count_reply, log_count_request, log_records_reply, log_sources_reply,
-    log_tail_file_reply, log_tail_request, log_verify_reply, log_verify_request, LogRecord,
+    log_count_reply, log_records_reply, log_sources_reply, log_tail_file_reply, log_verify_reply,
+    LogRecord,
 };
-pub use sysmond::{fetch_sysinfo, sysinfo_reply, sysinfo_request};
+pub use sysmond::sysinfo_reply;
 
 /// The `init` supervisor's registered name.
 pub const INIT_NAME: &str = "os.lazy.init";
