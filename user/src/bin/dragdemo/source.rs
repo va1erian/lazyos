@@ -5,6 +5,7 @@
 //! Split out of `dragdemo.rs`; the code is unchanged.
 
 use alloc::format;
+use user::messenger::clipboard::Clipboard;
 use user::messenger::display::{self, Canvas, Color, DragKind, Event, Rect};
 use user::messenger::{errno, Error};
 use user::sys;

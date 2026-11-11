@@ -34,7 +34,7 @@ pub(crate) fn print_keys() {
 /// (issue #115). Metadata only: the `Current` method has no content field, so
 /// this command cannot and does not print any payload bytes.
 pub(crate) fn print_clipboard() {
-    let client = match clipboard::Client::connect() {
+    let client = match clipboard::Client::try_connect(clipboard::Nested) {
         Ok(client) => client,
         Err(error) => return report(error.message()),
     };

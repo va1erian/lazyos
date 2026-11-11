@@ -22,6 +22,7 @@ extern crate alloc;
 use alloc::format;
 use core::panic::PanicInfo;
 use user::central;
+use user::messenger::clipboard::{Clipboard, Nested};
 use user::messenger::{self, clipboard, errno, Error};
 use user::sys;
 use user::trace;
@@ -53,7 +54,7 @@ fn run() -> messenger::Result<()> {
     // Watch the session's retained changed topic on the central broker first
     // (issue #169); a late subscriber is handed the offer.
     let mut changes_bus = central::Bus::connect()?;
-    let session_text = format!("{}", client.session());
+    let session_text = format!("{}", clipboard::session().map_err(lower)?);
     let changes = clipboard::subscribe_session_clipboard_changed(&mut changes_bus, &session_text)?;
     let mut changed_buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     let event = match changes.recv_with(
@@ -69,7 +70,7 @@ fn run() -> messenger::Result<()> {
     if !info.mimes.iter().any(|mime| mime == DEMO_MIME) {
         fail("PASTE", "offer lacks the demo MIME type");
     }
-    let bytes = client.paste_token(info.token, DEMO_MIME)?;
+    let bytes = client.paste_token(info.token, DEMO_MIME).map_err(lower)?;
     if !bytes.starts_with(b"lazy@") || bytes.len() <= b"lazy@".len() {
         fail("PASTE", "payload is not the lazily materialized value");
     }
@@ -88,7 +89,7 @@ fn run() -> messenger::Result<()> {
         fail("DENIED", "could not enter the probe session");
     }
     match client.paste_token(info.token, DEMO_MIME) {
-        Err(Error::Errno(code)) if code == -errno::EACCES => {
+        Err(error) if error.code() == -errno::EACCES => {
             trace::line!(trace::Channel::Clip, "DENIED:PASS");
         }
         Ok(_) => fail("DENIED", "cross-session paste was allowed"),
@@ -120,22 +121,23 @@ fn big_offer_probes(client: &clipboard::Client) -> messenger::Result<()> {
     // owned by this task until the buffer is closed below.
     let pages = unsafe { core::slice::from_raw_parts_mut(va as *mut u8, BIG_LEN) };
     pages.fill(0xAA);
-    let request = clipboard::offer_buffer_request(
-        "clippaste",
-        BIG_MIME,
-        libmessenger::Buffer::whole(handle, BIG_LEN as u64),
-    )?;
-    let token = clipboard::decode_token(&client.endpoint().call(&request, None)?)?;
+    let token = client
+        .offer_buffer(
+            "clippaste",
+            BIG_MIME,
+            libmessenger::Buffer::whole(handle, BIG_LEN as u64),
+        )
+        .map_err(lower)?;
     // The owner keeps using its pages.
     pages.fill(0x55);
     let _ = sys::buffer_close(handle);
-    let bytes = client.paste_token(token, BIG_MIME)?;
+    let bytes = client.paste_token(token, BIG_MIME).map_err(lower)?;
     if bytes.len() != BIG_LEN || bytes.iter().any(|&byte| byte != 0xAA) {
         fail("SNAPSHOT", "the paste is not what was copied");
     }
     sys::write_str(&format!("CLIP:SNAPSHOT:PASS bytes={}\n", bytes.len()));
     match client.paste_token(token, "image/png") {
-        Err(Error::Errno(code)) if code == -errno::ENOENT => sys::write_str("CLIP:MIME:PASS\n"),
+        Err(error) if error.code() == -errno::ENOENT => sys::write_str("CLIP:MIME:PASS\n"),
         Ok(_) => fail("MIME", "a MIME the offer lacks was served"),
         Err(error) => fail("MIME", error.message()),
     }
@@ -149,8 +151,13 @@ fn fail(name: &str, detail: &str) -> ! {
 }
 
 /// Resolve `clipboardd`, retrying while its registration lands.
+/// A clipboard failure as this program's error type.
+fn lower(error: clipboard::ClientError) -> Error {
+    Error::Errno(error.code())
+}
+
 fn connect() -> messenger::Result<clipboard::Client> {
-    clipboard::Client::connect_waiting()
+    clipboard::Client::connect(Nested).map_err(lower)
 }
 
 #[panic_handler]
