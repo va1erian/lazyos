@@ -1539,12 +1539,14 @@
       {
         "name": "Volumes",
         "id": 2053774420,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Eject",
         "id": 819391126,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       }
     ],
     "topics": [],

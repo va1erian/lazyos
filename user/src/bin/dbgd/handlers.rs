@@ -337,7 +337,7 @@ pub(crate) fn devices_list() -> Result<String, Failure> {
 
 /// `drivers.list`: `devd`'s view.
 pub(crate) fn drivers_list() -> Result<String, Failure> {
-    let client = user::messenger::devd::Client::connect()
+    let client = user::messenger::devd::Client::try_connect(user::messenger::client::Native)
         .map_err(|_| (code::UNAVAILABLE, String::from("devd is not running")))?;
     let devices = client
         .devices()

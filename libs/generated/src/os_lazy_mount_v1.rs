@@ -162,8 +162,12 @@ pub const METHOD_UNMOUNT: u32 = 2047171115;
 pub const METHOD_LIST: u32 = 220805025;
 /// `Volumes` method id.
 pub const METHOD_VOLUMES: u32 = 2053774420;
+/// How long a client waits for `Volumes`'s reply, in milliseconds.
+pub const METHOD_VOLUMES_DEADLINE_MS: u32 = 5000;
 /// `Eject` method id.
 pub const METHOD_EJECT: u32 = 819391126;
+/// How long a client waits for `Eject`'s reply, in milliseconds.
+pub const METHOD_EJECT_DEADLINE_MS: u32 = 5000;
 
 /// The mount's name: it is served at `path`, `/mnt/<name>`.
 /// The filesystem daemon's protocol (`ftp` or `smb`).
@@ -573,9 +577,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// plug first. An ended volume stays listed until its stick is pulled,
     /// so its outcome can be read.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`).
     pub fn volumes(&self) -> Result<alloc::vec::Vec<VolumeInfo>, ClientError> {
-        self.volumes_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.volumes_within(libmessenger::client::Deadline::millis(METHOD_VOLUMES_DEADLINE_MS as u64))
     }
 
     /// [`Self::volumes`] with the caller's deadline instead of the IDL's.
@@ -600,9 +604,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// volume), `EINVAL` (not a disk name) and `EAGAIN` (still starting:
     /// ask again in a moment).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`).
     pub fn eject(&self, disk: &str, force: bool) -> Result<EjectReply, ClientError> {
-        self.eject_within(disk, force, libmessenger::client::DEFAULT_DEADLINE)
+        self.eject_within(disk, force, libmessenger::client::Deadline::millis(METHOD_EJECT_DEADLINE_MS as u64))
     }
 
     /// [`Self::eject`] with the caller's deadline instead of the IDL's.
