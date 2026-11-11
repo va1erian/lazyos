@@ -43,6 +43,8 @@ pub mod stall;
 pub mod sys;
 pub mod table;
 pub mod trace;
+/// Work off the UI thread, answered as messages (`xui-work`; docs/client-api-plan.md 4.3).
+pub use xui_work as work;
 /// The system-stats snapshot (syscall 14), shared with the native `top`.
 pub use lazyos_sys::sysinfo;
 

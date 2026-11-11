@@ -5858,6 +5858,7 @@ dependencies = [
  "xui-settings",
  "xui-videoview",
  "xui-webd-client",
+ "xui-work",
  "xui-writer",
 ]
 
@@ -6173,6 +6174,13 @@ dependencies = [
  "xui-webd",
  "xui-webd-client",
  "xui-webkit",
+]
+
+[[package]]
+name = "xui-work"
+version = "0.1.0"
+dependencies = [
+ "xui-core",
 ]
 
 [[package]]
