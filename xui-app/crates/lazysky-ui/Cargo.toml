@@ -9,6 +9,7 @@ description = "LazySky's portable xui window (docs/lazysky-plan.md): host-tested
 [dependencies]
 lazysky-core = { path = "../lazysky-core" }
 xui-core = { git = "https://github.com/va1erian/xui", rev = "832c61f29419bf31a0518a47e050b15c97b316e3" }
+xui-work = { path = "../work" }
 # Only for the `desktop` runner: xui's winit backend, so the same app runs
 # as a window on Windows, Linux and macOS. LazyOS builds never turn it on.
 xui-canvas = { git = "https://github.com/va1erian/xui", rev = "832c61f29419bf31a0518a47e050b15c97b316e3", default-features = false, optional = true }

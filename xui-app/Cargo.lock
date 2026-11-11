@@ -2405,6 +2405,7 @@ dependencies = [
  "serde_json",
  "xui-canvas",
  "xui-core",
+ "xui-work",
 ]
 
 [[package]]

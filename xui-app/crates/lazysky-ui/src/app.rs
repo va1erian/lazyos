@@ -125,6 +125,8 @@ pub struct LazySkyApp {
     core: Core,
     events: Events,
     layouts: Layouts,
+    /// Rows the layout thread finished, behind the `Msg::Laid` doorbell.
+    laid: xui_work::Inbox<crate::layouts::Done>,
     platform: Arc<dyn Platform>,
     images: Rc<RefCell<ImageCache>>,
     login: LoginPage,
@@ -260,11 +262,13 @@ impl LazySkyApp {
             .on_select(|id| Some(Msg::ImageMenu(id)));
         let (core, events) = Core::start(Arc::clone(&platform), settings.clone());
         // The shaper is taken once, here, and lives on the layout thread.
-        let layouts = Layouts::start(ui.text_shaper());
+        let (laid, laid_inbox) = xui_work::inbox(&ui.proxy(), Msg::Laid);
+        let layouts = Layouts::start(ui.text_shaper(), laid);
         let mut app = LazySkyApp {
             core,
             events,
             layouts,
+            laid: laid_inbox,
             platform,
             images,
             login,
@@ -372,6 +376,9 @@ impl App for LazySkyApp {
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         match msg {
             Msg::Tick => self.tick(ui),
+            // Rows are waiting: the tick (which applies them under its
+            // budget) runs soon rather than at the idle interval.
+            Msg::Laid => self.set_interval(ui, drain::BUSY_MS),
             Msg::SignInClicked => {
                 let (handle, password) = self.login.take_credentials();
                 self.update(

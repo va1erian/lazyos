@@ -10,6 +10,8 @@
 //! * [`spawn_with`]: the same with progress messages and cancellation; the
 //!   returned [`Job`] cancels on drop.
 //! * [`Queue`]: one long-lived worker serving requests in order.
+//! * [`inbox`]: a queue of small results the UI drains in batches, behind one
+//!   doorbell message.
 //! * [`Sink`]: a handle that posts values of one type, for a crate that does
 //!   not name the app's message type (a pool of render threads, a doorbell).
 //!
@@ -18,6 +20,7 @@
 //! built with `panic = "abort"`, where a panic ends the process instead; the
 //! host tests and the desktop runner get the message.)
 
+mod inbox;
 mod queue;
 mod sink;
 
@@ -28,6 +31,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+pub use inbox::{inbox, inbox_with, Inbox};
 pub use queue::Queue;
 pub use sink::{Mailbox, Sink};
 
