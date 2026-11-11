@@ -207,8 +207,12 @@ deadline. The caller's name policy is asked at the syscall edge and again each
 time the name is found, before any handle opens. A ticket is dropped on every
 way out; a task that died parked is dropped by `forget_waiter` (channel
 teardown) or the access-time prune of dead slots. Bounds: one ticket per task,
-512 in all (`EAGAIN`). A kill reaches the wait through the `Interrupted` wake
-(`must_unwind`, `ECANCELED`). Tests: `ipc_registry_wait_*` in
+16 per process, 512 in all of which 128 are for unlabelled tasks (`EAGAIN`).
+A kill reaches the wait through the `Interrupted` wake (`must_unwind`,
+`ECANCELED`); any other `Interrupted` wake (a signal, or `wait` refusing to
+park while a handler frame is deferred) ends it with `EINTR` after one more
+lookup, since looping with interrupts off would never end. The gate judges
+`WAIT_FOR` as `RESOLVE` and refuses a target other than the caller. Tests: `ipc_registry_wait_*` in
 `tests/registry_suite/wait_for.rs` (wake, other names, deadline, policy
 re-check, limits, release) and two soaks (240 waits with register/withdraw
 churn; 2,000 rounds of six tasks' tickets on eight names).

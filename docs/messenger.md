@@ -372,10 +372,15 @@ services|health|log` reads them back.
   the call's deadline (`ETIMEDOUT`; deadline `0` waits for ever); the reply is
   a `Resolve` reply. The name policy runs before the wait and again when the
   name appears, so a waiter learns nothing a `Resolve` would not tell it
-  (`EACCES` ends the wait). One wait per task and 512 in all (`EAGAIN`
-  beyond); a ticket is released when the wait ends, when the task is
-  killed (`ECANCELED`) or torn down. Kernel gate only: `messengerd` does not
-  proxy it, since the wait would park the daemon. Both client transports use
+  (`EACCES` ends the wait). One wait per task, 16 per process (threads are
+  slots) and 512 in all, 128 of which only unlabelled tasks may take
+  (`EAGAIN` beyond: the client runtimes then fall back to bounded plain
+  `Resolve` retries); a signal ends the wait with `EINTR` and the client
+  issues it again with the same deadline; a ticket is released when the wait
+  ends, when the task is killed (`ECANCELED`) or torn down. Kernel gate only,
+  and only for the caller's own table (`EINVAL` otherwise): `messengerd`
+  answers a forwarded `WaitFor` with `ENOSYS`, since the wait would park the
+  daemon. Both client transports use
   it for `Connection::connect`; `Deadline::Poll` stays a plain `Resolve`.
 - **Activation and leases:** `Resolve` can start a service on demand via
   `init`; handles and names are reference-counted, and process death

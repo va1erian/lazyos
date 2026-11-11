@@ -277,7 +277,7 @@ re-checks the table itself. The kernel side (`kernel/src/ipc/registry/
 wait.rs`) takes a ticket in the registry's waiter table before the first
 look (no lost wake-up), wakes only the waiters of the registered name after
 the registry lock is released, re-applies the caller's name policy when the
-name appears, and bounds waiters at one per task and 512 in all (`EAGAIN`).
+name appears, and bounds waiters at one per task, 16 per process and 512 in all, 128 of them reserved for unlabelled tasks (`EAGAIN`, on which both transports fall back to plain `Resolve` retries, the only sleep left); a signal ends the wait with `EINTR` and the transports re-issue it with the same deadline (`libmessenger::client::resolve_waiting`).
 `Errno` is a named newtype
 (`Errno::INVAL`), so `Err(-22)` disappears; `CallError` implements `Display`
 with the friendly text section 12 of `messenger.md` describes.
