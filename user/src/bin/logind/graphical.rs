@@ -35,11 +35,13 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use libmessenger::client::Deadline;
+use user::messenger::accounts::Directory;
+use user::messenger::client::Native;
 use user::messenger::confd::ValueClient;
 use user::trace;
 
 use user::messenger::{
-    self, accounts, confd, errno, logind, registry, router, services, Endpoint, Message, Parcel,
+    self, accounts, confd, errno, logind, router, services, Endpoint, Message, Parcel,
 };
 use user::sys;
 
@@ -101,7 +103,7 @@ struct Desktop {
     active: Option<Active>,
     next_session: u64,
     bus: Option<router::Bus>,
-    accounts: Option<Endpoint>,
+    accounts: Option<accounts::Client>,
     init: Option<Endpoint>,
     greeter: bool,
     autologin_tried: bool,
@@ -165,7 +167,7 @@ impl Desktop {
     /// Find the services this needs, as they appear.
     fn connect(&mut self) {
         if self.accounts.is_none() {
-            self.accounts = registry::resolve(accounts::NAME).ok();
+            self.accounts = accounts::Client::try_connect(Native).ok();
         }
         if self.bus.is_none() {
             self.bus = router::Bus::connect(services::INIT_NAME).ok();
@@ -184,7 +186,7 @@ impl Desktop {
         let account = self
             .accounts
             .as_ref()
-            .and_then(|endpoint| accounts::lookup_name(endpoint, AUTOLOGIN).ok().flatten());
+            .and_then(|client| client.lookup_name(AUTOLOGIN).ok().flatten());
         let Some(account) = account else {
             trace::line!(
                 trace::Channel::Login,
@@ -293,11 +295,11 @@ impl Desktop {
         }
         let args = logind::wire::decode_login_args(&message.parcel.body)
             .map_err(|_| (errno::EINVAL, "malformed"))?;
-        let endpoint = self
+        let accounts = self
             .accounts
             .as_ref()
             .ok_or((errno::EAGAIN, "accounts not ready"))?;
-        let account = match accounts::lookup_name(endpoint, &args.user) {
+        let account = match accounts.lookup_name(&args.user) {
             Ok(Some(account)) => account,
             Ok(None) => {
                 super::deny(&mut self.bus, &args.user, "unknown-user");
@@ -308,11 +310,11 @@ impl Desktop {
                 return Err((errno::EACCES, "refused"));
             }
         };
-        match accounts::authenticate(endpoint, &args.user, &args.secret) {
+        match accounts.authenticate(&args.user, &args.secret) {
             Ok(true) => {}
             // `accountsd`'s brake holds for this name (U1): say so, and do
             // not count it as one more wrong password.
-            Err(messenger::Error::Errno(code)) if code == -errno::EAGAIN => {
+            Err(error) if error.code() == -errno::EAGAIN => {
                 super::deny(&mut self.bus, &args.user, "slowed");
                 return Err((errno::EAGAIN, "too many failed attempts"));
             }

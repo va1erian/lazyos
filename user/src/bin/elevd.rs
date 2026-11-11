@@ -72,6 +72,7 @@ use libmessenger::client::{CallError, Deadline};
 use libmessenger::{Encoder, Parcel};
 use messenger_generated::errors::ERROR_FIELD;
 use messenger_generated::os_lazy_elevd_v1 as wire;
+use user::messenger::accounts::Directory;
 use user::messenger::client::Native;
 use user::messenger::{self, accounts, errno, pkgd, registry, services, Endpoint, Error, Message};
 use user::sys;
@@ -295,9 +296,9 @@ fn request(
             "only a program of a login session may ask for an administrator",
         ));
     }
-    let asker = accounts_endpoint()
+    let asker = accounts_client()
         .ok()
-        .and_then(|endpoint| accounts::lookup_uid(&endpoint, caller.uid).ok().flatten());
+        .and_then(|client| client.lookup_uid(caller.uid).ok().flatten());
     record.user = asker.as_ref().map_or_else(
         || alloc::format!("uid {}", caller.uid),
         |user| user.name.clone(),
@@ -381,9 +382,9 @@ fn request(
     }
 }
 
-/// `accountsd`'s endpoint.
-pub(crate) fn accounts_endpoint() -> messenger::Result<messenger::Endpoint> {
-    registry::resolve(accounts::NAME)
+/// A client of `accountsd` (one attempt: it may not be up).
+pub(crate) fn accounts_client() -> Result<accounts::Client, CallError> {
+    accounts::Client::try_connect(Native)
 }
 
 /// A reply of `method` carrying `body`.

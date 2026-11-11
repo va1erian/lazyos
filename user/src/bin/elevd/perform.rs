@@ -13,11 +13,11 @@ use elevpolicy::{value_args, Operation, Value, WifiChange, NET_PREFIX, POWER_PRE
 use libmessenger::client::{CallError, Deadline};
 use user::messenger::client::Native;
 use user::messenger::confd::ValueClient;
-use user::messenger::{accounts, confd, errno, keyd, pkgd, services, timed};
+use user::messenger::{confd, errno, keyd, pkgd, services, timed};
 use user::sys;
 
 use super::package::Approved;
-use super::{accounts_endpoint, Refusal};
+use super::{accounts_client, Refusal};
 
 /// How long a configuration call may take (PIT ticks).
 const CONFD_TICKS: u64 = 300;
@@ -25,6 +25,7 @@ const CONFD_TICKS: u64 = 300;
 const CONFD_BOUND: Deadline = Deadline::ticks(CONFD_TICKS);
 /// How long an account change may take: Argon2id and a home under TCG.
 const ACCOUNT_TICKS: u64 = 9000;
+const ACCOUNT_BOUND: Deadline = Deadline::ticks(ACCOUNT_TICKS);
 /// Most keys `conf.list` returns.
 const MAX_KEYS: usize = 512;
 
@@ -104,25 +105,31 @@ pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done
             secret,
             admin,
         } => {
-            let endpoint = accounts_endpoint().map_err(Refusal::of)?;
-            let user = accounts::create(&endpoint, name, secret, *admin, deadline())
-                .map_err(Refusal::of)?;
+            let user = accounts_client()
+                .map_err(Refusal::of_call)?
+                .create_within(name, secret, *admin, ACCOUNT_BOUND)
+                .map_err(Refusal::of_call)?;
             done(format!("Created {} (uid {})", user.name, user.uid))
         }
         Operation::AccountDelete { name, home } => {
-            let endpoint = accounts_endpoint().map_err(Refusal::of)?;
-            accounts::delete(&endpoint, name, home.word(), deadline()).map_err(Refusal::of)?;
+            accounts_client()
+                .map_err(Refusal::of_call)?
+                .delete_within(name, home.word(), ACCOUNT_BOUND)
+                .map_err(Refusal::of_call)?;
             done(format!("Deleted {name}"))
         }
         Operation::AccountAdmin { name, admin } => {
-            let endpoint = accounts_endpoint().map_err(Refusal::of)?;
-            accounts::set_admin(&endpoint, name, *admin, deadline()).map_err(Refusal::of)?;
+            accounts_client()
+                .map_err(Refusal::of_call)?
+                .set_admin_within(name, *admin, ACCOUNT_BOUND)
+                .map_err(Refusal::of_call)?;
             done(format!("Changed {name}"))
         }
         Operation::AccountPassword { name, secret } => {
-            let endpoint = accounts_endpoint().map_err(Refusal::of)?;
-            accounts::set_password(&endpoint, name, None, secret, deadline())
-                .map_err(Refusal::of)?;
+            accounts_client()
+                .map_err(Refusal::of_call)?
+                .set_password_within(name, None, secret, ACCOUNT_BOUND)
+                .map_err(Refusal::of_call)?;
             done(format!("Password of {name} set"))
         }
         Operation::PowerPolicy { key, value } => {
@@ -200,10 +207,6 @@ fn net_config(card: &str, address: &str, gateway: &str, dns: &str) -> Result<(),
 
 fn done(detail: String) -> Result<Done, Refusal> {
     Ok((detail, Vec::new()))
-}
-
-fn deadline() -> Option<u64> {
-    Some(sys::clock() + ACCOUNT_TICKS)
 }
 
 /// A `confd` client; each call is bounded by [`CONFD_BOUND`].

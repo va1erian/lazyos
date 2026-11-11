@@ -13,17 +13,20 @@ use alloc::vec::Vec;
 use pkgstore::access::{self, Caller};
 use pkgstore::layout;
 use pkgstore::provision::Shipped;
+use user::messenger::accounts::{self, Directory};
+use user::messenger::client::Native;
 use user::messenger::pkgd::wire::ProvisionState;
 use user::messenger::pkgd::{self, wire, Failure};
-use user::messenger::{accounts, Message, Parcel};
+use user::messenger::{Message, Parcel};
 
 use super::audit::Audit;
 use super::develop::Logouts;
 use super::inspect::assess;
-use super::peers::Peer;
+use super::peers::retry;
 use super::provision::Pass;
 use super::registry::Registry;
 use super::store;
+use libmessenger::client::Connection;
 
 pub(crate) const EPERM: i64 = 1;
 pub(crate) const ENOENT: i64 = 2;
@@ -51,7 +54,7 @@ pub(crate) struct Pkgd {
     pub(crate) registry: Registry,
     pub(crate) audit: Audit,
     /// The account database, for a caller's home directory.
-    accounts: Peer,
+    accounts: Option<accounts::Client>,
     /// The package file buffer, reused so a service that reads many packages
     /// does not grow by one package each time.
     pub(crate) buffer: Vec<u8>,
@@ -72,7 +75,7 @@ impl Pkgd {
         Pkgd {
             registry: Registry::new(),
             audit: Audit::new(),
-            accounts: Peer::new(accounts::NAME),
+            accounts: None,
             buffer: Vec::new(),
             core: Vec::new(),
             provisioned: ProvisionState {
@@ -269,10 +272,10 @@ impl Pkgd {
 
     /// `uid`'s home directory from the account database, when it answers.
     fn home_of(&mut self, uid: u32) -> Option<String> {
-        let record = self
-            .accounts
-            .run(|endpoint| accounts::lookup_uid(&endpoint, uid))
-            .ok()??;
+        let client = self.accounts.get_or_insert_with(|| {
+            accounts::Client::from_connection(Connection::new(Native, accounts::NAME))
+        });
+        let record = retry(|| client.lookup_uid(uid)).ok()??;
         Some(record.home)
     }
 }

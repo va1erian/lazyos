@@ -25,9 +25,11 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 
+use libmessenger::client::Deadline;
 use spin::Mutex;
-use user::messenger::{accounts, logind, registry, router, Message};
-use user::sys;
+use user::messenger::accounts::{self, Directory};
+use user::messenger::client::Native;
+use user::messenger::{logind, router, Message};
 
 use super::service::{Phase, Service};
 
@@ -98,9 +100,10 @@ fn by_uid(uid: u32) -> Option<Owner> {
     if let Some((_, cached)) = BY_UID.lock().iter().find(|(seen, _)| *seen == uid) {
         return cached.clone();
     }
-    let endpoint = registry::resolve(accounts::NAME).ok()?;
-    let deadline = Some(sys::clock() + LOOKUP_TICKS);
-    let found = accounts::lookup_uid_by(&endpoint, uid, deadline).ok()?;
+    let client = accounts::Client::try_connect(Native).ok()?;
+    let found = client
+        .lookup_uid_within(uid, Deadline::ticks(LOOKUP_TICKS))
+        .ok()?;
     let owner = found.map(|record| Owner {
         uid: record.uid,
         user: record.name,
