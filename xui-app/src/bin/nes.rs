@@ -19,10 +19,7 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use xui_app::backend::DropEvent;
-use xui_app::launch;
 use xui_app::platform::audio::{Audio, Params, PlaybackStream};
-use xui_app::platform::urilist;
 use xui_app::trace::{self, Channel};
 use xui_nes::host::{Host, Report};
 use xui_nes::{Msg, NesApp, Session, WINDOW};
@@ -201,37 +198,29 @@ fn main() {
     if args.iter().any(|arg| arg == "--headless") {
         std::process::exit(headless(&args));
     }
-    let rom = xui_app::platform::argv::file_arg(std::env::args_os());
     let platform = Platform::connect(app_dir());
     let rate = platform.rate();
-    launch::run(Channel::Nes, "NES", WINDOW, |ui, backend| {
-        backend.on_first_frame(|| trace::pass!(Channel::Nes, "UP"));
+    // A cartridge named on the command line or dropped on the window (a
+    // `text/uri-list` from the Files app, `clipboardd`'s token;
+    // docs/xui-archiver.md) opens.
+    xui_app::app(Channel::Nes, "NES")
+        .size(WINDOW.0, WINDOW.1)
         // The picture keeps its aspect; the window may be any size.
-        backend.set_size_hints(320, 260, 0, 0);
-        let host: Rc<RefCell<dyn Host>> = Rc::new(RefCell::new(platform));
-        let session = Session::new(host.borrow().app_dir(), rate);
-        let app = NesApp::build(ui, host, session, rom).inspect_err(|error| {
-            trace::fail!(Channel::Nes, "BUILD", "{error}");
-        })?;
-        // A cartridge dropped on the window opens (a `text/uri-list` from the
-        // Files app, `clipboardd`'s token; docs/xui-archiver.md).
-        let outbox = ui.proxy();
-        backend.on_drag_event(move |_, event| {
-            if let DropEvent::Drop {
-                mime,
-                data: Ok(bytes),
-                ..
-            } = event
-            {
-                if mime == urilist::MIME {
-                    if let Some(path) = urilist::decode(bytes).into_iter().next() {
-                        let _ = outbox.send(Msg::RomChosen(path));
-                    }
-                }
-            }
-        });
-        Ok(app)
-    });
+        .min_size(320, 260)
+        .opens(Msg::RomChosen)
+        .drops(rom_dropped)
+        .run(|ui, _| {
+            let host: Rc<RefCell<dyn Host>> = Rc::new(RefCell::new(platform));
+            let session = Session::new(host.borrow().app_dir(), rate);
+            NesApp::build(ui, host, session).inspect_err(|error| {
+                trace::fail!(Channel::Nes, "BUILD", "{error}");
+            })
+        })
+}
+
+/// The first of the dropped files is the cartridge (a drop is never empty).
+fn rom_dropped(paths: Vec<PathBuf>) -> Msg {
+    Msg::RomChosen(paths.into_iter().next().unwrap_or_default())
 }
 
 /// `--headless <rom> [--frames N]`: run the console with no window and print

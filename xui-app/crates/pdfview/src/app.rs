@@ -289,7 +289,6 @@ impl App for PdfApp {
                 return;
             }
             Msg::Close => {
-                self.log("PDF:QUIT:PASS");
                 ui.quit();
                 return;
             }

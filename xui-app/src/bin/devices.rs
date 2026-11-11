@@ -16,7 +16,7 @@
 //! the window close button).
 
 use xui_app::devinfo::DevView;
-use xui_app::launch;
+use xui_app::trace::{self, Channel};
 use xui_core::app::{App, Ui};
 use xui_core::Key;
 
@@ -58,10 +58,7 @@ impl App for Devices {
                 }
             }
             Msg::Sort(table) => self.widgets.resort(table),
-            Msg::Quit => {
-                println!("DEVICES:QUIT:PASS");
-                ui.quit();
-            }
+            Msg::Quit => ui.quit(),
         }
         // Longer headings change the labels' natural sizes.
         ui.relayout();
@@ -92,27 +89,30 @@ fn up_line(view: &DevView) -> String {
         Ok(denials) => denials.len().to_string(),
         Err(code) => format!("-{code}"),
     };
-    format!("DEVICES:UP:PASS devices={devices} rules={rules} denials={denials}")
+    format!("UP:PASS devices={devices} rules={rules} denials={denials}")
 }
 
 fn main() {
-    launch::run(xui_app::trace::Channel::Devices, "Devices", WINDOW, |ui, backend| {
-        backend.set_size_hints(560, 360, 0, 0);
-        let first = DevView::read();
-        let evidence = up_line(&first);
-        backend.on_first_frame(move || println!("{evidence}"));
+    xui_app::app(Channel::Devices, "Devices")
+        .size(WINDOW.0, WINDOW.1)
+        .min_size(560, 360)
+        .run(|ui, backend| {
+            let first = DevView::read();
+            let evidence = up_line(&first);
+            // The first-frame line carries what was read, so it is the app's.
+            backend.on_first_frame(move || trace::line!(Channel::Devices, "{evidence}"));
 
-        let widgets = Widgets::default();
-        ui.root(widgets.layout())?;
-        ui.on_key(|key, _| shortcut(key));
-        ui.on_close(|| Some(Msg::Quit));
-        ui.every(REFRESH_MILLIS, Msg::Tick);
+            let widgets = Widgets::default();
+            ui.root(widgets.layout())?;
+            ui.on_key(|key, _| shortcut(key));
+            ui.on_close(|| Some(Msg::Quit));
+            ui.every(REFRESH_MILLIS, Msg::Tick);
 
-        let app = Devices {
-            widgets,
-            refreshes: 0,
-        };
-        app.widgets.show(&first, app.refreshes);
-        Ok(app)
-    })
+            let app = Devices {
+                widgets,
+                refreshes: 0,
+            };
+            app.widgets.show(&first, app.refreshes);
+            Ok(app)
+        })
 }

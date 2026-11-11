@@ -51,9 +51,9 @@ use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use xui_app::trace::Channel;
 
 use xui_app::backend::{DragOffer, DropEvent, LazyOSBackend};
-use xui_app::launch;
 use xui_app::platform::launcher::LazyLauncher;
 use xui_app::platform::{argv, urilist};
 use xui_core::backend::WindowId;
@@ -189,42 +189,44 @@ fn main() {
     let platform = Rc::new(StdPlatform::new());
     let start = start();
 
-    launch::run(xui_app::trace::Channel::Files, "Files", WINDOW, move |ui, backend| {
-        let launcher = ReportingLauncher {
-            backend: Rc::clone(backend),
-        };
-        let explorer = Explorer::with_session(
-            platform as Rc<dyn Platform>,
-            Rc::new(launcher),
-            Rc::new(session::LazySession::new()),
-        );
-        {
-            let backend = Rc::clone(backend);
-            explorer.set_focus_probe(move || backend.focused());
-        }
-        {
-            let explorer = Rc::clone(&explorer);
-            backend.on_drag_gesture(move |window, widget, _| gesture(&explorer, window, widget));
-        }
-        {
-            let explorer = Rc::clone(&explorer);
-            backend.on_drag_event(move |window, event| dropped(&explorer, window, event));
-        }
-        // Every window is resizable; the toolbar and the views re-flow.
-        backend.set_size_hints(360, 240, 0, 0);
-        backend.on_first_frame(|| println!("FILES:UP:PASS"));
-        Ok(match start {
-            Start::Folder(dir) => explorer.open_root(ui, dir),
-            Start::Reveal(dir, name) => {
-                let path = dir.join(&name);
-                let (window, found) = explorer.reveal_root(ui, dir, &name);
-                if found {
-                    println!("FILES:REVEAL:PASS:{}", path.display());
-                } else {
-                    println!("FILES:REVEAL:MISSING:{}", path.display());
-                }
-                window
+    xui_app::app(Channel::Files, "Files")
+        .size(WINDOW.0, WINDOW.1)
+        .run(move |ui, backend| {
+            let launcher = ReportingLauncher {
+                backend: Rc::clone(backend),
+            };
+            let explorer = Explorer::with_session(
+                platform as Rc<dyn Platform>,
+                Rc::new(launcher),
+                Rc::new(session::LazySession::new()),
+            );
+            {
+                let backend = Rc::clone(backend);
+                explorer.set_focus_probe(move || backend.focused());
             }
+            {
+                let explorer = Rc::clone(&explorer);
+                backend
+                    .on_drag_gesture(move |window, widget, _| gesture(&explorer, window, widget));
+            }
+            {
+                let explorer = Rc::clone(&explorer);
+                backend.on_drag_event(move |window, event| dropped(&explorer, window, event));
+            }
+            // Every window is resizable; the toolbar and the views re-flow.
+            backend.set_size_hints(360, 240, 0, 0);
+            Ok(match start {
+                Start::Folder(dir) => explorer.open_root(ui, dir),
+                Start::Reveal(dir, name) => {
+                    let path = dir.join(&name);
+                    let (window, found) = explorer.reveal_root(ui, dir, &name);
+                    if found {
+                        println!("FILES:REVEAL:PASS:{}", path.display());
+                    } else {
+                        println!("FILES:REVEAL:MISSING:{}", path.display());
+                    }
+                    window
+                }
+            })
         })
-    })
 }

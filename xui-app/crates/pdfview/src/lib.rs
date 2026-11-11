@@ -6,7 +6,8 @@
 //! hands it a [`Host`] and a file from the command line. Evidence lines:
 //! `PDF:OPEN:PASS:<path>:<pages>`, `PDF:OPEN:FAIL:<path>:<reason>`,
 //! `PDF:OPEN:PASSWORD:<path>`, `PDF:PAGE:DRAWN:<page>:<ms>:<render ms>`,
-//! `PDF:PAGE:FAIL:<page>`, `PDF:ZOOM:<percent>` and `PDF:QUIT:PASS`.
+//! `PDF:PAGE:FAIL:<page>`, and `PDF:ZOOM:<percent>`; `PDF:QUIT:PASS` is
+//! the launcher's (`xui_app::app`).
 
 #![forbid(unsafe_code)]
 

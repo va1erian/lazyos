@@ -6,8 +6,8 @@
 //! the app creates a surface with `os.lazy.display.v1`, attaches a shared
 //! pixel buffer, commits damage rectangles, and receives pointer/key/close
 //! events. The compositor provides the window chrome, drag, taskbar, minimize
-//! and close. (So it does not start through `launch::run`, which tries the
-//! grant first: the kernel boots `xuid` and this app side by side.)
+//! and close. (So it starts with `client_only`, which never tries the grant
+//! first: the kernel boots `xuid` and this app side by side.)
 //!
 //! The window holds a text field and a Counter button, so the session proves
 //! the keyboard-focus routing of issue #151:
@@ -20,14 +20,11 @@
 //! * the WM close button arrives as `WindowClose` (`XUIAPP:CLOSE:PASS`).
 //!
 //! Serial evidence: `XUIAPP:CLIENT:PASS` after the first commit,
-//! `XUIAPP:CLIENT:FAIL:<errno>` without a compositor and
+//! `XUIAPP:BIND:FAIL:<errno>` without a compositor and
 //! `XUIAPP:RUN:FAIL:<error>` when the window cannot be built.
 
-use std::rc::Rc;
-
-use xui_app::backend::LazyOSBackend;
+use xui_app::trace::{self, Channel};
 use xui_core::app::{App, Ui};
-use xui_core::backend::Backend;
 use xui_core::prelude::*;
 
 /// Surface size in design pixels; the compositor places and decorates it.
@@ -107,19 +104,12 @@ fn layout(status: &Handle<Label<Msg>>) -> Layout<Msg> {
 }
 
 fn main() {
-    let backend = match LazyOSBackend::new_client() {
-        Ok(backend) => Rc::new(backend),
-        Err(code) => {
-            println!("XUIAPP:CLIENT:FAIL:{code}");
-            std::process::exit(1);
-        }
-    };
-    backend.on_first_frame(|| println!("XUIAPP:CLIENT:PASS"));
-
-    let outcome = xui_core::app("xui-client")
+    xui_app::app(Channel::Xuiapp, "xui-client")
         .size(W, H)
-        .backend(Rc::clone(&backend) as Rc<dyn Backend>)
-        .run(|ui| {
+        .client_only()
+        .run(|ui, backend| {
+            // The sessions wait for this line, not `XUIAPP:UP:PASS`.
+            backend.on_first_frame(|| trace::line!(Channel::Xuiapp, "CLIENT:PASS"));
             let status = Handle::new();
             ui.root(layout(&status))?;
             ui.on_close(|| Some(Msg::Close));
@@ -128,8 +118,5 @@ fn main() {
                 count: 0,
                 key_pass: false,
             })
-        });
-
-    backend.unbind();
-    std::process::exit(i32::from(xui_app::launch::finish(xui_app::trace::Channel::Xuiapp, outcome)))
+        })
 }

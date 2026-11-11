@@ -58,11 +58,11 @@ class NewAppTests(unittest.TestCase):
         touched = new_app.scaffold(self.root, self.app)
         self.assertEqual(len(touched), len(REGISTRIES) + 4)
         source = self.text("xui-app/src/bin/notes.rs")
-        self.assertIn('launch::run(Channel::Notes, "Notes"', source)
-        self.assertIn('trace::pass!(Channel::Notes, "UP")', source)
+        self.assertIn('xui_app::app(Channel::Notes, "Notes")', source)
+        self.assertIn("NOTES:UP:PASS", source)  # in the header: the builder reports it
         self.assertNotIn("println!", source)  # markers go through xui_app::trace
         self.assertIn('    Notes => "NOTES",', self.text("libs/tracefmt/src/channel.rs"))
-        self.assertIn("NOTES:QUIT:PASS", source)
+        self.assertIn("NOTES:QUIT:PASS", source)  # in the header: the builder reports it
         self.assertIn('system_name = "os.lazy.notes"', self.text("xui-app/packages/notes/manifest.toml"))
         self.assertIn("NOTES:UP:PASS", self.text("tools/screenshot/examples/xui_notes.json"))
         expected = {
@@ -91,7 +91,7 @@ class NewAppTests(unittest.TestCase):
             encoding="utf-8",
         )
         new_app.scaffold(self.root, self.app)
-        self.assertIn("launch::run(Channel::Notebook,", self.text("xui-app/src/bin/notes.rs"))
+        self.assertIn("xui_app::app(Channel::Notebook,", self.text("xui-app/src/bin/notes.rs"))
         self.assertEqual(self.text("libs/tracefmt/src/channel.rs").count('"NOTES"'), 1)
 
     def test_a_second_run_refuses_and_changes_nothing(self) -> None:

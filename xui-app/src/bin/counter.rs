@@ -9,7 +9,8 @@
 //! position (400, 300), so a headless click needs no pointer movement; a
 //! client window centres it instead.
 
-use xui_app::{hidpi, launch};
+use xui_app::hidpi;
+use xui_app::trace::{self, Channel};
 use xui_core::app::{App, Ui};
 use xui_core::prelude::*;
 
@@ -94,16 +95,20 @@ fn layout(
 }
 
 fn main() {
-    launch::run(xui_app::trace::Channel::Xuiapp, "xui counter", WINDOW, |ui, backend| {
-        backend.on_first_frame(|| println!("XUIAPP:COUNTER:PASS"));
-        let scale = backend.scale() as i32;
-        let area = hidpi::design_rect(ui);
-        let area = (area.width(), area.height());
-        let seed = (!backend.is_client()).then(|| (POINTER_SEED.0 / scale, POINTER_SEED.1 / scale));
+    xui_app::app(Channel::Xuiapp, "xui counter")
+        .size(WINDOW.0, WINDOW.1)
+        .run(|ui, backend| {
+            // The sessions wait for this line, not `XUIAPP:UP:PASS`.
+            backend.on_first_frame(|| trace::line!(Channel::Xuiapp, "COUNTER:PASS"));
+            let scale = backend.scale() as i32;
+            let area = hidpi::design_rect(ui);
+            let area = (area.width(), area.height());
+            let seed =
+                (!backend.is_client()).then(|| (POINTER_SEED.0 / scale, POINTER_SEED.1 / scale));
 
-        let label = Handle::new();
-        ui.root(layout(&label, area, seed))?;
-        ui.on_close(|| Some(Msg::Close));
-        Ok(Counter { label, count: 0 })
-    })
+            let label = Handle::new();
+            ui.root(layout(&label, area, seed))?;
+            ui.on_close(|| Some(Msg::Close));
+            Ok(Counter { label, count: 0 })
+        })
 }

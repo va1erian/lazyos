@@ -23,9 +23,9 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use xui_app::trace::{self, Channel};
 
 use xui_app::installer::{clean, elide, Package};
-use xui_app::launch;
 use xui_app::platform::{argv, pkg};
 use xui_core::app::{App, Ui};
 use xui_core::arrange::{button, column, label, row, Entry, IntoEntry, LayoutExt};
@@ -160,18 +160,17 @@ impl Consent {
 /// Show the consent window for `package` and act on the answer.
 fn ask(path: &Path, package: Package) -> ExitCode {
     let path = path.to_path_buf();
-    launch::run(
-        xui_app::trace::Channel::Installer,
-        "Run from development",
-        (560, 400),
-        move |ui, backend| {
-            backend.set_size_hints(420, 300, 0, 0);
+    xui_app::app(Channel::Installer, "Run from development")
+        .size(560, 400)
+        .min_size(420, 300)
+        .run(move |ui, backend| {
             let permissions = package.permissions.len();
-            backend.on_first_frame(move || println!("INSTALLER:DEVELOP:ASK perms={permissions}"));
+            backend.on_first_frame(move || {
+                trace::line!(Channel::Installer, "DEVELOP:ASK perms={permissions}")
+            });
             Consent::build(ui, &path, &package)
-                .inspect_err(|error| println!("INSTALLER:BUILD:FAIL:{error}"))
-        },
-    )
+                .inspect_err(|error| trace::fail!(Channel::Installer, "BUILD", "{error}"))
+        })
 }
 
 #[cfg(test)]

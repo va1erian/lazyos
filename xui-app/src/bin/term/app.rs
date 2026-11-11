@@ -112,9 +112,6 @@ impl Drop for Terminal {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
-        // Reached on every way out, including the compositor dropping the
-        // window (`SetCloseMode`'s grace) with no answer from the app.
-        println!("TERM:QUIT:PASS");
     }
 }
 

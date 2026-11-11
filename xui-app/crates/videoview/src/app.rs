@@ -390,7 +390,6 @@ impl App for VideoApp {
             }
             Msg::Tick => self.tick(),
             Msg::Close => {
-                self.log("VIDEO:QUIT:PASS");
                 self.player = None;
                 ui.quit();
                 return;

@@ -126,7 +126,6 @@ impl DesktopApp {
             ctx.note("workarea", || format!("SHELL:WORKAREA:FAIL err={}", -code));
         }
         ctx.bar_changed();
-        println!("SHELL:UP:PASS");
         if windows > 0 {
             println!("SHELL:RESTART:PASS windows={windows}");
         }

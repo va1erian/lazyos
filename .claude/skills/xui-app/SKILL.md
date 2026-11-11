@@ -61,24 +61,36 @@ Write **Rust** only when the app needs it:
 
 ### Startup and serial evidence
 
-`xui_app::launch::run` is the whole `main`: it connects (display owner or
-`xuid` client), opens the window in the desktop's theme, builds the app,
-runs it, releases the display and exits, printing `<PREFIX>:BIND:FAIL:<errno>`
-or `<PREFIX>:RUN:FAIL:<error>` when it cannot.
+`xui_app::app(..).run(..)` is the whole `main`, the one way to start a desktop
+app: it connects (display owner or `xuid` client), opens the window in the
+desktop's theme (xui applies it; never set a theme at start-up), installs the
+panic hook, builds the app, reports `<PREFIX>:UP:PASS` on the first frame and
+`<PREFIX>:QUIT:PASS` at a clean exit, releases the display and exits, printing
+`<PREFIX>:BIND:FAIL:<errno>` or `<PREFIX>:RUN:FAIL:<error>` when it cannot.
 
 ```rust
-use xui_app::trace::{self, Channel};
+use xui_app::trace::Channel;
 
 fn main() {
-    launch::run(Channel::Notes, "Notes", WINDOW, |ui, backend| {
-        backend.on_first_frame(|| trace::pass!(Channel::Notes, "UP"));
-        let app = Notes::default();
-        ui.root(/* the layout */)?;
-        ui.on_close(|| Some(Msg::Quit));
-        Ok(app)
-    })
+    xui_app::app(Channel::Notes, "Notes")
+        .size(640, 400)               // design pixels under a compositor
+        .min_size(320, 240)           // resizable down to this
+        .opens(Msg::OpenChosen)       // a file path on argv -> your message
+        .drops(Msg::Dropped)          // `text/uri-list` dropped on the window
+        .run(|ui, backend| {
+            let app = Notes::default();
+            ui.root(/* the layout */)?;
+            ui.on_close(|| Some(Msg::Quit));
+            Ok(app)
+        })
 }
 ```
+
+Also `.ask_before_close()`, `.client_only()`, `.wait_for_display(d)`,
+`.at_exit(|| ok)`, `.resident()` / `.windowless()` for a tray app (its `run`
+gets the `Resident`; `res.window(..)` opens its window) and `.run_host(..)`
+for a host with its own event loop. An app whose first-frame line carries data
+replaces the plain `UP` with `backend.on_first_frame(..)`.
 
 **Markers go through `xui_app::trace`, never `println!`** (AGENTS.md,
 "Tracing"; CI runs `python tools/trace/check_adhoc.py --ratchet`, which fails

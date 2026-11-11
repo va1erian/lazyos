@@ -8,7 +8,8 @@
 //! `VIDEO:OPEN:FAIL:<path>:<reason>`, `VIDEO:PLAY` / `VIDEO:PAUSE`,
 //! `VIDEO:SEEK:<ms>`, `VIDEO:POS:<ms>:shown=<n>:dropped=<n>:fps=<n>` once a
 //! second while playing, `VIDEO:END:PASS:shown=<n>:dropped=<n>`,
-//! `VIDEO:ERROR:<reason>` and `VIDEO:QUIT:PASS`.
+//! and `VIDEO:ERROR:<reason>`; `VIDEO:QUIT:PASS` is the
+//! launcher's (`xui_app::app`).
 
 #![forbid(unsafe_code)]
 

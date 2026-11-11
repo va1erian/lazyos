@@ -21,13 +21,14 @@
 //! from=<peer>` (from the server thread); `NETTOOLS:CLOSE:PASS`.
 
 use std::net::Ipv4Addr;
+use xui_app::trace::{self, Channel};
 
 use xui_app::format;
 use xui_app::net::http::{self, PageInfo};
 use xui_app::net::model::{self, NetStatus};
 use xui_app::net::stack;
 use xui_app::net::web::{Fetch, Server};
-use xui_app::{launch, sys};
+use xui_app::sys;
 use xui_core::app::{App, Ui};
 use xui_core::HasText;
 
@@ -409,13 +410,14 @@ impl NetTools {
 }
 
 fn main() {
-    launch::run(xui_app::trace::Channel::Nettools, "Net Tools", WINDOW, |ui, backend| {
-        backend.on_first_frame(|| println!("NETTOOLS:UP:PASS"));
-        let widgets = Widgets::default();
-        ui.root(widgets.layout())
-            .inspect_err(|error| println!("NETTOOLS:BUILD:FAIL:{error}"))?;
-        ui.every(TICK_MILLIS, Msg::Tick);
-        ui.on_close(|| Some(Msg::Close));
-        Ok(NetTools::new(widgets))
-    })
+    xui_app::app(Channel::Nettools, "Net Tools")
+        .size(WINDOW.0, WINDOW.1)
+        .run(|ui, _backend| {
+            let widgets = Widgets::default();
+            ui.root(widgets.layout())
+                .inspect_err(|error| trace::fail!(Channel::Nettools, "BUILD", "{error}"))?;
+            ui.every(TICK_MILLIS, Msg::Tick);
+            ui.on_close(|| Some(Msg::Close));
+            Ok(NetTools::new(widgets))
+        })
 }

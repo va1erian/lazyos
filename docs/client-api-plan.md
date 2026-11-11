@@ -9,7 +9,10 @@ Status: in progress (2026-11-11). Built: C1 (the client runtime, section
 3.4), C2a (the `service`, `errors`, `scope` and `deadline` syntax, their
 generated constants and the per-interface crate layout, sections 3.1 and
 3.6) and C2b (the generated Rust client, section 3.2; `user::messenger::timed`
-and the xui `platform/notify.rs` already use it). The rest is not.
+and the xui `platform/notify.rs` already use it) and X1 (`xui_app::app(..)`,
+section 4.1: `.opens` takes a path-to-message function and `.drops` a
+paths-to-message one, since the MIME types an app opens live in its
+manifest; `lrplay` still starts lazily on its own). The rest is not.
 
 Related: [messenger.md](messenger.md) (sections 11 and 15),
 [midl.md](midl.md), [lazyrad-messenger-plan.md](lazyrad-messenger-plan.md)
