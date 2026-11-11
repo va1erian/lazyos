@@ -65,13 +65,12 @@ pub struct NesApp {
 }
 
 impl NesApp {
-    /// Builds the window, plays `rom` when one is named, and shows the
-    /// welcome screen otherwise.
+    /// Builds the window and shows the welcome screen; a cartridge arrives as
+    /// [`Msg::RomChosen`] (a file on the command line, a drop, the dialog).
     pub fn build(
         ui: &mut Ui<Msg>,
         host: Rc<RefCell<dyn Host>>,
         session: Session,
-        rom: Option<PathBuf>,
     ) -> Result<NesApp> {
         let widgets = ui::Widgets::default();
         let screen: Handle<Screen> = Handle::new();
@@ -104,9 +103,6 @@ impl NesApp {
         ui.on_close(|| Some(Msg::Command(Command::Quit)));
         ui.every(1000, Msg::Tick);
         app.show_welcome(ui);
-        if let Some(rom) = rom {
-            app.open_rom(ui, &rom);
-        }
         Ok(app)
     }
 

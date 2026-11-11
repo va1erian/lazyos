@@ -21,10 +21,12 @@ use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 use messenger_generated::os_lazy_net_nic_v1 as nic_wire;
 use messenger_generated::os_lazy_net_stack_v1 as stack_wire;
 use messenger_generated::os_lazy_net_wifi_v1 as wifi_wire;
+use std::rc::Rc;
 use trayclient::{item, lucide, wire};
 use xui_app::net::wifimodel::{self, Conn};
 use xui_app::platform::topic_feed::{TopicEvent, TopicFeed};
 use xui_app::resident::{Resident, Wake};
+use xui_app::trace::{self, Channel};
 
 /// Ticks between looks at the topics (a second).
 const LOOK_TICKS: u64 = 100;
@@ -201,7 +203,12 @@ fn apply(net: &mut Net, links: &mut Vec<(String, bool)>, event: &TopicEvent) {
 }
 
 fn main() {
-    let res = Resident::windowless("NETSTATUS");
+    xui_app::app(Channel::Netstatus, "Network status")
+        .windowless()
+        .run(run)
+}
+
+fn run(res: &Rc<Resident>) {
     let mut feeds = [
         TopicFeed::new(
             String::from(wifi_wire::TOPIC_SYSTEM_NET_WIFI_STATE),
@@ -235,16 +242,14 @@ fn main() {
     // Before the shell serves the tray the item is set when it announces
     // itself (`xui_app::tray`), so a refusal here is not fatal.
     if let Err(code) = res.tray.borrow_mut().set(first) {
-        println!("NETSTATUS:TRAY:LATER err={}", -code);
+        trace::line!(Channel::Netstatus, "TRAY:LATER err={}", -code);
     }
-    println!("NETSTATUS:UP:PASS");
+    trace::pass!(Channel::Netstatus, "UP");
     let mut shown = (net.tooltip(), net.bars());
     loop {
         for wake in res.idle(500) {
             if let Wake::Quit(_) = wake {
-                let _ = res.tray.borrow_mut().clear();
-                println!("NETSTATUS:QUIT:PASS");
-                std::process::exit(0);
+                return;
             }
         }
         for feed in feeds.iter_mut() {

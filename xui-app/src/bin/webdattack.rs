@@ -14,8 +14,7 @@
 mod screen;
 
 use screen::Screen;
-use xui_app::launch;
-use xui_app::trace::{self, Channel};
+use xui_app::trace::Channel;
 use xui_core::arrange::build;
 use xui_core::prelude::*;
 
@@ -36,21 +35,15 @@ impl App for WebdAttack {
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         match msg {
-            Msg::Quit => {
-                trace::pass!(Channel::Webdattack, "QUIT");
-                ui.quit();
-            }
+            Msg::Quit => ui.quit(),
         }
     }
 }
 
 fn main() {
-    launch::run(
-        Channel::Webdattack,
-        "Web Attack Probe",
-        WINDOW,
-        |ui, backend| {
-            backend.on_first_frame(|| trace::pass!(Channel::Webdattack, "UP"));
+    xui_app::app(Channel::Webdattack, "Web Attack Probe")
+        .size(WINDOW.0, WINDOW.1)
+        .run(|ui, _| {
             let screen: Handle<Screen> = Handle::new();
             ui.root(
                 column().children((build(|ui: &Ui<Msg>| Ok(Screen::new(ui)))
@@ -59,6 +52,5 @@ fn main() {
             )?;
             ui.on_close(|| Some(Msg::Quit));
             Ok(WebdAttack { _screen: screen })
-        },
-    )
+        })
 }

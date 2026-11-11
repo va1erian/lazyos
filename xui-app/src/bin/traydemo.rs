@@ -157,27 +157,14 @@ fn start_delay() -> u64 {
 
 /// Run the window until it closes (to the tray) or the app quits; `true`
 /// when the app should quit.
-fn show_window(demo: &Shared, first: bool) -> bool {
+fn show_window(demo: &Shared) -> bool {
     let res = Rc::clone(&demo.borrow().res);
     let shared = Rc::clone(demo);
-    let outcome = res.window("Tray Demo", WINDOW, move |ui| {
-        if first {
-            res_first_frame(&shared);
-        }
-        build(shared, ui)
-    });
-    if let Err(error) = outcome {
-        println!("TRAYDEMO:RUN:FAIL:{error}");
+    if let Err(error) = res.window(move |ui| build(shared, ui)) {
+        trace::fail!(Channel::Traydemo, "RUN", "{error}");
         return true;
     }
     demo.borrow().quitting
-}
-
-/// `TRAYDEMO:UP:PASS` once the first window has a frame.
-fn res_first_frame(demo: &Shared) {
-    if let Some(backend) = demo.borrow().res.backend.as_ref() {
-        backend.on_first_frame(|| println!("TRAYDEMO:UP:PASS"));
-    }
 }
 
 fn main() {
@@ -186,15 +173,16 @@ fn main() {
         println!("TRAYDEMO:DELAY ms={delay}");
         std::thread::sleep(std::time::Duration::from_millis(delay));
     }
-    let res = match Resident::connect("TRAYDEMO") {
-        Ok(res) => res,
-        Err(code) => {
-            println!("TRAYDEMO:BIND:FAIL:{code}");
-            std::process::exit(1);
-        }
-    };
+    xui_app::app(Channel::Traydemo, "Tray Demo")
+        .size(WINDOW.0, WINDOW.1)
+        .resident()
+        .run(run)
+}
+
+/// The app's life: its window, shown on demand, and the tray loop between.
+fn run(res: &Rc<Resident>) {
     let demo: Shared = Rc::new(RefCell::new(Demo {
-        res,
+        res: Rc::clone(res),
         clicks: 0,
         attention: false,
         notify: false,
@@ -207,12 +195,11 @@ fn main() {
     demo.borrow_mut().set_item();
     // The session's autostart opens the demo in the tray only (issue #928);
     // the first window, and `TRAYDEMO:UP:PASS`, wait for a reopen.
-    let mut shown = !resident::started_in_background();
-    let mut quit = if shown {
-        show_window(&demo, true)
-    } else {
+    let mut quit = if resident::started_in_background() {
         trace::pass!(Channel::Traydemo, "BACKGROUND");
         false
+    } else {
+        show_window(&demo)
     };
     while !quit {
         // Handle the whole batch before opening the window: a `Quit` after a
@@ -233,14 +220,7 @@ fn main() {
             }
         }
         if !quit && show {
-            quit = show_window(&demo, !shown);
-            shown = true;
+            quit = show_window(&demo);
         }
     }
-    let _ = demo.borrow().res.tray.borrow_mut().clear();
-    println!("TRAYDEMO:QUIT:PASS");
-    if let Some(backend) = demo.borrow().res.backend.as_ref() {
-        backend.unbind();
-    }
-    std::process::exit(0);
 }

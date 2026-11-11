@@ -21,6 +21,7 @@
 mod outputs;
 
 use audioclient::MixerControl;
+use std::rc::Rc;
 use trayclient::{item, lucide, menu_row, wire, Event};
 use xui_app::platform::audio::{Audio, UNITY_GAIN};
 use xui_app::resident::{Resident, Wake};
@@ -185,7 +186,12 @@ fn poll(volume: &mut Volume) -> bool {
 }
 
 fn main() {
-    let res = Resident::windowless("VOLUME");
+    xui_app::app(Channel::Volume, "Volume")
+        .windowless()
+        .run(run)
+}
+
+fn run(res: &Rc<Resident>) {
     let mut volume = read().unwrap_or(Volume {
         gain: UNITY_GAIN,
         mute: false,
@@ -216,23 +222,19 @@ fn main() {
     loop {
         for wake in res.idle(500) {
             match wake {
-                Wake::Quit(_) => {
-                    let _ = res.tray.borrow_mut().clear();
-                    trace::line!(Channel::Volume, "QUIT:PASS");
-                    std::process::exit(0);
-                }
+                Wake::Quit(_) => return,
                 // There is no window to show: the icon is the whole app.
                 Wake::Reopen(_) => {}
                 Wake::Tray(tray) => {
                     if event(&mut volume, tray) {
-                        show(&res, &volume);
+                        show(res, &volume);
                     }
                 }
             }
         }
         wakes += 1;
         if wakes % POLL_WAKES == 0 && poll(&mut volume) {
-            show(&res, &volume);
+            show(res, &volume);
         }
     }
 }

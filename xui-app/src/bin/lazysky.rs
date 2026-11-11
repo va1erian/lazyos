@@ -13,14 +13,14 @@
 //! / `SKY:LOGIN:FAIL:<reason>` and `SKY:FEED:PAGE:<posts>:<skipped>` from the
 //! core, `SKY:FEED:ROWS:<n>` as the timeline grows, `SKY:IMAGES:<n>` as pictures become
 //! drawable, `SKY:PERF:...` frame times, `SKY:QUIT:PASS`. From
-//! `launch::run`: `SKY:BIND:FAIL:<code>` and `SKY:RUN:FAIL:<error>`.
+//! `xui_app::app`: `SKY:BIND:FAIL:<code>` and `SKY:RUN:FAIL:<error>`.
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use xui_app::trace::{self, Channel};
 
 use lazysky_core::{Platform, Roots, Settings};
 use lazysky_ui::{LazySkyApp, Msg, Report, WINDOW};
-use xui_app::launch;
 use xui_app::platform::{dirs, launcher};
 
 /// The app's id: its data folder is `$HOME/.apps/<SYSTEM_NAME>`.
@@ -83,39 +83,37 @@ fn service_arg() -> Option<String> {
 }
 
 fn main() {
-    // `panic = "abort"`: a panic on any thread ends the app, so say where on
-    // the serial line first (the default hook writes to a stderr nobody reads).
-    std::panic::set_hook(Box::new(|info| {
-        let place = info.location().map_or(String::new(), |l| format!(" at {}:{}", l.file(), l.line()));
-        let text = info.payload().downcast_ref::<&str>().map(|s| s.to_string())
-            .or_else(|| info.payload().downcast_ref::<String>().cloned())
-            .unwrap_or_default();
-        println!("SKY:PANIC:{text}{place}");
-    }));
     // The TLS provider is `nettls-crypto` (GPLv2-compatible), installed
     // before any thread starts, as Mail does.
     lazysky_core::install_tls_provider();
     let service = service_arg();
-    launch::run(xui_app::trace::Channel::Sky, "LazySky", WINDOW, move |ui, backend| {
-        backend.on_first_frame(|| println!("SKY:UP:PASS"));
-        backend.set_size_hints(480, 360, 0, 0);
-        // The user's settings (read once, before the first frame); a
-        // `--service` argument wins for this run.
-        let mut settings = Settings::load(&LazyOs.app_dir());
-        if let Some(service) = &service {
-            settings.service = service.clone();
-        }
-        LazySkyApp::build(ui, Arc::new(LazyOs), settings, |msg| match msg {
-            Msg::Report(Report::FeedRows(n)) => println!("SKY:FEED:ROWS:{n}"),
-            Msg::Report(Report::DetailRows(n)) => println!("SKY:DETAIL:ROWS:{n}"),
-            Msg::Report(Report::Pictures(n)) => println!("SKY:IMAGES:{n}"),
-            Msg::Report(Report::SignedOut) => println!("SKY:SIGNEDOUT"),
-            Msg::Report(Report::ViewerReady(ms)) => println!("SKY:VIEWER:READY:{ms}"),
-            Msg::Report(Report::ViewerWanted(what)) => println!("SKY:VIEWER:WANT:{what}"),
-            Msg::Report(Report::ImageFailed(why)) => println!("SKY:IMAGE:FAIL:{why}"),
-            Msg::Quit => println!("SKY:QUIT:PASS"),
-            _ => {}
+    xui_app::app(Channel::Sky, "LazySky")
+        .size(WINDOW.0, WINDOW.1)
+        .min_size(480, 360)
+        .run(move |ui, _| {
+            // The user's settings (read once, before the first frame); a
+            // `--service` argument wins for this run.
+            let mut settings = Settings::load(&LazyOs.app_dir());
+            if let Some(service) = &service {
+                settings.service = service.clone();
+            }
+            LazySkyApp::build(ui, Arc::new(LazyOs), settings, |msg| match msg {
+                Msg::Report(Report::FeedRows(n)) => trace::line!(Channel::Sky, "FEED:ROWS:{n}"),
+                Msg::Report(Report::DetailRows(n)) => trace::line!(Channel::Sky, "DETAIL:ROWS:{n}"),
+                Msg::Report(Report::Pictures(n)) => trace::line!(Channel::Sky, "IMAGES:{n}"),
+                Msg::Report(Report::SignedOut) => trace::line!(Channel::Sky, "SIGNEDOUT"),
+                Msg::Report(Report::ViewerReady(ms)) => {
+                    trace::line!(Channel::Sky, "VIEWER:READY:{ms}")
+                }
+                Msg::Report(Report::ViewerWanted(what)) => {
+                    trace::line!(Channel::Sky, "VIEWER:WANT:{what}");
+                }
+                Msg::Report(Report::ImageFailed(why)) => {
+                    trace::line!(Channel::Sky, "IMAGE:FAIL:{why}")
+                }
+                // The builder reports `QUIT` when the window is gone.
+                _ => {}
+            })
+            .inspect_err(|error| trace::fail!(Channel::Sky, "BUILD", "{error}"))
         })
-        .inspect_err(|error| println!("SKY:BUILD:FAIL:{error}"))
-    })
 }

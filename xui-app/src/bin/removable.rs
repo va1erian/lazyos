@@ -17,6 +17,7 @@
 //! `REMOVABLE:OPEN <path>`, `REMOVABLE:EJECT <disk> <state>`,
 //! `REMOVABLE:QUIT:PASS`.
 
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use trayclient::{item, wire, Event};
@@ -110,7 +111,12 @@ fn act(model: &mut Model, action: Action) {
 }
 
 fn main() {
-    let res = Resident::windowless("REMOVABLE");
+    xui_app::app(Channel::Removable, "Removable drives")
+        .windowless()
+        .run(run)
+}
+
+fn run(res: &Rc<Resident>) {
     let mut model = Model::new();
     // A first list that never comes is an empty one: nothing is plugged in
     // that this applet could know of.
@@ -130,11 +136,7 @@ fn main() {
     loop {
         for wake in res.idle(500) {
             match wake {
-                Wake::Quit(_) => {
-                    let _ = res.tray.borrow_mut().clear();
-                    trace::pass!(Channel::Removable, "QUIT");
-                    std::process::exit(0);
-                }
+                Wake::Quit(_) => return,
                 Wake::Tray(Event::Activate { .. }) => {
                     if let Some(action) = model.default_action() {
                         act(&mut model, action);

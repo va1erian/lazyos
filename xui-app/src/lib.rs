@@ -28,6 +28,7 @@ pub mod hidpi;
 pub mod input;
 pub mod installer;
 pub mod launch;
+pub use launch::app;
 pub mod lightview;
 pub mod markdown;
 pub mod net;
@@ -44,5 +45,5 @@ pub mod table;
 pub mod trace;
 /// The system-stats snapshot (syscall 14), shared with the native `top`.
 pub use lazyos_sys::sysinfo;
-pub mod themed;
+
 pub mod tray;

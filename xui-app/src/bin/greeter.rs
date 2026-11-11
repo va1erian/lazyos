@@ -39,10 +39,10 @@
 
 use messenger_generated::errors::ERROR_FIELD;
 use messenger_generated::os_lazy_logind_v1 as wire;
-use xui_app::launch;
 use xui_app::platform::accounts;
 use xui_app::platform::messenger::Service;
 use xui_app::sys::{self, errno};
+use xui_app::trace::{self, Channel};
 use xui_core::app::{App, Ui};
 use xui_core::arrange::Mounted;
 use xui_core::prelude::*;
@@ -208,7 +208,7 @@ impl Greeter {
         };
         let view = ui
             .mount(layout)
-            .inspect_err(|error| println!("GREETER:BUILD:FAIL:{error}"))?;
+            .inspect_err(|error| trace::fail!(Channel::Greeter, "BUILD", "{error}"))?;
         self.view = Some(view);
         self.mode = mode;
         if mode == Mode::Setup {
@@ -356,26 +356,27 @@ fn sentence(reason: &str) -> String {
 }
 
 fn main() {
-    launch::run(xui_app::trace::Channel::Greeter, "Log in", WINDOW, |ui, backend| {
-        backend.on_first_frame(|| println!("GREETER:UP:PASS"));
-        let mut greeter = Greeter {
-            w: Widgets::default(),
-            mode: Mode::Waiting,
-            view: None,
-        };
-        // A machine without accounts asks for its owner (first-boot setup);
-        // until the service answers, the login form waits and asks again.
-        let mode = Mode::from_list(list_setup());
-        let note = if mode == Mode::Waiting {
-            "Waiting for the account service..."
-        } else {
-            ""
-        };
-        greeter.show(ui, mode, "", note)?;
-        ui.every(RETRY_MS, Msg::Retry);
-        ui.on_close(|| Some(Msg::Close));
-        Ok(greeter)
-    })
+    xui_app::app(Channel::Greeter, "Log in")
+        .size(WINDOW.0, WINDOW.1)
+        .run(|ui, _backend| {
+            let mut greeter = Greeter {
+                w: Widgets::default(),
+                mode: Mode::Waiting,
+                view: None,
+            };
+            // A machine without accounts asks for its owner (first-boot setup);
+            // until the service answers, the login form waits and asks again.
+            let mode = Mode::from_list(list_setup());
+            let note = if mode == Mode::Waiting {
+                "Waiting for the account service..."
+            } else {
+                ""
+            };
+            greeter.show(ui, mode, "", note)?;
+            ui.every(RETRY_MS, Msg::Retry);
+            ui.on_close(|| Some(Msg::Close));
+            Ok(greeter)
+        })
 }
 
 #[cfg(test)]

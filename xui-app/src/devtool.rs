@@ -4,7 +4,7 @@
 //!
 //! A tool wires itself in four places:
 //!
-//! 1. **Title.** Start with [`run`] (or `launch::run(channel, &title(NAME), ..)`)
+//! 1. **Title.** Start with [`app`] (or `xui_app::app(channel, &title(NAME))`)
 //!    so the window is called "Name (developer tool)".
 //! 2. **Strip.** Put [`strip()`] under the menu bar, bound to a
 //!    `Handle<Strip<Msg>>` and given the tool's shared [`Notice`]
@@ -32,11 +32,6 @@ mod notice;
 mod review;
 mod strip;
 
-use std::rc::Rc;
-
-use xui_core::app::Ui;
-
-use crate::backend::LazyOSBackend;
 use crate::trace::{self, Channel};
 
 pub use help::{help_layout, help_view, HelpPage, HelpRow, RiskKind, NO_SAFEGUARD};
@@ -69,25 +64,17 @@ pub fn title(name: &str) -> String {
     }
 }
 
-/// Prints `<CH>:DEVTOOL:UP`: this process is a developer tool. [`run`] calls
-/// it; a tool that starts its window another way calls it itself once the
-/// window is up.
+/// Prints `<CH>:DEVTOOL:UP`: this process is a developer tool. A tool calls
+/// it as it builds its window (see [`app`]).
 pub fn announce(channel: Channel) {
     trace::line!(channel, "{ANNOUNCE}");
 }
 
-/// `launch::run` for a developer tool: the window is titled [`title`]`(name)`
-/// and `<CH>:DEVTOOL:UP` is printed as the app is built, before `make` runs.
-/// Failures are reported as `launch::run` reports them.
-pub fn run<A, F>(channel: Channel, name: &str, windowed: (i32, i32), make: F) -> !
-where
-    A: xui_core::app::App,
-    F: FnOnce(&mut Ui<A::Msg>, &Rc<LazyOSBackend>) -> xui_core::backend::Result<A>,
-{
-    crate::launch::run(channel, &title(name), windowed, move |ui, backend| {
-        announce(channel);
-        make(ui, backend)
-    })
+/// [`crate::app`] for a developer tool: the window is titled [`title`]`(name)`.
+/// The tool prints [`announce`] as it builds its window, before its first
+/// widget.
+pub fn app(channel: Channel, name: &str) -> crate::launch::AppBuilder {
+    crate::app(channel, &title(name))
 }
 
 #[cfg(test)]

@@ -323,7 +323,14 @@ impl Markers {
 }
 
 /// [`Markers::install_panic_hook`] for a program that has no `Markers`.
+///
+/// Once per process: the app builder installs it for every desktop app, and a
+/// program that installed its own earlier keeps that one.
 pub fn install_panic_hook(channel: Channel) {
+    static INSTALLED: AtomicBool = AtomicBool::new(false);
+    if INSTALLED.swap(true, Ordering::Relaxed) {
+        return;
+    }
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         emit_always(|buf| {

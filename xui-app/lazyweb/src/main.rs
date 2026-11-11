@@ -4,7 +4,7 @@
 
 #[cfg(all(target_os = "linux", target_env = "musl"))]
 fn main() {
-    std::process::exit(xui_lazyweb::platform::main());
+    xui_lazyweb::platform::main();
 }
 
 #[cfg(not(all(target_os = "linux", target_env = "musl")))]

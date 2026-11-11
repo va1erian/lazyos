@@ -168,7 +168,7 @@ fn drive(dir: PathBuf, step: impl FnOnce(&Stage<'_, Msg>, &Rig) + 'static) -> Im
                 muted: false,
             };
             let session = Session::new(dir.clone(), 48_000.0);
-            let app = NesApp::build(ui, Rc::new(RefCell::new(host)), session, None)?;
+            let app = NesApp::build(ui, Rc::new(RefCell::new(host)), session)?;
             *build_rig.screen.borrow_mut() = Some(app.screen());
             Ok(app)
         },

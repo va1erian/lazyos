@@ -7,21 +7,17 @@
 //! `CALC:RESULT:<display>` after each `=`, and `CALC:QUIT:PASS` on `q` (or
 //! the window close button).
 
-use xui_app::launch;
-use xui_calc::{CalcApp, Msg, Report, WINDOW};
+use xui_app::trace::{self, Channel};
+use xui_calc::{CalcApp, Report, WINDOW};
 
 fn main() {
-    launch::run(xui_app::trace::Channel::Calc, "Calculator", WINDOW, |ui, backend| {
-        backend.on_first_frame(|| println!("CALC:UP:PASS"));
-        CalcApp::build(ui, |report| match report {
-            Report::Msg(msg) => {
-                println!("CALC:MSG:{msg:?}");
-                if *msg == Msg::Quit {
-                    println!("CALC:QUIT:PASS");
-                }
-            }
-            Report::Result(shown) => println!("CALC:RESULT:{shown}"),
+    xui_app::app(Channel::Calc, "Calculator")
+        .size(WINDOW.0, WINDOW.1)
+        .run(|ui, _| {
+            CalcApp::build(ui, |report| match report {
+                Report::Msg(msg) => trace::line!(Channel::Calc, "MSG:{msg:?}"),
+                Report::Result(shown) => trace::line!(Channel::Calc, "RESULT:{shown}"),
+            })
+            .inspect_err(|error| trace::fail!(Channel::Calc, "BUILD", "{error}"))
         })
-        .inspect_err(|error| println!("CALC:BUILD:FAIL:{error}"))
-    })
 }

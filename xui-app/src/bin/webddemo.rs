@@ -17,8 +17,7 @@
 mod screen;
 
 use screen::Screen;
-use xui_app::launch;
-use xui_app::trace::{self, Channel};
+use xui_app::trace::Channel;
 use xui_core::arrange::build;
 use xui_core::prelude::*;
 
@@ -42,29 +41,27 @@ impl App for WebdDemo {
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         match msg {
             Msg::Recreate => self.screen.get().recreate(),
-            Msg::Quit => {
-                trace::pass!(Channel::Webddemo, "QUIT");
-                ui.quit();
-            }
+            Msg::Quit => ui.quit(),
         }
     }
 }
 
 fn main() {
-    launch::run(Channel::Webddemo, "Web View Demo", WINDOW, |ui, backend| {
-        backend.on_first_frame(|| trace::pass!(Channel::Webddemo, "UP"));
-        let screen: Handle<Screen> = Handle::new();
-        ui.root(
-            column().children((build(|ui: &Ui<Msg>| Ok(Screen::new(ui)))
-                .bind(&screen)
-                .fill(1),)),
-        )?;
-        ui.on_key(|key, modifiers| match key {
-            Key::Q if modifiers.ctrl => Some(Msg::Quit),
-            Key::R if modifiers.ctrl => Some(Msg::Recreate),
-            _ => None,
-        });
-        ui.on_close(|| Some(Msg::Quit));
-        Ok(WebdDemo { screen })
-    })
+    xui_app::app(Channel::Webddemo, "Web View Demo")
+        .size(WINDOW.0, WINDOW.1)
+        .run(|ui, _| {
+            let screen: Handle<Screen> = Handle::new();
+            ui.root(
+                column().children((build(|ui: &Ui<Msg>| Ok(Screen::new(ui)))
+                    .bind(&screen)
+                    .fill(1),)),
+            )?;
+            ui.on_key(|key, modifiers| match key {
+                Key::Q if modifiers.ctrl => Some(Msg::Quit),
+                Key::R if modifiers.ctrl => Some(Msg::Recreate),
+                _ => None,
+            });
+            ui.on_close(|| Some(Msg::Quit));
+            Ok(WebdDemo { screen })
+        })
 }

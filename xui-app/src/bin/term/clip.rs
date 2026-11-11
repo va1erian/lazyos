@@ -6,35 +6,11 @@
 use std::path::PathBuf;
 
 use lazyterm::paste::{line_count, needs_confirmation, paste_bytes, shell_quote};
-use std::cell::RefCell;
-use std::rc::Rc;
 
-use xui_app::backend::{DropEvent, LazyOSBackend};
-use xui_app::platform::urilist;
-use xui_core::app::Proxy;
 use xui_core::app::Ui;
 
 use super::prompt::Prompt;
 use super::{Msg, Terminal};
-
-/// Turn files dropped on the window into `Msg::Dropped` through `outbox`, which
-/// holds the UI's proxy once the UI exists (the hook runs outside `update`).
-pub(super) fn watch_drops(backend: &LazyOSBackend, outbox: Rc<RefCell<Option<Proxy<Msg>>>>) {
-    backend.on_drag_event(move |_, event| {
-        if let DropEvent::Drop {
-            mime,
-            data: Ok(bytes),
-            ..
-        } = event
-        {
-            if mime == urilist::MIME {
-                if let Some(proxy) = outbox.borrow().as_ref() {
-                    let _ = proxy.send(Msg::Dropped(urilist::decode(bytes)));
-                }
-            }
-        }
-    });
-}
 
 /// How many of a paste's last lines `TERM:CMD` reports.
 const MAX_TRACKED_LINES: usize = 8;
