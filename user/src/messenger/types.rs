@@ -179,24 +179,19 @@ fn init_message(code: i64) -> &'static str {
     }
 }
 
-/// Friendly text for a `confd` error code crossing the protocol. The constants
-/// live with the wire module so the service and client agree on one set.
+/// Friendly text for a `confd` error code crossing the protocol. The codes are
+/// the `errors` block of `idl/confd.midl`, so the service and client agree on
+/// one set.
 fn confd_message(code: i64) -> &'static str {
-    use super::confd;
-    if code == confd::CONFD_NOT_FOUND {
-        "no value is stored at that path"
-    } else if code == confd::CONFD_BAD_PATH {
-        "that is not a valid confd path"
-    } else if code == confd::CONFD_TOO_LARGE {
-        "the value or store exceeds a confd size limit"
-    } else if code == confd::CONFD_DENIED {
-        "the caller may not access that path"
-    } else if code == confd::CONFD_BAD_VALUE {
-        "the request carried a malformed confd value"
-    } else if code == confd::CONFD_IO {
-        "the confd store could not be read or written"
-    } else {
-        "the confd request failed"
+    use super::confd::{store_error, StoreError};
+    match store_error(code) {
+        Some(StoreError::NotFound) => "no value is stored at that path",
+        Some(StoreError::BadPath) => "that is not a valid confd path",
+        Some(StoreError::TooLarge) => "the value or store exceeds a confd size limit",
+        Some(StoreError::Denied) => "the caller may not access that path",
+        Some(StoreError::BadValue) => "the request carried a malformed confd value",
+        Some(StoreError::Io) => "the confd store could not be read or written",
+        None => "the confd request failed",
     }
 }
 

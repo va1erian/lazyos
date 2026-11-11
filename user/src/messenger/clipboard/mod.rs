@@ -35,34 +35,14 @@ pub use messenger_generated::os_lazy_clipboard_v1::{
 /// `Ping` and `Current`.
 pub const INTERFACE: u64 = wire::INTERFACE_ID;
 
-/// ACL scope interface an `Offer` call carries:
-/// `fnv1a64("os.lazy.clipboard.write.v1")` (the topics convention). A scope
-/// is a capability name, not a wire field, so it is not in the IDL.
-pub const WRITE_INTERFACE: u64 = fnv1a64("os.lazy.clipboard.write.v1");
-
-/// Policy pseudo-interface a `Request` call carries:
-/// `fnv1a64("os.lazy.clipboard.read.v1")`.
-pub const READ_INTERFACE: u64 = fnv1a64("os.lazy.clipboard.read.v1");
-
-/// Interface the owner of a lazy offer serves for [`method::SERIALIZE`].
+/// Interface the owner of a lazy offer serves for [`method::SERIALIZE`]. It is
+/// the bytes `os.owner`, not a name hash, so the IDL has no `scope` for it.
 pub const OWNER_INTERFACE: u64 = u64::from_le_bytes(*b"os.owner");
 
-/// FNV-1a 64, the `tools/midlc` interface-id hash, so policy can key the
-/// two pseudo-interfaces on the same value the kernel checks.
-const fn fnv1a64(text: &str) -> u64 {
-    let bytes = text.as_bytes();
-    let mut hash = 0xCBF2_9CE4_8422_2325u64;
-    let mut index = 0;
-    while index < bytes.len() {
-        hash = (hash ^ bytes[index] as u64).wrapping_mul(0x0000_0100_0000_01B3);
-        index += 1;
-    }
-    hash
-}
-
-/// Method ids, aliased from the generated stubs. `OFFER` travels on
-/// [`WRITE_INTERFACE`], `REQUEST` on [`READ_INTERFACE`], `SERIALIZE` on
-/// [`OWNER_INTERFACE`]; `PING` and `CURRENT` are the control interface.
+/// Method ids, aliased from the generated stubs. `OFFER` travels on its
+/// `scope` (`wire::METHOD_OFFER_SCOPE`), `REQUEST` on `wire::METHOD_REQUEST_SCOPE`,
+/// `SERIALIZE` on [`OWNER_INTERFACE`]; `PING` and `CURRENT` are the control
+/// interface.
 pub mod method {
     use super::wire;
 

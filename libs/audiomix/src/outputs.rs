@@ -16,11 +16,12 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use messenger_generated::os_lazy_audio_mixer_v1 as control;
+use messenger_generated::os_lazy_audio_v1 as audio;
 
 use crate::service::{errno, Outcome};
 
 /// The registry prefix of a card: `os.lazy.audio.card/<id>`.
-pub const CARD_PREFIX: &str = "os.lazy.audio.card/";
+pub const CARD_PREFIX: &str = audio::SERVICE_INSTANCE_PREFIX;
 /// Longest id kept (a hostile name cannot grow the table's strings).
 const MAX_ID: usize = 32;
 /// Outputs tracked at once.

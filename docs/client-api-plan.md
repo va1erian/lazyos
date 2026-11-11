@@ -5,7 +5,9 @@ the code `midlc` generates, and the `xui-app` layer desktop apps build on),
 with a plan to make apps smaller, make every client behave the same way, and
 make the IDL the only place a protocol is written.
 
-Status: proposal (2026-11-11). Nothing here is built yet.
+Status: proposal (2026-11-11). C2a is built (the `service`, `errors`, `scope`
+and `deadline` syntax, their generated constants, and the per-interface crate
+layout, sections 3.1 and 3.6); the rest is not.
 
 Related: [messenger.md](messenger.md) (sections 11 and 15),
 [midl.md](midl.md), [lazyrad-messenger-plan.md](lazyrad-messenger-plan.md)
@@ -178,6 +180,12 @@ interface os.lazy.clipboard.v1 {
     method Offer(..) -> (token: U64 = 1) scope "os.lazy.clipboard.write.v1";
 }
 ```
+
+As built (C2a): the generated enum is `ServiceError` (every interface module
+already imports the codec's `libmessenger::Error`), a `service` may be a family
+(`"os.lazy.net.nic/{ifname}"`, giving `SERVICE_INSTANCE_PREFIX`), an interface
+has at most one singleton name and one family, and a method without `deadline`
+gets no constant. Syntax and rules are in [midl.md](midl.md).
 
 Each addition replaces a family of hand constants in section 1.4: `service`
 gives `SERVICE_NAME` (and the manifest gets the name-to-interface map the

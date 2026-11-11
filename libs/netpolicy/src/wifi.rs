@@ -17,9 +17,10 @@
 use crate::{WIFISIM_UID, WIFI_UID, WLAN_UID};
 
 /// The registry namespace of the radios: `os.lazy.net.wifi.hw/<ifname>`.
-pub const WIFI_HW_NAME_PREFIX: &str = "os.lazy.net.wifi.hw";
+pub const WIFI_HW_NAME_PREFIX: &str =
+    crate::namespace(messenger_generated::os_lazy_net_wifi_hw_v1::SERVICE_INSTANCE_PREFIX);
 /// The station manager's registry name.
-pub const WIFI_SERVICE_NAME: &str = "os.lazy.net.wifi";
+pub const WIFI_SERVICE_NAME: &str = messenger_generated::os_lazy_net_wifi_v1::SERVICE_NAME;
 
 /// `name` is `prefix` or lies under `prefix/`.
 fn in_namespace(name: &str, prefix: &str) -> bool {

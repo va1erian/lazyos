@@ -10,6 +10,8 @@ xui-core = { git = "https://github.com/va1erian/xui", rev = "832c61f29419bf31a05
 # Path validation, the size limits and the typed `Value` are the service's own
 # contract, reused client-side so the editor never re-implements them.
 confd = { path = "../../../libs/confd" }
+# The store's error codes are the `errors` block of `idl/confd.midl`.
+messenger-generated = { path = "../../../libs/generated" }
 
 [dev-dependencies]
 xui-canvas = { git = "https://github.com/va1erian/xui", rev = "832c61f29419bf31a0518a47e050b15c97b316e3", default-features = false }

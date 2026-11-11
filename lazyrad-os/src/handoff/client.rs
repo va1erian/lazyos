@@ -12,12 +12,13 @@ use rhai_lazy::msg::topics as topics_wrapper;
 
 use crate::transport::{Failure, Transport, Wait};
 
-/// The registered service names (not the `.vN` interface names).
-pub const MIMED_NAME: &str = "os.lazy.mimed";
+/// The registered service names (not the `.vN` interface names), declared by
+/// `service` in the `.midl` files.
+pub const MIMED_NAME: &str = mimed::SERVICE_NAME;
 /// `init`'s service name.
-pub const INIT_NAME: &str = "os.lazy.init";
+pub const INIT_NAME: &str = init_wire::SERVICE_NAME;
 /// The topics broker's service name.
-pub const BROKER_NAME: &str = "os.lazy.messenger.topics";
+pub const BROKER_NAME: &str = topics::SERVICE_NAME;
 
 /// Events a package subscription may queue before the broker drops the oldest:
 /// an install is one event, but another install or the provisioning pass may

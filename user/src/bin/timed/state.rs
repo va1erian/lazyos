@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 
 use timezone::{Local, Zone, DEFAULT_ZONE, ZONE_KEY};
 use user::central::{Bus, Subscription};
-use user::messenger::confd::{Client as Confd, CONFD_NOT_FOUND};
+use user::messenger::confd::{store_error, Client as Confd, StoreError};
 use user::messenger::{self, errno, timed as api, Endpoint, Error, EXPIRED_DEADLINE};
 use user::sys;
 
@@ -264,7 +264,7 @@ impl State {
     pub(super) fn clear_zone(&mut self) -> Result<(), Error> {
         let client = self.confd.as_ref().ok_or(Error::Errno(-errno::ENOENT))?;
         match client.delete(ZONE_KEY) {
-            Err(Error::Confd(code)) if code == CONFD_NOT_FOUND => Ok(()),
+            Err(Error::Confd(code)) if store_error(code) == Some(StoreError::NotFound) => Ok(()),
             other => other,
         }
     }

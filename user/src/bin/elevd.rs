@@ -77,7 +77,7 @@ use user::sys;
 use approve::Verdict;
 
 /// The service's registered name.
-pub(crate) const NAME: &str = "os.lazy.elevd";
+pub(crate) const NAME: &str = wire::SERVICE_NAME;
 
 /// What `elevd` keeps between requests.
 pub(crate) struct State {

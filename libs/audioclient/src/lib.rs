@@ -39,12 +39,12 @@ pub use messenger_generated::os_lazy_audio_v1 as wire;
 pub use playback::{Params, PlaybackStream};
 
 /// The system mixer: the name applications resolve.
-pub const NAME: &str = "os.lazy.audio";
+pub const NAME: &str = wire::SERVICE_NAME;
 
 /// Where card drivers register, one name per card
 /// (`os.lazy.audio.card/intel-hda0`, `.../usb-audio0`); each card's one
 /// stream belongs to the mixer, which picks the card to play through.
-pub const CARD_PREFIX: &str = "os.lazy.audio.card/";
+pub const CARD_PREFIX: &str = wire::SERVICE_INSTANCE_PREFIX;
 
 /// Unity gain in 16.16 fixed point; see `os.lazy.audio.v1` `SetVolume`.
 pub const UNITY_GAIN: u32 = 1 << 16;

@@ -1621,6 +1621,9 @@ dependencies = [
 [[package]]
 name = "netpolicy"
 version = "0.1.0"
+dependencies = [
+ "messenger-generated",
+]
 
 [[package]]
 name = "netstack"
@@ -3404,6 +3407,7 @@ name = "xui-confd-editor"
 version = "0.1.0"
 dependencies = [
  "confd",
+ "messenger-generated",
  "xui-core",
 ]
 

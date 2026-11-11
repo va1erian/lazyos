@@ -54,6 +54,13 @@ pub const STACK_INTERFACE: &str = "os.lazy.net.stack.v1";
 /// The socket interface `netd` serves next to it (`idl/net.midl`, stage N3).
 pub const SOCKET_INTERFACE: &str = "os.lazy.net.socket.v1";
 
+/// A declared family's prefix (`os.lazy.net.nic/`, `service` in the `.midl`) as
+/// the namespace the registry reserves (`os.lazy.net.nic`, with everything
+/// under it), so no namespace is spelled twice.
+const fn namespace(family_prefix: &'static str) -> &'static str {
+    family_prefix.split_at(family_prefix.len() - 1).0
+}
+
 mod nic;
 pub use nic::{
     is_nic_name, may_own_nic, may_register_nic_name, nic_kind_allowed, stack_attaches,

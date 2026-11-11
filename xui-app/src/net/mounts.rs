@@ -15,9 +15,9 @@ use mounttable::Request;
 use crate::platform::messenger::Service;
 
 /// `mountd`'s registered name.
-const NAME: &str = "os.lazy.mount";
+const NAME: &str = wire::SERVICE_NAME;
 /// `init`'s registered name.
-const INIT: &str = "os.lazy.init";
+const INIT: &str = init_wire::SERVICE_NAME;
 /// The app that opens a folder.
 const FILES_APP: &str = "os.lazy.files";
 /// The longest one call may wait (PIT ticks, 100 Hz).

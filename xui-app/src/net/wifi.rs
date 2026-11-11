@@ -22,7 +22,7 @@ use super::wifimodel::{clean, Conn, Network, Security, State, Why, MAX_SSID};
 use crate::platform::messenger::Service;
 
 /// `wlanmd`'s registered name.
-const NAME: &str = "os.lazy.net.wifi";
+const NAME: &str = wire::SERVICE_NAME;
 /// The longest one call may wait (PIT ticks, 100 Hz).
 pub const CALL_TICKS: u64 = 100;
 /// Most networks and interfaces taken from one reply (the service caps the

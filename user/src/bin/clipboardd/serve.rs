@@ -84,13 +84,13 @@ fn actor(message: &Message) -> messenger::Result<sys::Cred> {
 /// Route one inbound message.
 fn dispatch(clipboard: &mut Clipboard, message: &Message) -> messenger::Result<Parcel> {
     match (message.interface_id(), message.method()) {
-        (wire::WRITE_INTERFACE, wire::method::OFFER) => {
+        (wire::wire::METHOD_OFFER_SCOPE, wire::method::OFFER) => {
             let request = wire::decode_offer(&message.parcel)?;
             let cred = actor(message)?;
             let token = clipboard.offer(request, cred.session, message.sender, sys::clock())?;
             wire::token_reply(token)
         }
-        (wire::READ_INTERFACE, wire::method::REQUEST) => {
+        (wire::wire::METHOD_REQUEST_SCOPE, wire::method::REQUEST) => {
             let (token, mime) = wire::decode_request(&message.parcel)?;
             let cred = actor(message)?;
             let handle = clipboard.request(token, &mime, cred.session);

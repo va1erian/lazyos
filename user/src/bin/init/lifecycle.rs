@@ -44,7 +44,7 @@ use super::service::{Phase, Service};
 /// The interface served on [`APP_NAME`].
 pub(super) const APP_INTERFACE: u64 = app_wire::INTERFACE_ID;
 /// The name `os.lazy.init.app.v1` is served under.
-pub(super) const APP_NAME: &str = "os.lazy.init.app";
+pub(super) const APP_NAME: &str = app_wire::SERVICE_NAME;
 /// Most `Reopen`s queued for an instance that does not watch yet.
 pub(super) const REOPEN_QUEUE: usize = 16;
 /// Milliseconds per PIT tick.

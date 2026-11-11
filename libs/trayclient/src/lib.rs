@@ -38,7 +38,7 @@ pub use messenger_generated::os_lazy_shell_tray_v1 as wire;
 use alloc::vec::Vec;
 
 /// LazyShell's registered name for the tray.
-pub const NAME: &str = "os.lazy.shell.tray";
+pub const NAME: &str = wire::SERVICE_NAME;
 
 /// A failed call: the transport's or the shell's negative errno.
 pub type Error = i64;

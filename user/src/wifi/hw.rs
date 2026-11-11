@@ -31,8 +31,6 @@ use crate::sys::Cred;
 pub use messenger_generated::os_lazy_net_wifi_hw_v1 as wire;
 
 pub const INTERFACE: u64 = wire::INTERFACE_ID;
-/// The registry namespace of radios: `os.lazy.net.wifi.hw/<ifname>`.
-pub const NAME_PREFIX: &str = "os.lazy.net.wifi.hw";
 
 /// Octets of frames one `ScanResults` page carries: a reply must fit the
 /// client's 16 KiB receive buffer with its encoding.
@@ -45,7 +43,7 @@ const PROBE_DRAIN: usize = 64;
 
 /// The registered name of the radio of `ifname`.
 pub fn service_name(ifname: &str) -> String {
-    format!("{NAME_PREFIX}/{ifname}")
+    format!("{}{ifname}", wire::SERVICE_INSTANCE_PREFIX)
 }
 
 /// Whether `caller` may become the radio's owner (see the module notes).

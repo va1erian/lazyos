@@ -319,8 +319,8 @@ pub mod mime;
 /// # Policy
 ///
 /// `Offer` and `Request` parcels put the *pseudo-interface* ids
-/// [`WRITE_INTERFACE`] (`os.lazy.clipboard.write.v1`) and [`READ_INTERFACE`]
-/// (`os.lazy.clipboard.read.v1`) in their parcel header. The kernel's
+/// `wire::METHOD_OFFER_SCOPE` (`os.lazy.clipboard.write.v1`) and
+/// `wire::METHOD_REQUEST_SCOPE` (`os.lazy.clipboard.read.v1`) in their parcel header. The kernel's
 /// `ipc::authorize` hook derives `(interface_id, method)` from that header on
 /// every outbound call, so an ACL rule keyed on `clipboard.write` /
 /// `clipboard.read` gates offering and pasting, and a denial is recorded in the

@@ -10,5 +10,6 @@ license = "GPL-3.0-or-later"
 name = "netpolicy"
 path = "src/lib.rs"
 
-[dev-dependencies]
+# The registry namespaces are the `service` families of `idl/net.midl` and `idl/wifi.midl`.
+[dependencies]
 messenger-generated = { path = "../generated" }

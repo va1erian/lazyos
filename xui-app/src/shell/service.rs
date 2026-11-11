@@ -21,7 +21,7 @@ use crate::server::{error_parcel, reply_parcel, Request, Server};
 use crate::sys::errno;
 
 /// The registered service name.
-pub const NAME: &str = "os.lazy.shell";
+pub const NAME: &str = wire::SERVICE_NAME;
 /// Most requests answered per heartbeat.
 const REQUESTS_PER_TICK: usize = 8;
 /// Receive buffer for one request (the largest is a short app id).

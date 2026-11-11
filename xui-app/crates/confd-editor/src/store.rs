@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 pub use confd::Value;
+use messenger_generated::os_lazy_confd_v1::ServiceError;
 
 /// The largest accepted path, in bytes (the service's own limit).
 pub const MAX_PATH_LEN: usize = confd::MAX_PATH_LEN;
@@ -17,14 +18,6 @@ pub const MAX_PATH_LEN: usize = confd::MAX_PATH_LEN;
 pub const MAX_VALUE_LEN: usize = confd::MAX_VALUE_LEN;
 /// The largest total `path + value` weight the store may hold.
 pub const MAX_STORE_BYTES: usize = confd::MAX_STORE_BYTES;
-
-/// The `CONFD_*` codes carried in a reply's structured error field.
-pub const CONFD_NOT_FOUND: i64 = 1001;
-pub const CONFD_BAD_PATH: i64 = 1002;
-pub const CONFD_TOO_LARGE: i64 = 1003;
-pub const CONFD_DENIED: i64 = 1004;
-pub const CONFD_IO: i64 = 1005;
-pub const CONFD_BAD_VALUE: i64 = 1006;
 
 /// Why a `confd` operation failed, as a value the UI can act on.
 ///
@@ -50,17 +43,21 @@ pub enum StoreError {
 }
 
 impl StoreError {
-    /// Maps a `CONFD_*` code (positive from the service, or the negated errno
-    /// the platform client reports) onto a variant.
+    /// Maps a code of the `errors` block of `idl/confd.midl` (positive from the
+    /// service, or the negated errno the platform client reports) onto a variant.
     pub fn from_confd_code(code: i64) -> StoreError {
-        match code.unsigned_abs() {
-            1001 => StoreError::NotFound,
-            1002 => StoreError::BadPath,
-            1003 => StoreError::TooLarge,
-            1004 => StoreError::Denied,
-            1005 => StoreError::Io,
-            1006 => StoreError::BadValue,
-            other => StoreError::Transport(other as i64),
+        let magnitude = code.unsigned_abs();
+        match u32::try_from(magnitude)
+            .ok()
+            .and_then(ServiceError::from_code)
+        {
+            Some(ServiceError::NotFound) => StoreError::NotFound,
+            Some(ServiceError::BadPath) => StoreError::BadPath,
+            Some(ServiceError::TooLarge) => StoreError::TooLarge,
+            Some(ServiceError::Denied) => StoreError::Denied,
+            Some(ServiceError::Io) => StoreError::Io,
+            Some(ServiceError::BadValue) => StoreError::BadValue,
+            None => StoreError::Transport(magnitude as i64),
         }
     }
 
@@ -368,14 +365,15 @@ mod tests {
 
     #[test]
     fn codes_map_to_variants_in_both_signs() {
-        for (code, error) in [
-            (CONFD_NOT_FOUND, StoreError::NotFound),
-            (CONFD_BAD_PATH, StoreError::BadPath),
-            (CONFD_TOO_LARGE, StoreError::TooLarge),
-            (CONFD_DENIED, StoreError::Denied),
-            (CONFD_IO, StoreError::Io),
-            (CONFD_BAD_VALUE, StoreError::BadValue),
+        for (declared, error) in [
+            (ServiceError::NotFound, StoreError::NotFound),
+            (ServiceError::BadPath, StoreError::BadPath),
+            (ServiceError::TooLarge, StoreError::TooLarge),
+            (ServiceError::Denied, StoreError::Denied),
+            (ServiceError::Io, StoreError::Io),
+            (ServiceError::BadValue, StoreError::BadValue),
         ] {
+            let code = i64::from(declared.code());
             assert_eq!(StoreError::from_confd_code(code), error);
             assert_eq!(StoreError::from_confd_code(-code), error);
         }
