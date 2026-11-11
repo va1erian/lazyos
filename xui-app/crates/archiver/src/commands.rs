@@ -12,8 +12,8 @@ use xui_core::widget::{DialogAction, TaskDialogAction};
 use crate::app::{ArchiverApp, Msg};
 use crate::folder::{self, RowKind};
 use crate::job::{Job, Task};
-use xui_work::Sink;
 use crate::ui::{self, MENU_DELETE, MENU_EXTRACT, MENU_OPEN, MENU_TEST};
+use xui_work::Sink;
 
 mod finish;
 

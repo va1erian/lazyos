@@ -31,12 +31,12 @@ use std::time::Instant;
 
 use xui_core::app::{App, Proxy, Ui};
 use xui_core::backend::BackendError;
-use xui_work::Sink;
 use xui_core::geometry::Point;
 use xui_core::message::{Key, Modifiers};
 use xui_core::widget::{
     Dialog, Edit, IconView, ListView, Menu, MenuId, StatusBar, TaskDialog, TaskDialogAction,
 };
+use xui_work::Sink;
 
 use self::chrome::{Chrome, Handles};
 pub use self::chrome::{SORT_DESCENDING, sort_id as sort_menu_id};

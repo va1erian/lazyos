@@ -28,12 +28,23 @@ impl PartialEq for Shared {
 /// message from a superseded search is ignored.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Gen {
-    Progress { seq: u64, label: String, done: f32 },
-    Ready { seq: u64, course: Shared },
+    Progress {
+        seq: u64,
+        label: String,
+        done: f32,
+    },
+    Ready {
+        seq: u64,
+        course: Shared,
+    },
     /// The search was cancelled before it found a course.
-    Stopped { seq: u64 },
+    Stopped {
+        seq: u64,
+    },
     /// The worker could not run.
-    Failed { seq: u64 },
+    Failed {
+        seq: u64,
+    },
 }
 
 impl Gen {

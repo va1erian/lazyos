@@ -163,7 +163,10 @@ fn a_queue_ends_when_the_window_is_gone() {
     // The worker posts, finds nobody, and ends: later sends fail.
     let deadline = std::time::Instant::now() + WAIT;
     while queue.send(2) {
-        assert!(std::time::Instant::now() < deadline, "the worker never ended");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the worker never ended"
+        );
         std::thread::sleep(Duration::from_millis(5));
     }
 }

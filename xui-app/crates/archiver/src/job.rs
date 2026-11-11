@@ -135,7 +135,9 @@ impl Job {
             "archiver-job",
             move || run(worker_task, archive.as_deref(), &worker_progress),
             |result| {
-                Finished::new(result.unwrap_or_else(|failed| Err(Error::unsupported(failed.to_string()))))
+                Finished::new(
+                    result.unwrap_or_else(|failed| Err(Error::unsupported(failed.to_string()))),
+                )
             },
         );
         Job {

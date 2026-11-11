@@ -17,8 +17,8 @@ use xui_work::Sink;
 use crate::app::Msg;
 use crate::fly::{action_for, EYE, WHEEL_NOTCH};
 use crate::game::Game;
-use crate::loading::Gen;
 use crate::hud;
+use crate::loading::Gen;
 use crate::math::Vec3;
 
 /// The timer period: ticks fast enough for 60 frames a second; a slow

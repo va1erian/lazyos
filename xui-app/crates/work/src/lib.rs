@@ -84,16 +84,18 @@ pub fn spawn<M, R, B>(
     // never starts leaves `done` here to report the failure with.
     let parts = Arc::new(Mutex::new(Some((work, done))));
     let (thread_parts, mailbox, who) = (Arc::clone(&parts), to.clone(), name.to_owned());
-    let started = std::thread::Builder::new().name(name.to_owned()).spawn(move || {
-        let Some((work, done)) = take(&thread_parts) else {
-            return;
-        };
-        let result = catch_unwind(AssertUnwindSafe(work)).map_err(|payload| Failed {
-            worker: who,
-            reason: panic_text(&*payload),
+    let started = std::thread::Builder::new()
+        .name(name.to_owned())
+        .spawn(move || {
+            let Some((work, done)) = take(&thread_parts) else {
+                return;
+            };
+            let result = catch_unwind(AssertUnwindSafe(work)).map_err(|payload| Failed {
+                worker: who,
+                reason: panic_text(&*payload),
+            });
+            mailbox.post(done(result));
         });
-        mailbox.post(done(result));
-    });
     if let Err(error) = started {
         if let Some((_, done)) = take(&parts) {
             to.post(done(Err(Failed {
@@ -124,7 +126,11 @@ impl<P> Report<P> {
     /// times a second paces its reports.
     pub fn paced(&self, gap: Duration, progress: impl FnOnce() -> P) -> bool {
         let now = Instant::now();
-        if self.last.get().is_some_and(|at| now.duration_since(at) < gap) {
+        if self
+            .last
+            .get()
+            .is_some_and(|at| now.duration_since(at) < gap)
+        {
             return false;
         }
         self.last.set(Some(now));

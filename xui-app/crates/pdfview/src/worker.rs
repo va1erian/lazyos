@@ -115,7 +115,6 @@ impl Pool {
         let queue = lock(&self.shared.queue);
         !queue.jobs.is_empty() || !queue.running.is_empty()
     }
-
 }
 
 impl Drop for Pool {
