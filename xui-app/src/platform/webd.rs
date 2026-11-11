@@ -19,6 +19,7 @@
 //! scope (`ScopedTransport::call_through`), and reads events of that interface.
 
 #[cfg(unix)]
+use libmessenger::client::Deadline;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
 use libmessenger::{Object, Parcel};
@@ -30,7 +31,6 @@ use xui_webd_client::transport::{
 };
 
 use crate::platform::messenger::Service;
-use crate::server::ERROR_FIELD;
 use crate::sys::{self, errno};
 
 /// Ticks (100 Hz) one call to `webd` may take: it answers from its service thread, and a UI
@@ -197,16 +197,15 @@ impl WebdTransport {
         // thread waits at most `QUEUE_FULL_RETRIES` x `QUEUE_FULL_PAUSE`.
         let mut tries = 0;
         let result = loop {
-            let attempt = service.call_moving_within(
+            let attempt = service.call_moving(
                 interface,
                 method,
-                ERROR_FIELD,
                 body.clone(),
                 objects.clone(),
-                CALL_TICKS,
+                Deadline::ticks(CALL_TICKS),
             );
             match attempt {
-                Err(code) if code == -errno::EAGAIN && tries < QUEUE_FULL_RETRIES => {
+                Err(error) if error.code() == -errno::EAGAIN && tries < QUEUE_FULL_RETRIES => {
                     tries += 1;
                     std::thread::sleep(QUEUE_FULL_PAUSE);
                 }
@@ -215,6 +214,7 @@ impl WebdTransport {
         };
         result
             .map(|reply| reply.body)
+            .map_err(i64::from)
             .inspect_err(|_| close_unsent(&carried))
     }
 }

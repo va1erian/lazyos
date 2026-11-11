@@ -12,7 +12,7 @@
 //! Nothing here logs or formats a secret, and [`Failure`] never carries one.
 //! Calls are bounded ([`CALL_TICKS`]) so none can park a UI thread for long.
 
-use messenger_generated::errors::ERROR_FIELD;
+use libmessenger::client::Deadline;
 use messenger_generated::os_lazy_keyd_appsecret_v1 as wire;
 
 use super::messenger::Service;
@@ -63,9 +63,14 @@ fn call(method: u32, body: Vec<u8>) -> Result<Vec<u8>, Failure> {
         _ => Failure::Unavailable,
     })?;
     service
-        .call(wire::INTERFACE_ID, method, ERROR_FIELD, body, CALL_TICKS)
+        .call(
+            wire::INTERFACE_ID,
+            method,
+            body,
+            Deadline::ticks(CALL_TICKS),
+        )
         .map(|reply| reply.body)
-        .map_err(Failure::of_errno)
+        .map_err(|error| Failure::of_errno(error.code()))
 }
 
 /// Keep `secret` under `name`, replacing one of that name.

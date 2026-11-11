@@ -9,6 +9,7 @@
 //! one would hang up the service, see `platform::messenger`).
 
 use confd::Value;
+use libmessenger::client::Deadline;
 use messenger_generated::os_lazy_confd_v1 as confd_wire;
 use messenger_generated::os_lazy_init_v1 as init_wire;
 use messenger_generated::os_lazy_logind_v1 as logind_wire;
@@ -16,8 +17,7 @@ use messenger_generated::os_lazy_timed_v1 as timed_wire;
 
 use crate::platform::confd_store::from_wire;
 use crate::platform::messenger::Service;
-use crate::server::ERROR_FIELD;
-use crate::sys::{self, errno};
+use crate::sys::errno;
 
 /// `init`'s registered name (owner of the app registry).
 const INIT: &str = "os.lazy.init";
@@ -82,8 +82,9 @@ fn call(
     ticks: u64,
 ) -> Result<libmessenger::Parcel, i64> {
     let service = Service::try_connect(name).ok_or(-errno::ENOENT)?;
-    let deadline = sys::clock_ticks().saturating_add(ticks);
-    service.call_until(interface, method, ERROR_FIELD, body, deadline)
+    service
+        .call(interface, method, body, Deadline::ticks(ticks))
+        .map_err(i64::from)
 }
 
 /// `init.ListApps`: the shipped and installed apps.

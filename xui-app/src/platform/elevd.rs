@@ -10,10 +10,10 @@
 //! [`ElevatingStore`], the Settings app's store that sends `sys/**` writes
 //! through `elevd`.
 
+use libmessenger::client::Deadline;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use messenger_generated::errors::ERROR_FIELD;
 use messenger_generated::os_lazy_elevd_v1 as wire;
 use xui_confd_editor::store::{
     ConfStore, Elevation, StoreError as ConfStoreError, StoreInfo, Value,
@@ -43,46 +43,35 @@ fn request_within(
     args: &[&str],
     ticks: u64,
 ) -> Result<(String, Vec<String>), CallError> {
-    let service = Service::try_connect(NAME).ok_or_else(|| CallError {
-        code: -errno::ENOENT,
-        message: String::from("the elevation service is not running"),
+    let service = Service::try_connect(NAME).ok_or_else(|| {
+        CallError::refusal(errno::ENOENT as u32, "the elevation service is not running")
     })?;
     let body = wire::encode_request_args(&wire::RequestArgs {
         operation: operation.to_string(),
         args: args.iter().map(|arg| arg.to_string()).collect(),
     })
-    .map_err(|_| CallError {
-        code: -errno::EINVAL,
-        message: String::from("the request could not be encoded"),
-    })?;
+    .map_err(|_| CallError::refusal(errno::EINVAL as u32, "the request could not be encoded"))?;
     // A worker thread (the Settings machine-change machinery) has no
     // window to freeze and no reason to give the prompt a tick budget: the
     // person at the screen takes as long as they take. On the UI thread
     // the request keeps [`REQUEST_TICKS`].
-    let reply = if crate::platform::messenger::worker_thread() {
-        service.call_detailed_unbounded(wire::INTERFACE_ID, wire::METHOD_REQUEST, ERROR_FIELD, body)
+    let until = if crate::platform::messenger::worker_thread() {
+        Deadline::Never
     } else {
-        service.call_detailed(
-            wire::INTERFACE_ID,
-            wire::METHOD_REQUEST,
-            ERROR_FIELD,
-            body,
-            ticks,
-        )
-    }?;
-    let reply = wire::decode_request_reply(&reply.body).map_err(|_| CallError {
-        code: -errno::EINVAL,
-        message: String::from("elevd's reply could not be read"),
-    })?;
+        Deadline::ticks(ticks)
+    };
+    let reply = service.call(wire::INTERFACE_ID, wire::METHOD_REQUEST, body, until)?;
+    let reply = wire::decode_request_reply(&reply.body)
+        .map_err(|_| CallError::refusal(errno::EINVAL as u32, "elevd's reply could not be read"))?;
     Ok((reply.detail, reply.values))
 }
 
 /// A refusal as one line of text.
 pub fn describe(error: &CallError) -> String {
-    match -error.code {
+    match -error.code() {
         errno::ECANCELED => String::from("cancelled"),
         errno::ETIMEDOUT => String::from("nobody answered the administrator prompt"),
-        _ => error.message.clone(),
+        _ => error.message().to_string(),
     }
 }
 
@@ -92,9 +81,8 @@ pub fn release() {
         let _ = service.call(
             wire::INTERFACE_ID,
             wire::METHOD_RELEASE,
-            ERROR_FIELD,
             Vec::new(),
-            100,
+            Deadline::ticks(100),
         );
     }
 }
@@ -142,8 +130,8 @@ impl Drop for ElevatedConf {
 }
 
 fn conf_error(error: CallError) -> ConfStoreError {
-    match ConfStoreError::from_confd_code(error.code) {
-        ConfStoreError::Transport(_) => ConfStoreError::Transport(error.code),
+    match ConfStoreError::from_confd_code(error.code()) {
+        ConfStoreError::Transport(_) => ConfStoreError::Transport(error.code()),
         known => known,
     }
 }

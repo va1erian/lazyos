@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Reject unbounded Messenger calls on UI threads (issue #720).
 
-Every `Service::call`/`call_detailed` (and the display client's calls) in
-`xui-app` carries a PIT-tick deadline: a call without one parks the UI
-thread until the service answers, and a window cannot paint while it waits.
-The unbounded shape exists only for the tree's worker threads as the
-explicit `call_unbounded`/`call_detailed_unbounded`; a new user of either
-must be justified in `ALLOWLIST`, and the deadline-less literal forms
-(`call_until(x, 0)`, a zero-deadline `msg_call`) are refused outright.
+Every `Service::call` (and the display client's calls) in `xui-app` carries
+a `Deadline`: a call without one parks the UI thread until the service
+answers, and a window cannot paint while it waits. The unbounded shape
+exists only for the tree's worker threads (or a begun, non-parking call) as
+the explicit `Deadline::Never`; a new user of it must be justified in
+`ALLOWLIST`, and the deadline-less literal forms (`call_until(x, 0)`, a
+zero-deadline `msg_call`) are refused outright.
 
     python tools/xui/check_call_bounds.py [--root DIR]
 
@@ -24,7 +24,7 @@ from pathlib import Path
 # issues Messenger calls (the whole tree, comments aside).
 APP_DIR = "xui-app"
 
-# Files where `call_unbounded`/`call_detailed_unbounded` is allowed, a
+# Files where `Deadline::Never` is allowed, a
 # directory (trailing `/`) or file path (relative to the root, `/`-separated)
 # -> why. The one entry below is the deliberate case so far: an unbounded
 # path is added only when a worker thread (never the UI loop) genuinely
@@ -33,17 +33,18 @@ ALLOWLIST: dict[str, str] = {
     # The API's definitions (and their delegation bodies); consumers are
     # what the scan polices.
     "xui-app/src/platform/messenger.rs": "the wrappers themselves",
-    # The one request site inside `request_within` goes out unbounded only
+    # The install is begun with `Service::call_async`, which never parks the
+    # UI loop: `pkgd` unpacks at its own pace and the callback gets the answer.
+    "xui-app/src/platform/pkg.rs": "the install's non-parking `call_async`",
+    # The one request site inside `request_within` goes out `Never` only
     # from a thread the elevated machinery marked (`mark_worker`); a UI
     # thread keeps `REQUEST_TICKS`. The marker's default is pinned by a
     # unit test in that module.
     "xui-app/src/platform/elevd.rs": "a worker-marked thread's elevd requests",
 }
 
-# The explicit deadline-less forms (`platform/messenger.rs` is where they
-# are defined; the scan skips `platform/messenger.rs`'s own bodies of
-# course, which define them).
-UNBOUNDED_NAMES = ("call_unbounded", "call_detailed_unbounded")
+# The explicit deadline-less form.
+UNBOUNDED_MARKS = ("Deadline::Never",)
 
 # `call_until(parcel, 0)` is the deadline-less literal the API used to
 # allow on the display client; a caller passes a tick deadline instead.
@@ -77,9 +78,9 @@ def scan(root: Path) -> list[Hit]:
             text = line.strip()
             if not text or text.startswith("//"):
                 continue
-            found = next((n for n in UNBOUNDED_NAMES if f".{n}(" in text), None)
+            found = next((n for n in UNBOUNDED_MARKS if n in text), None)
             if found is not None and allowed(rel) is None:
-                hits.append(Hit(rel, line_no, text, f".{found} without an allowlist entry"))
+                hits.append(Hit(rel, line_no, text, f"{found} without an allowlist entry"))
             if any(literal.search(text) for literal in literals):
                 hits.append(Hit(rel, line_no, text, "a deadline-less literal (0 is for ever)"))
     return hits
@@ -143,8 +144,8 @@ def main() -> int:
     if hits:
         print(
             "A Messenger call on a UI thread has no deadline (issue #720): "
-            "bound it (`Service::call(..., ticks)`) or move it to a worker "
-            "thread; `call_unbounded` needs an ALLOWLIST entry with a reason."
+            "bound it (`Service::call(.., Deadline::ticks(n))`) or move it to a "
+            "worker thread; `Deadline::Never` needs an ALLOWLIST entry with a reason."
         )
         return 1
     return 0

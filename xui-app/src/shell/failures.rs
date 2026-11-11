@@ -18,12 +18,12 @@
 //! status=<n>` per failure kept.
 
 use lazyshell::notice::Failure;
+use libmessenger::client::Deadline;
 use messenger_generated::os_lazy_init_v1 as init_wire;
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 
 use crate::platform::messenger::Service;
-use crate::server::ERROR_FIELD;
-use crate::sys::{self, EXPIRED_DEADLINE};
+use crate::sys::{self};
 
 /// The central broker's registered name.
 const BROKER: &str = "os.lazy.messenger.topics";
@@ -145,9 +145,8 @@ fn subscribe() -> Result<u64, i64> {
     let reply = broker()?.call(
         topics::INTERFACE_ID,
         topics::METHOD_SUBSCRIBE,
-        ERROR_FIELD,
         body,
-        SUBSCRIBE_TICKS,
+        Deadline::ticks(SUBSCRIBE_TICKS),
     )?;
     topics::decode_subscribe_reply(&reply.body)
         .map(|reply| reply.subscription)
@@ -158,16 +157,15 @@ fn subscribe() -> Result<u64, i64> {
 fn next_event(subscription: u64) -> Result<Option<topics::Event>, i64> {
     let body = topics::encode_next_event_args(&topics::NextEventArgs { subscription })
         .map_err(|_| -sys::errno::EINVAL)?;
-    let reply = match broker()?.call_until(
+    let reply = match broker()?.call(
         topics::INTERFACE_ID,
         topics::METHOD_NEXTEVENT,
-        ERROR_FIELD,
         body,
-        EXPIRED_DEADLINE,
+        Deadline::Poll,
     ) {
         Ok(reply) => reply,
-        Err(code) if code == -sys::errno::ETIMEDOUT => return Ok(None),
-        Err(code) => return Err(code),
+        Err(error) if error.is_timeout() => return Ok(None),
+        Err(error) => return Err(error.code()),
     };
     let event = topics::decode_next_event_reply(&reply.body)
         .map_err(|_| -sys::errno::EINVAL)?

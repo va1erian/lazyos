@@ -9,8 +9,8 @@
 //! [`listen`] and polls the [`Listener`]; a toast must never be the only way to
 //! do something, so nothing here is required.
 
+use libmessenger::client::Deadline;
 use libmessenger::Parcel;
-use messenger_generated::errors::ERROR_FIELD;
 use messenger_generated::os_lazy_notify_events_v1 as events;
 use messenger_generated::os_lazy_notify_v1 as wire;
 
@@ -110,11 +110,11 @@ pub fn close(id: u64) -> Result<(), i64> {
         .call(
             wire::INTERFACE_ID,
             wire::METHOD_CLOSE,
-            ERROR_FIELD,
             body,
-            POST_TICKS,
+            Deadline::ticks(POST_TICKS),
         )
         .map(|_| ())
+        .map_err(i64::from)
 }
 
 /// Show `notice`; the toast's id (for [`Notice::replaces`]) or the negative
@@ -138,9 +138,8 @@ pub fn post(notice: &Notice) -> Result<u64, i64> {
     let reply = service.call(
         wire::INTERFACE_ID,
         wire::METHOD_NOTIFY,
-        ERROR_FIELD,
         body,
-        POST_TICKS,
+        Deadline::ticks(POST_TICKS),
     )?;
     wire::decode_notify_reply(&reply.body)
         .map(|reply| reply.id)
@@ -213,14 +212,15 @@ pub fn listen() -> Result<Listener, i64> {
     let result = wire::encode_listen_args(&wire::ListenArgs { events: sent })
         .map_err(|_| -errno::EINVAL)
         .and_then(|(body, objects)| {
-            service.call_moving_within(
-                wire::INTERFACE_ID,
-                wire::METHOD_LISTEN,
-                ERROR_FIELD,
-                body,
-                objects,
-                LISTEN_TICKS,
-            )
+            service
+                .call_moving(
+                    wire::INTERFACE_ID,
+                    wire::METHOD_LISTEN,
+                    body,
+                    objects,
+                    Deadline::ticks(LISTEN_TICKS),
+                )
+                .map_err(i64::from)
         });
     match result {
         Ok(_) => Ok(Listener {

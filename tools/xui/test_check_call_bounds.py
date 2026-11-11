@@ -23,15 +23,15 @@ def build(files: dict[str, str]) -> Path:
 class ScanTests(unittest.TestCase):
     def test_an_unbounded_call_without_an_entry_is_reported(self):
         root = build(
-            {str(APP / "m.rs"): "let reply = service.call_unbounded(i, m, E, body);\n"}
+            {str(APP / "m.rs"): "let reply = service.call(i, m, body, Deadline::Never);\n"}
         )
         hits = scan(root)
         self.assertEqual(len(hits), 1)
-        self.assertIn("call_unbounded", hits[0].why)
+        self.assertIn("Deadline::Never", hits[0].why)
 
-    def test_an_allowlisted_file_may_call_unbounded(self):
+    def test_an_allowlisted_file_may_wait_for_ever(self):
         rel = "xui-app/src/platform/worker.rs"
-        root = build({rel: "let reply = service.call_detailed_unbounded(i, m, E, body);\n"})
+        root = build({rel: "let reply = service.call(i, m, body, Deadline::Never);\n"})
         real = dict(ALLOWLIST)
         ALLOWLIST.clear()
         ALLOWLIST[rel] = "the Files paste worker; a test pins the thread"
@@ -44,7 +44,7 @@ class ScanTests(unittest.TestCase):
     def test_a_subdirectory_is_covered_by_a_parent_entry_but_not_the_reverse(self):
         parent = "xui-app/src/platform/worker/"
         other = "xui-app/src/platform/api.rs"
-        root = build({other: "let _ = venue.call_unbounded();\n", parent.rstrip("/") + "/n.rs": ""})
+        root = build({other: "let _ = venue.call(Deadline::Never);\n", parent.rstrip("/") + "/n.rs": ""})
         real = dict(ALLOWLIST)
         try:
             ALLOWLIST.clear()
@@ -63,7 +63,7 @@ class ScanTests(unittest.TestCase):
         root = build(
             {
                 str(APP / "m.rs"): (
-                    "// `call_unbounded` needs a worker thread.\n"
+                    "// `Deadline::Never` needs a worker thread.\n"
                     "/* fake: service.call_until(x, 0)\n multi line */\n"
                     "fn bound() -> Parcel { service.call_until(x, deadline(x)) }\n"
                 )
@@ -85,7 +85,7 @@ class ScanTests(unittest.TestCase):
         root = build(
             {
                 str(APP / "m.rs"): (
-                    "let reply = service.call(wire::I, m, E, body, CALL_TICKS);\n"
+                    "let reply = service.call(wire::I, m, body, Deadline::ticks(CALL_TICKS));\n"
                     "let reply = service.call_until(&parcel, deadline());\n"
                 )
             }

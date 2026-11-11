@@ -8,7 +8,7 @@
 //! window. Replies are untrusted, so names and homes are checked before they
 //! reach the painter.
 
-use messenger_generated::errors::ERROR_FIELD;
+use libmessenger::client::Deadline;
 use messenger_generated::os_lazy_accounts_v1 as wire;
 
 use super::messenger::{CallError, Service};
@@ -36,28 +36,23 @@ pub struct Account {
 pub type Refusal = CallError;
 
 fn service() -> Result<Service, Refusal> {
-    Service::try_connect(NAME).ok_or_else(|| CallError {
-        code: -errno::ENOENT,
-        message: String::from("the account service is not running"),
+    Service::try_connect(NAME).ok_or_else(|| {
+        CallError::refusal(errno::ENOENT as u32, "the account service is not running")
     })
 }
 
 fn encode_error(_: impl core::fmt::Debug) -> Refusal {
-    CallError {
-        code: -errno::EINVAL,
-        message: String::from("the request could not be encoded"),
-    }
+    CallError::refusal(errno::EINVAL as u32, "the request could not be encoded")
 }
 
 /// The accounts, and whether the machine still waits for its owner (the
 /// first-boot setup).
 pub fn list() -> Result<(Vec<Account>, bool), Refusal> {
-    let reply = service()?.call_detailed(
+    let reply = service()?.call(
         wire::INTERFACE_ID,
         wire::METHOD_LISTUSERS,
-        ERROR_FIELD,
         Vec::new(),
-        LIST_TICKS,
+        Deadline::ticks(LIST_TICKS),
     )?;
     let reply = wire::decode_list_users_reply(&reply.body).map_err(encode_error)?;
     let users = reply
@@ -84,12 +79,11 @@ pub fn create_owner(name: &str, secret: &str) -> Result<(), Refusal> {
     })
     .map_err(encode_error)?;
     service()?
-        .call_detailed(
+        .call(
             wire::INTERFACE_ID,
             wire::METHOD_CREATE,
-            ERROR_FIELD,
             body,
-            CHANGE_TICKS,
+            Deadline::ticks(CHANGE_TICKS),
         )
         .map(|_| ())
 }
@@ -103,12 +97,11 @@ pub fn change_own_password(name: &str, old: &str, secret: &str) -> Result<(), Re
     })
     .map_err(encode_error)?;
     service()?
-        .call_detailed(
+        .call(
             wire::INTERFACE_ID,
             wire::METHOD_SETPASSWORD,
-            ERROR_FIELD,
             body,
-            CHANGE_TICKS,
+            Deadline::ticks(CHANGE_TICKS),
         )
         .map(|_| ())
 }
@@ -125,7 +118,7 @@ impl xui_settings::Accounts for OsAccounts {
     }
 
     fn list(&self) -> Result<Vec<xui_settings::Account>, String> {
-        let (users, _) = list().map_err(|refusal| refusal.message)?;
+        let (users, _) = list().map_err(|refusal| refusal.message().to_string())?;
         Ok(users
             .into_iter()
             .map(|user| xui_settings::Account {
@@ -137,7 +130,7 @@ impl xui_settings::Accounts for OsAccounts {
     }
 
     fn change_password(&self, name: &str, old: &str, new: &str) -> Result<(), String> {
-        change_own_password(name, old, new).map_err(|refusal| refusal.message)
+        change_own_password(name, old, new).map_err(|refusal| refusal.message().to_string())
     }
 
     fn create(&self, name: &str, password: &str, admin: bool) -> Result<(), String> {

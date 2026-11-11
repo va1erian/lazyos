@@ -14,11 +14,11 @@
 //! does that: `webd-abi-test network`, `tools/webd/run.py`) and it runs as webd's own label, so it does
 //! not prove the manifest grants a *client* what it needs: `webddemo` does.
 
+use libmessenger::client::Deadline;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::Instant;
 
 use libmessenger::{flags, Buffer, Header, Parcel, VERSION};
-use messenger_generated::errors::ERROR_FIELD;
 use messenger_generated::os_lazy_webd_light_v1 as wire;
 use xui_app::platform::messenger::Service;
 use xui_app::sys::{self, errno};
@@ -132,14 +132,15 @@ impl Client {
         method: u32,
         (body, objects): (Vec<u8>, Vec<libmessenger::Object>),
     ) -> Result<Parcel, i64> {
-        self.service.call_moving_within(
-            wire::INTERFACE_ID,
-            method,
-            ERROR_FIELD,
-            body,
-            objects,
-            1000,
-        )
+        self.service
+            .call_moving(
+                wire::INTERFACE_ID,
+                method,
+                body,
+                objects,
+                Deadline::ticks(1000),
+            )
+            .map_err(i64::from)
     }
 
     /// `CreateView`, with two slots attached.
