@@ -5,7 +5,7 @@
 //! second; *authentic* mode repaints the view progressively once the camera
 //! stops, the way a 486 did.
 
-use std::sync::mpsc::TryRecvError;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 mod pacing;
@@ -13,10 +13,11 @@ mod playing;
 use pacing::{Bench, Stats};
 
 use xui_core::Image;
+use xui_work::Sink;
 
 use crate::fly::{Flyer, Held};
 use crate::gen::Params;
-use crate::loading::Loading;
+use crate::loading::{Gen, Loading};
 use crate::math::Vec3;
 use crate::minimap::Minimap;
 use crate::play::Play;
@@ -116,6 +117,10 @@ pub struct Running {
 pub struct Game {
     params: Params,
     loading: Option<Loading>,
+    /// Where generation reports (the window's message).
+    generation: Sink<Gen>,
+    /// Counts generations; a message of another one is ignored.
+    seq: u64,
     pub run: Option<Running>,
     pub held: Held,
     pub show_help: bool,
@@ -126,15 +131,19 @@ pub struct Game {
 
 impl Game {
     /// A game that generates the course for `seed`; `dpi` sizes the map.
-    pub fn new(seed: u64, dpi: u32) -> Game {
-        Game::with_params(Params::new(seed), dpi)
+    /// The generator's messages go to `generation`, and come back through
+    /// [`Game::accept`].
+    pub fn new(seed: u64, dpi: u32, generation: Sink<Gen>) -> Game {
+        Game::with_params(Params::new(seed), dpi, generation)
     }
 
     /// A game for `params` (tests use a quick, unsearched course).
-    pub fn with_params(params: Params, dpi: u32) -> Game {
+    pub fn with_params(params: Params, dpi: u32, generation: Sink<Gen>) -> Game {
         Game {
             params,
-            loading: Some(Loading::start(params)),
+            loading: Some(Loading::start(params, 0, &generation)),
+            generation,
+            seq: 0,
             run: None,
             held: Held::default(),
             show_help: true,
@@ -162,8 +171,18 @@ impl Game {
     /// Starts generating a new course from `seed`.
     pub fn regenerate(&mut self, seed: u64) {
         self.params = Params::new(seed);
-        self.loading = Some(Loading::start(self.params));
+        self.seq += 1;
+        self.loading = Some(Loading::start(self.params, self.seq, &self.generation));
         self.run = None;
+    }
+
+    /// A message from the generator; whether the loading screen changed.
+    /// The course itself is taken up by the next [`tick`](Game::tick), which
+    /// knows the view's size.
+    pub fn accept(&mut self, message: Gen) {
+        if let Some(loading) = self.loading.as_mut() {
+            loading.accept(message);
+        }
     }
 
     pub fn take_report(&mut self) -> Option<Report> {
@@ -174,22 +193,19 @@ impl Game {
     /// Returns whether the picture changed.
     pub fn tick(&mut self, width: usize, height: usize, now: Instant) -> bool {
         if let Some(loading) = self.loading.as_mut() {
-            match loading.rx.try_recv() {
-                Ok(course) => {
-                    let millis = loading.started.elapsed().as_millis();
-                    let scene = Scene::new(course);
-                    self.reports.push(Report::Ready {
-                        name: scene.course.name.clone(),
-                        seed: scene.course.seed,
-                        par: scene.course.par,
-                        millis,
-                    });
-                    self.run = Some(Running::new(scene, self.map_size, width, now));
-                    self.loading = None;
-                    return true;
-                }
-                Err(TryRecvError::Disconnected) => loading.failed = true,
-                Err(TryRecvError::Empty) => {}
+            if let Some(course) = loading.take_course() {
+                let millis = loading.started.elapsed().as_millis();
+                let course = Arc::try_unwrap(course).unwrap_or_else(|shared| (*shared).clone());
+                let scene = Scene::new(course);
+                self.reports.push(Report::Ready {
+                    name: scene.course.name.clone(),
+                    seed: scene.course.seed,
+                    par: scene.course.par,
+                    millis,
+                });
+                self.run = Some(Running::new(scene, self.map_size, width, now));
+                self.loading = None;
+                return true;
             }
             // The elapsed seconds in the label change once a second.
             let now_shown = self.loading().unwrap_or_default();

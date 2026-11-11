@@ -15,6 +15,8 @@ use xui_core::{Dip, Image};
 use xui_golf::game::Game;
 use xui_golf::{GolfApp, Msg, WINDOW};
 
+mod support;
+
 fn register_fonts() {
     let fonts: [&[u8]; 2] = [
         include_bytes!("../../../../assets/fonts/DroidSans.ttf"),
@@ -88,6 +90,8 @@ fn run(dpi: u32) -> (Image, Seen) {
             // Generation runs on a worker thread: wait for it.
             let deadline = Instant::now() + Duration::from_secs(120);
             while game.borrow().run.is_none() && Instant::now() < deadline {
+                // Any input pumps the inbox, where `Msg::Gen` waits.
+                stage.hover(1, 1);
                 game.borrow_mut().tick(w, h, now);
                 std::thread::sleep(Duration::from_millis(5));
             }
@@ -171,12 +175,10 @@ fn the_window_renders_at_twice_the_dpi() {
 /// frame, which looked like the camera lurching).
 #[test]
 fn a_scale_change_never_shows_a_mis_scaled_frame() {
-    let mut game = Game::with_params(xui_golf::Params::quick(4), 96);
+    let (mut game, messages) = support::quick_game();
     let (w, h) = (640, 400);
     let mut now = Instant::now();
-    while game.run.is_none() {
-        game.tick(w, h, now);
-    }
+    support::run_until_generated(&mut game, &messages, (w, h), now);
     now += Duration::from_millis(20);
     game.tick(w, h, now);
     let before = game.run.as_ref().unwrap().image.clone().expect("a picture");
@@ -208,17 +210,12 @@ fn a_scale_change_never_shows_a_mis_scaled_frame() {
 /// into the buffer the previous one gave back, until the window changes size.
 #[test]
 fn each_frame_is_written_into_the_last_frames_buffer() {
-    let mut game = Game::with_params(xui_golf::Params::quick(4), 96);
+    let (mut game, messages) = support::quick_game();
     let (w, h) = (320, 200);
     let mut now = Instant::now();
     // Generation runs on a worker thread; a failed one must fail the test,
     // not hang it.
-    let deadline = Instant::now() + Duration::from_secs(120);
-    while game.run.is_none() {
-        assert!(Instant::now() < deadline, "generation did not finish");
-        game.tick(w, h, now);
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    support::run_until_generated(&mut game, &messages, (w, h), now);
     now += Duration::from_millis(20);
     game.tick(w, h, now);
     let buffer = |game: &Game| {
@@ -260,15 +257,10 @@ fn each_frame_is_written_into_the_last_frames_buffer() {
 fn the_game_opens_on_the_shot_camera_and_aiming_changes_the_view() {
     use xui_golf::fly::Action;
 
-    let mut game = Game::with_params(xui_golf::Params::quick(4), 96);
+    let (mut game, messages) = support::quick_game();
     let (w, h) = (640, 360);
     let mut now = Instant::now();
-    let deadline = Instant::now() + Duration::from_secs(120);
-    while game.run.is_none() {
-        assert!(Instant::now() < deadline, "generation did not finish");
-        game.tick(w, h, now);
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    support::run_until_generated(&mut game, &messages, (w, h), now);
     now += Duration::from_millis(20);
     game.tick(w, h, now);
     let run = game.run.as_ref().unwrap();

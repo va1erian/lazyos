@@ -5975,6 +5975,7 @@ version = "0.1.0"
 dependencies = [
  "xui-canvas",
  "xui-core",
+ "xui-work",
 ]
 
 [[package]]

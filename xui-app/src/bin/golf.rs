@@ -98,7 +98,7 @@ fn main() {
                     trace::line!(Channel::Golf, "PICKUP:{hole}:{strokes}:par={par}");
                 }
                 // The builder reports `QUIT` when the window is gone.
-                Msg::Quit => {}
+                Msg::Quit | Msg::Gen(_) => {}
             })
             .inspect_err(|error| trace::fail!(Channel::Golf, "BUILD", "{error}"))
         })
