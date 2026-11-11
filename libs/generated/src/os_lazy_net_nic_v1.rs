@@ -586,3 +586,152 @@ where
         .map_err(S::Error::from)?;
     subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_NET_LINK_QOS)
 }
+
+#[cfg(feature = "net_nic_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "net_nic_v1_client")]
+/// A client of `os.lazy.net.nic.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "net_nic_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Describe the card: MAC, MTU, link state and the negotiated feature set.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn info(&self) -> Result<NicInfo, ClientError> {
+        self.info_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::info`] with the caller's deadline instead of the IDL's.
+    pub fn info_within(&self, within: libmessenger::client::Deadline) -> Result<NicInfo, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_INFO, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_info_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.info)
+    }
+
+    /// Choose which received frames reach the client: an `RxMode` ordinal.
+    /// The reply says whether the driver applied it (a device without a
+    /// filter table treats `Filtered` as `Promiscuous` and answers `false`).
+    /// Only the attached client may change it.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn set_rx_mode(&self, mode: u32) -> Result<bool, ClientError> {
+        self.set_rx_mode_within(mode, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::set_rx_mode`] with the caller's deadline instead of the IDL's.
+    pub fn set_rx_mode_within(&self, mode: u32, within: libmessenger::client::Deadline) -> Result<bool, ClientError> {
+        let wire_body = encode_set_rx_mode_args(&SetRxModeArgs { mode }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_SETRXMODE, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_set_rx_mode_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.ok)
+    }
+
+    /// Attach the client's rings and notify endpoint (see the interface
+    /// notes for what the parcel carries). `slots` is the slot count of both
+    /// rings. The reply is the ring id later calls name.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn attach_ring(&self, slots: u32, rings: libmessenger::Buffer, notify: u64) -> Result<u32, ClientError> {
+        self.attach_ring_within(slots, rings, notify, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::attach_ring`] with the caller's deadline instead of the IDL's.
+    pub fn attach_ring_within(&self, slots: u32, rings: libmessenger::Buffer, notify: u64, within: libmessenger::client::Deadline) -> Result<u32, ClientError> {
+        let (wire_body, wire_objects) = encode_attach_ring_args(&AttachRingArgs { slots, rings, notify }).map_err(ClientError::bad_request)?;
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_ATTACHRING, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_attach_ring_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.ring)
+    }
+
+    /// Release the rings; the driver stops reading and writing them. Also
+    /// implied when the owner exits or its notify endpoint reports the peer
+    /// gone.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn detach_ring(&self, ring: u32) -> Result<(), ClientError> {
+        self.detach_ring_within(ring, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::detach_ring`] with the caller's deadline instead of the IDL's.
+    pub fn detach_ring_within(&self, ring: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_detach_ring_args(&DetachRingArgs { ring }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_DETACHRING, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Frame and error counters since the driver started.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn stats(&self) -> Result<NicStats, ClientError> {
+        self.stats_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::stats`] with the caller's deadline instead of the IDL's.
+    pub fn stats_within(&self, within: libmessenger::client::Deadline) -> Result<NicStats, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_STATS, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_stats_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.stats)
+    }
+
+    /// Event, client to driver: the client queued frames in the transmit ring
+    /// of `ring`. Ignored from anyone but the owner.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn kick(&self, ring: u32) -> Result<(), ClientError> {
+        let wire_body = encode_kick_args(&KickArgs { ring }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_KICK, wire_body, wire_objects)
+    }
+
+    /// Event, driver to client: something needs the client's attention.
+    /// `events` is a bitmap: bit *n* is set for the `NotifyBit` with ordinal
+    /// *n*. Reserved bits are zero; a client ignores them.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn notify(&self, ring: u32, events: u32) -> Result<(), ClientError> {
+        let wire_body = encode_notify_args(&NotifyArgs { ring, events }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_NOTIFY, wire_body, wire_objects)
+    }
+}

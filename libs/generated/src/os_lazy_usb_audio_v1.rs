@@ -344,3 +344,198 @@ pub fn decode_reap_reply(body: &[u8]) -> Result<ReapReply, Error> {
 pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
     (METHOD_ATTACH, ATTACH_OBJECTS),
 ];
+
+#[cfg(feature = "usb_audio_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "usb_audio_v1_client")]
+/// A client of `os.lazy.usb.audio.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "usb_audio_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Periods played (or dropped by a stop) since `Configure`.
+    /// Times the isochronous ring ran dry (`usbd` was starved).
+    /// Service intervals the controller missed.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn describe(&self) -> Result<Device, ClientError> {
+        self.describe_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::describe`] with the caller's deadline instead of the IDL's.
+    pub fn describe_within(&self, within: libmessenger::client::Deadline) -> Result<Device, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_DESCRIBE, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_describe_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.device)
+    }
+
+    /// Share the staging buffer periods are submitted from. Replaces an
+    /// earlier one (a restarted `sndd`), stopping any stream.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn attach(&self, staging: libmessenger::Buffer) -> Result<(), ClientError> {
+        self.attach_within(staging, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::attach`] with the caller's deadline instead of the IDL's.
+    pub fn attach_within(&self, staging: libmessenger::Buffer, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let (wire_body, wire_objects) = encode_attach_args(&AttachArgs { staging }).map_err(ClientError::bad_request)?;
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_ATTACH, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Pick the alternate setting and rate for a stereo stream at `rate` Hz
+    /// (the closest the device has), switch the device to it and reset the
+    /// counters. Returns the rate it runs at.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn configure(&self, rate: u32) -> Result<u32, ClientError> {
+        self.configure_within(rate, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::configure`] with the caller's deadline instead of the IDL's.
+    pub fn configure_within(&self, rate: u32, within: libmessenger::client::Deadline) -> Result<u32, ClientError> {
+        let wire_body = encode_configure_args(&ConfigureArgs { rate }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_CONFIGURE, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_configure_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.granted)
+    }
+
+    /// Start sending; until periods arrive the device hears silence.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn start(&self) -> Result<(), ClientError> {
+        self.start_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::start`] with the caller's deadline instead of the IDL's.
+    pub fn start_within(&self, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_START, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Stop sending; every queued period counts as completed.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn stop(&self) -> Result<(), ClientError> {
+        self.stop_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::stop`] with the caller's deadline instead of the IDL's.
+    pub fn stop_within(&self, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_STOP, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Stop and switch the device to its zero-bandwidth alternate.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn release(&self) -> Result<(), ClientError> {
+        self.release_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::release`] with the caller's deadline instead of the IDL's.
+    pub fn release_within(&self, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_RELEASE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Queue one period: `len` bytes at `offset` of the staging buffer.
+    /// `slot` is the caller's tag, echoed nowhere; periods complete in order.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn submit(&self, slot: u32, offset: u32, len: u32) -> Result<(), ClientError> {
+        self.submit_within(slot, offset, len, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::submit`] with the caller's deadline instead of the IDL's.
+    pub fn submit_within(&self, slot: u32, offset: u32, len: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_submit_args(&SubmitArgs { slot, offset, len }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SUBMIT, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn reap(&self) -> Result<Progress, ClientError> {
+        self.reap_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::reap`] with the caller's deadline instead of the IDL's.
+    pub fn reap_within(&self, within: libmessenger::client::Deadline) -> Result<Progress, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_REAP, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_reap_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.progress)
+    }
+}

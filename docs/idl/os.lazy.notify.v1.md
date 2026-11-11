@@ -45,6 +45,14 @@ standard error field (id 15, `docs/midl.md`).
 
 - Served under the registry name `os.lazy.notify`; registered once.
 
+## Scopes and deadlines
+
+| Method | Scope interface | Scope id | Deadline |
+|---|---|---|---|
+| Notify | this interface | - | 300 ms |
+| Close | this interface | - | 300 ms |
+| Listen | this interface | - | 300 ms |
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

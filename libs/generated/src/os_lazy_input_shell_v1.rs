@@ -811,3 +811,394 @@ pub fn decode_grab_changed_args(body: &[u8]) -> Result<GrabChangedArgs, Error> {
 pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
     (METHOD_ATTACH, ATTACH_OBJECTS),
 ];
+
+#[cfg(feature = "input_shell_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "input_shell_v1_client")]
+/// A client of `os.lazy.input.shell.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "input_shell_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Become the shell client; `events` is the endpoint that receives the
+    /// shell events below, and on which the compositor makes every later
+    /// call. Attaching again replaces it.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn attach(&self, events: u64) -> Result<(), ClientError> {
+        self.attach_within(events, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::attach`] with the caller's deadline instead of the IDL's.
+    pub fn attach_within(&self, events: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let (wire_body, wire_objects) = encode_attach_args(&AttachArgs { events }).map_err(ClientError::bad_request)?;
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_ATTACH, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Move keyboard focus to `surface` (absent: nobody is focused and no key
+    /// content is delivered). The previous holder gets `KeyboardLeave`, the new
+    /// one `KeyboardEnter`; repeat is cancelled.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn set_focus(&self, surface: core::option::Option<u64>) -> Result<(), ClientError> {
+        self.set_focus_within(surface, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::set_focus`] with the caller's deadline instead of the IDL's.
+    pub fn set_focus_within(&self, surface: core::option::Option<u64>, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_set_focus_args(&SetFocusArgs { surface }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SETFOCUS, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Declare that `owner` (a task slot, as the compositor stamps in
+    /// `Surface.owner`) created `surface`, so `inputd` can match that task's
+    /// `Open` to the window. `owner` 0 (never a client's slot) names the
+    /// compositor itself: a surface of its own, such as the trusted prompt's
+    /// (docs/accounts-plan.md U2), whose session only the compositor opens.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn register_surface(&self, surface: u64, owner: u64) -> Result<(), ClientError> {
+        self.register_surface_within(surface, owner, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::register_surface`] with the caller's deadline instead of the IDL's.
+    pub fn register_surface_within(&self, surface: u64, owner: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_register_surface_args(&RegisterSurfaceArgs { surface, owner }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_REGISTERSURFACE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Forget a destroyed surface; its sessions are closed.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn unregister_surface(&self, surface: u64) -> Result<(), ClientError> {
+        self.unregister_surface_within(surface, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::unregister_surface`] with the caller's deadline instead of the IDL's.
+    pub fn unregister_surface_within(&self, surface: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_unregister_surface_args(&UnregisterSurfaceArgs { surface }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_UNREGISTERSURFACE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Register a chord: `code` (HID usage) with exactly the Shift/Ctrl/Alt/
+    /// Super bits of `mods`. A match is consumed (its press and release are
+    /// never delivered to a client) and reported as `HotkeyFired`, except
+    /// while a session holds a keyboard grab. The reserved escape chord
+    /// (Escape with Ctrl+Alt) is refused with `EACCES`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn register_hotkey(&self, code: u32, mods: u32) -> Result<u64, ClientError> {
+        self.register_hotkey_within(code, mods, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::register_hotkey`] with the caller's deadline instead of the IDL's.
+    pub fn register_hotkey_within(&self, code: u32, mods: u32, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let wire_body = encode_register_hotkey_args(&RegisterHotkeyArgs { code, mods }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_REGISTERHOTKEY, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_register_hotkey_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.id)
+    }
+
+    /// Drop a chord.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn unregister_hotkey(&self, id: u64) -> Result<(), ClientError> {
+        self.unregister_hotkey_within(id, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::unregister_hotkey`] with the caller's deadline instead of the IDL's.
+    pub fn unregister_hotkey_within(&self, id: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_unregister_hotkey_args(&UnregisterHotkeyArgs { id }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_UNREGISTERHOTKEY, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Answer a `GrantRequested`. `allow` starts the grab, provided the
+    /// session still has keyboard focus (otherwise it is denied); either way
+    /// the client gets `GrantChanged`. `ENOENT` when no request of that
+    /// session is pending.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn approve_grant(&self, session: u64, allow: bool) -> Result<(), ClientError> {
+        self.approve_grant_within(session, allow, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::approve_grant`] with the caller's deadline instead of the IDL's.
+    pub fn approve_grant_within(&self, session: u64, allow: bool, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_approve_grant_args(&ApproveGrantArgs { session, allow }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_APPROVEGRANT, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// The screen size the cursor is clamped to (each side `1..=16384`, else
+    /// `EINVAL`). `inputd` re-clamps the cursor at once and, if that moved it,
+    /// sends a `PointerEvent`. It replaces the kernel's own cursor bounds.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn set_bounds(&self, width: u32, height: u32) -> Result<(), ClientError> {
+        self.set_bounds_within(width, height, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::set_bounds`] with the caller's deadline instead of the IDL's.
+    pub fn set_bounds_within(&self, width: u32, height: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_set_bounds_args(&SetBoundsArgs { width, height }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SETBOUNDS, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// The cursor position and held `buttons` (as in `PointerEvent`), to seed
+    /// the compositor's cursor after `Attach`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn get_pointer(&self) -> Result<GetPointerReply, ClientError> {
+        self.get_pointer_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::get_pointer`] with the caller's deadline instead of the IDL's.
+    pub fn get_pointer_within(&self, within: libmessenger::client::Deadline) -> Result<GetPointerReply, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_GETPOINTER, wire_body, wire_objects, within)
+            ?;
+        decode_get_pointer_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// One-way `SetFocus`: the compositor's main loop never waits on `inputd`
+    /// (docs/performance-plan.md P3.6). Requests on the compositor's channel
+    /// are handled in the order sent, and before each client request, so a
+    /// surface noted before the compositor answers `CreateSurface` is known
+    /// by the time its client opens a session. Refused calls are dropped.
+    /// The trusted prompt never relies on a note: it waits for `SetFocus`.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn note_focus(&self, surface: core::option::Option<u64>) -> Result<(), ClientError> {
+        let wire_body = encode_note_focus_args(&NoteFocusArgs { surface }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_NOTEFOCUS, wire_body, wire_objects)
+    }
+
+    /// One-way `RegisterSurface` (see `NoteFocus`).
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn note_surface(&self, surface: u64, owner: u64) -> Result<(), ClientError> {
+        let wire_body = encode_note_surface_args(&NoteSurfaceArgs { surface, owner }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_NOTESURFACE, wire_body, wire_objects)
+    }
+
+    /// One-way `UnregisterSurface` (see `NoteFocus`).
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn forget_surface(&self, surface: u64) -> Result<(), ClientError> {
+        let wire_body = encode_forget_surface_args(&ForgetSurfaceArgs { surface }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_FORGETSURFACE, wire_body, wire_objects)
+    }
+
+    /// One-way: the compositor has handled every `PointerEvent` up to `seq`
+    /// and already noted the focus they led to. A click can move focus, so
+    /// after forwarding a button press `inputd` holds the key content that
+    /// follows (in order, briefly: a compositor that never answers costs a
+    /// fraction of a second, not the keys) until this note covers the press;
+    /// otherwise a key typed right after a click would reach the window the
+    /// click left.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn note_input_done(&self, seq: u64) -> Result<(), ClientError> {
+        let wire_body = encode_note_input_done_args(&NoteInputDoneArgs { seq }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_NOTEINPUTDONE, wire_body, wire_objects)
+    }
+
+    /// One-way: the shell's panel menu has the keyboard (`held`), or no
+    /// longer has it. Focus does not move, so the focused session sees no
+    /// `KeyboardLeave`/`KeyboardEnter`; its key content is held instead:
+    /// presses, repeats and text made while held never reach it, the release
+    /// of a key it saw go down before the hold is still delivered (nothing
+    /// sticks), a key pressed while held stays invisible to it until pressed
+    /// again, and its key-state page shows nothing held meanwhile
+    /// (`inputmap::hold`, issue #648).
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn note_keys_held(&self, held: bool) -> Result<(), ClientError> {
+        let wire_body = encode_note_keys_held_args(&NoteKeysHeldArgs { held }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_NOTEKEYSHELD, wire_body, wire_objects)
+    }
+
+    /// One-way: the logged-in user's own keyboard layout (`confd`'s
+    /// `user/<uid>/input/layout`, which `inputd` may not read), or absent to
+    /// follow the machine default `sys/input/layout` again (the login
+    /// screen, a logout). An unknown name also means the machine default.
+    /// It ends with the compositor (`inputmap::session_layout`).
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn note_session_layout(&self, layout: core::option::Option<&str>) -> Result<(), ClientError> {
+        let wire_body = encode_note_session_layout_args(&NoteSessionLayoutArgs { layout: layout.map(Into::into) }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_NOTESESSIONLAYOUT, wire_body, wire_objects)
+    }
+
+    /// Shell event: a registered chord was pressed.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn hotkey_fired(&self, id: u64) -> Result<(), ClientError> {
+        let wire_body = encode_hotkey_fired_args(&HotkeyFiredArgs { id }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_HOTKEYFIRED, wire_body, wire_objects)
+    }
+
+    /// Shell event: the client owning `surface` asked for a grab of `kind`
+    /// (a `GrantKind`) for `session`; answer with `ApproveGrant`. The
+    /// request is withdrawn if focus moves first.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn grant_requested(&self, session: u64, kind: u32, surface: u64) -> Result<(), ClientError> {
+        let wire_body = encode_grant_requested_args(&GrantRequestedArgs { session, kind, surface }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_GRANTREQUESTED, wire_body, wire_objects)
+    }
+
+    /// Shell event: the reserved escape chord (Ctrl+Alt+Esc) was pressed. It
+    /// reverted any grab (`GrabChanged` follows when one was held) and is
+    /// never delivered to a client.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn escape_chord(&self) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_ESCAPECHORD, wire_body, wire_objects)
+    }
+
+    /// Shell event: `surface` now receives keys through an input session, so
+    /// the compositor must stop synthesising legacy `KeyDown`/`KeyUp` for it.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn session_opened(&self, surface: u64) -> Result<(), ClientError> {
+        let wire_body = encode_session_opened_args(&SessionOpenedArgs { surface }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_SESSIONOPENED, wire_body, wire_objects)
+    }
+
+    /// Shell event: the last input session of `surface` ended; legacy key
+    /// delivery applies again.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn session_closed(&self, surface: u64) -> Result<(), ClientError> {
+        let wire_body = encode_session_closed_args(&SessionClosedArgs { surface }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_SESSIONCLOSED, wire_body, wire_objects)
+    }
+
+    /// Shell event: the pointer changed. One cursor for every pointing device
+    /// (`docs/usb-hid-plan.md`): `x`, `y` are screen pixels inside the bounds,
+    /// `buttons` the bits held after this event (`1` left, `2` right,
+    /// `4` middle, `8` back, `0x10` forward; diff it for the edge), `wheel` and
+    /// `wheel_h` the notches since the previous event (positive is up / right).
+    /// Motion is coalesced; the position and wheel apply *before* the button
+    /// change. Only the compositor receives it: the window under the cursor is
+    /// its decision. `ts_ns`/`seq` are the newest raw record's.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn pointer_event(&self, x: i32, y: i32, buttons: u32, wheel: i32, wheel_h: i32, ts_ns: u64, seq: u64) -> Result<(), ClientError> {
+        let wire_body = encode_pointer_event_args(&PointerEventArgs { x, y, buttons, wheel, wheel_h, ts_ns, seq }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_POINTEREVENT, wire_body, wire_objects)
+    }
+
+    /// Shell event: `surface` now holds the keyboard grab (absent: nobody
+    /// does). While a grab is held the compositor must not act on its own
+    /// chords from the kernel key stream either: they belong to the grabber.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn grab_changed(&self, surface: core::option::Option<u64>) -> Result<(), ClientError> {
+        let wire_body = encode_grab_changed_args(&GrabChangedArgs { surface }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_GRABCHANGED, wire_body, wire_objects)
+    }
+
+    /// Shell event: a key went down on some keyboard (PS/2 or USB; sent after
+    /// `inputd` handled it, so a key held back while the shell asked for the
+    /// keys was already dropped). The kernel key stream only carries PS/2, so
+    /// this is how the compositor sees that someone is typing, for the idle
+    /// timer and to wake a blank screen.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn key_activity(&self) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_KEYACTIVITY, wire_body, wire_objects)
+    }
+}

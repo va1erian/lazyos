@@ -2147,3 +2147,888 @@ pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
     (METHOD_SUBSCRIBE, SUBSCRIBE_OBJECTS),
     (METHOD_ATTACHBUFFERSLOT, ATTACH_BUFFER_SLOT_OBJECTS),
 ];
+
+#[cfg(feature = "display_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "display_v1_client")]
+/// A client of `os.lazy.display.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "display_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Create a surface of `width` x `height` pixels titled `title`. `role` is
+    /// a `Role` value: a decorated window (also the meaning of an absent
+    /// field) or the full-screen desktop, which paints above the background
+    /// and below every window, has no chrome, never takes focus and replaces
+    /// the previous desktop. The desktop role is compositor-privileged. A
+    /// `Popup` (a tray flyout, docs/tray-plan.md section 7.3) needs `popup`,
+    /// the one-shot token the shell granted this task with `AllowPopup`
+    /// (`EACCES` without a valid one). `events` is the event endpoint the
+    /// compositor sends input on.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn create_surface(&self, width: u32, height: u32, title: &str, role: u32, popup: core::option::Option<u64>, events: u64) -> Result<u64, ClientError> {
+        self.create_surface_within(width, height, title, role, popup, events, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::create_surface`] with the caller's deadline instead of the IDL's.
+    pub fn create_surface_within(&self, width: u32, height: u32, title: &str, role: u32, popup: core::option::Option<u64>, events: u64, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let (wire_body, wire_objects) = encode_create_surface_args(&CreateSurfaceArgs { width, height, title: title.into(), role, popup, events }).map_err(ClientError::bad_request)?;
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_CREATESURFACE, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_create_surface_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.surface)
+    }
+
+    /// Attach (or replace) `surface`'s pixel buffer with the parcel's shared
+    /// buffer. Only the surface's creator may attach. Refused with `EBUSY`
+    /// once the surface has used `Present`, which owns slot ownership from
+    /// then on.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn attach_buffer(&self, surface: u64, pixels: libmessenger::Buffer) -> Result<(), ClientError> {
+        self.attach_buffer_within(surface, pixels, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::attach_buffer`] with the caller's deadline instead of the IDL's.
+    pub fn attach_buffer_within(&self, surface: u64, pixels: libmessenger::Buffer, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let (wire_body, wire_objects) = encode_attach_buffer_args(&AttachBufferArgs { surface, pixels }).map_err(ClientError::bad_request)?;
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_ATTACHBUFFER, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Signal that the damage rectangle of `surface` (content-relative) is
+    /// ready to present.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn commit(&self, surface: u64, x: u32, y: u32, w: u32, h: u32) -> Result<(), ClientError> {
+        self.commit_within(surface, x, y, w, h, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::commit`] with the caller's deadline instead of the IDL's.
+    pub fn commit_within(&self, surface: u64, x: u32, y: u32, w: u32, h: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_commit_args(&CommitArgs { surface, x, y, w, h }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_COMMIT, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Drop a surface; the compositor forgets it and repaints.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn destroy_surface(&self, surface: u64) -> Result<(), ClientError> {
+        self.destroy_surface_within(surface, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::destroy_surface`] with the caller's deadline instead of the IDL's.
+    pub fn destroy_surface_within(&self, surface: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_destroy_surface_args(&DestroySurfaceArgs { surface }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_DESTROYSURFACE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Event: the pointer moved to `(x, y)`, relative to the focused surface.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn pointer_move(&self, x: i32, y: i32) -> Result<(), ClientError> {
+        let wire_body = encode_pointer_move_args(&PointerMoveArgs { x, y }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_POINTERMOVE, wire_body, wire_objects)
+    }
+
+    /// Event: pointer button `button` went down at `(x, y)`, relative to the
+    /// surface.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn pointer_down(&self, x: i32, y: i32, button: u32) -> Result<(), ClientError> {
+        let wire_body = encode_pointer_down_args(&PointerDownArgs { x, y, button }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_POINTERDOWN, wire_body, wire_objects)
+    }
+
+    /// Event: pointer button `button` went up at `(x, y)`, relative to the
+    /// surface.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn pointer_up(&self, x: i32, y: i32, button: u32) -> Result<(), ClientError> {
+        let wire_body = encode_pointer_up_args(&PointerUpArgs { x, y, button }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_POINTERUP, wire_body, wire_objects)
+    }
+
+    /// Event: key `key` was pressed (a character or a non-printable code).
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn key_down(&self, key: u32) -> Result<(), ClientError> {
+        let wire_body = encode_key_down_args(&KeyDownArgs { key }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_KEYDOWN, wire_body, wire_objects)
+    }
+
+    /// Event: key `key` was released.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn key_up(&self, key: u32) -> Result<(), ClientError> {
+        let wire_body = encode_key_up_args(&KeyUpArgs { key }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_KEYUP, wire_body, wire_objects)
+    }
+
+    /// Event: the window manager closed this surface (the X button or Alt+F4).
+    /// The app is expected to exit or re-create it.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn window_close(&self) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_WINDOWCLOSE, wire_body, wire_objects)
+    }
+
+    /// Begin a compositor-mediated drag from `surface` carrying clipboard
+    /// `token` of type `mime`. Only the surface's creator may start one, while
+    /// a pointer button is held; one drag at a time.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn drag_start(&self, surface: u64, token: u64, mime: &str) -> Result<(), ClientError> {
+        self.drag_start_within(surface, token, mime, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::drag_start`] with the caller's deadline instead of the IDL's.
+    pub fn drag_start_within(&self, surface: u64, token: u64, mime: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_drag_start_args(&DragStartArgs { surface, token, mime: mime.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_DRAGSTART, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Cancel the drag that started at `surface`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn drag_cancel(&self, surface: u64) -> Result<(), ClientError> {
+        self.drag_cancel_within(surface, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::drag_cancel`] with the caller's deadline instead of the IDL's.
+    pub fn drag_cancel_within(&self, surface: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_drag_cancel_args(&DragCancelArgs { surface }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_DRAGCANCEL, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Event: a drag carrying `mime` entered this surface at `(x, y)`.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn drag_enter(&self, x: i32, y: i32, mime: &str) -> Result<(), ClientError> {
+        let wire_body = encode_drag_enter_args(&DragEnterArgs { x, y, mime: mime.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_DRAGENTER, wire_body, wire_objects)
+    }
+
+    /// Event: a drag moved inside this surface to `(x, y)`.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn drag_over(&self, x: i32, y: i32) -> Result<(), ClientError> {
+        let wire_body = encode_drag_over_args(&DragOverArgs { x, y }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_DRAGOVER, wire_body, wire_objects)
+    }
+
+    /// Event: a drag left this surface.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn drag_leave(&self) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_DRAGLEAVE, wire_body, wire_objects)
+    }
+
+    /// Event: a drag was released over this surface at `(x, y)`; the target
+    /// pastes `token` of type `mime` through the clipboard service.
+    /// `modifiers` are the `MOD_*` key bits held at the release (the
+    /// keyboard may be another client's, so the target cannot read them
+    /// itself) and `source` is the surface the drag started from, so a
+    /// client can tell a drag between its own windows from another app's.
+    /// Both are absent from an older compositor.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn drop(&self, x: i32, y: i32, token: u64, mime: &str, modifiers: core::option::Option<u32>, source: core::option::Option<u64>) -> Result<(), ClientError> {
+        let wire_body = encode_drop_args(&DropArgs { x, y, token, mime: mime.into(), modifiers, source }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_DROP, wire_body, wire_objects)
+    }
+
+    /// Event to the drag's source: the drag ended (`dropped`) or was cancelled.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn drag_ended(&self, dropped: bool) -> Result<(), ClientError> {
+        let wire_body = encode_drag_ended_args(&DragEndedArgs { dropped }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_DRAGENDED, wire_body, wire_objects)
+    }
+
+    /// Every surface in z-order (bottom first), including the desktop and
+    /// panels. Shell-only (the `shell` subscriber's task, uid 0 or
+    /// `CAP_SETUID`).
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn list_surfaces(&self) -> Result<alloc::vec::Vec<SurfaceRow>, ClientError> {
+        self.list_surfaces_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::list_surfaces`] with the caller's deadline instead of the IDL's.
+    pub fn list_surfaces_within(&self, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<SurfaceRow>, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_LISTSURFACES, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_list_surfaces_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.surfaces)
+    }
+
+    /// The rectangle available to windows: what the shell set with
+    /// `SetWorkArea`, or the whole screen (xuid paints no desktop UI of its
+    /// own since issue #157).
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn get_work_area(&self) -> Result<GetWorkAreaReply, ClientError> {
+        self.get_work_area_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::get_work_area`] with the caller's deadline instead of the IDL's.
+    pub fn get_work_area_within(&self, within: libmessenger::client::Deadline) -> Result<GetWorkAreaReply, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_GETWORKAREA, wire_body, wire_objects, within)
+            ?;
+        decode_get_work_area_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// Register this task as a subscriber under `subscriber_role`; `events`
+    /// is the event endpoint for the shell events. The role `shell`
+    /// makes the task *the* shell (it may then create desktop and panel
+    /// surfaces and call the shell-only methods). It is accepted from uid 0 or
+    /// `CAP_SETUID`, or from a task in the session that owns the display: the
+    /// first session whose task subscribed as `shell` (kernel-stamped
+    /// `cred.session`, never session 0). A shell from that same session (a
+    /// restart) replaces the previous one. Any other role is an observer slot
+    /// that requires uid 0 or `CAP_SETUID` and never replaces the shell
+    /// (issue #447). Registering again replaces the caller's previous
+    /// endpoint.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn subscribe(&self, subscriber_role: &str, events: u64) -> Result<(), ClientError> {
+        self.subscribe_within(subscriber_role, events, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::subscribe`] with the caller's deadline instead of the IDL's.
+    pub fn subscribe_within(&self, subscriber_role: &str, events: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let (wire_body, wire_objects) = encode_subscribe_args(&SubscribeArgs { subscriber_role: subscriber_role.into(), events }).map_err(ClientError::bad_request)?;
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SUBSCRIBE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// The compositor's chrome palette as `0xRRGGBB` colours. `text` is the
+    /// ink on the inactive title bar. `mode` is the desktop preset (`dark` or
+    /// `light`, the `sys/ui/mode` setting) and `accent` the accent colour in
+    /// effect, so an app can match its own widgets to the desktop.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn get_theme(&self) -> Result<GetThemeReply, ClientError> {
+        self.get_theme_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::get_theme`] with the caller's deadline instead of the IDL's.
+    pub fn get_theme_within(&self, within: libmessenger::client::Deadline) -> Result<GetThemeReply, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_GETTHEME, wire_body, wire_objects, within)
+            ?;
+        decode_get_theme_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// Shell event: surface `surface` changed. `kind` is a `Change` value;
+    /// `title` is set on `Created` and `Title`. `role` is a `Role` value.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn surface_changed(&self, surface: u64, kind: u32, x: i32, y: i32, w: i32, h: i32, minimized: bool, focused: bool, title: core::option::Option<&str>, role: u32, maximized: bool) -> Result<(), ClientError> {
+        let wire_body = encode_surface_changed_args(&SurfaceChangedArgs { surface, kind, x, y, w, h, minimized, focused, title: title.map(Into::into), role, maximized }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_SURFACECHANGED, wire_body, wire_objects)
+    }
+
+    /// Shell event: the focused surface changed; absent when nothing is
+    /// focused.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn focus_changed(&self, surface: core::option::Option<u64>) -> Result<(), ClientError> {
+        let wire_body = encode_focus_changed_args(&FocusChangedArgs { surface }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_FOCUSCHANGED, wire_body, wire_objects)
+    }
+
+    /// Shell event: the global start-menu hotkey (Ctrl+Esc or Super) fired.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn start_menu(&self) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_STARTMENU, wire_body, wire_objects)
+    }
+
+    /// Register a pixel buffer (`pixels`, at least `width * height * 4`
+    /// bytes) as buffer slot `slot` (0-3) of `surface`.
+    /// The compositor only reads the *current* slot, so attaching to any
+    /// other slot is tear-free; attaching to the current slot fails with
+    /// `EBUSY`. Only the surface's creator may attach.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn attach_buffer_slot(&self, surface: u64, slot: u32, pixels: libmessenger::Buffer) -> Result<(), ClientError> {
+        self.attach_buffer_slot_within(surface, slot, pixels, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::attach_buffer_slot`] with the caller's deadline instead of the IDL's.
+    pub fn attach_buffer_slot_within(&self, surface: u64, slot: u32, pixels: libmessenger::Buffer, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let (wire_body, wire_objects) = encode_attach_buffer_slot_args(&AttachBufferSlotArgs { surface, slot, pixels }).map_err(ClientError::bad_request)?;
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_ATTACHBUFFERSLOT, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Pipelined present (no reply): make `slot` the surface's current buffer
+    /// and composite `damage` (content-relative, clipped to the content; an
+    /// empty list or more than 16 rects means the whole content). `seq` is
+    /// echoed in `FrameDone`. After compositing, the compositor sends
+    /// `BufferRelease` for the slot this present replaced (if it changed) and
+    /// then `FrameDone`. A minimized surface still swaps its slot (so the
+    /// newest frame shows on restore and the client gets its release) but is
+    /// not repainted. A refused present (unattached or out-of-range slot)
+    /// changes nothing: the compositor sends `BufferRelease` for the
+    /// submitted slot, since it never read it, and then `FrameDone`. A
+    /// present from a task that does not own `surface` is dropped silently.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn present(&self, surface: u64, slot: u32, seq: u64, damage: &[Rect]) -> Result<(), ClientError> {
+        let wire_body = encode_present_args(&PresentArgs { surface, slot, seq, damage: damage.to_vec() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_PRESENT, wire_body, wire_objects)
+    }
+
+    /// Event: the compositor no longer reads `slot` of `surface`; the client
+    /// may write it again. Only sent to surfaces that use `Present`.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn buffer_release(&self, surface: u64, slot: u32) -> Result<(), ClientError> {
+        let wire_body = encode_buffer_release_args(&BufferReleaseArgs { surface, slot }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_BUFFERRELEASE, wire_body, wire_objects)
+    }
+
+    /// Event: the compositor consumed the `Present` numbered `seq`. Frames
+    /// complete in submission order.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn frame_done(&self, surface: u64, seq: u64) -> Result<(), ClientError> {
+        let wire_body = encode_frame_done_args(&FrameDoneArgs { surface, seq }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_FRAMEDONE, wire_body, wire_objects)
+    }
+
+    /// Rename `surface`'s window (its title bar, taskbar entry and switcher
+    /// row) to `title`, so a document window can show the file it holds. Only
+    /// the surface's creator may rename it (`EACCES` otherwise; `ENOENT` for
+    /// an unknown surface). The compositor keeps at most 128 bytes (cut at a
+    /// character boundary), drops control characters and keeps the previous
+    /// title when nothing printable is left, so a client cannot blank or
+    /// overflow its own chrome. A change sends the shell a `SurfaceChanged`
+    /// event of kind `Title`. Clients that never call it keep the
+    /// `CreateSurface` title, so old clients are unaffected.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn set_title(&self, surface: u64, title: &str) -> Result<(), ClientError> {
+        self.set_title_within(surface, title, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::set_title`] with the caller's deadline instead of the IDL's.
+    pub fn set_title_within(&self, surface: u64, title: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_set_title_args(&SetTitleArgs { surface, title: title.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SETTITLE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Hint where the *next* `CreateSurface` from this task should open from:
+    /// a rectangle `(x, y, w, h)` relative to the content origin of `surface`
+    /// (which the caller must own; `EACCES` otherwise, `ENOENT` for an unknown
+    /// surface), typically the tile the user just double-clicked. The
+    /// compositor uses it only as the start of that window's opening zoom
+    /// animation, in place of the taskbar entry; it never affects placement,
+    /// focus or anything else. The rectangle is translated to screen
+    /// coordinates and clamped to the screen; an empty rectangle, or one
+    /// wholly off the screen, is ignored. There is at most one hint per task
+    /// (a new one replaces the old) and it is consumed by the next
+    /// `CreateSurface` from that task, or expires after about two seconds.
+    /// Minimize and restore keep using the taskbar entry. A compositor that
+    /// predates the method answers `EINVAL`, which callers ignore.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn hint_open_origin(&self, surface: u64, x: i32, y: i32, w: u32, h: u32) -> Result<(), ClientError> {
+        self.hint_open_origin_within(surface, x, y, w, h, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::hint_open_origin`] with the caller's deadline instead of the IDL's.
+    pub fn hint_open_origin_within(&self, surface: u64, x: i32, y: i32, w: u32, h: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_hint_open_origin_args(&HintOpenOriginArgs { surface, x, y, w, h }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_HINTOPENORIGIN, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Event: the mouse wheel rolled `delta` notches over this surface's
+    /// content at `(x, y)` (relative to the content origin). Positive scrolls
+    /// up (the wheel rolled away from the user), negative down. The compositor
+    /// sends it to the topmost window under the pointer, which need not be the
+    /// focused one, and never to the title bar or an area outside every window.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn pointer_wheel(&self, x: i32, y: i32, delta: i32) -> Result<(), ClientError> {
+        let wire_body = encode_pointer_wheel_args(&PointerWheelArgs { x, y, delta }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_POINTERWHEEL, wire_body, wire_objects)
+    }
+
+    /// Declare `surface` resizable within these content-size bounds (pixels).
+    /// Only the creator may call it (`EACCES`; `ENOENT` for an unknown
+    /// surface). A `max_*` of 0 means the largest size the screen allows.
+    /// Bounds are clamped to the compositor's minimums and the screen; a
+    /// resulting `min` greater than its `max` is `EINVAL`. Until it is called a
+    /// window is fixed-size: no resize edges and no maximize button, so old
+    /// clients are unaffected. The bounds apply to the content size (the
+    /// decorated window is `BORDER` wider and `TITLE_H + BORDER` taller).
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn set_size_hints(&self, surface: u64, min_w: u32, min_h: u32, max_w: u32, max_h: u32) -> Result<(), ClientError> {
+        self.set_size_hints_within(surface, min_w, min_h, max_w, max_h, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::set_size_hints`] with the caller's deadline instead of the IDL's.
+    pub fn set_size_hints_within(&self, surface: u64, min_w: u32, min_h: u32, max_w: u32, max_h: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_set_size_hints_args(&SetSizeHintsArgs { surface, min_w, min_h, max_w, max_h }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SETSIZEHINTS, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Event: the window manager changed the surface's content size to
+    /// `width` x `height` (`state` is a `WindowState`). The client should
+    /// attach buffer(s) of the new size (`AttachBuffer`, or `AttachBufferSlot`
+    /// on non-current slots for `Present` users) and present a full frame.
+    /// Until it does the compositor shows the old buffer cropped or padded.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn configure(&self, surface: u64, width: u32, height: u32, state: u32) -> Result<(), ClientError> {
+        let wire_body = encode_configure_args(&ConfigureArgs { surface, width, height, state }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_CONFIGURE, wire_body, wire_objects)
+    }
+
+    /// Ask the compositor to change `surface`'s content size to `width` x
+    /// `height`, keeping its top-left corner (a compact/expanded toggle). Only
+    /// the creator may call it (`EACCES`; `ENOENT` for an unknown surface) and
+    /// only a surface that declared `SetSizeHints` and is neither maximized nor
+    /// minimized (`EINVAL` otherwise). The size is clamped to the declared
+    /// bounds and to the screen; the compositor answers by sending a
+    /// `Configure` with the size it actually applied (also when that equals
+    /// the current size), which is the only confirmation the client needs.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn request_size(&self, surface: u64, width: u32, height: u32) -> Result<(), ClientError> {
+        self.request_size_within(surface, width, height, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::request_size`] with the caller's deadline instead of the IDL's.
+    pub fn request_size_within(&self, surface: u64, width: u32, height: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_request_size_args(&RequestSizeArgs { surface, width, height }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_REQUESTSIZE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Event: a liveness probe. The compositor sends it to each window's
+    /// event endpoint about once a second; a send that fails with `EPIPE`
+    /// tells it the client died without calling `DestroySurface`, and it
+    /// removes the window. Clients ignore it (an old client drops an unknown
+    /// event), so there is nothing to answer.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn ping(&self) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_PING, wire_body, wire_objects)
+    }
+
+    /// Move a `Panel` surface so its top-left corner is at screen `(x, y)`.
+    /// Only the surface's creator may call it (`EACCES`), only for a panel
+    /// (`EINVAL` for any other role; `ENOENT` for an unknown surface). The
+    /// position is clamped so the panel stays on screen. A new panel opens at
+    /// `(0, 0)`, so a shell places it before its first `Commit`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn place_surface(&self, surface: u64, x: i32, y: i32) -> Result<(), ClientError> {
+        self.place_surface_within(surface, x, y, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::place_surface`] with the caller's deadline instead of the IDL's.
+    pub fn place_surface_within(&self, surface: u64, x: i32, y: i32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_place_surface_args(&PlaceSurfaceArgs { surface, x, y }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_PLACESURFACE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Shell-only: restore `surface` if minimized, raise it and give it focus
+    /// (a taskbar entry click). `ENOENT` for an unknown surface, `EINVAL` for
+    /// a desktop or panel.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn activate_surface(&self, surface: u64) -> Result<(), ClientError> {
+        self.activate_surface_within(surface, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::activate_surface`] with the caller's deadline instead of the IDL's.
+    pub fn activate_surface_within(&self, surface: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_activate_surface_args(&ActivateSurfaceArgs { surface }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_ACTIVATESURFACE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Shell-only: minimize `surface` (a click on the focused taskbar entry).
+    /// The zoom animation flies to the rectangle `SetIconGeometry` gave for
+    /// it. `ENOENT` for an unknown surface, `EINVAL` for a desktop or panel.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn minimize_surface(&self, surface: u64) -> Result<(), ClientError> {
+        self.minimize_surface_within(surface, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::minimize_surface`] with the caller's deadline instead of the IDL's.
+    pub fn minimize_surface_within(&self, surface: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_minimize_surface_args(&MinimizeSurfaceArgs { surface }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_MINIMIZESURFACE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Shell-only: the rectangle windows may occupy (the screen minus the
+    /// shell's taskbar). Clamped to the screen; an empty result is `EINVAL`.
+    /// Maximized windows are re-fitted to it. When the shell goes away the
+    /// work area returns to the whole screen.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn set_work_area(&self, x: i32, y: i32, w: i32, h: i32) -> Result<(), ClientError> {
+        self.set_work_area_within(x, y, w, h, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::set_work_area`] with the caller's deadline instead of the IDL's.
+    pub fn set_work_area_within(&self, x: i32, y: i32, w: i32, h: i32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_set_work_area_args(&SetWorkAreaArgs { x, y, w, h }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SETWORKAREA, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Shell-only: where `surface`'s taskbar entry is on screen, so the
+    /// minimize/restore zoom flies to and from it. A window without one zooms
+    /// to a small rectangle at the bottom-left of the screen. `ENOENT` for an
+    /// unknown surface; an empty rectangle forgets the geometry.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn set_icon_geometry(&self, surface: u64, x: i32, y: i32, w: i32, h: i32) -> Result<(), ClientError> {
+        self.set_icon_geometry_within(surface, x, y, w, h, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::set_icon_geometry`] with the caller's deadline instead of the IDL's.
+    pub fn set_icon_geometry_within(&self, surface: u64, x: i32, y: i32, w: i32, h: i32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_set_icon_geometry_args(&SetIconGeometryArgs { surface, x, y, w, h }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SETICONGEOMETRY, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Shell-only: the next window *any* task creates within about two seconds
+    /// zooms open from this screen rectangle (the start-menu row or desktop
+    /// icon the user just activated) instead of from its taskbar entry. The
+    /// shell sends it right before asking `init` to launch an app. A task's
+    /// own `HintOpenOrigin` wins over it. An empty rectangle is ignored.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn hint_launch_origin(&self, x: i32, y: i32, w: u32, h: u32) -> Result<(), ClientError> {
+        self.hint_launch_origin_within(x, y, w, h, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::hint_launch_origin`] with the caller's deadline instead of the IDL's.
+    pub fn hint_launch_origin_within(&self, x: i32, y: i32, w: u32, h: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_hint_launch_origin_args(&HintLaunchOriginArgs { x, y, w, h }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_HINTLAUNCHORIGIN, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Shell event: a pointer button went down outside every `Panel` surface
+    /// (on a window, the desktop or the bare background), so the shell closes
+    /// any open popup panel such as the start menu.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn dismiss(&self) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_DISMISS, wire_body, wire_objects)
+    }
+
+    /// The screen in physical pixels and the desktop's integer UI scale
+    /// (`1` or `2`; docs/hidpi-plan.md). Every size and coordinate on this
+    /// interface stays in physical pixels; a scale-aware client draws at
+    /// `scale` times its design size (an xui app runs at `96 * scale` DPI).
+    /// The scale is fixed for the compositor's lifetime. `refresh_millihz`
+    /// is how often the screen shows a new picture, in millihertz: the rate
+    /// `gpud` measured on a display it drives, else 60000 (no vblank to
+    /// follow, as under QEMU). A client presents at most that often
+    /// (xui paces its windows to it): a frame between two refreshes is
+    /// never seen, and composing it only costs the next one time.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn get_output(&self) -> Result<GetOutputReply, ClientError> {
+        self.get_output_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::get_output`] with the caller's deadline instead of the IDL's.
+    pub fn get_output_within(&self, within: libmessenger::client::Deadline) -> Result<GetOutputReply, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_GETOUTPUT, wire_body, wire_objects, within)
+            ?;
+        decode_get_output_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// Shell-only: let task `task` create one `Popup` surface with `token`
+    /// within about two seconds, placed against the screen rectangle
+    /// `(x, y, w, h)` (the tray icon the user clicked; docs/tray-plan.md
+    /// section 7.3). A token works once and only for that task. A compositor
+    /// without flyouts answers `EINVAL`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn allow_popup(&self, task: u64, token: u64, x: i32, y: i32, w: u32, h: u32) -> Result<(), ClientError> {
+        self.allow_popup_within(task, token, x, y, w, h, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::allow_popup`] with the caller's deadline instead of the IDL's.
+    pub fn allow_popup_within(&self, task: u64, token: u64, x: i32, y: i32, w: u32, h: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_allow_popup_args(&AllowPopupArgs { task, token, x, y, w, h }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_ALLOWPOPUP, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Shell-only: take the keyboard for the shell's panel menus (issue
+    /// #648; the start menu, its submenus, a tray menu, the tray). While
+    /// `grab` is set every key the compositor does not keep for itself
+    /// (Alt+Tab, Alt+F4, Ctrl+Esc, Super, Ctrl+Alt+Esc) goes to the shell as
+    /// a `PanelKey` event instead of to the focused window, which keeps its
+    /// focus (no leave/enter); `inputd` holds the window's key content
+    /// meanwhile (`NoteKeysHeld` on `os.lazy.input.shell.v1`). It ends
+    /// with `GrabPanelKeys(false)`, when the shell's subscription goes away,
+    /// or under a client's keyboard grab or the trusted prompt, which win.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn grab_panel_keys(&self, grab: bool) -> Result<(), ClientError> {
+        self.grab_panel_keys_within(grab, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::grab_panel_keys`] with the caller's deadline instead of the IDL's.
+    pub fn grab_panel_keys_within(&self, grab: bool, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_grab_panel_keys_args(&GrabPanelKeysArgs { grab }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_GRABPANELKEYS, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Shell event: a key went down while the shell holds the panel keys
+    /// (`GrabPanelKeys`), with the held modifiers OR-ed in like `KeyDown`.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn panel_key(&self, key: u32) -> Result<(), ClientError> {
+        let wire_body = encode_panel_key_args(&PanelKeyArgs { key }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_PANELKEY, wire_body, wire_objects)
+    }
+
+    /// Shell event: Super+B (Win+B) went down: move the keyboard to the
+    /// tray. Super pressed and released alone still sends `StartMenu`.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn tray_keys(&self) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_TRAYKEYS, wire_body, wire_objects)
+    }
+
+    /// Ask the compositor to keep `surface` when the window manager closes it
+    /// (the X button, Alt+F4, the taskbar): `WindowClose` is still sent, but
+    /// the window stays until the app destroys the surface, so an app that must
+    /// ask first (a terminal with a program running) can put its question in
+    /// the window. Without it (the default, and for every older client) the
+    /// window is dropped as it is sent. Only the creator may call it.
+    /// An app can never make its window unclosable: the first close is passed
+    /// on and the window kept; if the app has not destroyed the surface three
+    /// seconds later (and within 30 s of the first), the next close drops it
+    /// whatever the app says (the app's event endpoint closes, so it quits);
+    /// only a close more than 30 s after the last one is passed on again.
+    /// Calling `SetCloseMode` again changes nothing about that. A shutdown or
+    /// logout never depends on it: `init` kills what is left.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn set_close_mode(&self, surface: u64, ask: bool) -> Result<(), ClientError> {
+        self.set_close_mode_within(surface, ask, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::set_close_mode`] with the caller's deadline instead of the IDL's.
+    pub fn set_close_mode_within(&self, surface: u64, ask: bool, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_set_close_mode_args(&SetCloseModeArgs { surface, ask }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SETCLOSEMODE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Shell-only: restore, raise and focus every window created by a program
+    /// running under the package label `label` in `session`, the one that was
+    /// topmost ending up focused (a click on one of that app's notifications:
+    /// `os.lazy.notify.events.v1` `Activated`, which the shell also sends the
+    /// app). Both numbers are what the kernel stamped on the notification
+    /// call, never ones an app chose, and they name the *app*, so the window
+    /// of a program that notifies from another thread than the one that made
+    /// its window still comes forward. An unlabelled program has no label to
+    /// name (`EINVAL`); `ENOENT` when the app owns no window. Desktops and
+    /// panels are never touched.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn activate_app(&self, label: u32, session: u64) -> Result<(), ClientError> {
+        self.activate_app_within(label, session, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::activate_app`] with the caller's deadline instead of the IDL's.
+    pub fn activate_app_within(&self, label: u32, session: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_activate_app_args(&ActivateAppArgs { label, session }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_ACTIVATEAPP, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+}

@@ -1114,3 +1114,310 @@ where
         .map_err(S::Error::from)?;
     subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_PKG_QOS)
 }
+
+#[cfg(feature = "pkgd_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "pkgd_v1_client")]
+/// A client of `os.lazy.pkgd.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "pkgd_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Open and validate the `.lzp` at `path` without changing anything. Root
+    /// may name any absolute path; anyone else a file under `/transient` or
+    /// their own home folder (the path is normalised first). `problems` is empty for a package that
+    /// could be installed; otherwise it lists every reason it cannot be.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn inspect(&self, path: &str) -> Result<PackageInfo, ClientError> {
+        self.inspect_within(path, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::inspect`] with the caller's deadline instead of the IDL's.
+    pub fn inspect_within(&self, path: &str, within: libmessenger::client::Deadline) -> Result<PackageInfo, ClientError> {
+        let wire_body = encode_inspect_args(&InspectArgs { path: path.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_INSPECT, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_inspect_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.info)
+    }
+
+    /// Install the package at `path` (the same source rule as `Inspect`):
+    /// extract it to its install directory under `/apps`, copy its
+    /// `docs/*.md` to `/docs/apps/<system_name>/`, record it, register its
+    /// MIME verbs, load its policy, then publish
+    /// `system/events/pkg/install`. Fails if the same `system_name` is already
+    /// installed at this version and digest. Needs the caller to be the
+    /// session owner or root; `pkgd` audits who asked.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn install(&self, path: &str) -> Result<Installed, ClientError> {
+        self.install_within(path, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::install`] with the caller's deadline instead of the IDL's.
+    pub fn install_within(&self, path: &str, within: libmessenger::client::Deadline) -> Result<Installed, ClientError> {
+        let wire_body = encode_install_args(&InstallArgs { path: path.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_INSTALL, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_install_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.app)
+    }
+
+    /// Remove `system_name`: stop its running instances, unregister its MIME
+    /// verbs, revoke its policy, delete its install directory and its
+    /// documentation, then publish `system/events/pkg/remove`. User data
+    /// under `/home` is kept.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn remove(&self, system_name: &str) -> Result<(), ClientError> {
+        self.remove_within(system_name, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::remove`] with the caller's deadline instead of the IDL's.
+    pub fn remove_within(&self, system_name: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_remove_args(&RemoveArgs { system_name: system_name.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_REMOVE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Every installed app, in install order.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn list(&self) -> Result<alloc::vec::Vec<Installed>, ClientError> {
+        self.list_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::list`] with the caller's deadline instead of the IDL's.
+    pub fn list_within(&self, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<Installed>, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_LIST, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_list_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.apps)
+    }
+
+    /// One installed app by `system_name`, if present.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn installed(&self, system_name: &str) -> Result<core::option::Option<Installed>, ClientError> {
+        self.installed_within(system_name, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::installed`] with the caller's deadline instead of the IDL's.
+    pub fn installed_within(&self, system_name: &str, within: libmessenger::client::Deadline) -> Result<core::option::Option<Installed>, ClientError> {
+        let wire_body = encode_installed_args(&InstalledArgs { system_name: system_name.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_INSTALLED, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_installed_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.app)
+    }
+
+    /// The name of the policy label with the kernel id `label_id`
+    /// (`app:<system_name>`, `tool:<system_name>`, ...). Reading a label's
+    /// name takes `CAP_SETUID`, which `elevd` deliberately lacks, so it asks
+    /// here to tell a developer tool's shared label from an app's before it
+    /// lets an administrator's approval stand (`libs/elevpolicy`,
+    /// `approvals`). Answered to `elevd` alone; `ENOENT` for an id the
+    /// kernel does not know.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn label_name(&self, label_id: u32) -> Result<alloc::string::String, ClientError> {
+        self.label_name_within(label_id, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::label_name`] with the caller's deadline instead of the IDL's.
+    pub fn label_name_within(&self, label_id: u32, within: libmessenger::client::Deadline) -> Result<alloc::string::String, ClientError> {
+        let wire_body = encode_label_name_args(&LabelNameArgs { label_id }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_LABELNAME, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_label_name_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.label)
+    }
+
+    /// Whether this start's core package provisioning is finished, and what
+    /// it did (`docs/packages.md`, core packages). `pkgd` answers it while it
+    /// provisions, so a client such as `init`'s autostart can wait for it
+    /// without blocking; `Install` and `Remove` are refused with `EAGAIN`
+    /// until `done`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn provisioned(&self) -> Result<ProvisionState, ClientError> {
+        self.provisioned_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::provisioned`] with the caller's deadline instead of the IDL's.
+    pub fn provisioned_within(&self, within: libmessenger::client::Deadline) -> Result<ProvisionState, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_PROVISIONED, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_provisioned_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.state)
+    }
+
+    /// Approve a development run of the package at `path` (the same source
+    /// rule as `Inspect`; issue #529): validate it, compile its permissions and
+    /// load them for the label `dev:<system_name>`, which an IDE whose
+    /// manifest says `develop = true` may then give the program it runs. Only
+    /// the session owner or root, unlabelled (the Installer), may call it.
+    /// With `confirm` false nothing is asked: the rules are loaded and
+    /// `approved` is true only if this session already approved the same or a
+    /// wider rule set for that label; otherwise `approved` is false and nothing
+    /// changes, so the Installer shows the consent screen and calls again with
+    /// `confirm` true once the user accepts. Approvals live in `pkgd`'s memory
+    /// only, are dropped (and the label's rules revoked) when the session that
+    /// gave them logs out, and every one is audited as
+    /// `system/events/pkg/develop`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn develop(&self, path: &str, confirm: bool) -> Result<DevelopReply, ClientError> {
+        self.develop_within(path, confirm, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::develop`] with the caller's deadline instead of the IDL's.
+    pub fn develop_within(&self, path: &str, confirm: bool, within: libmessenger::client::Deadline) -> Result<DevelopReply, ClientError> {
+        let wire_body = encode_develop_args(&DevelopArgs { path: path.into(), confirm }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_DEVELOP, wire_body, wire_objects, within)
+            ?;
+        decode_develop_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// The user declined the development consent for the package at `path`
+    /// (same caller and source rules as `Develop`). Nothing is loaded; the
+    /// refusal is audited and published as `system/events/pkg/denied` under
+    /// the package's `system_name`, so the IDE waiting for the approval stops.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn develop_declined(&self, path: &str) -> Result<(), ClientError> {
+        self.develop_declined_within(path, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::develop_declined`] with the caller's deadline instead of the IDL's.
+    pub fn develop_declined_within(&self, path: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_develop_declined_args(&DevelopDeclinedArgs { path: path.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_DEVELOPDECLINED, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// `elevd`'s install of a package an administrator approved on the
+    /// trusted prompt (docs/accounts-plan.md U2, review of #659); refused
+    /// with `EPERM` from anyone else. `digest` is the SHA-256 `Inspect`
+    /// reported for the file the prompt described: `pkgd` installs the
+    /// bytes it reads only when they hash to it, so the file cannot be
+    /// swapped between the approval and the install. `core` says what was
+    /// approved: `false` (`pkg.install`) refuses a package that would
+    /// replace a core app, `true` (`pkg.update-core`) refuses one that would
+    /// not. Plain `Install` never replaces a core app for `elevd`. `devtool`
+    /// says the administrator saw the developer-tool warning
+    /// (`pkg.install-devtool`, `docs/devtool-packages-plan.md` section 4): a
+    /// developer-tool package is installed only when it is `true` and any
+    /// other package only when it is `false`, so a tool is never installed
+    /// from a prompt that did not warn about it.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn install_approved(&self, path: &str, digest: &str, core: bool, devtool: bool) -> Result<Installed, ClientError> {
+        self.install_approved_within(path, digest, core, devtool, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::install_approved`] with the caller's deadline instead of the IDL's.
+    pub fn install_approved_within(&self, path: &str, digest: &str, core: bool, devtool: bool, within: libmessenger::client::Deadline) -> Result<Installed, ClientError> {
+        let wire_body = encode_install_approved_args(&InstallApprovedArgs { path: path.into(), digest: digest.into(), core, devtool }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_INSTALLAPPROVED, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_install_approved_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.app)
+    }
+
+    /// `dbgd`'s install of a package a developer uploaded to a box built for
+    /// remote control (docs/dbgd-plan.md, v2 app swapping): accepted from
+    /// `dbgd` alone and only when `/boot/lazyos.cfg` says
+    /// `diag.dbg.control=1`, refused with `EPERM` otherwise. `path` must be
+    /// `dbgd`'s staging file (`dbgwire::control::staged_package_path`) and
+    /// the bytes must hash to `digest` (SHA-256, hex), as for
+    /// `InstallApproved`. Unlike every other install it may replace a core
+    /// app, which is what a developer iterating on one needs.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn install_debug(&self, path: &str, digest: &str) -> Result<Installed, ClientError> {
+        self.install_debug_within(path, digest, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::install_debug`] with the caller's deadline instead of the IDL's.
+    pub fn install_debug_within(&self, path: &str, digest: &str, within: libmessenger::client::Deadline) -> Result<Installed, ClientError> {
+        let wire_body = encode_install_debug_args(&InstallDebugArgs { path: path.into(), digest: digest.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_INSTALLDEBUG, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_install_debug_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.app)
+    }
+}

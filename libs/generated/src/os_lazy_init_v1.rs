@@ -1418,3 +1418,372 @@ where
         .map_err(S::Error::from)?;
     subscriber.subscribe_topic(&filter, TOPIC_SESSION_APPS_RESIDENT_QOS)
 }
+
+#[cfg(feature = "init_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "init_v1_client")]
+/// A client of `os.lazy.init.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "init_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Snapshot the supervision table.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn services(&self) -> Result<alloc::vec::Vec<ServiceStatus>, ClientError> {
+        self.services_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::services`] with the caller's deadline instead of the IDL's.
+    pub fn services_within(&self, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<ServiceStatus>, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_SERVICES, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_services_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.services)
+    }
+
+    /// Launch an app as a session child. `session` 0 means the caller's own
+    /// session; only the session's owner (or root) may launch into it. `args`
+    /// is empty or one absolute path (at most 1024 bytes, no control
+    /// character or `"`), appended to the app's fixed arguments as a single
+    /// `argv` item; any other value is refused with `EINVAL`. A resident app
+    /// (`AppInfo.resident`) already running in that session starts nothing:
+    /// `init` sends its instance `Reopen(args)` (`os.lazy.init.app.events.v1`)
+    /// and answers `existing` true with that instance's pid.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn launch(&self, app: &str, args: &str, session: u64) -> Result<LaunchReply, ClientError> {
+        self.launch_within(app, args, session, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::launch`] with the caller's deadline instead of the IDL's.
+    pub fn launch_within(&self, app: &str, args: &str, session: u64, within: libmessenger::client::Deadline) -> Result<LaunchReply, ClientError> {
+        let wire_body = encode_launch_args(&LaunchArgs { app: app.into(), args: args.into(), session }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_LAUNCH, wire_body, wire_objects, within)
+            ?;
+        decode_launch_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// Enumerate the app registry: the built-in apps first, then the apps the
+    /// package manager installed (`AppInfo.installed`; the core packages
+    /// first, then the others by `system_name`), read afresh from the
+    /// configuration registry on every call. `hidden` is the caller's own.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn list_apps(&self) -> Result<alloc::vec::Vec<AppInfo>, ClientError> {
+        self.list_apps_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::list_apps`] with the caller's deadline instead of the IDL's.
+    pub fn list_apps_within(&self, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<AppInfo>, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_LISTAPPS, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_list_apps_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.apps)
+    }
+
+    /// Stop every running instance of the app `app` (the app id, as `Launch`
+    /// takes it), retiring its supervision row without a restart: an
+    /// instance that watches its lifecycle (`os.lazy.init.app.v1`), or a
+    /// resident app that may still come to watch, is sent `Quit` and killed
+    /// if it still runs 3 s after this call (docs/tray-plan.md section 5);
+    /// any other is killed at once. The reply comes once every instance has
+    /// exited. `stopped` is how many were running. Only root, a holder of
+    /// `CAP_SETUID` (the package manager) or the session owner may stop; an
+    /// owner reaches only instances in their own session. Unknown or idle apps
+    /// are not an error, `stopped` is just 0.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn stop(&self, app: &str) -> Result<u64, ClientError> {
+        self.stop_within(app, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::stop`] with the caller's deadline instead of the IDL's.
+    pub fn stop_within(&self, app: &str, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let wire_body = encode_stop_args(&StopArgs { app: app.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_STOP, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_stop_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.stopped)
+    }
+
+    /// Begin an orderly shutdown (docs/shutdown.md): `mode` is a `PowerMode`
+    /// value. The reply is immediate; `init` then stops the session apps, the
+    /// services in reverse dependency order, syncs and calls the kernel's
+    /// `power`. `reason` is logged (at most 128 bytes, no control character).
+    /// Root or any caller in a login session may ask; a labelled (installed)
+    /// app is refused with `EPERM`, and an unknown mode is `EINVAL`. A request
+    /// while a shutdown is already running is not an error: `accepted` is true
+    /// and `phase` is the current phase. `force` skips the graceful stop: every
+    /// remaining child is killed at once and the machine stops.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn shutdown(&self, mode: u32, reason: &str, force: bool) -> Result<ShutdownReply, ClientError> {
+        self.shutdown_within(mode, reason, force, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::shutdown`] with the caller's deadline instead of the IDL's.
+    pub fn shutdown_within(&self, mode: u32, reason: &str, force: bool, within: libmessenger::client::Deadline) -> Result<ShutdownReply, ClientError> {
+        let wire_body = encode_shutdown_args(&ShutdownArgs { mode, reason: reason.into(), force }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_SHUTDOWN, wire_body, wire_objects, within)
+            ?;
+        decode_shutdown_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// Start the driver row `driver` for device `device` (issue #497,
+    /// docs/driver-plan.md section 3.6). Only the running task of the `devd`
+    /// row may ask: `init` keeps each driver's program, credentials and
+    /// arguments, and `devd` names only the row and the device it matched,
+    /// which the driver receives as `dev=<device>`. `ifname` is the name `devd`
+    /// gave the card (`eth0`) for a driver that serves one named card per
+    /// instance (`netdrv`): the driver receives it as `ifname=<ifname>` and
+    /// the row may run once per card. Empty for a driver whose Messenger name
+    /// is unique (`sndd`): a row already running for that device is not an
+    /// error (`started` is false) and one running for another device is
+    /// `EBUSY` (one card per driver). A non-empty `ifname` that is not a
+    /// lower-case letter run followed by digits (at most 15 bytes), or that
+    /// names an interface another card holds, is `EINVAL`. An unknown row is
+    /// `ENOENT`, any other caller `EPERM`, and a request during a shutdown
+    /// `EBUSY`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn start_driver(&self, driver: &str, device: u64, ifname: &str) -> Result<StartDriverReply, ClientError> {
+        self.start_driver_within(driver, device, ifname, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::start_driver`] with the caller's deadline instead of the IDL's.
+    pub fn start_driver_within(&self, driver: &str, device: u64, ifname: &str, within: libmessenger::client::Deadline) -> Result<StartDriverReply, ClientError> {
+        let wire_body = encode_start_driver_args(&StartDriverArgs { driver: driver.into(), device, ifname: ifname.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_STARTDRIVER, wire_body, wire_objects, within)
+            ?;
+        decode_start_driver_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// A supervised service tells `init` it is serving (docs/performance-plan.md
+    /// P7.3): its name is registered and requests are answered. Rows that
+    /// depend on it start only then, and the desktop's apps only once every
+    /// boot service is ready. Only the running task of a manifest row counts;
+    /// anything else is ignored.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn ready(&self) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_READY, wire_body, wire_objects)
+    }
+
+    /// A launched app says why it is about to fail (issue #549), so the
+    /// desktop's "stopped unexpectedly" notice can show more than an exit
+    /// code. Only the running task of a launched row counts; anything else
+    /// is ignored. `reason` is shown, never parsed: control characters become
+    /// spaces and it is cut to 512 bytes. A later report replaces an earlier
+    /// one, and every new run starts with none.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn report_failure(&self, reason: &str) -> Result<(), ClientError> {
+        let wire_body = encode_report_failure_args(&ReportFailureArgs { reason: reason.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_REPORTFAILURE, wire_body, wire_objects)
+    }
+
+    /// Make or retire an account's home (docs/accounts-plan.md U1). Accepted
+    /// from the accounts service alone (the `_accounts` system uid,
+    /// unlabelled): `init` runs the change as root. `op` is `create` (a 0700
+    /// `/home/<name>` owned by `uid`/`gid`, filled from the skeleton; an
+    /// existing home is kept), `archive` (moved to
+    /// `/home/.archived/<name>-<uid>`, root-only) or `remove`. `uid` must be a
+    /// human account's (1000 or more) and `name` a login name. The reply
+    /// comes once the change is done; a failed change is `EIO`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn home(&self, op: &str, name: &str, uid: u32, gid: u32) -> Result<(), ClientError> {
+        self.home_within(op, name, uid, gid, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::home`] with the caller's deadline instead of the IDL's.
+    pub fn home_within(&self, op: &str, name: &str, uid: u32, gid: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_home_args(&HomeArgs { op: op.into(), name: name.into(), uid, gid }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_HOME, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Restart the system service `name` (docs/accounts-plan.md U2): its
+    /// running task is killed and the supervisor starts it again as after a
+    /// crash. Accepted from `elevd` alone, after an administrator approved
+    /// it, and only for the services `elevpolicy::RESTARTABLE` lists (never
+    /// `elevd`, `logind`, `accountsd`, `keyd`, `confd`, `logd` or `init`'s
+    /// own fabric): any other name is `EPERM`, an app or an unknown row
+    /// `ENOENT`, a row not running `EAGAIN`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn restart_service(&self, name: &str) -> Result<u64, ClientError> {
+        self.restart_service_within(name, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::restart_service`] with the caller's deadline instead of the IDL's.
+    pub fn restart_service_within(&self, name: &str, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let wire_body = encode_restart_service_args(&RestartServiceArgs { name: name.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_RESTARTSERVICE, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_restart_service_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.pid)
+    }
+
+    /// Hot-reload the system service `name` (docs/dbgd-plan.md, v2): accepted
+    /// from `dbgd` alone, and only when `/boot/lazyos.cfg` says
+    /// `diag.dbg.control=1`; never `messengerd` or `dbgd`
+    /// (`dbgwire::control::reloadable`). With `binary` empty the row is
+    /// restarted as it is. Otherwise `binary` must be `dbgd`'s staging file
+    /// for `name`: `init` copies it to a root-owned file, checks its SHA-256
+    /// against `sha256` (hex), kills the running task and starts the copy.
+    /// If the new run exits, or cannot be spawned, before `trial_ms` has
+    /// passed, `init` rolls back to the image's binary at once; otherwise it
+    /// commits. A reload lasts until `RevertService` or the next boot.
+    /// `EPERM` for another caller or a refused name, `ENOENT` for no such
+    /// manifest row, `EAGAIN` for a row still waiting for its dependencies or
+    /// a shutdown, `EINVAL` for a bad file or a digest that does not match.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn reload_service(&self, name: &str, binary: &str, sha256: &str, trial_ms: u32) -> Result<u64, ClientError> {
+        self.reload_service_within(name, binary, sha256, trial_ms, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::reload_service`] with the caller's deadline instead of the IDL's.
+    pub fn reload_service_within(&self, name: &str, binary: &str, sha256: &str, trial_ms: u32, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let wire_body = encode_reload_service_args(&ReloadServiceArgs { name: name.into(), binary: binary.into(), sha256: sha256.into(), trial_ms }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_RELOADSERVICE, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_reload_service_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.pid)
+    }
+
+    /// Put the image's binary back for a hot-reloaded service and restart
+    /// it. Same callers and refusals as `ReloadService`; a service that was
+    /// never reloaded is just restarted.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn revert_service(&self, name: &str) -> Result<u64, ClientError> {
+        self.revert_service_within(name, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::revert_service`] with the caller's deadline instead of the IDL's.
+    pub fn revert_service_within(&self, name: &str, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let wire_body = encode_revert_service_args(&RevertServiceArgs { name: name.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_REVERTSERVICE, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_revert_service_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.pid)
+    }
+
+    /// Restart a running app after `pkgd.InstallDebug` replaced it
+    /// (docs/dbgd-plan.md, v2 app swapping): every running instance of the
+    /// app `app` (its id, as `Launch` takes it) is killed and launched again
+    /// in its own session with its own argument, from the app's current
+    /// install. Same callers as `ReloadService`. `stopped` counts the
+    /// instances killed, `started` the ones launched again; an app that is
+    /// not running is not an error (both 0).
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn relaunch_app(&self, app: &str) -> Result<RelaunchAppReply, ClientError> {
+        self.relaunch_app_within(app, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::relaunch_app`] with the caller's deadline instead of the IDL's.
+    pub fn relaunch_app_within(&self, app: &str, within: libmessenger::client::Deadline) -> Result<RelaunchAppReply, ClientError> {
+        let wire_body = encode_relaunch_app_args(&RelaunchAppArgs { app: app.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_RELAUNCHAPP, wire_body, wire_objects, within)
+            ?;
+        decode_relaunch_app_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// The hot reloads since boot, one row per service that had one.
+    /// Read-only: any caller.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn reloads(&self) -> Result<alloc::vec::Vec<ReloadState>, ClientError> {
+        self.reloads_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::reloads`] with the caller's deadline instead of the IDL's.
+    pub fn reloads_within(&self, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<ReloadState>, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_RELOADS, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_reloads_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.reloads)
+    }
+}

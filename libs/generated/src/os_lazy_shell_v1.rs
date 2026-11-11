@@ -384,3 +384,146 @@ pub fn decode_activate_args(body: &[u8]) -> Result<ActivateArgs, Error> {
 /// and the declared kinds, in object-list order.
 pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
 ];
+
+#[cfg(feature = "shell_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "shell_v1_client")]
+/// A client of `os.lazy.shell.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "shell_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// What the shell shows right now: the taskbar's window entries (in
+    /// taskbar order), the focused window, whether the start menu is open, the
+    /// start-menu rows, the desktop icons and the tray items (in bar order,
+    /// docs/tray-plan.md).
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn status(&self) -> Result<StatusReply, ClientError> {
+        self.status_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::status`] with the caller's deadline instead of the IDL's.
+    pub fn status_within(&self, within: libmessenger::client::Deadline) -> Result<StatusReply, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_STATUS, wire_body, wire_objects, within)
+            ?;
+        decode_status_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// Open (`open` true) or close the start menu.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn show_start_menu(&self, open: bool) -> Result<(), ClientError> {
+        self.show_start_menu_within(open, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::show_start_menu`] with the caller's deadline instead of the IDL's.
+    pub fn show_start_menu_within(&self, open: bool, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_show_start_menu_args(&ShowStartMenuArgs { open }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SHOWSTARTMENU, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Launch the registry app `app` through `init.Launch` in the shell's
+    /// session, exactly as clicking its start-menu row would (including the
+    /// launch-origin zoom). `ENOENT` when the app is unknown or not shipped.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn launch(&self, app: &str) -> Result<u64, ClientError> {
+        self.launch_within(app, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::launch`] with the caller's deadline instead of the IDL's.
+    pub fn launch_within(&self, app: &str, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let wire_body = encode_launch_args(&LaunchArgs { app: app.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_LAUNCH, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_launch_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.pid)
+    }
+
+    /// Re-read the start menu (`sys/ui/menu` plus installed apps) and the
+    /// desktop icons (the desktop folder, `$HOME/Desktop`, or `sys/ui/desktop`
+    /// without one); returns how many rows each has.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn refresh(&self) -> Result<RefreshReply, ClientError> {
+        self.refresh_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::refresh`] with the caller's deadline instead of the IDL's.
+    pub fn refresh_within(&self, within: libmessenger::client::Deadline) -> Result<RefreshReply, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_REFRESH, wire_body, wire_objects, within)
+            ?;
+        decode_refresh_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// Activate (restore, raise, focus) the window `surface` as a click on its
+    /// taskbar entry would. `ENOENT` when the taskbar has no such entry.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn activate(&self, surface: u64) -> Result<(), ClientError> {
+        self.activate_within(surface, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::activate`] with the caller's deadline instead of the IDL's.
+    pub fn activate_within(&self, surface: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_activate_args(&ActivateArgs { surface }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_ACTIVATE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+}

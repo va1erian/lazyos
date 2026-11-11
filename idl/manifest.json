@@ -1807,17 +1807,20 @@
       {
         "name": "Notify",
         "id": 1,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 300
       },
       {
         "name": "Close",
         "id": 2,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 300
       },
       {
         "name": "Listen",
         "id": 3,
         "oneway": false,
+        "deadline_ms": 300,
         "objects": [
           {
             "name": "events",

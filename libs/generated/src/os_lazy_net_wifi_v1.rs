@@ -764,3 +764,223 @@ where
         .map_err(S::Error::from)?;
     subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_NET_WIFI_SCAN_QOS)
 }
+
+#[cfg(feature = "net_wifi_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "net_wifi_v1_client")]
+/// A client of `os.lazy.net.wifi.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "net_wifi_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// The wireless interfaces `wlanmd` manages, by name (`wlan0`).
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn interfaces(&self) -> Result<alloc::vec::Vec<alloc::string::String>, ClientError> {
+        self.interfaces_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::interfaces`] with the caller's deadline instead of the IDL's.
+    pub fn interfaces_within(&self, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<alloc::string::String>, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_INTERFACES, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_interfaces_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.names)
+    }
+
+    /// Ask for a fresh scan; returns at once, the results arrive on
+    /// `system/net/{ifname}/wifi/scan`. `ssids` are hidden networks to probe
+    /// for (at most 4); empty is a wildcard scan. A scan is refused while one
+    /// is under way (`EBUSY`) and may be skipped while the link is busy with
+    /// the handshake.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn scan(&self, ifname: &str, ssids: &[alloc::string::String]) -> Result<(), ClientError> {
+        self.scan_within(ifname, ssids, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::scan`] with the caller's deadline instead of the IDL's.
+    pub fn scan_within(&self, ifname: &str, ssids: &[alloc::string::String], within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_scan_args(&ScanArgs { ifname: ifname.into(), ssids: ssids.to_vec() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SCAN, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// The current scan results merged with the known profiles: one entry per
+    /// network (SSID and security), strongest BSS first, with the profile id
+    /// when the caller may use a known network. Profiles of other users are
+    /// not shown. At most 128 entries.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn networks(&self, ifname: &str) -> Result<alloc::vec::Vec<Network>, ClientError> {
+        self.networks_within(ifname, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::networks`] with the caller's deadline instead of the IDL's.
+    pub fn networks_within(&self, ifname: &str, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<Network>, ClientError> {
+        let wire_body = encode_networks_args(&NetworksArgs { ifname: ifname.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_NETWORKS, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_networks_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.list)
+    }
+
+    /// Remember a network; `scope` is a `Scope` ordinal. Scope `User`: the
+    /// caller's network and its secret; `profile.id` must be empty (the
+    /// service picks one and returns it), and the passphrase is required for
+    /// `Wpa2Psk` (8 to 63 octets of UTF-8 without control characters, or
+    /// exactly 64 hex digits for a raw PSK) and absent for `Open`. Scope
+    /// `System` (from `elevd` alone): only the profile, under the id
+    /// `profile.id` names (`w` and 12 lowercase hex digits), whose secret
+    /// `elevd` already stored in `keyd` under that id; the passphrase must be
+    /// absent. Does not connect. `EEXIST` for the same SSID and scope (or the
+    /// same id); `EINVAL` for a bad SSID (1 to 32 bytes), id, security or
+    /// passphrase, or a name that matches several heard networks; `EPERM` for
+    /// scope `System` from anyone but `elevd`; `ENOSPC` past 32 networks for
+    /// one owner.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn add_network(&self, profile: &Profile, passphrase: core::option::Option<&str>) -> Result<alloc::string::String, ClientError> {
+        self.add_network_within(profile, passphrase, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::add_network`] with the caller's deadline instead of the IDL's.
+    pub fn add_network_within(&self, profile: &Profile, passphrase: core::option::Option<&str>, within: libmessenger::client::Deadline) -> Result<alloc::string::String, ClientError> {
+        let wire_body = encode_add_network_args(&AddNetworkArgs { profile: profile.clone(), passphrase: passphrase.map(Into::into) }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_ADDNETWORK, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_add_network_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.id)
+    }
+
+    /// Join the network `id` on `ifname`: leave the current one, scan if the
+    /// SSID is not in the results, pick the best BSS, authenticate, associate
+    /// and run the handshake. Returns when the attempt is started; the
+    /// outcome is on `system/net/{ifname}/wifi/state` (`Connected` or
+    /// `Failed` with a reason). A user network belongs to its owner: another
+    /// user gets `EPERM`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn connect_call(&self, ifname: &str, id: &str) -> Result<(), ClientError> {
+        self.connect_call_within(ifname, id, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::connect_call`] with the caller's deadline instead of the IDL's.
+    pub fn connect_call_within(&self, ifname: &str, id: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_connect_args(&ConnectArgs { ifname: ifname.into(), id: id.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_CONNECT, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Leave the current network and do not reconnect until asked (auto-
+    /// connect is suspended for this interface until the next `Connect`).
+    /// Not an error when not connected.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn disconnect(&self, ifname: &str) -> Result<(), ClientError> {
+        self.disconnect_within(ifname, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::disconnect`] with the caller's deadline instead of the IDL's.
+    pub fn disconnect_within(&self, ifname: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_disconnect_args(&DisconnectArgs { ifname: ifname.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_DISCONNECT, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Delete a profile and its secret. Disconnects first if it is the
+    /// current network. Not an error for an id that is gone.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn forget(&self, id: &str) -> Result<(), ClientError> {
+        self.forget_within(id, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::forget`] with the caller's deadline instead of the IDL's.
+    pub fn forget_within(&self, id: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_forget_args(&ForgetArgs { id: id.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_FORGET, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// The interface's state now: the same value the retained `state` topic
+    /// carries, for a client that does not subscribe.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn status(&self, ifname: &str) -> Result<WifiState, ClientError> {
+        self.status_within(ifname, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::status`] with the caller's deadline instead of the IDL's.
+    pub fn status_within(&self, ifname: &str, within: libmessenger::client::Deadline) -> Result<WifiState, ClientError> {
+        let wire_body = encode_status_args(&StatusArgs { ifname: ifname.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_STATUS, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_status_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.status)
+    }
+}

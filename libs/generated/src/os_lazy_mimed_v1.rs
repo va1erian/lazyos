@@ -468,3 +468,179 @@ where
         .map_err(S::Error::from)?;
     subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_OPEN_QOS)
 }
+
+#[cfg(feature = "mimed_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "mimed_v1_client")]
+/// A client of `os.lazy.mimed.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "mimed_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// MIME type for `path` from the database; a path the database has no
+    /// entry for reports `application/octet-stream`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn guess(&self, path: &str) -> Result<alloc::string::String, ClientError> {
+        self.guess_within(path, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::guess`] with the caller's deadline instead of the IDL's.
+    pub fn guess_within(&self, path: &str, within: libmessenger::client::Deadline) -> Result<alloc::string::String, ClientError> {
+        let wire_body = encode_guess_args(&GuessArgs { path: path.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_GUESS, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_guess_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.mime)
+    }
+
+    /// The app registered for `mime` and `verb`; an empty `app` means none is.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn lookup(&self, mime: &str, verb: &str) -> Result<core::option::Option<alloc::string::String>, ClientError> {
+        self.lookup_within(mime, verb, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::lookup`] with the caller's deadline instead of the IDL's.
+    pub fn lookup_within(&self, mime: &str, verb: &str, within: libmessenger::client::Deadline) -> Result<core::option::Option<alloc::string::String>, ClientError> {
+        let wire_body = encode_lookup_args(&LookupArgs { mime: mime.into(), verb: verb.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_LOOKUP, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_lookup_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.app)
+    }
+
+    /// Verbs registered for `mime` (`open`, `edit`, `reveal`, ...), in
+    /// registration order.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn verbs(&self, mime: &str) -> Result<alloc::vec::Vec<alloc::string::String>, ClientError> {
+        self.verbs_within(mime, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::verbs`] with the caller's deadline instead of the IDL's.
+    pub fn verbs_within(&self, mime: &str, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<alloc::string::String>, ClientError> {
+        let wire_body = encode_verbs_args(&VerbsArgs { mime: mime.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_VERBS, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_verbs_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.verbs)
+    }
+
+    /// Guess the type of `path`, resolve the app for `verb` (falling back to
+    /// `open`), ask `init` to launch it and publish the launch event.
+    /// `published` reports whether the event went out, `launched` whether
+    /// `init` accepted the launch request.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn open(&self, path: &str, verb: &str) -> Result<OpenReply, ClientError> {
+        self.open_within(path, verb, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::open`] with the caller's deadline instead of the IDL's.
+    pub fn open_within(&self, path: &str, verb: &str, within: libmessenger::client::Deadline) -> Result<OpenReply, ClientError> {
+        let wire_body = encode_open_args(&OpenArgs { path: path.into(), verb: verb.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_OPEN, wire_body, wire_objects, within)
+            ?;
+        decode_open_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// Add or replace the app registered for `mime` and `verb`; the registry
+    /// keeps the latest registration for each pair. Only a system service (the
+    /// package manager, which registers an installed app's handlers) may
+    /// register, and the registry holds a bounded number of pairs: `EPERM`
+    /// from anyone else, `ENOSPC` when it is full and the pair is new. A
+    /// user's own choice of app for a type is a preference
+    /// (`user/<uid>/mimed/default/<type>`), not a registration. `owner` is the
+    /// uid that installed the app, `0` for the image's own apps and what an
+    /// administrator installed for everyone: `Open` skips a registration whose
+    /// owner is neither `0` nor the uid that opens, so one user's package never
+    /// takes a type over for the next user.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn register(&self, mime: &str, app: &str, verb: &str, owner: u32) -> Result<(), ClientError> {
+        self.register_within(mime, app, verb, owner, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::register`] with the caller's deadline instead of the IDL's.
+    pub fn register_within(&self, mime: &str, app: &str, verb: &str, owner: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_register_args(&RegisterArgs { mime: mime.into(), app: app.into(), verb: verb.into(), owner }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_REGISTER, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Withdraw `app`'s registration for `mime` and `verb`, so removing an
+    /// installed app leaves no dangling handler. Only the caller's root
+    /// identity may withdraw (the package manager); the registration is
+    /// dropped only while `app` still holds it, so a later registration by
+    /// another app is never undone, and the registration `app` had replaced
+    /// takes over again. Withdrawing a registration that is not there is not
+    /// an error.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn unregister(&self, mime: &str, app: &str, verb: &str) -> Result<(), ClientError> {
+        self.unregister_within(mime, app, verb, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::unregister`] with the caller's deadline instead of the IDL's.
+    pub fn unregister_within(&self, mime: &str, app: &str, verb: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_unregister_args(&UnregisterArgs { mime: mime.into(), app: app.into(), verb: verb.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_UNREGISTER, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+}

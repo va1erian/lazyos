@@ -187,10 +187,16 @@ pub fn decode_action(body: &[u8]) -> Result<Action, Error> {
 
 /// `Notify` method id.
 pub const METHOD_NOTIFY: u32 = 1;
+/// How long a client waits for `Notify`'s reply, in milliseconds.
+pub const METHOD_NOTIFY_DEADLINE_MS: u32 = 300;
 /// `Close` method id.
 pub const METHOD_CLOSE: u32 = 2;
+/// How long a client waits for `Close`'s reply, in milliseconds.
+pub const METHOD_CLOSE_DEADLINE_MS: u32 = 300;
 /// `Listen` method id.
 pub const METHOD_LISTEN: u32 = 3;
+/// How long a client waits for `Listen`'s reply, in milliseconds.
+pub const METHOD_LISTEN_DEADLINE_MS: u32 = 300;
 
 /// Show a toast and return its id. With `replaces_id` naming a live
 /// toast of this sender, that toast is updated in place (a copy that
@@ -421,3 +427,114 @@ pub const LISTEN_OBJECTS: &[objects::Kind] = &[objects::Kind::Channel];
 pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
     (METHOD_LISTEN, LISTEN_OBJECTS),
 ];
+
+#[cfg(feature = "notify_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "notify_v1_client")]
+/// A client of `os.lazy.notify.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "notify_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Show a toast and return its id. With `replaces_id` naming a live
+    /// toast of this sender, that toast is updated in place (a copy that
+    /// goes from "Copying..." to "Done" is one toast, not two) and the same
+    /// id comes back; an id that is gone or someone else's is ignored and a
+    /// new toast is made.
+    /// 
+    /// `timeout` is in milliseconds: absent is the level's default (Info and
+    /// Success 5 s), 0 until dismissed, otherwise 1 s to 60 s. Warn and
+    /// Error never time out, and neither does a toast whose `progress` is
+    /// below 100. `actions` is empty for none; `progress` absent for none.
+    ///
+    /// Waits for the reply at most 300 ms (`deadline` in the `.midl`).
+    pub fn notify(&self, level: u32, title: &str, body: &str, icon: core::option::Option<&Icon>, actions: &[Action], progress: core::option::Option<u32>, replaces_id: core::option::Option<u64>, timeout: core::option::Option<u32>) -> Result<u64, ClientError> {
+        self.notify_within(level, title, body, icon, actions, progress, replaces_id, timeout, libmessenger::client::Deadline::millis(METHOD_NOTIFY_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::notify`] with the caller's deadline instead of the IDL's.
+    pub fn notify_within(&self, level: u32, title: &str, body: &str, icon: core::option::Option<&Icon>, actions: &[Action], progress: core::option::Option<u32>, replaces_id: core::option::Option<u64>, timeout: core::option::Option<u32>, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let wire_body = encode_notify_args(&NotifyArgs { level, title: title.into(), body: body.into(), icon: icon.cloned(), actions: actions.to_vec(), progress, replaces_id, timeout }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_NOTIFY, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_notify_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.id)
+    }
+
+    /// Close the sender's toast `id` (`Closed` with reason `Sender`). Not an
+    /// error when it is already gone, or is not this sender's.
+    ///
+    /// Waits for the reply at most 300 ms (`deadline` in the `.midl`).
+    pub fn close(&self, id: u64) -> Result<(), ClientError> {
+        self.close_within(id, libmessenger::client::Deadline::millis(METHOD_CLOSE_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::close`] with the caller's deadline instead of the IDL's.
+    pub fn close_within(&self, id: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_close_args(&CloseArgs { id }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_CLOSE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Ask for this app's events: `Activated`, `ActionInvoked` and `Closed`
+    /// are sent on `events`, which replaces an earlier channel. The shell
+    /// `Ping`s it and forgets it when it is gone (`EPIPE`). A sender that
+    /// does not care about the outcome never calls it.
+    ///
+    /// Waits for the reply at most 300 ms (`deadline` in the `.midl`).
+    pub fn listen(&self, events: u64) -> Result<(), ClientError> {
+        self.listen_within(events, libmessenger::client::Deadline::millis(METHOD_LISTEN_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::listen`] with the caller's deadline instead of the IDL's.
+    pub fn listen_within(&self, events: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let (wire_body, wire_objects) = encode_listen_args(&ListenArgs { events }).map_err(ClientError::bad_request)?;
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_LISTEN, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+}

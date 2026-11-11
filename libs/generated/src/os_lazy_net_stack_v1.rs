@@ -839,3 +839,212 @@ where
         .map_err(S::Error::from)?;
     subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_NETWORK_UP_QOS)
 }
+
+#[cfg(feature = "net_stack_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "net_stack_v1_client")]
+/// A client of `os.lazy.net.stack.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "net_stack_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// The interfaces the stack drives, one per attached card.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn interfaces(&self) -> Result<alloc::vec::Vec<InterfaceInfo>, ClientError> {
+        self.interfaces_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::interfaces`] with the caller's deadline instead of the IDL's.
+    pub fn interfaces_within(&self, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<InterfaceInfo>, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_INTERFACES, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_interfaces_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.list)
+    }
+
+    /// The addresses configured on every interface.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn addresses(&self) -> Result<alloc::vec::Vec<AddressInfo>, ClientError> {
+        self.addresses_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::addresses`] with the caller's deadline instead of the IDL's.
+    pub fn addresses_within(&self, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<AddressInfo>, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_ADDRESSES, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_addresses_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.list)
+    }
+
+    /// The routing table: every interface's on-link route and default route,
+    /// the default routes ordered by metric (the lowest wins).
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn routes(&self) -> Result<alloc::vec::Vec<RouteInfo>, ClientError> {
+        self.routes_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::routes`] with the caller's deadline instead of the IDL's.
+    pub fn routes_within(&self, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<RouteInfo>, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_ROUTES, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_routes_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.list)
+    }
+
+    /// Stack counters since it started.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn stats(&self) -> Result<StackStats, ClientError> {
+        self.stats_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::stats`] with the caller's deadline instead of the IDL's.
+    pub fn stats_within(&self, within: libmessenger::client::Deadline) -> Result<StackStats, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_STATS, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_stats_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.stats)
+    }
+
+    /// Send one ICMP echo request to `dst` (four octets) with `payload_len`
+    /// bytes of payload (0 to 1400) and wait for its reply. `timeout_ms`
+    /// (10 to 60000) bounds the wait. Fails with `EINVAL` for a bad argument,
+    /// `ENETUNREACH` when there is no address or route yet, `EAGAIN` when this
+    /// caller has 4 pings outstanding or all callers together have 8, and `ETIMEDOUT` when no reply came.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn ping(&self, dst: &[u8], payload_len: u32, timeout_ms: u32) -> Result<EchoResult, ClientError> {
+        self.ping_within(dst, payload_len, timeout_ms, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::ping`] with the caller's deadline instead of the IDL's.
+    pub fn ping_within(&self, dst: &[u8], payload_len: u32, timeout_ms: u32, within: libmessenger::client::Deadline) -> Result<EchoResult, ClientError> {
+        let wire_body = encode_ping_args(&PingArgs { dst: dst.to_vec(), payload_len, timeout_ms }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_PING, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_ping_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.result)
+    }
+
+    /// Look `name` up (A records) at the resolvers DHCP or the static
+    /// configuration gave. `name` is a host name of at most 253 bytes made of
+    /// dot-separated labels of 1 to 63 letters, digits and hyphens (`EINVAL`
+    /// otherwise); `timeout_ms` is 10 to 60000. Fails with `ENETUNREACH` when
+    /// there is no address or no resolver, `EAGAIN` when this caller has 4
+    /// lookups outstanding or all callers together have 8, `ENOENT` when the
+    /// resolver says the name has no address, and `ETIMEDOUT` when no answer
+    /// came. The reply lists the addresses found, four octets each. A dotted
+    /// quad needs no query and is answered at once.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn resolve(&self, name: &str, timeout_ms: u32) -> Result<alloc::vec::Vec<alloc::vec::Vec<u8>>, ClientError> {
+        self.resolve_within(name, timeout_ms, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::resolve`] with the caller's deadline instead of the IDL's.
+    pub fn resolve_within(&self, name: &str, timeout_ms: u32, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<alloc::vec::Vec<u8>>, ClientError> {
+        let wire_body = encode_resolve_args(&ResolveArgs { name: name.into(), timeout_ms }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_RESOLVE, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_resolve_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.addrs)
+    }
+
+    /// Ask for a fresh DHCP lease (drops the current one). Gated by the ACL.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn renew(&self) -> Result<(), ClientError> {
+        self.renew_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::renew`] with the caller's deadline instead of the IDL's.
+    pub fn renew_within(&self, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_RENEW, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Drop the attachment to the NIC driver and establish it again, as after
+    /// a driver restart: the stack keeps its lease and timers. A recovery and
+    /// test call; gated by the ACL.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn reattach(&self) -> Result<(), ClientError> {
+        self.reattach_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::reattach`] with the caller's deadline instead of the IDL's.
+    pub fn reattach_within(&self, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_REATTACH, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+}

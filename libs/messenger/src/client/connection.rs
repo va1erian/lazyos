@@ -161,8 +161,15 @@ impl<T: Transport> Connection<T> {
     }
 
     /// A one-way message (`flags::ONE_WAY`): never waits for the peer.
-    pub fn send(&self, interface: u64, method: u32, body: Vec<u8>) -> Result<(), CallError> {
-        let request = Self::request(interface, method, flags::ONE_WAY, body, Vec::new());
+    /// `objects` move with it, as for [`Connection::call`].
+    pub fn send(
+        &self,
+        interface: u64,
+        method: u32,
+        body: Vec<u8>,
+        objects: Vec<Object>,
+    ) -> Result<(), CallError> {
+        let request = Self::request(interface, method, flags::ONE_WAY, body, objects);
         self.with_retry(|handle| self.transport.send(handle, &request))
             .map_err(CallError::Transport)
     }

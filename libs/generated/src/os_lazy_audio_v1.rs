@@ -780,3 +780,265 @@ where
         .map_err(S::Error::from)?;
     subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_AUDIO_EVENT_QOS)
 }
+
+#[cfg(feature = "audio_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "audio_v1_client")]
+/// A client of `os.lazy.audio.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "audio_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Describe the card: stream count and the formats, rates and channel
+    /// counts it accepts.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn info(&self) -> Result<AudioInfo, ClientError> {
+        self.info_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::info`] with the caller's deadline instead of the IDL's.
+    pub fn info_within(&self, within: libmessenger::client::Deadline) -> Result<AudioInfo, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_INFO, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_info_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.info)
+    }
+
+    /// Open a stream. `dir` and `format` are `Direction` and `Format`
+    /// ordinals (enums travel as `U32`). The reply carries the stream index and
+    /// the granted parameters. The stream is idle until a ring is attached and
+    /// it is started.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn open_stream(&self, dir: u32, format: u32, rate: u32, channels: u32, period_bytes: u32) -> Result<StreamGrant, ClientError> {
+        self.open_stream_within(dir, format, rate, channels, period_bytes, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::open_stream`] with the caller's deadline instead of the IDL's.
+    pub fn open_stream_within(&self, dir: u32, format: u32, rate: u32, channels: u32, period_bytes: u32, within: libmessenger::client::Deadline) -> Result<StreamGrant, ClientError> {
+        let wire_body = encode_open_stream_args(&OpenStreamArgs { dir, format, rate, channels, period_bytes }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_OPENSTREAM, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_open_stream_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.grant)
+    }
+
+    /// Attach the stream's sample ring: `ring`, a shared buffer at least
+    /// `periods * period_bytes` bytes long. Fails with `EINVAL` when it is
+    /// shorter and `EBUSY` when a ring is already attached.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn attach_ring(&self, stream: u32, ring: libmessenger::Buffer) -> Result<(), ClientError> {
+        self.attach_ring_within(stream, ring, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::attach_ring`] with the caller's deadline instead of the IDL's.
+    pub fn attach_ring_within(&self, stream: u32, ring: libmessenger::Buffer, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let (wire_body, wire_objects) = encode_attach_ring_args(&AttachRingArgs { stream, ring }).map_err(ClientError::bad_request)?;
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_ATTACHRING, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Announce that the client has written up to `written_frames` (a total,
+    /// see the interface notes). Replies with the frames the driver has
+    /// consumed so far.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn commit(&self, stream: u32, written_frames: u64) -> Result<u64, ClientError> {
+        self.commit_within(stream, written_frames, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::commit`] with the caller's deadline instead of the IDL's.
+    pub fn commit_within(&self, stream: u32, written_frames: u64, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let wire_body = encode_commit_args(&CommitArgs { stream, written_frames }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_COMMIT, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_commit_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.consumed)
+    }
+
+    /// Start (or restart) transfer on a stream with an attached ring.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn start(&self, stream: u32) -> Result<bool, ClientError> {
+        self.start_within(stream, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::start`] with the caller's deadline instead of the IDL's.
+    pub fn start_within(&self, stream: u32, within: libmessenger::client::Deadline) -> Result<bool, ClientError> {
+        let wire_body = encode_start_args(&StartArgs { stream }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_START, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_start_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.ok)
+    }
+
+    /// Stop transfer; committed periods not yet queued to the device are
+    /// discarded. The stream can be started again.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn stop(&self, stream: u32) -> Result<bool, ClientError> {
+        self.stop_within(stream, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::stop`] with the caller's deadline instead of the IDL's.
+    pub fn stop_within(&self, stream: u32, within: libmessenger::client::Deadline) -> Result<bool, ClientError> {
+        let wire_body = encode_stop_args(&StopArgs { stream }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_STOP, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_stop_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.ok)
+    }
+
+    /// Play everything committed, then stop. Replies once drained.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn drain(&self, stream: u32) -> Result<bool, ClientError> {
+        self.drain_within(stream, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::drain`] with the caller's deadline instead of the IDL's.
+    pub fn drain_within(&self, stream: u32, within: libmessenger::client::Deadline) -> Result<bool, ClientError> {
+        let wire_body = encode_drain_args(&DrainArgs { stream }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_DRAIN, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_drain_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.ok)
+    }
+
+    /// Frames the device has played since the last `Start`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn position(&self, stream: u32) -> Result<u64, ClientError> {
+        self.position_within(stream, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::position`] with the caller's deadline instead of the IDL's.
+    pub fn position_within(&self, stream: u32, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let wire_body = encode_position_args(&PositionArgs { stream }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_POSITION, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_position_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.frames)
+    }
+
+    /// Close a stream and release its ring. Also implied when the owner exits.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn close_stream(&self, stream: u32) -> Result<(), ClientError> {
+        self.close_stream_within(stream, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::close_stream`] with the caller's deadline instead of the IDL's.
+    pub fn close_stream_within(&self, stream: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_close_stream_args(&CloseStreamArgs { stream }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_CLOSESTREAM, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Scale the stream by `gain_q16` (16.16 fixed point: 65536 is unity, 0
+    /// silent, at most 262144, four times unity); larger values fail with
+    /// `EINVAL`. Samples are scaled as they are copied out of the ring and
+    /// saturate instead of wrapping. A driver that cannot scale the granted
+    /// format fails with `ENOTSUP`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn set_volume(&self, stream: u32, gain_q16: u32) -> Result<(), ClientError> {
+        self.set_volume_within(stream, gain_q16, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::set_volume`] with the caller's deadline instead of the IDL's.
+    pub fn set_volume_within(&self, stream: u32, gain_q16: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_set_volume_args(&SetVolumeArgs { stream, gain_q16 }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SETVOLUME, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Silence the stream (`mute`) or restore its volume, without losing it.
+    /// A muted stream keeps consuming and its position keeps moving.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn set_mute(&self, stream: u32, mute: bool) -> Result<(), ClientError> {
+        self.set_mute_within(stream, mute, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::set_mute`] with the caller's deadline instead of the IDL's.
+    pub fn set_mute_within(&self, stream: u32, mute: bool, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_set_mute_args(&SetMuteArgs { stream, mute }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SETMUTE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+}

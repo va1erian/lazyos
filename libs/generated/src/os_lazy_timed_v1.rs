@@ -326,3 +326,178 @@ where
         .map_err(S::Error::from)?;
     subscriber.subscribe_topic(&filter, TOPIC_TIME_TICK_QOS)
 }
+
+#[cfg(feature = "timed_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "timed_v1_client")]
+/// A client of `os.lazy.timed.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "timed_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// The current instant and its local-time parameters.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn now(&self) -> Result<NowReply, ClientError> {
+        self.now_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::now`] with the caller's deadline instead of the IDL's.
+    pub fn now_within(&self, within: libmessenger::client::Deadline) -> Result<NowReply, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_NOW, wire_body, wire_objects, within)
+            ?;
+        decode_now_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// The configured zone name (`UTC` when none is set).
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn get_zone(&self) -> Result<alloc::string::String, ClientError> {
+        self.get_zone_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::get_zone`] with the caller's deadline instead of the IDL's.
+    pub fn get_zone_within(&self, within: libmessenger::client::Deadline) -> Result<alloc::string::String, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_GETZONE, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_get_zone_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.name)
+    }
+
+    /// Switch to the built-in zone `name` and persist it to `confd`.
+    /// An unknown name fails with `EINVAL`. A machine setting, like the
+    /// clock: the caller's kernel-stamped credentials must hold
+    /// `CAP_SYS_TIME`, or the caller be `elevd`; anyone else gets `EPERM`
+    /// (a session asks `elevd` to write `sys/time/zone`, which `timed`
+    /// follows).
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn set_zone(&self, name: &str) -> Result<(), ClientError> {
+        self.set_zone_within(name, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::set_zone`] with the caller's deadline instead of the IDL's.
+    pub fn set_zone_within(&self, name: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_set_zone_args(&SetZoneArgs { name: name.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SETZONE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Step the wall clock to `unix_secs` (UTC). The caller's kernel-stamped
+    /// credentials must hold `CAP_SYS_TIME`, or the caller be `elevd` (once
+    /// an administrator approved `time.set`); anyone else gets `EPERM`. A time
+    /// before the build's floor (`sntp::CLOCK_FLOOR_UNIX`, 2026-01-01) or past
+    /// 2200 fails with `EINVAL`: the service would lift an earlier clock again
+    /// the next time it starts.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn set_time(&self, unix_secs: i64) -> Result<(), ClientError> {
+        self.set_time_within(unix_secs, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::set_time`] with the caller's deadline instead of the IDL's.
+    pub fn set_time_within(&self, unix_secs: i64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_set_time_args(&SetTimeArgs { unix_secs }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SETTIME, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// The state of the network time client (docs/ntp-plan.md): whether it is
+    /// switched on (`sys/time/ntp/enabled`), what it is doing (`state`, an
+    /// `NtpState` ordinal), and the last exchange that was accepted. Open to
+    /// everyone. Times are UTC seconds, 0 when there is none yet;
+    /// `offset_ms` and `delay_ms` are the last accepted exchange's server
+    /// minus local clock and round trip.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn ntp_status(&self) -> Result<NtpStatusReply, ClientError> {
+        self.ntp_status_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::ntp_status`] with the caller's deadline instead of the IDL's.
+    pub fn ntp_status_within(&self, within: libmessenger::client::Deadline) -> Result<NtpStatusReply, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_NTPSTATUS, wire_body, wire_objects, within)
+            ?;
+        decode_ntp_status_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// Ask the network time client to query a server now. Open to everyone,
+    /// and rate-limited like the schedule: it fails with `EAGAIN` when a
+    /// query went out less than 15 seconds ago or is still in flight, or a
+    /// server asked to be left alone (`RATE`) and its hold has not passed,
+    /// `ENETUNREACH` when there is
+    /// no network and `ENODEV` when the client is off. Whatever the server
+    /// says is still judged by the same clock-step policy as a scheduled
+    /// exchange, so a caller cannot choose the time, only when to ask.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn sync_now(&self) -> Result<(), ClientError> {
+        self.sync_now_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::sync_now`] with the caller's deadline instead of the IDL's.
+    pub fn sync_now_within(&self, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SYNCNOW, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+}

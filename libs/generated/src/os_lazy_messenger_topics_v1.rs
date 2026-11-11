@@ -541,3 +541,224 @@ pub const BELL_OBJECTS: &[objects::Kind] = &[objects::Kind::Channel];
 pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
     (METHOD_BELL, BELL_OBJECTS),
 ];
+
+#[cfg(feature = "messenger_topics_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "messenger_topics_v1_client")]
+/// A client of `os.lazy.messenger.topics.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "messenger_topics_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Publish `payload` under the literal `topic`; `retained` also remembers
+    /// it as the topic's retained value. Returns how many subscriptions the
+    /// event reached.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn publish(&self, topic: &str, payload: &[u8], retained: bool) -> Result<u64, ClientError> {
+        self.publish_within(topic, payload, retained, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::publish`] with the caller's deadline instead of the IDL's.
+    pub fn publish_within(&self, topic: &str, payload: &[u8], retained: bool, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let wire_body = encode_publish_args(&PublishArgs { topic: topic.into(), payload: payload.to_vec(), retained }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_PUBLISH, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_publish_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.matched)
+    }
+
+    /// Create a subscription for `filter`. `qos` is a `Qos` value; `depth` is
+    /// the queue depth for `Buffered` (clamped to 1..=64) and ignored by the
+    /// other policies, which use fixed depths. Retained values are replayed.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn subscribe(&self, filter: &str, qos: u32, depth: u32) -> Result<u64, ClientError> {
+        self.subscribe_within(filter, qos, depth, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::subscribe`] with the caller's deadline instead of the IDL's.
+    pub fn subscribe_within(&self, filter: &str, qos: u32, depth: u32, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let wire_body = encode_subscribe_args(&SubscribeArgs { filter: filter.into(), qos, depth }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_SUBSCRIBE, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_subscribe_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.subscription)
+    }
+
+    /// Drop a subscription; later publishes stop matching it.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn unsubscribe(&self, subscription: u64) -> Result<(), ClientError> {
+        self.unsubscribe_within(subscription, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::unsubscribe`] with the caller's deadline instead of the IDL's.
+    pub fn unsubscribe_within(&self, subscription: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_unsubscribe_args(&UnsubscribeArgs { subscription }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_UNSUBSCRIBE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Wait for (or, with an expired deadline, poll) the next event of a
+    /// subscription. A `Reliable` subscription redelivers its head until acked.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn next_event(&self, subscription: u64) -> Result<Event, ClientError> {
+        self.next_event_within(subscription, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::next_event`] with the caller's deadline instead of the IDL's.
+    pub fn next_event_within(&self, subscription: u64, within: libmessenger::client::Deadline) -> Result<Event, ClientError> {
+        let wire_body = encode_next_event_args(&NextEventArgs { subscription }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_NEXTEVENT, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_next_event_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.event)
+    }
+
+    /// Retire every event up to `sequence` on a `Reliable` subscription.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn ack(&self, subscription: u64, sequence: u64) -> Result<(), ClientError> {
+        self.ack_within(subscription, sequence, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::ack`] with the caller's deadline instead of the IDL's.
+    pub fn ack_within(&self, subscription: u64, sequence: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_ack_args(&AckArgs { subscription, sequence }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_ACK, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Topics the broker has seen, with live subscriber counts.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn list_topics(&self) -> Result<alloc::vec::Vec<TopicInfo>, ClientError> {
+        self.list_topics_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::list_topics`] with the caller's deadline instead of the IDL's.
+    pub fn list_topics_within(&self, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<TopicInfo>, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_LISTTOPICS, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_list_topics_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.topics)
+    }
+
+    /// Queue and drop counters of one subscription.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn stats(&self, subscription: u64) -> Result<Stats, ClientError> {
+        self.stats_within(subscription, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::stats`] with the caller's deadline instead of the IDL's.
+    pub fn stats_within(&self, subscription: u64, within: libmessenger::client::Deadline) -> Result<Stats, ClientError> {
+        let wire_body = encode_stats_args(&StatsArgs { subscription }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_STATS, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_stats_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.stats)
+    }
+
+    /// Round-trip probe used to detect a live broker.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn ping(&self) -> Result<(), ClientError> {
+        self.ping_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::ping`] with the caller's deadline instead of the IDL's.
+    pub fn ping_within(&self, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_PING, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Give a subscription a doorbell (docs/performance-plan.md P7.2): the
+    /// broker sends one `os.lazy.messenger.topics.bell.v1` `Ready` on `bell`
+    /// when the subscription has an event nobody is pulling, and no more
+    /// until a `NextEvent` from its owner finds the queue empty. The owner
+    /// parks on the other end beside its own endpoints (`wait_any`) and
+    /// drains with expired-deadline `NextEvent`s on each ring, instead of
+    /// polling. Owner only; a second bell replaces the first.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn bell(&self, subscription: u64, bell: u64) -> Result<(), ClientError> {
+        self.bell_within(subscription, bell, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::bell`] with the caller's deadline instead of the IDL's.
+    pub fn bell_within(&self, subscription: u64, bell: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let (wire_body, wire_objects) = encode_bell_args(&BellArgs { subscription, bell }).map_err(ClientError::bad_request)?;
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_BELL, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+}

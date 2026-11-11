@@ -41,15 +41,15 @@ interface os.lazy.notify.v1 {
     /// Success 5 s), 0 until dismissed, otherwise 1 s to 60 s. Warn and
     /// Error never time out, and neither does a toast whose `progress` is
     /// below 100. `actions` is empty for none; `progress` absent for none.
-    method Notify(level: Level = 1, title: String = 2, body: String = 3, icon: Option<Icon> = 4, actions: Array<Action> = 5, progress: Option<U32> = 6, replaces_id: Option<U64> = 7, timeout: Option<U32> = 8) -> (id: U64 = 1) = 1;
+    method Notify(level: Level = 1, title: String = 2, body: String = 3, icon: Option<Icon> = 4, actions: Array<Action> = 5, progress: Option<U32> = 6, replaces_id: Option<U64> = 7, timeout: Option<U32> = 8) -> (id: U64 = 1) = 1 deadline=300ms;
     /// Close the sender's toast `id` (`Closed` with reason `Sender`). Not an
     /// error when it is already gone, or is not this sender's.
-    method Close(id: U64 = 1) -> () = 2;
+    method Close(id: U64 = 1) -> () = 2 deadline=300ms;
     /// Ask for this app's events: `Activated`, `ActionInvoked` and `Closed`
     /// are sent on `events`, which replaces an earlier channel. The shell
     /// `Ping`s it and forgets it when it is gone (`EPIPE`). A sender that
     /// does not care about the outcome never calls it.
-    method Listen(events: Channel<os.lazy.notify.events.v1> = 1) -> () = 3;
+    method Listen(events: Channel<os.lazy.notify.events.v1> = 1) -> () = 3 deadline=300ms;
 
     /// A toast's picture: at most one source. An empty `Icon`, a Lucide name
     /// the named-icon library (`lazyicons`, `docs/icons.md`) does not know,
