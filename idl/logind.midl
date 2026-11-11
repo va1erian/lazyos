@@ -11,13 +11,13 @@ interface os.lazy.logind.v1 {
     /// built-in autologin takes. Only the login screen's own identity (the
     /// `_greeter` system uid, unlabelled) may call it; a refused password is
     /// `EACCES` after the failed-login delay, a session already open `EBUSY`.
-    method Login(user: String = 1, secret: String = 2) -> (session: U64 = 1);
+    method Login(user: String = 1, secret: String = 2) -> (session: U64 = 1) deadline=30s;
 
     /// End the caller's graphical session (issue #623): `init` stops every
     /// task stamped with that session, and the login screen comes back. Only
     /// a task of the active graphical session may call it (`EPERM`
     /// otherwise).
-    method Logout() -> (session: U64 = 1);
+    method Logout() -> (session: U64 = 1) deadline=3s;
 
     /// One login session.
     struct Session {

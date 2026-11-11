@@ -511,22 +511,36 @@ pub fn decode_pkg_event(body: &[u8]) -> Result<PkgEvent, Error> {
 
 /// `Inspect` method id.
 pub const METHOD_INSPECT: u32 = 1027767735;
+/// How long a client waits for `Inspect`'s reply, in milliseconds.
+pub const METHOD_INSPECT_DEADLINE_MS: u32 = 12000;
 /// `Install` method id.
 pub const METHOD_INSTALL: u32 = 890027328;
+/// How long a client waits for `Install`'s reply, in milliseconds.
+pub const METHOD_INSTALL_DEADLINE_MS: u32 = 120000;
 /// `Remove` method id.
 pub const METHOD_REMOVE: u32 = 564498461;
+/// How long a client waits for `Remove`'s reply, in milliseconds.
+pub const METHOD_REMOVE_DEADLINE_MS: u32 = 12000;
 /// `List` method id.
 pub const METHOD_LIST: u32 = 220805025;
+/// How long a client waits for `List`'s reply, in milliseconds.
+pub const METHOD_LIST_DEADLINE_MS: u32 = 12000;
 /// `Installed` method id.
 pub const METHOD_INSTALLED: u32 = 1755800129;
+/// How long a client waits for `Installed`'s reply, in milliseconds.
+pub const METHOD_INSTALLED_DEADLINE_MS: u32 = 12000;
 /// `LabelName` method id.
 pub const METHOD_LABELNAME: u32 = 775579582;
 /// `Provisioned` method id.
 pub const METHOD_PROVISIONED: u32 = 1076218465;
 /// `Develop` method id.
 pub const METHOD_DEVELOP: u32 = 803454394;
+/// How long a client waits for `Develop`'s reply, in milliseconds.
+pub const METHOD_DEVELOP_DEADLINE_MS: u32 = 12000;
 /// `DevelopDeclined` method id.
 pub const METHOD_DEVELOPDECLINED: u32 = 1386916580;
+/// How long a client waits for `DevelopDeclined`'s reply, in milliseconds.
+pub const METHOD_DEVELOPDECLINED_DEADLINE_MS: u32 = 12000;
 /// `InstallApproved` method id.
 pub const METHOD_INSTALLAPPROVED: u32 = 1599511615;
 /// `InstallDebug` method id.
@@ -1163,9 +1177,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// their own home folder (the path is normalised first). `problems` is empty for a package that
     /// could be installed; otherwise it lists every reason it cannot be.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 12000 ms (`deadline` in the `.midl`).
     pub fn inspect(&self, path: &str) -> Result<PackageInfo, ClientError> {
-        self.inspect_within(path, libmessenger::client::DEFAULT_DEADLINE)
+        self.inspect_within(path, libmessenger::client::Deadline::millis(METHOD_INSPECT_DEADLINE_MS as u64))
     }
 
     /// [`Self::inspect`] with the caller's deadline instead of the IDL's.
@@ -1188,9 +1202,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// installed at this version and digest. Needs the caller to be the
     /// session owner or root; `pkgd` audits who asked.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 120000 ms (`deadline` in the `.midl`).
     pub fn install(&self, path: &str) -> Result<Installed, ClientError> {
-        self.install_within(path, libmessenger::client::DEFAULT_DEADLINE)
+        self.install_within(path, libmessenger::client::Deadline::millis(METHOD_INSTALL_DEADLINE_MS as u64))
     }
 
     /// [`Self::install`] with the caller's deadline instead of the IDL's.
@@ -1210,9 +1224,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// documentation, then publish `system/events/pkg/remove`. User data
     /// under `/home` is kept.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 12000 ms (`deadline` in the `.midl`).
     pub fn remove(&self, system_name: &str) -> Result<(), ClientError> {
-        self.remove_within(system_name, libmessenger::client::DEFAULT_DEADLINE)
+        self.remove_within(system_name, libmessenger::client::Deadline::millis(METHOD_REMOVE_DEADLINE_MS as u64))
     }
 
     /// [`Self::remove`] with the caller's deadline instead of the IDL's.
@@ -1228,9 +1242,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Every installed app, in install order.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 12000 ms (`deadline` in the `.midl`).
     pub fn list(&self) -> Result<alloc::vec::Vec<Installed>, ClientError> {
-        self.list_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.list_within(libmessenger::client::Deadline::millis(METHOD_LIST_DEADLINE_MS as u64))
     }
 
     /// [`Self::list`] with the caller's deadline instead of the IDL's.
@@ -1247,9 +1261,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// One installed app by `system_name`, if present.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 12000 ms (`deadline` in the `.midl`).
     pub fn installed(&self, system_name: &str) -> Result<core::option::Option<Installed>, ClientError> {
-        self.installed_within(system_name, libmessenger::client::DEFAULT_DEADLINE)
+        self.installed_within(system_name, libmessenger::client::Deadline::millis(METHOD_INSTALLED_DEADLINE_MS as u64))
     }
 
     /// [`Self::installed`] with the caller's deadline instead of the IDL's.
@@ -1326,9 +1340,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// gave them logs out, and every one is audited as
     /// `system/events/pkg/develop`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 12000 ms (`deadline` in the `.midl`).
     pub fn develop(&self, path: &str, confirm: bool) -> Result<DevelopReply, ClientError> {
-        self.develop_within(path, confirm, libmessenger::client::DEFAULT_DEADLINE)
+        self.develop_within(path, confirm, libmessenger::client::Deadline::millis(METHOD_DEVELOP_DEADLINE_MS as u64))
     }
 
     /// [`Self::develop`] with the caller's deadline instead of the IDL's.
@@ -1347,9 +1361,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// refusal is audited and published as `system/events/pkg/denied` under
     /// the package's `system_name`, so the IDE waiting for the approval stops.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 12000 ms (`deadline` in the `.midl`).
     pub fn develop_declined(&self, path: &str) -> Result<(), ClientError> {
-        self.develop_declined_within(path, libmessenger::client::DEFAULT_DEADLINE)
+        self.develop_declined_within(path, libmessenger::client::Deadline::millis(METHOD_DEVELOPDECLINED_DEADLINE_MS as u64))
     }
 
     /// [`Self::develop_declined`] with the caller's deadline instead of the IDL's.

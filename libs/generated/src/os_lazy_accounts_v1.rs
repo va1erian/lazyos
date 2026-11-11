@@ -84,14 +84,20 @@ pub const METHOD_LOOKUP: u32 = 1772818603;
 pub const METHOD_AUTHENTICATE: u32 = 1137183084;
 /// `Create` method id.
 pub const METHOD_CREATE: u32 = 420340861;
+/// How long a client waits for `Create`'s reply, in milliseconds.
+pub const METHOD_CREATE_DEADLINE_MS: u32 = 60000;
 /// `Delete` method id.
 pub const METHOD_DELETE: u32 = 1469573738;
 /// `SetPassword` method id.
 pub const METHOD_SETPASSWORD: u32 = 985541106;
+/// How long a client waits for `SetPassword`'s reply, in milliseconds.
+pub const METHOD_SETPASSWORD_DEADLINE_MS: u32 = 60000;
 /// `SetAdmin` method id.
 pub const METHOD_SETADMIN: u32 = 1706675794;
 /// `ListUsers` method id.
 pub const METHOD_LISTUSERS: u32 = 702470087;
+/// How long a client waits for `ListUsers`'s reply, in milliseconds.
+pub const METHOD_LISTUSERS_DEADLINE_MS: u32 = 3000;
 
 /// Find a user by `name` or, when `name` is absent, by `uid`.
 /// `found` is false (and `user` empty) when no account matches.
@@ -568,9 +574,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// has no account (the owner, who must be an admin). `EEXIST` for a taken
     /// name, `EINVAL` for a bad one, `EPERM` for any other caller.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 60000 ms (`deadline` in the `.midl`).
     pub fn create(&self, name: &str, secret: &str, admin: bool) -> Result<User, ClientError> {
-        self.create_within(name, secret, admin, libmessenger::client::DEFAULT_DEADLINE)
+        self.create_within(name, secret, admin, libmessenger::client::Deadline::millis(METHOD_CREATE_DEADLINE_MS as u64))
     }
 
     /// [`Self::create`] with the caller's deadline instead of the IDL's.
@@ -609,9 +615,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// the current one in `old` (checked and slowed like `Authenticate`,
     /// `EACCES` when wrong); `elevd` may set anyone's without it.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 60000 ms (`deadline` in the `.midl`).
     pub fn set_password(&self, name: &str, old: core::option::Option<&str>, secret: &str) -> Result<(), ClientError> {
-        self.set_password_within(name, old, secret, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_password_within(name, old, secret, libmessenger::client::Deadline::millis(METHOD_SETPASSWORD_DEADLINE_MS as u64))
     }
 
     /// [`Self::set_password`] with the caller's deadline instead of the IDL's.
@@ -647,9 +653,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Every account, in database order. `setup` is true while the machine
     /// has no account (the login screen then asks for its owner).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 3000 ms (`deadline` in the `.midl`).
     pub fn list_users(&self) -> Result<ListUsersReply, ClientError> {
-        self.list_users_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.list_users_within(libmessenger::client::Deadline::millis(METHOD_LISTUSERS_DEADLINE_MS as u64))
     }
 
     /// [`Self::list_users`] with the caller's deadline instead of the IDL's.

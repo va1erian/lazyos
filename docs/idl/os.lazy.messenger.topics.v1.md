@@ -33,6 +33,13 @@ id.
 
 - Served under the registry name `os.lazy.messenger.topics`; registered once.
 
+## Scopes and deadlines
+
+| Method | Scope interface | Scope id | Deadline |
+|---|---|---|---|
+| Publish | this interface | - | 500 ms |
+| Subscribe | this interface | - | 500 ms |
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

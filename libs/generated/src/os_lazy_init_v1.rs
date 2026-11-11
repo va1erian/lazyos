@@ -478,14 +478,24 @@ pub fn decode_resident_apps(body: &[u8]) -> Result<ResidentApps, Error> {
 
 /// `Services` method id.
 pub const METHOD_SERVICES: u32 = 1672675413;
+/// How long a client waits for `Services`'s reply, in milliseconds.
+pub const METHOD_SERVICES_DEADLINE_MS: u32 = 500;
 /// `Launch` method id.
 pub const METHOD_LAUNCH: u32 = 936096390;
+/// How long a client waits for `Launch`'s reply, in milliseconds.
+pub const METHOD_LAUNCH_DEADLINE_MS: u32 = 10000;
 /// `ListApps` method id.
 pub const METHOD_LISTAPPS: u32 = 1009359625;
+/// How long a client waits for `ListApps`'s reply, in milliseconds.
+pub const METHOD_LISTAPPS_DEADLINE_MS: u32 = 2000;
 /// `Stop` method id.
 pub const METHOD_STOP: u32 = 1266644741;
+/// How long a client waits for `Stop`'s reply, in milliseconds.
+pub const METHOD_STOP_DEADLINE_MS: u32 = 5000;
 /// `Shutdown` method id.
 pub const METHOD_SHUTDOWN: u32 = 1911669355;
+/// How long a client waits for `Shutdown`'s reply, in milliseconds.
+pub const METHOD_SHUTDOWN_DEADLINE_MS: u32 = 3000;
 /// `StartDriver` method id.
 pub const METHOD_STARTDRIVER: u32 = 1713728693;
 /// `Ready` method id.
@@ -1464,9 +1474,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Snapshot the supervision table.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`).
     pub fn services(&self) -> Result<alloc::vec::Vec<ServiceStatus>, ClientError> {
-        self.services_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.services_within(libmessenger::client::Deadline::millis(METHOD_SERVICES_DEADLINE_MS as u64))
     }
 
     /// [`Self::services`] with the caller's deadline instead of the IDL's.
@@ -1490,9 +1500,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `init` sends its instance `Reopen(args)` (`os.lazy.init.app.events.v1`)
     /// and answers `existing` true with that instance's pid.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 10000 ms (`deadline` in the `.midl`).
     pub fn launch(&self, app: &str, args: &str, session: u64) -> Result<LaunchReply, ClientError> {
-        self.launch_within(app, args, session, libmessenger::client::DEFAULT_DEADLINE)
+        self.launch_within(app, args, session, libmessenger::client::Deadline::millis(METHOD_LAUNCH_DEADLINE_MS as u64))
     }
 
     /// [`Self::launch`] with the caller's deadline instead of the IDL's.
@@ -1511,9 +1521,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// first, then the others by `system_name`), read afresh from the
     /// configuration registry on every call. `hidden` is the caller's own.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn list_apps(&self) -> Result<alloc::vec::Vec<AppInfo>, ClientError> {
-        self.list_apps_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.list_apps_within(libmessenger::client::Deadline::millis(METHOD_LISTAPPS_DEADLINE_MS as u64))
     }
 
     /// [`Self::list_apps`] with the caller's deadline instead of the IDL's.
@@ -1539,9 +1549,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// owner reaches only instances in their own session. Unknown or idle apps
     /// are not an error, `stopped` is just 0.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`).
     pub fn stop(&self, app: &str) -> Result<u64, ClientError> {
-        self.stop_within(app, libmessenger::client::DEFAULT_DEADLINE)
+        self.stop_within(app, libmessenger::client::Deadline::millis(METHOD_STOP_DEADLINE_MS as u64))
     }
 
     /// [`Self::stop`] with the caller's deadline instead of the IDL's.
@@ -1566,9 +1576,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// and `phase` is the current phase. `force` skips the graceful stop: every
     /// remaining child is killed at once and the machine stops.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 3000 ms (`deadline` in the `.midl`).
     pub fn shutdown(&self, mode: u32, reason: &str, force: bool) -> Result<ShutdownReply, ClientError> {
-        self.shutdown_within(mode, reason, force, libmessenger::client::DEFAULT_DEADLINE)
+        self.shutdown_within(mode, reason, force, libmessenger::client::Deadline::millis(METHOD_SHUTDOWN_DEADLINE_MS as u64))
     }
 
     /// [`Self::shutdown`] with the caller's deadline instead of the IDL's.

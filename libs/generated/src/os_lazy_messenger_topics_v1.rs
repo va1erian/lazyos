@@ -172,8 +172,12 @@ pub fn decode_stats(body: &[u8]) -> Result<Stats, Error> {
 
 /// `Publish` method id.
 pub const METHOD_PUBLISH: u32 = 1818372520;
+/// How long a client waits for `Publish`'s reply, in milliseconds.
+pub const METHOD_PUBLISH_DEADLINE_MS: u32 = 500;
 /// `Subscribe` method id.
 pub const METHOD_SUBSCRIBE: u32 = 6992035;
+/// How long a client waits for `Subscribe`'s reply, in milliseconds.
+pub const METHOD_SUBSCRIBE_DEADLINE_MS: u32 = 500;
 /// `Unsubscribe` method id.
 pub const METHOD_UNSUBSCRIBE: u32 = 2099666486;
 /// `NextEvent` method id.
@@ -589,9 +593,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// it as the topic's retained value. Returns how many subscriptions the
     /// event reached.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`).
     pub fn publish(&self, topic: &str, payload: &[u8], retained: bool) -> Result<u64, ClientError> {
-        self.publish_within(topic, payload, retained, libmessenger::client::DEFAULT_DEADLINE)
+        self.publish_within(topic, payload, retained, libmessenger::client::Deadline::millis(METHOD_PUBLISH_DEADLINE_MS as u64))
     }
 
     /// [`Self::publish`] with the caller's deadline instead of the IDL's.
@@ -610,9 +614,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// the queue depth for `Buffered` (clamped to 1..=64) and ignored by the
     /// other policies, which use fixed depths. Retained values are replayed.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`).
     pub fn subscribe(&self, filter: &str, qos: u32, depth: u32) -> Result<u64, ClientError> {
-        self.subscribe_within(filter, qos, depth, libmessenger::client::DEFAULT_DEADLINE)
+        self.subscribe_within(filter, qos, depth, libmessenger::client::Deadline::millis(METHOD_SUBSCRIBE_DEADLINE_MS as u64))
     }
 
     /// [`Self::subscribe`] with the caller's deadline instead of the IDL's.

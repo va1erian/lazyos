@@ -73,6 +73,8 @@ pub const METHOD_LOOKUP: u32 = 1772818603;
 pub const METHOD_VERBS: u32 = 1649509833;
 /// `Open` method id.
 pub const METHOD_OPEN: u32 = 1401622761;
+/// How long a client waits for `Open`'s reply, in milliseconds.
+pub const METHOD_OPEN_DEADLINE_MS: u32 = 2000;
 /// `Register` method id.
 pub const METHOD_REGISTER: u32 = 658098656;
 /// `Unregister` method id.
@@ -576,9 +578,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `published` reports whether the event went out, `launched` whether
     /// `init` accepted the launch request.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn open(&self, path: &str, verb: &str) -> Result<OpenReply, ClientError> {
-        self.open_within(path, verb, libmessenger::client::DEFAULT_DEADLINE)
+        self.open_within(path, verb, libmessenger::client::Deadline::millis(METHOD_OPEN_DEADLINE_MS as u64))
     }
 
     /// [`Self::open`] with the caller's deadline instead of the IDL's.

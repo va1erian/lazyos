@@ -29,12 +29,20 @@ pub const SERVICE_NAME: &str = "os.lazy.keyd.appsecret";
 
 /// `Put` method id.
 pub const METHOD_PUT: u32 = 1316564366;
+/// How long a client waits for `Put`'s reply, in milliseconds.
+pub const METHOD_PUT_DEADLINE_MS: u32 = 3000;
 /// `Get` method id.
 pub const METHOD_GET: u32 = 915881719;
+/// How long a client waits for `Get`'s reply, in milliseconds.
+pub const METHOD_GET_DEADLINE_MS: u32 = 3000;
 /// `Delete` method id.
 pub const METHOD_DELETE: u32 = 1469573738;
+/// How long a client waits for `Delete`'s reply, in milliseconds.
+pub const METHOD_DELETE_DEADLINE_MS: u32 = 3000;
 /// `List` method id.
 pub const METHOD_LIST: u32 = 220805025;
+/// How long a client waits for `List`'s reply, in milliseconds.
+pub const METHOD_LIST_DEADLINE_MS: u32 = 3000;
 
 /// Keep `secret` under `name` for the calling app and user, replacing one
 /// of that name.
@@ -217,9 +225,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Keep `secret` under `name` for the calling app and user, replacing one
     /// of that name.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 3000 ms (`deadline` in the `.midl`).
     pub fn put(&self, name: &str, secret: &[u8]) -> Result<(), ClientError> {
-        self.put_within(name, secret, libmessenger::client::DEFAULT_DEADLINE)
+        self.put_within(name, secret, libmessenger::client::Deadline::millis(METHOD_PUT_DEADLINE_MS as u64))
     }
 
     /// [`Self::put`] with the caller's deadline instead of the IDL's.
@@ -235,9 +243,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// The calling app's secret `name` (`ENOENT` when there is none).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 3000 ms (`deadline` in the `.midl`).
     pub fn get(&self, name: &str) -> Result<alloc::vec::Vec<u8>, ClientError> {
-        self.get_within(name, libmessenger::client::DEFAULT_DEADLINE)
+        self.get_within(name, libmessenger::client::Deadline::millis(METHOD_GET_DEADLINE_MS as u64))
     }
 
     /// [`Self::get`] with the caller's deadline instead of the IDL's.
@@ -254,9 +262,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Forget the calling app's secret `name` (`ENOENT` when there is none).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 3000 ms (`deadline` in the `.midl`).
     pub fn delete(&self, name: &str) -> Result<(), ClientError> {
-        self.delete_within(name, libmessenger::client::DEFAULT_DEADLINE)
+        self.delete_within(name, libmessenger::client::Deadline::millis(METHOD_DELETE_DEADLINE_MS as u64))
     }
 
     /// [`Self::delete`] with the caller's deadline instead of the IDL's.
@@ -272,9 +280,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// The names of the calling app's secrets, sorted. Names only.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 3000 ms (`deadline` in the `.midl`).
     pub fn list(&self) -> Result<alloc::vec::Vec<alloc::string::String>, ClientError> {
-        self.list_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.list_within(libmessenger::client::Deadline::millis(METHOD_LIST_DEADLINE_MS as u64))
     }
 
     /// [`Self::list`] with the caller's deadline instead of the IDL's.

@@ -54,18 +54,30 @@ pub const GRANT_REASON_CLOSED: u32 = 5;
 
 /// `Open` method id.
 pub const METHOD_OPEN: u32 = 1;
+/// How long a client waits for `Open`'s reply, in milliseconds.
+pub const METHOD_OPEN_DEADLINE_MS: u32 = 1000;
 /// `Close` method id.
 pub const METHOD_CLOSE: u32 = 2;
+/// How long a client waits for `Close`'s reply, in milliseconds.
+pub const METHOD_CLOSE_DEADLINE_MS: u32 = 1000;
 /// `GetState` method id.
 pub const METHOD_GETSTATE: u32 = 3;
 /// `RequestGrant` method id.
 pub const METHOD_REQUESTGRANT: u32 = 4;
+/// How long a client waits for `RequestGrant`'s reply, in milliseconds.
+pub const METHOD_REQUESTGRANT_DEADLINE_MS: u32 = 1000;
 /// `ReleaseGrant` method id.
 pub const METHOD_RELEASEGRANT: u32 = 5;
+/// How long a client waits for `ReleaseGrant`'s reply, in milliseconds.
+pub const METHOD_RELEASEGRANT_DEADLINE_MS: u32 = 1000;
 /// `Ping` method id.
 pub const METHOD_PING: u32 = 6;
+/// How long a client waits for `Ping`'s reply, in milliseconds.
+pub const METHOD_PING_DEADLINE_MS: u32 = 1000;
 /// `AttachKeyState` method id.
 pub const METHOD_ATTACHKEYSTATE: u32 = 7;
+/// How long a client waits for `AttachKeyState`'s reply, in milliseconds.
+pub const METHOD_ATTACHKEYSTATE_DEADLINE_MS: u32 = 1000;
 /// `AttachGamepadState` method id.
 pub const METHOD_ATTACHGAMEPADSTATE: u32 = 8;
 /// `KeyEvent` method id.
@@ -825,9 +837,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// is attached. `events` is the event endpoint that receives every
     /// event below. A task may hold several sessions, one per surface.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
     pub fn open(&self, surface: core::option::Option<u64>, events: u64) -> Result<u64, ClientError> {
-        self.open_within(surface, events, libmessenger::client::DEFAULT_DEADLINE)
+        self.open_within(surface, events, libmessenger::client::Deadline::millis(METHOD_OPEN_DEADLINE_MS as u64))
     }
 
     /// [`Self::open`] with the caller's deadline instead of the IDL's.
@@ -843,9 +855,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// End a session. Only the task that opened it may.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
     pub fn close(&self, session: u64) -> Result<(), ClientError> {
-        self.close_within(session, libmessenger::client::DEFAULT_DEADLINE)
+        self.close_within(session, libmessenger::client::Deadline::millis(METHOD_CLOSE_DEADLINE_MS as u64))
     }
 
     /// [`Self::close`] with the caller's deadline instead of the IDL's.
@@ -887,9 +899,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// presses the reserved escape chord (Ctrl+Alt+Esc), which nobody can
     /// grab or register and which always reverts the grab.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
     pub fn request_grant(&self, session: u64, kind: u32) -> Result<(), ClientError> {
-        self.request_grant_within(session, kind, libmessenger::client::DEFAULT_DEADLINE)
+        self.request_grant_within(session, kind, libmessenger::client::Deadline::millis(METHOD_REQUESTGRANT_DEADLINE_MS as u64))
     }
 
     /// [`Self::request_grant`] with the caller's deadline instead of the IDL's.
@@ -906,9 +918,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Give up the grab (or a pending request) `session` holds. Only its
     /// owner may; releasing nothing is not an error.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
     pub fn release_grant(&self, session: u64) -> Result<(), ClientError> {
-        self.release_grant_within(session, libmessenger::client::DEFAULT_DEADLINE)
+        self.release_grant_within(session, libmessenger::client::Deadline::millis(METHOD_RELEASEGRANT_DEADLINE_MS as u64))
     }
 
     /// [`Self::release_grant`] with the caller's deadline instead of the IDL's.
@@ -929,9 +941,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// so a client polling its key-state page can tell the page is current
     /// (`KeyStateSeq >= seq`). `EACCES` for another task's session.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
     pub fn ping(&self, session: u64, token: u64) -> Result<PingReply, ClientError> {
-        self.ping_within(session, token, libmessenger::client::DEFAULT_DEADLINE)
+        self.ping_within(session, token, libmessenger::client::Deadline::millis(METHOD_PING_DEADLINE_MS as u64))
     }
 
     /// [`Self::ping`] with the caller's deadline instead of the IDL's.
@@ -954,9 +966,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `KeyboardLeave` is sent. `inputd` only ever writes the page. Attaching
     /// again replaces the previous page.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
     pub fn attach_key_state(&self, session: u64, state: libmessenger::Buffer) -> Result<(), ClientError> {
-        self.attach_key_state_within(session, state, libmessenger::client::DEFAULT_DEADLINE)
+        self.attach_key_state_within(session, state, libmessenger::client::Deadline::millis(METHOD_ATTACHKEYSTATE_DEADLINE_MS as u64))
     }
 
     /// [`Self::attach_key_state`] with the caller's deadline instead of the IDL's.

@@ -432,18 +432,28 @@ pub fn decode_address_event(body: &[u8]) -> Result<AddressEvent, Error> {
 
 /// `Interfaces` method id.
 pub const METHOD_INTERFACES: u32 = 1779791769;
+/// How long a client waits for `Interfaces`'s reply, in milliseconds.
+pub const METHOD_INTERFACES_DEADLINE_MS: u32 = 500;
 /// `Addresses` method id.
 pub const METHOD_ADDRESSES: u32 = 912810883;
+/// How long a client waits for `Addresses`'s reply, in milliseconds.
+pub const METHOD_ADDRESSES_DEADLINE_MS: u32 = 500;
 /// `Routes` method id.
 pub const METHOD_ROUTES: u32 = 321835703;
+/// How long a client waits for `Routes`'s reply, in milliseconds.
+pub const METHOD_ROUTES_DEADLINE_MS: u32 = 500;
 /// `Stats` method id.
 pub const METHOD_STATS: u32 = 267161228;
+/// How long a client waits for `Stats`'s reply, in milliseconds.
+pub const METHOD_STATS_DEADLINE_MS: u32 = 500;
 /// `Ping` method id.
 pub const METHOD_PING: u32 = 2142761129;
 /// `Resolve` method id.
 pub const METHOD_RESOLVE: u32 = 1645633795;
 /// `Renew` method id.
 pub const METHOD_RENEW: u32 = 438534286;
+/// How long a client waits for `Renew`'s reply, in milliseconds.
+pub const METHOD_RENEW_DEADLINE_MS: u32 = 500;
 /// `Reattach` method id.
 pub const METHOD_REATTACH: u32 = 60999493;
 
@@ -885,9 +895,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// The interfaces the stack drives, one per attached card.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`).
     pub fn interfaces(&self) -> Result<alloc::vec::Vec<InterfaceInfo>, ClientError> {
-        self.interfaces_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.interfaces_within(libmessenger::client::Deadline::millis(METHOD_INTERFACES_DEADLINE_MS as u64))
     }
 
     /// [`Self::interfaces`] with the caller's deadline instead of the IDL's.
@@ -904,9 +914,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// The addresses configured on every interface.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`).
     pub fn addresses(&self) -> Result<alloc::vec::Vec<AddressInfo>, ClientError> {
-        self.addresses_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.addresses_within(libmessenger::client::Deadline::millis(METHOD_ADDRESSES_DEADLINE_MS as u64))
     }
 
     /// [`Self::addresses`] with the caller's deadline instead of the IDL's.
@@ -924,9 +934,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// The routing table: every interface's on-link route and default route,
     /// the default routes ordered by metric (the lowest wins).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`).
     pub fn routes(&self) -> Result<alloc::vec::Vec<RouteInfo>, ClientError> {
-        self.routes_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.routes_within(libmessenger::client::Deadline::millis(METHOD_ROUTES_DEADLINE_MS as u64))
     }
 
     /// [`Self::routes`] with the caller's deadline instead of the IDL's.
@@ -943,9 +953,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Stack counters since it started.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`).
     pub fn stats(&self) -> Result<StackStats, ClientError> {
-        self.stats_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.stats_within(libmessenger::client::Deadline::millis(METHOD_STATS_DEADLINE_MS as u64))
     }
 
     /// [`Self::stats`] with the caller's deadline instead of the IDL's.
@@ -1012,9 +1022,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Ask for a fresh DHCP lease (drops the current one). Gated by the ACL.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`).
     pub fn renew(&self) -> Result<(), ClientError> {
-        self.renew_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.renew_within(libmessenger::client::Deadline::millis(METHOD_RENEW_DEADLINE_MS as u64))
     }
 
     /// [`Self::renew`] with the caller's deadline instead of the IDL's.

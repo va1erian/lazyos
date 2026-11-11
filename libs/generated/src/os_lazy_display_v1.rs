@@ -176,12 +176,16 @@ pub fn decode_surface_row(body: &[u8]) -> Result<SurfaceRow, Error> {
 
 /// `CreateSurface` method id.
 pub const METHOD_CREATESURFACE: u32 = 1;
+/// How long a client waits for `CreateSurface`'s reply, in milliseconds.
+pub const METHOD_CREATESURFACE_DEADLINE_MS: u32 = 1000;
 /// `AttachBuffer` method id.
 pub const METHOD_ATTACHBUFFER: u32 = 2;
 /// `Commit` method id.
 pub const METHOD_COMMIT: u32 = 3;
 /// `DestroySurface` method id.
 pub const METHOD_DESTROYSURFACE: u32 = 4;
+/// How long a client waits for `DestroySurface`'s reply, in milliseconds.
+pub const METHOD_DESTROYSURFACE_DEADLINE_MS: u32 = 1000;
 /// `PointerMove` method id.
 pub const METHOD_POINTERMOVE: u32 = 5;
 /// `PointerDown` method id.
@@ -196,8 +200,12 @@ pub const METHOD_KEYUP: u32 = 9;
 pub const METHOD_WINDOWCLOSE: u32 = 10;
 /// `DragStart` method id.
 pub const METHOD_DRAGSTART: u32 = 11;
+/// How long a client waits for `DragStart`'s reply, in milliseconds.
+pub const METHOD_DRAGSTART_DEADLINE_MS: u32 = 1000;
 /// `DragCancel` method id.
 pub const METHOD_DRAGCANCEL: u32 = 12;
+/// How long a client waits for `DragCancel`'s reply, in milliseconds.
+pub const METHOD_DRAGCANCEL_DEADLINE_MS: u32 = 1000;
 /// `DragEnter` method id.
 pub const METHOD_DRAGENTER: u32 = 13;
 /// `DragOver` method id.
@@ -210,12 +218,20 @@ pub const METHOD_DROP: u32 = 16;
 pub const METHOD_DRAGENDED: u32 = 17;
 /// `ListSurfaces` method id.
 pub const METHOD_LISTSURFACES: u32 = 18;
+/// How long a client waits for `ListSurfaces`'s reply, in milliseconds.
+pub const METHOD_LISTSURFACES_DEADLINE_MS: u32 = 2000;
 /// `GetWorkArea` method id.
 pub const METHOD_GETWORKAREA: u32 = 19;
+/// How long a client waits for `GetWorkArea`'s reply, in milliseconds.
+pub const METHOD_GETWORKAREA_DEADLINE_MS: u32 = 2000;
 /// `Subscribe` method id.
 pub const METHOD_SUBSCRIBE: u32 = 20;
+/// How long a client waits for `Subscribe`'s reply, in milliseconds.
+pub const METHOD_SUBSCRIBE_DEADLINE_MS: u32 = 2000;
 /// `GetTheme` method id.
 pub const METHOD_GETTHEME: u32 = 21;
+/// How long a client waits for `GetTheme`'s reply, in milliseconds.
+pub const METHOD_GETTHEME_DEADLINE_MS: u32 = 5000;
 /// `SurfaceChanged` method id.
 pub const METHOD_SURFACECHANGED: u32 = 22;
 /// `FocusChanged` method id.
@@ -224,6 +240,8 @@ pub const METHOD_FOCUSCHANGED: u32 = 23;
 pub const METHOD_STARTMENU: u32 = 24;
 /// `AttachBufferSlot` method id.
 pub const METHOD_ATTACHBUFFERSLOT: u32 = 25;
+/// How long a client waits for `AttachBufferSlot`'s reply, in milliseconds.
+pub const METHOD_ATTACHBUFFERSLOT_DEADLINE_MS: u32 = 1000;
 /// `Present` method id.
 pub const METHOD_PRESENT: u32 = 26;
 /// `BufferRelease` method id.
@@ -232,46 +250,74 @@ pub const METHOD_BUFFERRELEASE: u32 = 27;
 pub const METHOD_FRAMEDONE: u32 = 28;
 /// `SetTitle` method id.
 pub const METHOD_SETTITLE: u32 = 29;
+/// How long a client waits for `SetTitle`'s reply, in milliseconds.
+pub const METHOD_SETTITLE_DEADLINE_MS: u32 = 1000;
 /// `HintOpenOrigin` method id.
 pub const METHOD_HINTOPENORIGIN: u32 = 30;
+/// How long a client waits for `HintOpenOrigin`'s reply, in milliseconds.
+pub const METHOD_HINTOPENORIGIN_DEADLINE_MS: u32 = 500;
 /// `PointerWheel` method id.
 pub const METHOD_POINTERWHEEL: u32 = 31;
 /// `SetSizeHints` method id.
 pub const METHOD_SETSIZEHINTS: u32 = 32;
+/// How long a client waits for `SetSizeHints`'s reply, in milliseconds.
+pub const METHOD_SETSIZEHINTS_DEADLINE_MS: u32 = 1000;
 /// `Configure` method id.
 pub const METHOD_CONFIGURE: u32 = 33;
 /// `RequestSize` method id.
 pub const METHOD_REQUESTSIZE: u32 = 34;
+/// How long a client waits for `RequestSize`'s reply, in milliseconds.
+pub const METHOD_REQUESTSIZE_DEADLINE_MS: u32 = 1000;
 /// `Ping` method id.
 pub const METHOD_PING: u32 = 35;
 /// `PlaceSurface` method id.
 pub const METHOD_PLACESURFACE: u32 = 36;
+/// How long a client waits for `PlaceSurface`'s reply, in milliseconds.
+pub const METHOD_PLACESURFACE_DEADLINE_MS: u32 = 2000;
 /// `ActivateSurface` method id.
 pub const METHOD_ACTIVATESURFACE: u32 = 37;
+/// How long a client waits for `ActivateSurface`'s reply, in milliseconds.
+pub const METHOD_ACTIVATESURFACE_DEADLINE_MS: u32 = 2000;
 /// `MinimizeSurface` method id.
 pub const METHOD_MINIMIZESURFACE: u32 = 38;
+/// How long a client waits for `MinimizeSurface`'s reply, in milliseconds.
+pub const METHOD_MINIMIZESURFACE_DEADLINE_MS: u32 = 2000;
 /// `SetWorkArea` method id.
 pub const METHOD_SETWORKAREA: u32 = 39;
+/// How long a client waits for `SetWorkArea`'s reply, in milliseconds.
+pub const METHOD_SETWORKAREA_DEADLINE_MS: u32 = 2000;
 /// `SetIconGeometry` method id.
 pub const METHOD_SETICONGEOMETRY: u32 = 40;
+/// How long a client waits for `SetIconGeometry`'s reply, in milliseconds.
+pub const METHOD_SETICONGEOMETRY_DEADLINE_MS: u32 = 2000;
 /// `HintLaunchOrigin` method id.
 pub const METHOD_HINTLAUNCHORIGIN: u32 = 41;
+/// How long a client waits for `HintLaunchOrigin`'s reply, in milliseconds.
+pub const METHOD_HINTLAUNCHORIGIN_DEADLINE_MS: u32 = 2000;
 /// `Dismiss` method id.
 pub const METHOD_DISMISS: u32 = 42;
 /// `GetOutput` method id.
 pub const METHOD_GETOUTPUT: u32 = 43;
+/// How long a client waits for `GetOutput`'s reply, in milliseconds.
+pub const METHOD_GETOUTPUT_DEADLINE_MS: u32 = 500;
 /// `AllowPopup` method id.
 pub const METHOD_ALLOWPOPUP: u32 = 44;
 /// `GrabPanelKeys` method id.
 pub const METHOD_GRABPANELKEYS: u32 = 45;
+/// How long a client waits for `GrabPanelKeys`'s reply, in milliseconds.
+pub const METHOD_GRABPANELKEYS_DEADLINE_MS: u32 = 2000;
 /// `PanelKey` method id.
 pub const METHOD_PANELKEY: u32 = 46;
 /// `TrayKeys` method id.
 pub const METHOD_TRAYKEYS: u32 = 47;
 /// `SetCloseMode` method id.
 pub const METHOD_SETCLOSEMODE: u32 = 48;
+/// How long a client waits for `SetCloseMode`'s reply, in milliseconds.
+pub const METHOD_SETCLOSEMODE_DEADLINE_MS: u32 = 1000;
 /// `ActivateApp` method id.
 pub const METHOD_ACTIVATEAPP: u32 = 49;
+/// How long a client waits for `ActivateApp`'s reply, in milliseconds.
+pub const METHOD_ACTIVATEAPP_DEADLINE_MS: u32 = 2000;
 
 /// Create a surface of `width` x `height` pixels titled `title`. `role` is
 /// a `Role` value: a decorated window (also the meaning of an absent
@@ -2201,9 +2247,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// (`EACCES` without a valid one). `events` is the event endpoint the
     /// compositor sends input on.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
     pub fn create_surface(&self, width: u32, height: u32, title: &str, role: u32, popup: core::option::Option<u64>, events: u64) -> Result<u64, ClientError> {
-        self.create_surface_within(width, height, title, role, popup, events, libmessenger::client::DEFAULT_DEADLINE)
+        self.create_surface_within(width, height, title, role, popup, events, libmessenger::client::Deadline::millis(METHOD_CREATESURFACE_DEADLINE_MS as u64))
     }
 
     /// [`Self::create_surface`] with the caller's deadline instead of the IDL's.
@@ -2258,9 +2304,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Drop a surface; the compositor forgets it and repaints.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
     pub fn destroy_surface(&self, surface: u64) -> Result<(), ClientError> {
-        self.destroy_surface_within(surface, libmessenger::client::DEFAULT_DEADLINE)
+        self.destroy_surface_within(surface, libmessenger::client::Deadline::millis(METHOD_DESTROYSURFACE_DEADLINE_MS as u64))
     }
 
     /// [`Self::destroy_surface`] with the caller's deadline instead of the IDL's.
@@ -2335,9 +2381,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `token` of type `mime`. Only the surface's creator may start one, while
     /// a pointer button is held; one drag at a time.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
     pub fn drag_start(&self, surface: u64, token: u64, mime: &str) -> Result<(), ClientError> {
-        self.drag_start_within(surface, token, mime, libmessenger::client::DEFAULT_DEADLINE)
+        self.drag_start_within(surface, token, mime, libmessenger::client::Deadline::millis(METHOD_DRAGSTART_DEADLINE_MS as u64))
     }
 
     /// [`Self::drag_start`] with the caller's deadline instead of the IDL's.
@@ -2353,9 +2399,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Cancel the drag that started at `surface`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
     pub fn drag_cancel(&self, surface: u64) -> Result<(), ClientError> {
-        self.drag_cancel_within(surface, libmessenger::client::DEFAULT_DEADLINE)
+        self.drag_cancel_within(surface, libmessenger::client::Deadline::millis(METHOD_DRAGCANCEL_DEADLINE_MS as u64))
     }
 
     /// [`Self::drag_cancel`] with the caller's deadline instead of the IDL's.
@@ -2424,9 +2470,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// panels. Shell-only (the `shell` subscriber's task, uid 0 or
     /// `CAP_SETUID`).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn list_surfaces(&self) -> Result<alloc::vec::Vec<SurfaceRow>, ClientError> {
-        self.list_surfaces_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.list_surfaces_within(libmessenger::client::Deadline::millis(METHOD_LISTSURFACES_DEADLINE_MS as u64))
     }
 
     /// [`Self::list_surfaces`] with the caller's deadline instead of the IDL's.
@@ -2445,9 +2491,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `SetWorkArea`, or the whole screen (xuid paints no desktop UI of its
     /// own since issue #157).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn get_work_area(&self) -> Result<GetWorkAreaReply, ClientError> {
-        self.get_work_area_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.get_work_area_within(libmessenger::client::Deadline::millis(METHOD_GETWORKAREA_DEADLINE_MS as u64))
     }
 
     /// [`Self::get_work_area`] with the caller's deadline instead of the IDL's.
@@ -2473,9 +2519,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// (issue #447). Registering again replaces the caller's previous
     /// endpoint.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn subscribe(&self, subscriber_role: &str, events: u64) -> Result<(), ClientError> {
-        self.subscribe_within(subscriber_role, events, libmessenger::client::DEFAULT_DEADLINE)
+        self.subscribe_within(subscriber_role, events, libmessenger::client::Deadline::millis(METHOD_SUBSCRIBE_DEADLINE_MS as u64))
     }
 
     /// [`Self::subscribe`] with the caller's deadline instead of the IDL's.
@@ -2493,9 +2539,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `light`, the `sys/ui/mode` setting) and `accent` the accent colour in
     /// effect, so an app can match its own widgets to the desktop.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`).
     pub fn get_theme(&self) -> Result<GetThemeReply, ClientError> {
-        self.get_theme_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.get_theme_within(libmessenger::client::Deadline::millis(METHOD_GETTHEME_DEADLINE_MS as u64))
     }
 
     /// [`Self::get_theme`] with the caller's deadline instead of the IDL's.
@@ -2544,9 +2590,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// other slot is tear-free; attaching to the current slot fails with
     /// `EBUSY`. Only the surface's creator may attach.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
     pub fn attach_buffer_slot(&self, surface: u64, slot: u32, pixels: libmessenger::Buffer) -> Result<(), ClientError> {
-        self.attach_buffer_slot_within(surface, slot, pixels, libmessenger::client::DEFAULT_DEADLINE)
+        self.attach_buffer_slot_within(surface, slot, pixels, libmessenger::client::Deadline::millis(METHOD_ATTACHBUFFERSLOT_DEADLINE_MS as u64))
     }
 
     /// [`Self::attach_buffer_slot`] with the caller's deadline instead of the IDL's.
@@ -2608,9 +2654,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// event of kind `Title`. Clients that never call it keep the
     /// `CreateSurface` title, so old clients are unaffected.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
     pub fn set_title(&self, surface: u64, title: &str) -> Result<(), ClientError> {
-        self.set_title_within(surface, title, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_title_within(surface, title, libmessenger::client::Deadline::millis(METHOD_SETTITLE_DEADLINE_MS as u64))
     }
 
     /// [`Self::set_title`] with the caller's deadline instead of the IDL's.
@@ -2638,9 +2684,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Minimize and restore keep using the taskbar entry. A compositor that
     /// predates the method answers `EINVAL`, which callers ignore.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`).
     pub fn hint_open_origin(&self, surface: u64, x: i32, y: i32, w: u32, h: u32) -> Result<(), ClientError> {
-        self.hint_open_origin_within(surface, x, y, w, h, libmessenger::client::DEFAULT_DEADLINE)
+        self.hint_open_origin_within(surface, x, y, w, h, libmessenger::client::Deadline::millis(METHOD_HINTOPENORIGIN_DEADLINE_MS as u64))
     }
 
     /// [`Self::hint_open_origin`] with the caller's deadline instead of the IDL's.
@@ -2676,9 +2722,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// clients are unaffected. The bounds apply to the content size (the
     /// decorated window is `BORDER` wider and `TITLE_H + BORDER` taller).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
     pub fn set_size_hints(&self, surface: u64, min_w: u32, min_h: u32, max_w: u32, max_h: u32) -> Result<(), ClientError> {
-        self.set_size_hints_within(surface, min_w, min_h, max_w, max_h, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_size_hints_within(surface, min_w, min_h, max_w, max_h, libmessenger::client::Deadline::millis(METHOD_SETSIZEHINTS_DEADLINE_MS as u64))
     }
 
     /// [`Self::set_size_hints`] with the caller's deadline instead of the IDL's.
@@ -2714,9 +2760,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `Configure` with the size it actually applied (also when that equals
     /// the current size), which is the only confirmation the client needs.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
     pub fn request_size(&self, surface: u64, width: u32, height: u32) -> Result<(), ClientError> {
-        self.request_size_within(surface, width, height, libmessenger::client::DEFAULT_DEADLINE)
+        self.request_size_within(surface, width, height, libmessenger::client::Deadline::millis(METHOD_REQUESTSIZE_DEADLINE_MS as u64))
     }
 
     /// [`Self::request_size`] with the caller's deadline instead of the IDL's.
@@ -2749,9 +2795,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// position is clamped so the panel stays on screen. A new panel opens at
     /// `(0, 0)`, so a shell places it before its first `Commit`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn place_surface(&self, surface: u64, x: i32, y: i32) -> Result<(), ClientError> {
-        self.place_surface_within(surface, x, y, libmessenger::client::DEFAULT_DEADLINE)
+        self.place_surface_within(surface, x, y, libmessenger::client::Deadline::millis(METHOD_PLACESURFACE_DEADLINE_MS as u64))
     }
 
     /// [`Self::place_surface`] with the caller's deadline instead of the IDL's.
@@ -2769,9 +2815,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// (a taskbar entry click). `ENOENT` for an unknown surface, `EINVAL` for
     /// a desktop or panel.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn activate_surface(&self, surface: u64) -> Result<(), ClientError> {
-        self.activate_surface_within(surface, libmessenger::client::DEFAULT_DEADLINE)
+        self.activate_surface_within(surface, libmessenger::client::Deadline::millis(METHOD_ACTIVATESURFACE_DEADLINE_MS as u64))
     }
 
     /// [`Self::activate_surface`] with the caller's deadline instead of the IDL's.
@@ -2789,9 +2835,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// The zoom animation flies to the rectangle `SetIconGeometry` gave for
     /// it. `ENOENT` for an unknown surface, `EINVAL` for a desktop or panel.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn minimize_surface(&self, surface: u64) -> Result<(), ClientError> {
-        self.minimize_surface_within(surface, libmessenger::client::DEFAULT_DEADLINE)
+        self.minimize_surface_within(surface, libmessenger::client::Deadline::millis(METHOD_MINIMIZESURFACE_DEADLINE_MS as u64))
     }
 
     /// [`Self::minimize_surface`] with the caller's deadline instead of the IDL's.
@@ -2810,9 +2856,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Maximized windows are re-fitted to it. When the shell goes away the
     /// work area returns to the whole screen.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn set_work_area(&self, x: i32, y: i32, w: i32, h: i32) -> Result<(), ClientError> {
-        self.set_work_area_within(x, y, w, h, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_work_area_within(x, y, w, h, libmessenger::client::Deadline::millis(METHOD_SETWORKAREA_DEADLINE_MS as u64))
     }
 
     /// [`Self::set_work_area`] with the caller's deadline instead of the IDL's.
@@ -2831,9 +2877,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// to a small rectangle at the bottom-left of the screen. `ENOENT` for an
     /// unknown surface; an empty rectangle forgets the geometry.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn set_icon_geometry(&self, surface: u64, x: i32, y: i32, w: i32, h: i32) -> Result<(), ClientError> {
-        self.set_icon_geometry_within(surface, x, y, w, h, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_icon_geometry_within(surface, x, y, w, h, libmessenger::client::Deadline::millis(METHOD_SETICONGEOMETRY_DEADLINE_MS as u64))
     }
 
     /// [`Self::set_icon_geometry`] with the caller's deadline instead of the IDL's.
@@ -2853,9 +2899,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// shell sends it right before asking `init` to launch an app. A task's
     /// own `HintOpenOrigin` wins over it. An empty rectangle is ignored.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn hint_launch_origin(&self, x: i32, y: i32, w: u32, h: u32) -> Result<(), ClientError> {
-        self.hint_launch_origin_within(x, y, w, h, libmessenger::client::DEFAULT_DEADLINE)
+        self.hint_launch_origin_within(x, y, w, h, libmessenger::client::Deadline::millis(METHOD_HINTLAUNCHORIGIN_DEADLINE_MS as u64))
     }
 
     /// [`Self::hint_launch_origin`] with the caller's deadline instead of the IDL's.
@@ -2891,9 +2937,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// (xui paces its windows to it): a frame between two refreshes is
     /// never seen, and composing it only costs the next one time.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`).
     pub fn get_output(&self) -> Result<GetOutputReply, ClientError> {
-        self.get_output_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.get_output_within(libmessenger::client::Deadline::millis(METHOD_GETOUTPUT_DEADLINE_MS as u64))
     }
 
     /// [`Self::get_output`] with the caller's deadline instead of the IDL's.
@@ -2939,9 +2985,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// with `GrabPanelKeys(false)`, when the shell's subscription goes away,
     /// or under a client's keyboard grab or the trusted prompt, which win.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn grab_panel_keys(&self, grab: bool) -> Result<(), ClientError> {
-        self.grab_panel_keys_within(grab, libmessenger::client::DEFAULT_DEADLINE)
+        self.grab_panel_keys_within(grab, libmessenger::client::Deadline::millis(METHOD_GRABPANELKEYS_DEADLINE_MS as u64))
     }
 
     /// [`Self::grab_panel_keys`] with the caller's deadline instead of the IDL's.
@@ -2989,9 +3035,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Calling `SetCloseMode` again changes nothing about that. A shutdown or
     /// logout never depends on it: `init` kills what is left.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
     pub fn set_close_mode(&self, surface: u64, ask: bool) -> Result<(), ClientError> {
-        self.set_close_mode_within(surface, ask, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_close_mode_within(surface, ask, libmessenger::client::Deadline::millis(METHOD_SETCLOSEMODE_DEADLINE_MS as u64))
     }
 
     /// [`Self::set_close_mode`] with the caller's deadline instead of the IDL's.
@@ -3016,9 +3062,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// name (`EINVAL`); `ENOENT` when the app owns no window. Desktops and
     /// panels are never touched.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
     pub fn activate_app(&self, label: u32, session: u64) -> Result<(), ClientError> {
-        self.activate_app_within(label, session, libmessenger::client::DEFAULT_DEADLINE)
+        self.activate_app_within(label, session, libmessenger::client::Deadline::millis(METHOD_ACTIVATEAPP_DEADLINE_MS as u64))
     }
 
     /// [`Self::activate_app`] with the caller's deadline instead of the IDL's.

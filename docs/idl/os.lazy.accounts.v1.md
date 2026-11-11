@@ -31,6 +31,14 @@ code, friendly text).
 
 - Served under the registry name `os.lazy.accountsd`; registered once.
 
+## Scopes and deadlines
+
+| Method | Scope interface | Scope id | Deadline |
+|---|---|---|---|
+| Create | this interface | - | 60000 ms |
+| SetPassword | this interface | - | 60000 ms |
+| ListUsers | this interface | - | 3000 ms |
+
 ## struct `User`
 
 - `name: String`

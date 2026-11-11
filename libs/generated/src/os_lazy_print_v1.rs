@@ -153,14 +153,24 @@ pub fn decode_job_info(body: &[u8]) -> Result<JobInfo, Error> {
 
 /// `Open` method id.
 pub const METHOD_OPEN: u32 = 1401622761;
+/// How long a client waits for `Open`'s reply, in milliseconds.
+pub const METHOD_OPEN_DEADLINE_MS: u32 = 10000;
 /// `Write` method id.
 pub const METHOD_WRITE: u32 = 1717336572;
+/// How long a client waits for `Write`'s reply, in milliseconds.
+pub const METHOD_WRITE_DEADLINE_MS: u32 = 10000;
 /// `Close` method id.
 pub const METHOD_CLOSE: u32 = 1300671683;
+/// How long a client waits for `Close`'s reply, in milliseconds.
+pub const METHOD_CLOSE_DEADLINE_MS: u32 = 10000;
 /// `Cancel` method id.
 pub const METHOD_CANCEL: u32 = 900713019;
+/// How long a client waits for `Cancel`'s reply, in milliseconds.
+pub const METHOD_CANCEL_DEADLINE_MS: u32 = 10000;
 /// `Status` method id.
 pub const METHOD_STATUS: u32 = 6222351;
+/// How long a client waits for `Status`'s reply, in milliseconds.
+pub const METHOD_STATUS_DEADLINE_MS: u32 = 10000;
 /// `Jobs` method id.
 pub const METHOD_JOBS: u32 = 1256630173;
 
@@ -428,9 +438,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `host:port` or an `ipp://` URI). `user` is the `requesting-user-name`
     /// the printer shows, a label only.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 10000 ms (`deadline` in the `.midl`).
     pub fn open(&self, printer: &str, user: &str, ticket: &Ticket) -> Result<u32, ClientError> {
-        self.open_within(printer, user, ticket, libmessenger::client::DEFAULT_DEADLINE)
+        self.open_within(printer, user, ticket, libmessenger::client::Deadline::millis(METHOD_OPEN_DEADLINE_MS as u64))
     }
 
     /// [`Self::open`] with the caller's deadline instead of the IDL's.
@@ -447,9 +457,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Append `bytes` to an open job's document (at most 256 KiB a call).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 10000 ms (`deadline` in the `.midl`).
     pub fn write(&self, job: u32, bytes: &[u8]) -> Result<(), ClientError> {
-        self.write_within(job, bytes, libmessenger::client::DEFAULT_DEADLINE)
+        self.write_within(job, bytes, libmessenger::client::Deadline::millis(METHOD_WRITE_DEADLINE_MS as u64))
     }
 
     /// [`Self::write`] with the caller's deadline instead of the IDL's.
@@ -465,9 +475,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// The document is complete: queue the job for its printer.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 10000 ms (`deadline` in the `.midl`).
     pub fn close(&self, job: u32) -> Result<(), ClientError> {
-        self.close_within(job, libmessenger::client::DEFAULT_DEADLINE)
+        self.close_within(job, libmessenger::client::Deadline::millis(METHOD_CLOSE_DEADLINE_MS as u64))
     }
 
     /// [`Self::close`] with the caller's deadline instead of the IDL's.
@@ -483,9 +493,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Stop a job wherever it is; one the printer has is canceled there.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 10000 ms (`deadline` in the `.midl`).
     pub fn cancel(&self, job: u32) -> Result<(), ClientError> {
-        self.cancel_within(job, libmessenger::client::DEFAULT_DEADLINE)
+        self.cancel_within(job, libmessenger::client::Deadline::millis(METHOD_CANCEL_DEADLINE_MS as u64))
     }
 
     /// [`Self::cancel`] with the caller's deadline instead of the IDL's.
@@ -501,9 +511,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// What a job is doing.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 10000 ms (`deadline` in the `.midl`).
     pub fn status(&self, job: u32) -> Result<JobInfo, ClientError> {
-        self.status_within(job, libmessenger::client::DEFAULT_DEADLINE)
+        self.status_within(job, libmessenger::client::Deadline::millis(METHOD_STATUS_DEADLINE_MS as u64))
     }
 
     /// [`Self::status`] with the caller's deadline instead of the IDL's.
