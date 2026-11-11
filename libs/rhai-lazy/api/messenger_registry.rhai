@@ -64,9 +64,13 @@ fn resolve(name) {
 /// (and no other) wakes it. The name policy that gates `Resolve` is
 /// applied before the wait starts and again when the name appears, so a
 /// waiter learns nothing a `Resolve` would not tell it. A task waits for
-/// one name at a time and the kernel bounds all waiters (`EAGAIN`);
-/// a cancelled or killed caller is released at once. Kernel gate only;
-/// `messengerd` does not proxy it, since it would park the daemon.
+/// one name at a time; the kernel bounds waiters per process and in all
+/// (`EAGAIN`, after which a client degrades to plain `Resolve`s); a
+/// signal ends the wait with `EINTR` (issue it again with the same
+/// deadline) and a killed caller is released at once (`ECANCELED`).
+/// Kernel gate only, for the caller's own table (`EINVAL` for another
+/// target): `messengerd` does not proxy it, since it would park the
+/// daemon.
 fn wait_for(name) {
     msg::connect("os.lazy.messenger.registry.v1").invoke("WaitFor", [name])
 }

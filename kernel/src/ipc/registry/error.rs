@@ -30,6 +30,8 @@ pub enum Error {
     TimedOut,
     /// A wait was cancelled because its task is being killed.
     Canceled,
+    /// A signal ended the wait; the caller re-issues it with the same deadline.
+    Interrupted,
     /// The task already waits for a name, or the kernel's waiter table is full.
     TooManyWaiters,
 }
@@ -51,6 +53,7 @@ impl Error {
             Error::Denied => "the name policy does not let this program use that service name",
             Error::TimedOut => "the service did not register in time",
             Error::Canceled => "the wait for the service was cancelled",
+            Error::Interrupted => "a signal interrupted the wait for the service",
             Error::TooManyWaiters => "too many programs are waiting for services to register",
         }
     }

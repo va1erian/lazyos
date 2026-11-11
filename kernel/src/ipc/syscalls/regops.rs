@@ -45,6 +45,7 @@ pub(super) fn registry_errno(error: registry::Error) -> i64 {
         Denied => errno::EACCES,
         TimedOut => errno::ETIMEDOUT,
         Canceled => errno::ECANCELED,
+        Interrupted => errno::EINTR,
         TooManyWaiters => errno::EAGAIN,
     }
 }
@@ -54,8 +55,19 @@ pub(super) fn registry_errno(error: registry::Error) -> i64 {
 /// parcel, so the same body works for a direct syscall and for `messengerd`
 /// forwarding a client's request.
 pub(super) fn op_registry(args: &MsgArgs, method: u32) -> Result<MsgResult, i64> {
-    authorize_registry(task::current(), method)?;
+    // A wait is a resolve: a policy that lets a task resolve lets it wait.
+    let judged = match method {
+        registry::method::WAIT_FOR => registry::method::RESOLVE,
+        other => other,
+    };
+    authorize_registry(task::current(), judged)?;
     let target = registry_target(args.txn_id)?;
+    // The wait is keyed on the caller, and a handle minted for another slot
+    // could land in a reused occupant if that task died meanwhile; nothing
+    // needs a proxied wait (`messengerd` does not forward it).
+    if method == registry::method::WAIT_FOR && target != task::current() {
+        return Err(errno::EINVAL);
+    }
     match method {
         registry::method::REGISTER => registry_register(args, target),
         registry::method::RESOLVE => registry_resolve(args, target),

@@ -19,8 +19,18 @@
 //!   so [`forget_waiter`] (the teardown hook next to the channel one) and the
 //!   access-time prune of dead slots drop its entry.
 //! * **Bounded.** One wait per task ([`MAX_WAITERS_PER_TASK`]; a task parks
-//!   in one syscall at a time, so a second is a bug) and [`MAX_WAITERS`] in
-//!   all: more is [`Error::TooManyWaiters`] (`EAGAIN`), never a silent poll.
+//!   in one syscall at a time, so a second is a bug), [`MAX_WAITERS_PER_PROCESS`]
+//!   per address space (threads are slots, so one process could otherwise
+//!   take the whole table), and [`MAX_WAITERS`] in all, of which
+//!   [`SYSTEM_RESERVE`] are kept for unlabelled (platform) tasks. More is
+//!   [`Error::TooManyWaiters`] (`EAGAIN`); the client runtimes then fall back
+//!   to a bounded plain-`Resolve` retry, so an overloaded table degrades
+//!   a connect, it does not fail it.
+//! * **A signal ends the wait.** Any `Interrupted` wake that finds no name
+//!   returns [`Error::Interrupted`] (`EINTR`) so the syscall reaches its
+//!   return, where the signal frame is laid out; the client re-issues the
+//!   wait with the same absolute deadline. Looping instead would spin with
+//!   interrupts off when `wait` refuses to park (a deferred frame).
 //! * **No new authority.** The caller's name policy runs at the syscall edge
 //!   before the wait, and `allowed` runs again each time the name is found,
 //!   before any handle opens, so a waiter gets what a `Resolve` at that
@@ -39,6 +49,32 @@ pub const MAX_WAITERS: usize = 512;
 /// Names one task may wait for at once. A task parks in a single syscall, so
 /// one is exact; the limit is what stops a leaked ticket from stacking up.
 pub const MAX_WAITERS_PER_TASK: usize = 1;
+/// Waits one process (address space) may hold. A program has a handful of
+/// threads connecting at once (a browser's workers, an app's UI and I/O
+/// threads); 16 covers that and leaves the 512 to many programs.
+pub const MAX_WAITERS_PER_PROCESS: usize = 16;
+/// Of [`MAX_WAITERS`], the places only unlabelled tasks (platform services,
+/// the user's own programs) may take, so labelled apps cannot starve the
+/// services' connects.
+pub const SYSTEM_RESERVE: usize = 128;
+
+/// The three bounds of [`Ticket::take_with`].
+#[derive(Clone, Copy, Debug)]
+pub struct Limits {
+    /// Waiters in all.
+    pub global: usize,
+    /// Waiters of one process.
+    pub per_process: usize,
+    /// Places of `global` a labelled task may not take.
+    pub reserve: usize,
+}
+
+/// The kernel's bounds.
+pub const LIMITS: Limits = Limits {
+    global: MAX_WAITERS,
+    per_process: MAX_WAITERS_PER_PROCESS,
+    reserve: SYSTEM_RESERVE,
+};
 
 /// Everything parked in [`wait_for`] sleeps here; [`wake`] aims at one slot.
 static NAME_WAIT: WaitQueue = WaitQueue::new(WaitKind::Sleep);
@@ -53,6 +89,8 @@ pub(super) struct Waiter {
     id: u64,
     /// The waiting task's slot.
     pub(super) slot: usize,
+    /// Its address space (the thread-group id), for the per-process bound.
+    process: usize,
     /// The name it waits for.
     name: String,
 }
@@ -66,25 +104,37 @@ pub struct Ticket {
 impl Ticket {
     /// Enter the table for `slot` waiting on `name`.
     pub fn take(slot: usize, name: &str) -> Result<Ticket, Error> {
-        Ticket::take_within(slot, name, MAX_WAITERS)
+        let process = task::signal::tgid_of(slot);
+        let labelled = crate::ipc::credentials::of(slot).label_id != 0;
+        Ticket::take_with(slot, process, labelled, name, &LIMITS)
     }
 
-    /// [`Ticket::take`] with the global bound as a parameter, so a test can
-    /// reach it with a handful of tasks instead of [`MAX_WAITERS`].
-    pub fn take_within(slot: usize, name: &str, global_cap: usize) -> Result<Ticket, Error> {
+    /// [`Ticket::take`] with the task's process and class given and the
+    /// bounds as a parameter, so a test can reach them with a handful of
+    /// tasks instead of hundreds.
+    pub fn take_with(
+        slot: usize,
+        process: usize,
+        labelled: bool,
+        name: &str,
+        limits: &Limits,
+    ) -> Result<Ticket, Error> {
         validate_name(name)?;
         let now = task::ticks();
         let live = super::live_slots();
         let mut registry = REGISTRY.lock();
         // Dead tasks' tickets first, so they cannot crowd a live one out.
         super::prune_locked(&mut registry, &live, now);
-        if registry.waiters.len() >= global_cap
-            || registry
-                .waiters
-                .iter()
-                .filter(|waiter| waiter.slot == slot)
-                .count()
-                >= MAX_WAITERS_PER_TASK
+        let ceiling = if labelled {
+            limits.global.saturating_sub(limits.reserve)
+        } else {
+            limits.global
+        };
+        let held =
+            |keep: &dyn Fn(&Waiter) -> bool| registry.waiters.iter().filter(|w| keep(w)).count();
+        if registry.waiters.len() >= ceiling
+            || held(&|w| w.slot == slot) >= MAX_WAITERS_PER_TASK
+            || held(&|w| w.process == process) >= limits.per_process
         {
             return Err(Error::TooManyWaiters);
         }
@@ -92,6 +142,7 @@ impl Ticket {
         registry.waiters.push(Waiter {
             id,
             slot,
+            process,
             name: String::from(name),
         });
         Ok(Ticket { id })
@@ -145,6 +196,13 @@ pub fn forget_waiter(slot: usize) {
     NAME_WAIT.forget(slot);
 }
 
+/// Park `slot` on the wait queue as `wait_for` would, without running its
+/// loop (suite hook: a task the suite cannot run, really `Blocked`).
+#[cfg(lazyos_tests)]
+pub fn park_for_test(slot: usize, deadline: Option<u64>) {
+    NAME_WAIT.park(slot, deadline);
+}
+
 /// Resolve `name` into `target_slot`'s table, waiting for it to register until
 /// `deadline` (absolute PIT ticks; `None` waits for ever).
 ///
@@ -159,8 +217,25 @@ pub fn wait_for(
     allowed: impl Fn() -> bool,
 ) -> Result<u64, Error> {
     let me = task::current();
+    wait_for_unless(target_slot, name, deadline, allowed, || {
+        task::signal::must_unwind(me)
+    })
+}
+
+/// [`wait_for`] with the "this task is being killed" test as a parameter, so
+/// the suite (whose waiter is always the kernel task, which is never killed)
+/// can drive the `Canceled` exit.
+pub fn wait_for_unless(
+    target_slot: usize,
+    name: &str,
+    deadline: Option<u64>,
+    allowed: impl Fn() -> bool,
+    must_unwind: impl Fn() -> bool,
+) -> Result<u64, Error> {
+    let me = task::current();
     // Before the first look, so a registration in between cannot be missed.
     let _ticket = Ticket::take(me, name)?;
+    let mut interrupted = false;
     loop {
         match lookup(name) {
             Ok(found) => {
@@ -172,14 +247,23 @@ pub fn wait_for(
             Err(Error::UnknownName) => {}
             Err(error) => return Err(error),
         }
+        if interrupted {
+            // Looked once more above; no name, so end the syscall and let the
+            // signal (or the kill) take effect.
+            return Err(Error::Interrupted);
+        }
         if deadline.is_some_and(|limit| limit <= task::ticks()) {
             return Err(Error::TimedOut);
         }
         let reason = NAME_WAIT.wait(me, deadline);
-        // A fatal signal must reach the syscall return where the task ends;
-        // parking again would keep it alive (`recv` does the same).
-        if reason == WakeReason::Interrupted && task::signal::must_unwind(me) {
-            return Err(Error::Canceled);
+        if reason == WakeReason::Interrupted {
+            // A task being killed unwinds; any other signal returns `EINTR`
+            // after one more look (`wait` does not park again while a handler
+            // frame is deferred, so looping would spin).
+            if must_unwind() {
+                return Err(Error::Canceled);
+            }
+            interrupted = true;
         }
     }
 }

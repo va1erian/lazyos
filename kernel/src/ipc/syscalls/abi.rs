@@ -9,6 +9,8 @@ pub mod errno {
     pub const EPERM: i64 = 1;
     /// No such object (unused or invalid handle/transaction).
     pub const ENOENT: i64 = 2;
+    /// A signal ended a wait that the caller may re-issue.
+    pub const EINTR: i64 = 4;
     /// The argument list is too long (parcel over the wire limit).
     pub const E2BIG: i64 = 7;
     /// Operation would block (queue full, quota exhausted).

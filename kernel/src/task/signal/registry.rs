@@ -255,6 +255,12 @@ pub mod harness {
         }
     }
 
+    /// Set or clear the "handler frame deferred" mark the timer sweep leaves
+    /// (`frame_deferred`): a wait must not park while it is set.
+    pub fn set_frame_deferred(slot: usize, on: bool) {
+        with_thread(slot, |thread| thread.frame_deferred_at = u64::from(on));
+    }
+
     /// Number of process entries (leak check for tests).
     pub fn registry_len() -> usize {
         PROCS.lock().len()
