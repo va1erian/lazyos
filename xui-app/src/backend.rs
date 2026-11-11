@@ -275,7 +275,14 @@ impl LazyOSBackend {
     /// The font is registered before any text is measured or drawn, because
     /// the shaper builds its database once per thread.
     pub fn new() -> Result<LazyOSBackend, i64> {
-        xui_canvas::set_default_font(crate::font::BYTES.to_vec());
+        Self::new_with_font(crate::font::BYTES.to_vec())
+    }
+
+    /// [`new`](Self::new) with `font` (a TrueType file) as the UI face instead
+    /// of the bundled one, for a program that reads its fonts from disk
+    /// (LazyVM's `lazyvm-ui`) and so does not carry Droid Sans in its binary.
+    pub fn new_with_font(font: Vec<u8>) -> Result<LazyOSBackend, i64> {
+        xui_canvas::set_default_font(font);
         let mut display = DisplayInfo::default();
         sys::display_bind(&mut display)?;
         if display.width == 0 || display.height == 0 || display.va == 0 {
@@ -294,7 +301,13 @@ impl LazyOSBackend {
     /// channel is created in [`Backend::open_window`], once the app's
     /// window spec is known.
     pub fn new_client() -> Result<LazyOSBackend, i64> {
-        xui_canvas::set_default_font(crate::font::BYTES.to_vec());
+        Self::new_client_with_font(crate::font::BYTES.to_vec())
+    }
+
+    /// [`new_client`](Self::new_client) with `font` as the UI face, as
+    /// [`new_with_font`](Self::new_with_font).
+    pub fn new_client_with_font(font: Vec<u8>) -> Result<LazyOSBackend, i64> {
+        xui_canvas::set_default_font(font);
         let client = display::Client::connect()?;
         // A compositor that predates `GetOutput` draws at scale 1, at 60 Hz.
         let output = client.get_output();

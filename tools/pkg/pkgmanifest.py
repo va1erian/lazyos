@@ -269,11 +269,13 @@ def _check_app(app, problems):
 
 def _check_entry(entry, problems):
     binary = entry.get("binary")
-    if not isinstance(binary, str) or not binary.endswith(".elf"):
-        problems.append(f"entry.binary {binary!r} must name a .elf file")
     abi = entry.get("abi")
-    if abi is not None and abi not in ("native", "linux"):
-        problems.append(f'entry.abi {abi!r} must be "native" or "linux"')
+    # A LazyVM app is a jar the shared lazyvm-ui runs; anything else is a program.
+    suffix, what = (".jar", 'a .jar file (abi "lazyvm")') if abi == "lazyvm" else (".elf", "a .elf file")
+    if not isinstance(binary, str) or not binary.endswith(suffix):
+        problems.append(f"entry.binary {binary!r} must name {what}")
+    if abi is not None and abi not in ("native", "linux", "lazyvm"):
+        problems.append(f'entry.abi {abi!r} must be "native", "linux" or "lazyvm"')
     autostart = entry.get("autostart", False)
     if not isinstance(autostart, bool):
         problems.append(f"entry.autostart {autostart!r} must be true or false")

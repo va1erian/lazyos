@@ -25,10 +25,17 @@ impl LazyOSBackend {
     /// Otherwise the app tries to own the display and falls back to client
     /// mode when the grant is already held (by `xuid`).
     pub fn connect() -> Result<LazyOSBackend, i64> {
+        Self::connect_with_font(crate::font::BYTES.to_vec())
+    }
+
+    /// [`connect`](Self::connect) with `font` (a TrueType file) as the UI
+    /// face instead of the bundled Droid Sans: for a program that reads its
+    /// fonts from disk, such as LazyVM's `lazyvm-ui` (docs/agents/lazyvm.md).
+    pub fn connect_with_font(font: Vec<u8>) -> Result<LazyOSBackend, i64> {
         if std::env::args().any(|arg| arg == CLIENT_ARG) {
-            return Self::new_client();
+            return Self::new_client_with_font(font);
         }
-        Self::new().or_else(|_| Self::new_client())
+        Self::new_with_font(font.clone()).or_else(|_| Self::new_client_with_font(font))
     }
 
     /// The window size an app should ask for, in design pixels (the app

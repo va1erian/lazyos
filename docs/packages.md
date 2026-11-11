@@ -113,7 +113,7 @@ kind = "application"                 # optional: "application" (default) or "dev
 [entry]
 binary = "bin/paint.elf"             # must exist in the archive
 args = []                            # optional list of strings, each at most 256 bytes, at most 16 of them
-abi = "native"                       # optional: "native" (default, a LazyOS program) or "linux" (a static musl program)
+abi = "native"                       # optional: "native" (default, a LazyOS program), "linux" (a static musl program) or "lazyvm" (a jar)
 autostart = false                    # optional: start the app when the user logs in (default false)
 resident = false                     # optional: may run with no window, single instance, always in the tray (default false)
 
@@ -314,9 +314,15 @@ files   = ["write:$HOME/.apps/org.lazy.web"]
   permissions (an IDE's Play, issue #529; see "Development runs" below). The
   consent screen lists it as a high-risk permission: "Run apps you are
   developing, with permissions you approve".
-* **`entry.abi`** — absent, `native` or `linux`. The ELF header cannot tell a LazyOS
+* **`entry.abi`** — absent, `native`, `linux` or `lazyvm`. The ELF header cannot tell a LazyOS
   program from a static musl one (both are static x86_64 executables), so the
   package says which personality `init` must start it under (`spawnv`'s Linux personality).
+  `lazyvm` (LOS-02, [`agents/lazyvm.md`](agents/lazyvm.md)) makes `entry.binary` a `.jar`
+  (under `resources/`, the one top-level directory that takes any file) that `init` runs
+  with the shared `/system/lazyvm/bin/lazyvm-ui -Xbootclasspath:/system/lazyvm/lib/lazyrt.jar
+  -jar /apps/<install_dir>/<binary> <entry.args>`, in the Linux personality, under the app's
+  own label: the package carries no program, and only images built with `LAZYOS_LAZYVM=1`
+  can run it.
 * **`entry.autostart`** — absent or a boolean, default `false`. A user package
   that sets it shows "starts when you log in" on the consent screen and is
   started only after consent, and only in the sessions of the user who

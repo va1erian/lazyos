@@ -1,0 +1,26 @@
+# Notes on LazyVM: LazyVM's `samples/notes`, its S9 stage gate (a list of
+# notes in $HOME/LazyNotes, an editor and save, file I/O off the UI thread),
+# packaged by `tools/xui/core_packages.py` from the LazyVM stage
+# (`apps/notes.jar`; docs/agents/lazyvm.md, LOS-02).
+
+[app]
+name = "Notes (LazyVM)"
+system_name = "os.lazy.notesj"
+author = "LazyOS"
+version = "0.1.0"
+description = "Short notes, on LazyVM"
+category = "office"
+
+[entry]
+binary = "resources/notes.jar"
+args = ["--client"]
+abi = "lazyvm"
+autostart = false
+
+[permissions]
+interfaces = [
+    "os.lazy.display.v1",
+    "os.lazy.display.cursor.v1",
+    "os.lazy.input.v1",
+    "os.lazy.clipboard.v1",
+]

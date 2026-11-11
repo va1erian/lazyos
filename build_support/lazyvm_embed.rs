@@ -16,6 +16,23 @@ use std::path::{Path, PathBuf};
 
 use crate::os_image::{Sink, Source};
 
+/// The core packages of LazyVM's desktop apps (LOS-02): LazyWriter in Java
+/// (`xui-app/packages/writerj`) and Notes (`notesj`), which an image ships when it embeds
+/// LazyVM on the desktop ([`ui_apps`]).
+pub const APP_SHORTS: [&str; 2] = ["writerj", "notesj"];
+
+/// Whether the image ships LazyVM's desktop apps: `LAZYOS_LAZYVM=1` on a desktop image.
+pub fn ui_apps(desktop: bool) -> bool {
+    desktop && std::env::var("LAZYOS_LAZYVM").as_deref() == Ok("1")
+}
+
+/// The build failure for a wanted but unbuilt LazyVM app package.
+pub fn not_built(short: &str) -> String {
+    format!(
+        "LAZYOS_LAZYVM=1 on the desktop but core package {short} is not built; run          LazyVM's `python tools/lazyos_demo.py --lazyos <this checkout>` (it stages          the apps' jars) and `python tools/xui/core_packages.py`"
+    )
+}
+
 /// The default stage, relative to the LazyOS checkout.
 const DEFAULT_STAGE: &str = "target/lazyvm/stage";
 
@@ -32,6 +49,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     if let Err(reason) = place(sink, &stage) {
         panic!("LAZYOS_LAZYVM: {reason}");
     }
+    embed_fonts(sink, manifest_dir);
     if let Some(commands) = std::env::var_os("LAZYOS_LAZYVM_COMMANDS") {
         let commands = PathBuf::from(commands);
         crate::os_image::rerun_if_changed(&commands);
@@ -44,6 +62,17 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
         sink.add_file(fhs::LAZYVM_COMMANDS, commands);
     }
     println!("cargo:warning=LAZYOS_LAZYVM embedded: {}", stage.display());
+}
+
+/// The fonts `lazyvm-ui` reads at start (LOS-02): the faces xui apps bundle, as files under
+/// [`fhs::share::FONTS_XUI`], so LazyVM's binary carries none.
+fn embed_fonts(sink: &mut dyn Sink, manifest_dir: &Path) {
+    let dir = manifest_dir.join("assets").join("fonts");
+    for name in fhs::share::FONTS_XUI_FILES {
+        let path = dir.join(name);
+        crate::os_image::rerun_if_changed(&path);
+        sink.add_file(&format!("{}/{name}", fhs::share::FONTS_XUI), path);
+    }
 }
 
 /// The stage directory: `LAZYOS_LAZYVM_STAGE` when set (relative to the checkout when not

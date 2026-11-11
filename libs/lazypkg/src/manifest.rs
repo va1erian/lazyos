@@ -176,9 +176,11 @@ pub struct Entry {
     pub binary: String,
     #[serde(default)]
     pub args: Vec<String>,
-    /// The program's ABI: `native` (the default, a LazyOS program) or `linux`
-    /// (a static musl program the Linux ABI personality runs). An ELF header
-    /// cannot tell the two apart, so the package says which one it is.
+    /// The program's ABI: `native` (the default, a LazyOS program), `linux`
+    /// (a static musl program the Linux ABI personality runs), or `lazyvm` (a
+    /// jar that LazyVM's shared `lazyvm-ui` runs, docs/agents/lazyvm.md). An
+    /// ELF header cannot tell the first two apart, so the package says which
+    /// one it is.
     #[serde(default)]
     pub abi: Option<String>,
     /// Start the app when the user logs in. For a user package this is shown
@@ -197,6 +199,22 @@ impl Entry {
     /// Whether the program runs under the Linux ABI personality.
     pub fn is_linux(&self) -> bool {
         self.abi.as_deref() == Some("linux")
+    }
+
+    /// Whether the entry is a jar for LazyVM's `lazyvm-ui` (`abi = "lazyvm"`).
+    pub fn is_lazyvm(&self) -> bool {
+        self.abi.as_deref() == Some("lazyvm")
+    }
+
+    /// The ABI name an installed row records: `native`, `linux` or `lazyvm`.
+    pub fn abi_name(&self) -> &'static str {
+        if self.is_linux() {
+            "linux"
+        } else if self.is_lazyvm() {
+            "lazyvm"
+        } else {
+            "native"
+        }
     }
 }
 

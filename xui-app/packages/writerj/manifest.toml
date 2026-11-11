@@ -1,0 +1,36 @@
+# LazyWriter on LazyVM: the same word processor, written in Java for LazyVM
+# (LazyVM's `samples/writer`), packaged by `tools/xui/core_packages.py` from
+# the LazyVM stage (docs/agents/lazyvm.md, LOS-02). Images built with
+# `LAZYOS_LAZYVM=1` and the desktop ship it.
+#
+# `resources/writer.jar` is not checked in: the build copies it from the stage
+# (`apps/writer.jar`). `abi = "lazyvm"` makes `init` start the shared
+# `/system/lazyvm/bin/lazyvm-ui -jar <jar>`, so the package carries no
+# program of its own.
+
+[app]
+name = "LazyWriter (LazyVM)"
+system_name = "os.lazy.writerj"
+author = "LazyOS"
+version = "0.1.0"
+description = "A word processor, running on LazyVM"
+category = "office"
+
+[entry]
+binary = "resources/writer.jar"
+# The serif and mono faces `lazyvm-ui` registers from /system/share/fonts/xui
+# (program arguments after the jar; `+` for a space, as `init` splits the
+# launch line on spaces), then `--client`: a
+# desktop app is a client of the `xuid` compositor.
+args = ["--serif=Droid+Serif", "--mono=JetBrains+Mono", "--client"]
+abi = "lazyvm"
+autostart = false
+
+[permissions]
+# As LazyWriter's, without printing (LazyVM reaches no Messenger service yet).
+interfaces = [
+    "os.lazy.display.v1",
+    "os.lazy.display.cursor.v1",
+    "os.lazy.input.v1",
+    "os.lazy.clipboard.v1",
+]
