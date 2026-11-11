@@ -68,6 +68,7 @@ use elevpolicy::approvals::{Approvals, Caller, LabelKind, LabelKinds};
 use elevpolicy::backoff::{Backoff, Hold};
 use elevpolicy::queue::Queue;
 use elevpolicy::{Class, Operation};
+use libmessenger::client::CallError;
 use libmessenger::{Encoder, Parcel};
 use messenger_generated::errors::ERROR_FIELD;
 use messenger_generated::os_lazy_elevd_v1 as wire;
@@ -114,6 +115,12 @@ impl Refusal {
     pub(crate) fn of(error: Error) -> Refusal {
         let code = error.errno().map(|code| -code).unwrap_or(errno::EIO);
         Refusal(code, error.message().to_string())
+    }
+
+    /// The refusal of a generated client's call: the service's own code and
+    /// sentence, or the transport's errno.
+    pub(crate) fn of_call(error: CallError) -> Refusal {
+        Refusal(-error.code(), error.message().to_string())
     }
 }
 

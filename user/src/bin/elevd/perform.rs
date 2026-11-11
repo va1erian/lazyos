@@ -10,6 +10,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use elevpolicy::{value_args, Operation, Value, WifiChange, NET_PREFIX, POWER_PREFIX};
+use user::messenger::client::Native;
 use user::messenger::{accounts, confd, errno, keyd, pkgd, services, timed};
 use user::sys;
 
@@ -84,8 +85,8 @@ pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done
         }
         Operation::ConfElevate => done(String::from("Settings elevated")),
         Operation::TimeSet { unix } => {
-            let client = timed::Client::connect().map_err(Refusal::of)?;
-            client.set_time(*unix).map_err(Refusal::of)?;
+            let client = timed::Client::connect(Native).map_err(Refusal::of_call)?;
+            client.set_time(*unix).map_err(Refusal::of_call)?;
             done(String::from("Clock set"))
         }
         Operation::AccountCreate {

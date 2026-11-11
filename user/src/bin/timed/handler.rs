@@ -3,6 +3,8 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use libmessenger::client::Connection;
+use user::messenger::client::Native;
 use user::messenger::timed::{self as api, wire};
 use user::messenger::{errno, services, Error, Message, Parcel, Result};
 use user::sys;
@@ -60,7 +62,15 @@ pub(super) fn dispatch(state: &mut State, ntp: &mut Ntp, message: &Message) -> R
         }
         _ => return Err(Error::Errno(-errno::EINVAL)),
     };
-    Ok(api::parcel(method, body))
+    // The reply carries the request's interface and method; the generated
+    // server (`docs/client-api-plan.md` 3.3) will build it.
+    Ok(Connection::<Native>::request(
+        api::INTERFACE,
+        method,
+        0,
+        body,
+        Vec::new(),
+    ))
 }
 
 fn now_reply(state: &State) -> Result<Vec<u8>> {

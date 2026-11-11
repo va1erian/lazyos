@@ -234,7 +234,7 @@ impl Service {
     /// for a call.
     pub fn send_oneway(&self, interface: u64, method: u32, body: Vec<u8>) -> Result<(), i64> {
         self.conn
-            .send(interface, method, body)
+            .send(interface, method, body, Vec::new())
             .map_err(|error| error.code())
     }
 }
