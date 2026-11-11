@@ -248,7 +248,12 @@ Two implementations: `user::messenger` (native) and one std implementation in
 deletes the seven test-seam traits.
 
 `Connection` (generic, in `libmessenger`) owns resolve, the name cache,
-eviction on `EPIPE`/`ENOENT` and one reconnect. Waiting for a service that has
+eviction on `EPIPE`/`ENOENT` and one reconnect. **Built in C1** (module
+`libmessenger::client`; transports `user::messenger::client::Native` and
+`lazyos_sys::client::Std`; `Mock` behind the `mock` feature). C1 left the
+registry wait below undone: each transport still polls inside `resolve` for
+its one runtime bound (10 s; 10 ms sleeps in std, one tick natively), the
+only polling loop per runtime, until the kernel registry can wake a waiter. Waiting for a service that has
 not registered yet blocks on the registry, not on `sleep_millis(10)`: the
 registry (`idl/registry.midl`) has no way to wait for a name today, so C1
 adds one (a retained `system/registry/registered/{name}` topic, or a
