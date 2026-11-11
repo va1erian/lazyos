@@ -27,11 +27,11 @@ use std::ffi::OsString;
 use std::io;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use xui_core::app::{App, Proxy, Ui};
 use xui_core::backend::BackendError;
+use xui_work::Sink;
 use xui_core::geometry::Point;
 use xui_core::message::{Key, Modifiers};
 use xui_core::widget::{
@@ -62,9 +62,9 @@ pub struct ViewOptions {
     pub sort: SortOrder,
 }
 
-/// Where a paste worker leaves its answer: the folder it pasted into and what
-/// it did.
-type PasteSlot = Arc<Mutex<Option<(PathBuf, io::Result<crate::platform::Pasted>)>>>;
+/// A paste worker's answer: the folder it pasted into and what it did, or why
+/// the worker could not run.
+type PasteAnswer = Result<(PathBuf, io::Result<crate::platform::Pasted>), xui_work::Failed>;
 
 /// One explorer window's messages.
 #[derive(Clone, Copy, Debug)]
@@ -160,10 +160,11 @@ pub struct ExplorerWindow {
     window: u64,
     /// Reaches this window from the platform's drag hooks and worker threads.
     proxy: Proxy<Msg>,
-    /// A paste is running on a worker thread, and where it leaves its answer
-    /// (the folder it pasted into, and what it did).
+    /// A paste is running on a worker thread, which answers through
+    /// `paste_to`; `Msg::PasteDone` rings when it has.
     pasting: bool,
-    pasted: PasteSlot,
+    paste_to: xui_work::Sink<PasteAnswer>,
+    pasted: xui_work::Inbox<PasteAnswer>,
     /// The selection, and the one before its latest change.
     selected: Vec<usize>,
     previous: Vec<usize>,
@@ -190,12 +191,10 @@ impl ExplorerWindow {
     ) -> Result<ExplorerWindow, BackendError> {
         let listing = Rc::new(Listing::load(explorer.platform(), &dir, options.sort));
         let proxy = ui.proxy();
+        let (paste_to, pasted) = xui_work::inbox(&proxy, Msg::PasteDone);
         let thumbs = explorer.platform().thumb_reader().map(|reader| {
-            let proxy = proxy.clone();
-            let wake = Arc::new(move || {
-                let _ = proxy.send(Msg::Thumbs);
-            });
-            Rc::new(Thumbs::new(reader, wake))
+            let bell = Sink::bell(&proxy, Msg::Thumbs);
+            Rc::new(Thumbs::new(reader, move || bell.ring()))
         });
         let handles = Handles::default();
         let model = SharedListing::new(Rc::clone(&listing)).with_thumbs(thumbs.clone());
@@ -225,7 +224,8 @@ impl ExplorerWindow {
             window: ui.window().raw(),
             proxy,
             pasting: false,
-            pasted: Arc::default(),
+            paste_to,
+            pasted,
             selected: Vec::new(),
             previous: Vec::new(),
         };
