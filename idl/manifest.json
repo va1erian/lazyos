@@ -1411,7 +1411,8 @@
       {
         "name": "Sessions",
         "id": 916097772,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Login",

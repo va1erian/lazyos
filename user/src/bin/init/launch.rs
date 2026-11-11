@@ -9,6 +9,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use user::trace;
 
+use user::messenger::client::Native;
 use user::messenger::{self, logind, router, services, Message};
 use user::sys::{self, Cred as SysCred};
 
@@ -84,11 +85,13 @@ fn lookup_session_uid(session: u64) -> messenger::Result<u32> {
     if let Some(uid) = sessions::owner(session) {
         return Ok(uid);
     }
-    let endpoint = services::resolve_service(logind::NAME)
+    let client = logind::Client::try_connect(Native)
         .map_err(|_| messenger::Error::Errno(-messenger::errno::ENOENT))?;
-    let (_, sessions) = logind::fetch_sessions(&endpoint)
+    let reply = client
+        .sessions()
         .map_err(|_| messenger::Error::Errno(-messenger::errno::ENOENT))?;
-    sessions
+    reply
+        .sessions
         .iter()
         .find(|record| record.id == session && record.state == "active")
         .map(|record| record.uid)

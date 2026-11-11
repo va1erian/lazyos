@@ -1,6 +1,7 @@
 //! Health, session and event-log command output.
 
 use alloc::format;
+use user::messenger::client::Native;
 use user::messenger::{logind, services};
 use user::sys;
 
@@ -33,11 +34,14 @@ pub(crate) fn print_health() {
 /// can be sitting at the console prompt, in which case it answers after the
 /// next key and this prints a friendly timeout instead of hanging.
 pub(crate) fn print_sessions() {
-    let endpoint = match services::resolve_service(logind::NAME) {
-        Ok(endpoint) => endpoint,
+    let client = match logind::Client::try_connect(Native) {
+        Ok(client) => client,
         Err(error) => return report(error.message()),
     };
-    match logind::fetch_sessions(&endpoint) {
+    match client
+        .sessions()
+        .map(|reply| (reply.active, reply.sessions))
+    {
         Ok((_, sessions)) if sessions.is_empty() => {
             sys::write_str("sessions: none yet\n");
         }

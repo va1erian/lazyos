@@ -23,7 +23,10 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::messenger::{logind, registry, router, services, DEFAULT_BUFFER, EXPIRED_DEADLINE};
+use libmessenger::client::Deadline;
+
+use crate::messenger::client::Native;
+use crate::messenger::{logind, router, services, DEFAULT_BUFFER, EXPIRED_DEADLINE};
 use crate::{sys, trace};
 
 /// Ticks (100 Hz) between attempts to subscribe while `init` is unreachable.
@@ -79,7 +82,7 @@ impl Logins {
             return None;
         }
         self.next_poll = now + POLL_TICKS;
-        let users = match ask_logind(&mut self.buffer) {
+        let users = match ask_logind() {
             Some(users) => users,
             None if !ended.is_empty() => {
                 let mut users = self.users.clone();
@@ -159,15 +162,12 @@ fn ended_uid(event: &router::Event) -> Option<u32> {
 }
 
 /// `logind`'s own answer: the uids of the live sessions, or `None` when it
-/// did not answer in time. `buf` is the reused receive buffer (the user
-/// heap never reclaims a per-call one).
-fn ask_logind(buf: &mut [u8]) -> Option<Vec<u32>> {
-    let endpoint = registry::resolve(logind::NAME).ok()?;
-    let deadline = Some(sys::clock() + ANSWER_TICKS);
-    let reply = endpoint.call_with(&logind::sessions_request(), buf, deadline);
-    let _ = endpoint.release();
-    let (_, sessions) = logind::decode_sessions(&reply.ok()?).ok()?;
-    let mut users: Vec<u32> = sessions
+/// did not answer in time.
+fn ask_logind() -> Option<Vec<u32>> {
+    let client = logind::Client::try_connect(Native).ok()?;
+    let reply = client.sessions_within(Deadline::ticks(ANSWER_TICKS)).ok()?;
+    let mut users: Vec<u32> = reply
+        .sessions
         .iter()
         .filter(|s| LIVE.contains(&s.state.as_str()))
         .map(|s| s.uid)
