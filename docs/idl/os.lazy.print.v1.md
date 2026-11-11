@@ -23,6 +23,10 @@ the shared structured error field, `EINVAL` with one line for the user
 | Status | 6222351 | sync | `(job: U32) -> (info: JobInfo)` |
 | Jobs | 1256630173 | sync | `() -> (jobs: Array<JobInfo>)` |
 
+## Service
+
+- Served under the registry name `os.lazy.print`; registered once.
+
 ## struct `Ticket`
 
 - `name: String`

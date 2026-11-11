@@ -63,6 +63,11 @@ declared reply fields.
 | SetVolume | 1919741053 | sync | `(stream: U32, gain_q16: U32) -> ()` |
 | SetMute | 1285443642 | sync | `(stream: U32, mute: Bool) -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.audio` (together with `os.lazy.audio.mixer.v1`); registered once.
+- Served under the registry name `os.lazy.audio.card/{id}`; a family, one name per instance.
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

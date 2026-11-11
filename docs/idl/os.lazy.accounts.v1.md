@@ -27,6 +27,10 @@ code, friendly text).
 | SetAdmin | 1706675794 | sync | `(name: String, admin: Bool) -> ()` |
 | ListUsers | 702470087 | sync | `() -> (users: Array<User>, setup: Bool)` |
 
+## Service
+
+- Served under the registry name `os.lazy.accountsd`; registered once.
+
 ## struct `User`
 
 - `name: String`

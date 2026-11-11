@@ -70,6 +70,9 @@
 // The interface every function of this module calls.
 export const INTERFACE = "os.lazy.webd.view.v1";
 
+// The registry name the interface is served under (`service` in the `.midl`).
+export const SERVICE = "app.os.lazy.webd.view";
+
 /// The connected service: `invoke`, `invoke_oneway` and method sugar
 /// (`docs/rhai/msg.md`). Resolved once per process.
 fn connect() {

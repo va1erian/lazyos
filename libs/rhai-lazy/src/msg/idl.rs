@@ -11,6 +11,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.accounts.v1",
         id: 0x2cbf60abbc1951bc,
+        service: "os.lazy.accountsd",
         doc: "The account database service (issues #101, #624; docs/accounts-plan.md\nU1). `accountsd` runs as the `_accounts` system uid and owns\n`/accounts/db`; `/system/etc/passwd` and `/system/etc/group` are views\nof it. Lookups and `ListUsers` are open to any caller; `Authenticate` is\nopen but slowed (`EAGAIN` while a brake holds): a caller's failures count\nagainst its own uid, and against the account name only when `logind` or\n`elevd` asked, so no session can lock another account out. Creating, deleting and promoting accounts, and setting another\nuser's password, are accepted from `elevd` alone (after an administrator\napproved them on the trusted prompt, U2), never from a uid or a\ncapability; the login screen may create the machine's first account during\nthe first-boot setup. Failures are a structured error field (errno-style\ncode, friendly text).",
         methods: &[
             Method {
@@ -90,6 +91,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.audio.v1",
         id: 0x536f1f4639cf07f0,
+        service: "os.lazy.audio",
         doc: "An audio card's control and data-plane interface (docs/driver-plan.md §3.8).\n\nTwo services serve it (docs/audio-plan.md). The system mixer `audiod`\nserves it under `os.lazy.audio`, the name applications resolve: any number\nof streams from any number of clients, each resampled to the card's rate,\nscaled by its own volume and the master volume, and mixed. A userspace\naudio driver (`sndd`) serves it for one card under `os.lazy.audio.card/<id>`\n(`virtio-snd0`, `intel-hda0`, `usb-audio0`); its one stream belongs to the mixer. Control is\nrequest/reply; sample data flows through a shared ring buffer per stream,\nso the wire never carries audio. A stream has exactly one owner, the task\nthat opened it.\n\n**The client owns the ring.** Replies cannot carry buffers (the kernel\nrefuses objects in a reply), and the driver must not trust memory a\nclient can rewrite while the device reads it, so the driver keeps its own DMA\nslots and copies committed periods out of the client's ring. A playback\nclient therefore: `OpenStream` (learn the granted parameters), create a\nshared buffer of at least `periods * period_bytes` bytes, `AttachRing` it\n(the request's `ring`), write interleaved samples into it, `Commit`\nhow many frames it has written, `Start`, and finally `Drain` and\n`CloseStream`.\n\nFrame *n* of the stream lives at ring byte `(n mod ring_frames) *\nframe_bytes`, where `ring_frames = periods * period_bytes / frame_bytes`.\n`Commit` carries the **total** frames written since the ring was attached\n(frame numbering restarts at 0 after `Stop`); it must never go backwards and\nnever run more than `ring_frames` ahead of the `consumed` count the driver\nlast reported (`consumed` is what it has already copied out of the ring, so\nthose frames are safe to overwrite), or the call fails with `EINVAL`.\n`Position`, which counts frames the device has *played*, never exceeds\n`consumed`, so a client that paces itself on `Position` is always safe. The\ndriver consumes whole periods as they are committed, plus a final short\nperiod during `Drain`. If the device runs out of committed data it plays\nsilence and the stream keeps running.\n\nThe driver grants the closest supported parameters and reports them in the\nreply, never failing for a merely unsupported rate or period size. A\nrequest outside `AudioInfo` (unknown format, zero or oversized channel\ncount, a zero period) fails with `EINVAL`; a stream the card cannot provide\n(capture, today) with `ENOTSUP`; a busy card, or a mixer at its stream\nlimit, with `EBUSY`. Calls on a stream\nby anyone but its owner fail with `EACCES`. Failures are returned as the\nshared structured error field (see `services::error_field`) instead of the\ndeclared reply fields.",
         methods: &[
             Method {
@@ -227,6 +229,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.audio.mixer.v1",
         id: 0x39a0c9a99b23a265,
+        service: "os.lazy.audio",
         doc: "The system mixer's control interface (docs/audio-plan.md stage A2).\n\n`audiod` serves it next to `os.lazy.audio.v1` under the same name,\n`os.lazy.audio`. Where `os.lazy.audio.v1` lets a stream's owner drive its\nown stream, this interface is the volume control panel of the machine: it\nlists every stream and sets any stream's volume and the master volume.\n\nIt never exposes samples, rings or the stream calls themselves, so holding\nit lets a task change *how loud* others are, never *what* they play or hear.\nWho may hold it is the Messenger policy's decision (an installed app needs\nthe permission explicitly); the service itself does not ask.\n\nThe mixer plays through one *output* at a time: every card a driver\nregisters under `os.lazy.audio.card/<id>`. `ListOutputs` lists them and\n`SelectOutput` switches; without a choice (or when the chosen one is\nabsent) the best kind present plays (USB, HDMI, a built-in codec, a\nvirtual card; the newest of a kind), so a headset plugged in\ntakes over and unplugging it falls back to the one before.\n\nGains are 16.16 fixed point: 65536 is unity, 0 silent, at most 262144\n(four times unity). Failures are returned as the shared\nstructured error field (see `services::error_field`): an unknown stream is\n`ENOENT`, an out-of-range gain `EINVAL`.",
         methods: &[
             Method {
@@ -310,7 +313,8 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.clipboard.v1",
         id: 0x5a8da8f22670b758,
-        doc: "The per-session clipboard service (issue #115).\n\nA client publishes an *offer* (typed MIME payloads, eager or lazy) and\nreceives a token; a paste is a `Request` for one MIME of a token in the\ncaller's own session. The session of every call is the kernel-stamped\ncaller session, never a wire field, so a token from another session is\nrefused with `EACCES`.\n\nOne wire interface, three policy ids: MIDL gives every interface a single\nid, but the ACL layer scopes the service by capability, so a parcel's\nheader carries a *scope interface id* while its method id comes from this\nfile. `Offer` travels on `fnv1a64(\"os.lazy.clipboard.write.v1\")`,\n`Request` on `fnv1a64(\"os.lazy.clipboard.read.v1\")`, `Serialize` (served by\nan offer's owner, not the service) on the owner scope, and `Ping` and\n`Current` on this interface's own id. The scope names are ACL names, not\nwire fields, so they live as constants in `user/src/messenger/clipboard`.\nFailures reply with the standard error field (id 15, `docs/midl.md`) instead of the\ndeclared reply fields, which never use that id.",
+        service: "os.lazy.clipboard",
+        doc: "The per-session clipboard service (issue #115).\n\nA client publishes an *offer* (typed MIME payloads, eager or lazy) and\nreceives a token; a paste is a `Request` for one MIME of a token in the\ncaller's own session. The session of every call is the kernel-stamped\ncaller session, never a wire field, so a token from another session is\nrefused with `EACCES`.\n\nOne wire interface, three policy ids: MIDL gives every interface a single\nid, but the ACL layer scopes the service by capability, so a parcel's\nheader carries a *scope interface id* while its method id comes from this\nfile. `Offer` travels on `fnv1a64(\"os.lazy.clipboard.write.v1\")`,\n`Request` on `fnv1a64(\"os.lazy.clipboard.read.v1\")` (both declared with\n`scope` on the method and generated as `METHOD_*_SCOPE`), `Serialize`\n(served by an offer's owner, not the service) on the owner scope, a magic\nid that is not a name hash and so has no `scope` syntax, and `Ping` and\n`Current` on this interface's own id. The deadlines are what every client\ngives the call: half a second for an ordinary one (a copy or paste key\nruns on a UI thread), five seconds for one that moves a large payload.\nFailures reply with the standard error field (id 15, `docs/midl.md`) instead of the\ndeclared reply fields, which never use that id.",
         methods: &[
             Method {
                 name: "Offer",
@@ -426,13 +430,14 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.confd.v1",
         id: 0xdf3c79dfb9f8f2e0,
+        service: "os.lazy.confd",
         doc: "The hierarchical configuration registry (issue #260).\n\nThe store is a tree of one typed value per path; reachable only through\nMessenger, and every call is checked against the kernel-stamped caller uid.\nChange notifications are best-effort: a subscriber observes\n`(path, deleted)` and must re-read the value.",
         methods: &[
             Method {
                 name: "Get",
                 id: 915881719,
                 oneway: false,
-                doc: "Read the value at `path`. An absent path has an empty `value`.\nA path the caller may not read fails with `CONFD_DENIED`.",
+                doc: "Read the value at `path`. An absent path has an empty `value`.\nA path the caller may not read fails with `Denied`.",
                 params: &[Field { name: "path", id: 1, ty: Ty::String }],
                 returns: &[Field { name: "value", id: 1, ty: Ty::Option(&Ty::Struct("Value")) }],
                 objects: &[],
@@ -477,8 +482,8 @@ pub static INTERFACES: &[Interface] = &[
         structs: &[
             Struct {
                 name: "Value",
-                doc: "One typed value. `kind` selects which optional payload field is set:\n`0` bool, `1` i64, `2` u64, `3` string, `4` bytes.",
-                fields: &[Field { name: "kind", id: 1, ty: Ty::U32 }, Field { name: "bool_value", id: 2, ty: Ty::Option(&Ty::Bool) }, Field { name: "i64_value", id: 3, ty: Ty::Option(&Ty::I64) }, Field { name: "u64_value", id: 4, ty: Ty::Option(&Ty::U64) }, Field { name: "str_value", id: 5, ty: Ty::Option(&Ty::String) }, Field { name: "bytes_value", id: 6, ty: Ty::Option(&Ty::Bytes) }],
+                doc: "One typed value. `kind` selects which optional payload field is set.",
+                fields: &[Field { name: "kind", id: 1, ty: Ty::Enum("Kind") }, Field { name: "bool_value", id: 2, ty: Ty::Option(&Ty::Bool) }, Field { name: "i64_value", id: 3, ty: Ty::Option(&Ty::I64) }, Field { name: "u64_value", id: 4, ty: Ty::Option(&Ty::U64) }, Field { name: "str_value", id: 5, ty: Ty::Option(&Ty::String) }, Field { name: "bytes_value", id: 6, ty: Ty::Option(&Ty::Bytes) }],
             },
             Struct {
                 name: "Change",
@@ -486,7 +491,9 @@ pub static INTERFACES: &[Interface] = &[
                 fields: &[Field { name: "path", id: 1, ty: Ty::String }, Field { name: "deleted", id: 2, ty: Ty::Bool }],
             },
         ],
-        enums: &[],
+        enums: &[
+            Enum { name: "Kind", variants: &["Bool", "I64", "U64", "Str", "Bytes"] },
+        ],
         topics: &[
             Topic {
                 pattern: "system/confd/changed/#",
@@ -507,6 +514,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.devd.v1",
         id: 0xdfcb893f6178130f,
+        service: "os.lazy.devd",
         doc: "The device manager (issue #497, docs/driver-plan.md section 3.6): matches\nthe PCI functions the kernel enumerated against a static driver manifest\n(`libs/devmatch`), asks `init` to start each matched driver\n(`os.lazy.init.v1.StartDriver`), and reports every device's state.\n\n`devd` has no device authority of its own: it reads the kernel's read-only\ninventory, never claims, maps or touches a device, and names to `init` only\na driver row and the device it matched; `init` decides the program, its\ncredentials and its arguments. Failures are a structured error field\n(errno-style code, friendly text), not a typed reply.",
         methods: &[
             Method {
@@ -540,6 +548,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.display.v1",
         id: 0x5ef41f254d43c2b4,
+        service: "os.lazy.display.v1",
         doc: "The userspace compositor protocol (`xuid`; issues #113, #143, #145, #167,\n#287).\n\nOne interface carries both directions. **Calls** (app or shell to\ncompositor) are ordinary request/reply methods: `CreateSurface`,\n`AttachBuffer`, `Commit`, `DestroySurface`, `DragStart`, `DragCancel`,\n`ListSurfaces`, `GetWorkArea`, `Subscribe`, `GetTheme`, `SetTitle`,\n`HintOpenOrigin` and `SetSizeHints`. **Events** (compositor to app, or to\nthe shell subscriber) are `oneway` methods sent on the event endpoint the\nclient transferred: `PointerMove`, `PointerDown`, `PointerUp`,\n`PointerWheel`, `KeyDown`, `KeyUp`, `WindowClose`, `Configure`, the\ndrag-and-drop set\n`DragEnter`/`DragOver`/`DragLeave`/`Drop`/`DragEnded`, and the shell set\n`SurfaceChanged`/`FocusChanged`/`StartMenu`. Method ids are pinned to the\nvalues the hand-written protocol used (1-24), so the numbering stays\nappend-only from here on.\n\nEndpoints and buffers are object fields of the request (the parcel's\nobject list, which the kernel resolves and installs in the receiver's\ntable): `CreateSurface` and `Subscribe` move one event endpoint\n(`events`), `AttachBuffer` shares one pixel buffer (`pixels`, at least\n`width * height * 4` bytes of RGBA8 for the surface's current content\nsize, rows tightly packed at that width).\n\nPointer coordinates in every event are relative to the surface content\norigin; a move outside the surface (a press-and-drag) reports negative or\noversized values. Pointer events carry a button id (`1` left, `2` right,\n`3` middle). Failures of calls are returned as a structured error field\n(id 15, errno-style code plus friendly text) instead of the declared reply\nfields, which never use that id.",
         methods: &[
             Method {
@@ -1006,6 +1015,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.display.cursor.v1",
         id: 0x17e8a175efe87bc6,
+        service: "os.lazy.display.v1",
         doc: "The mouse pointer's shape over an app's own windows (`docs/cursor-plan.md`).\n\n`xuid` serves this interface on the display service (`os.lazy.display.v1`,\nthe endpoint every display client already holds) and is also the ACL scope\nit travels on: the parcel's interface id is this interface's, so the\nkernel's label rules decide whether an app may change the pointer before\nthe compositor sees the call. A package asks for it by listing\n`os.lazy.display.cursor.v1` in its manifest's `interfaces`; it is not\nimplied by `os.lazy.display.v1`. Unlabelled tasks (the Terminal, system\nservices) pass by the usual uid rules.\n\nThe compositor itself picks the arrow over the title bar, a resize shape\nover a resizable window's border and while a resize runs, and the shape the\nsurface asked for over its content. Failures are returned as a structured\nerror field (id 15) like the display interface's.",
         methods: &[
             Method {
@@ -1027,6 +1037,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.echo.v1",
         id: 0xcc4ac1057e84db93,
+        service: "os.lazy.echo",
         doc: "A tiny demo service: echo whatever you send (issue #90 sample IDL).",
         methods: &[
             Method {
@@ -1072,6 +1083,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.elevd.v1",
         id: 0xc9dbdc9caf1c9788,
+        service: "os.lazy.elevd",
         doc: "The elevation service (docs/accounts-plan.md U2, issue #625).\n\nNobody is handed root or a capability: `elevd` runs a fixed table of\nprivileged *operations* itself (`libs/elevpolicy`), each only after an\nadministrator typed their name and password on the trusted prompt `xuid`\ndraws (`os.lazy.display.prompt.v1` below). The services that perform the\noperations (accounts, confd, pkgd, timed, init, keyd) accept the privileged path\nfrom `elevd`'s own identity (its system uid, unlabelled) and nobody else.\n\nEvery request is audited: one `system/events/elevd/request` record per\nrequest (granted, refused, cancelled, timed out), which `logd` journals to\n`/logs/elevd.log`. Wrong admin passwords lock the asker out for a growing\ndelay (`EAGAIN`), and so does a prompt the asker had cancelled or left to\ntime out (`EAGAIN`, no prompt: 5 s, doubling up to 2 minutes, ended by an\napproval). A caller has one request in hand at a time (`EBUSY` for another\nwhile one is answered or waiting). Failures are a structured error field\n(errno-style code, friendly text): `EINVAL` an unknown operation or bad\narguments, `EPERM` a caller outside a login session, `ECANCELED` the\nprompt was cancelled, `ETIMEDOUT` nobody answered it, `EACCES` no\nadministrator approved it, `ENODEV` no prompt can be shown (no display),\n`EAGAIN` also when the compositor could not take the keyboard from the\napps for the prompt, or the performing service's own error.",
         methods: &[
             Method {
@@ -1114,6 +1126,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.display.prompt.v1",
         id: 0x84929e679d4d88b2,
+        service: "",
         doc: "The trusted prompt (docs/accounts-plan.md U2), served by `xuid` on the\ndisplay endpoint and accepted from `elevd` alone. `xuid` dims the screen\nand draws the prompt above every client, panel and the shell; while it is\nup no client gets a key or a pointer event, no keyboard grab holds, and no\nwindow can rise above it. It names the caller from what `elevd` read off\nthe request's kernel stamp (`label_id` is resolved by `xuid` itself).\nCancel is the default; Escape cancels. One prompt at a time (`EBUSY`).",
         methods: &[
             Method {
@@ -1135,6 +1148,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.files.v1",
         id: 0x95bb1421ccc6b3e7,
+        service: "",
         doc: "Files, the desktop file explorer (`os.lazy.files`, issue #488).\n\nFiles serves no methods: what it shares with the rest of the session is\nthe selection of its focused folder window, so another app (the Editor, a\nscript) can act on \"what the user picked\" without asking Files. Copy and\npaste go through `os.lazy.clipboard.v1` as `text/uri-list`, and the\n`reveal` verb reaches Files through `mimed.Open` and `init.Launch` with\nthe item's path as the argument.\n\nThe topic is per session: an installed app may publish or subscribe only\nunder its own kernel-stamped session, never another's.",
         methods: &[],
         structs: &[
@@ -1158,6 +1172,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.gpu.v1",
         id: 0x53ecd075e99e0064,
+        service: "os.lazy.gpu",
         doc: "The Intel GPU service (`gpud`, docs/kabylake-gpu-plan.md, stage G1:\n\"Adopt + observe\").\n\n**Read-only.** In this stage `gpud` claims the HD Graphics 620 of the\nKaby Lake box (PCI `8086:5916`, Gen9) or the UHD Graphics of the Alder\nLake box (`8086:46b3`, display 13), maps its register BAR and only *reads*\nand decodes what the firmware left on the display: the pipe, transcoder\nand DDI that are running, the link mode, the timing and pixel clock, the\ncore display clock, the first plane's surface and the GGTT pages behind\nit. It writes no display register, programs no mode and takes no\ninterrupt, so nothing in this interface can change the hardware. It exists\nto learn what the firmware leaves (plan section 2.1) and to give later\nstages (HDMI audio, flips, decode) one place that already knows.\n\nThe state is a snapshot taken once when `gpud` starts; `GetBeam` is the\none live read (the frame counter and scan line); for any other live\nregister use `dbgd`'s `mmio.read`. Failures of a call are returned as a\nstructured error field (errno-style code, friendly text), not as a typed\nreply. The interface is open to every caller: it reveals the display\nmode and where its framebuffer is, nothing a program could not see by\nasking the compositor. Method ordinals are append-only.",
         methods: &[
             Method {
@@ -1216,6 +1231,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.healthd.v1",
         id: 0xd022082ef0aaed78,
+        service: "os.lazy.healthd",
         doc: "The service health aggregator (issue #93): retained health rows, a\nheartbeat channel and the aggregate snapshot.\n\nBoth methods answer with the same snapshot shape (the aggregate `summary`\nfirst, then one retained row per service). A service publishes a heartbeat\nwith `Report`; `Status` only reads. Failures are returned as a structured\nerror field (errno-style code, friendly text), not as a typed reply.",
         methods: &[
             Method {
@@ -1265,6 +1281,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.init.v1",
         id: 0xa549dce4687b08e,
+        service: "os.lazy.init",
         doc: "The userspace service supervisor (issues #93, #158): the supervision table,\nthe built-in app registry and the app-launch path.\n\n`init` serves a `router` topic broker on the same endpoint; those topic\npayloads are not part of this interface. Failures are returned as a\nstructured error field (errno-style code, friendly text), not as a typed\nreply, so the error field is hand-written next to these stubs.",
         methods: &[
             Method {
@@ -1473,6 +1490,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.init.app.v1",
         id: 0x616633071591076d,
+        service: "os.lazy.init.app",
         doc: "A launched app's own line to `init` (docs/tray-plan.md section 5), served\nby `init` under the name `os.lazy.init.app`. It is a separate interface\nfrom `os.lazy.init.v1` so an app can be granted it without `Launch`,\n`Stop` or `Shutdown`.\n\nOnly a task `init` launched may call, found by the kernel-stamped sender\nin `init`'s table, and only for its own instance; anyone else gets\n`ESRCH`. Failures reply with the standard error field (id 15,\n`docs/midl.md`).",
         methods: &[
             Method {
@@ -1492,6 +1510,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.init.app.events.v1",
         id: 0x23f37f265bbdfe2c,
+        service: "",
         doc: "What `init` sends an app on the channel it transferred with `Watch`.",
         methods: &[
             Method {
@@ -1520,6 +1539,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.input.v1",
         id: 0x5026bd54a60f1ff6,
+        service: "os.lazy.input.v1",
         doc: "The system input service (`inputd`; `docs/input-plan.md`).\n\nTwo interfaces, served on one endpoint and registered under both names:\n`os.lazy.input.v1` for any client that wants keystrokes and\n`os.lazy.input.shell.v1` for the compositor. Input is deliberately not part\nof `os.lazy.display.v1`: display is about surfaces and buffers, input has its\nown authorisation and versioning, and `display.v1`'s frozen `KeyDown`/`KeyUp`\n(8/9) are synthesised by the compositor for legacy surfaces only.\n\n**Keys and text are separate streams.** `KeyEvent` reports the *physical*\nkey (`code`, a USB HID usage from page 0x07, identical on every layout) plus\nits meaning under the active layout (`sym`); it is what games, shortcuts and\nterminals want. `TextInput` carries composed characters for text widgets and\nis sent only for character-producing presses (never for Ctrl/Alt/Super\nchords). Neither has to reverse-engineer the other.\n\nEvents go from `inputd` straight to the endpoint the client transferred in\n`Open`, only while that client's surface has keyboard focus, and only to\nthat client.\n\nFailures of calls are returned as a structured error field (id 15,\nerrno-style code plus friendly text) instead of the declared reply fields.",
         methods: &[
             Method {
@@ -1696,6 +1716,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.input.shell.v1",
         id: 0xc258ed5b9b5debfe,
+        service: "os.lazy.input.shell.v1",
         doc: "The compositor side of `inputd`. Only the compositor may call it: `inputd`\naccepts these calls solely from the task that holds the display grant (the\nkernel says who that is), so no client can move focus or register a window on\nsomeone else's behalf. Everything is per kernel-stamped sender, never per request field.\n\nOnly `Attach` goes to the shared service endpoint. Every later call (and\nthe compositor's own `Open`, for its trusted prompt's surface) goes on the\nchannel `Attach` transferred, which no client holds: `inputd` serves it\nahead of the shared endpoint, so a client filling that queue cannot delay\na focus change (docs/accounts-plan.md U2). `Attach` on that channel is\nrefused (`EINVAL`).",
         methods: &[
             Method {
@@ -1913,6 +1934,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.keyd.v1",
         id: 0xd948c3355ba590bf,
+        service: "os.lazy.keyd",
         doc: "The secrets and crypto service (issue #102).\n\n`keyd` owns every long-term secret; no method returns key material. Keys\nare scoped to the uid that generated them (the kernel-stamped sender), so\n`Sign`, `Wrap`, `Unwrap` and `List` only see the caller's own keys.\nPayloads of `Bytes` are capped at 8 KiB so a reply always fits the call\nbuffer. Failures are returned as a structured error field (errno-style\ncode, friendly text), not as a typed reply.\n\nKey material stays in `keyd`'s own memory: no method carries a `Buffer`\nor a `Channel`, so no client ever maps a page that holds a key.",
         methods: &[
             Method {
@@ -2082,6 +2104,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.keyd.appsecret.v1",
         id: 0x37fbc58e057aa734,
+        service: "os.lazy.keyd.appsecret",
         doc: "An app's own passwords and keys, kept by `keyd` across reboots\n(docs/ai-agent-plan.md section 5.3 \"P2b\", docs/security-model.md section 8).\n\n`keyd` serves this interface on its own endpoint (also registered as\n`os.lazy.keyd.appsecret`) and it is also the ACL scope it travels on: a\npackage asks for it by listing `os.lazy.keyd.appsecret.v1` in its\nmanifest's `interfaces`. It is rated MEDIUM: an app can keep and read back\nonly its own secrets, never another app's or the system's.\n\n**Scope.** Every secret belongs to the caller's kernel-stamped uid and\ninstalled-app label (`app:<system_name>`), never to a name in the request.\nAn unlabelled caller is refused (`EPERM`), and so is a development run\n(`dev:<name>`) or a helper process (`app:<name>/<child>`): they have other\nlabels, so a project under development or a sandboxed child never sees the\ninstalled app's secrets. Another user running the same app has its own.\n\n**Limits.** A `name` is 1..=64 bytes of printable ASCII (`EINVAL`\notherwise); a `secret` is 1..=1024 bytes (`EINVAL`); an app holds at most\n16 per user (`ENOSPC` past that, and when the table is full). `EIO` means\nthe change could not be made durable and nothing changed. `ENOENT` is no\nsuch secret. Secrets persist across reboots, sealed under the machine key;\n`keyd` deletes the secrets of an app that is no longer installed. No\nsecret is ever written to a log or an error text. Failures are returned as\na structured error field (errno-style code, friendly text).",
         methods: &[
             Method {
@@ -2128,6 +2151,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.lifecycle.v1",
         id: 0x778a92e489f41682,
+        service: "",
         doc: "The service lifecycle contract (docs/shutdown.md): the one control message\n`init` sends a supervised service during an orderly shutdown. A service\nthat serves it registers this interface next to its own; one that does not\nis sent `SIGTERM` instead.\n\nThe service finishes the request it is serving, makes its state durable\n(`confd` fsyncs its store, `logd` flushes its journals, `pkgd` fsyncs\n`/logs/pkg.log`) and exits with status 0. Only a sender holding `CAP_SYS_ADMIN` (the supervisor) is\nobeyed; anyone else's message is ignored. `init` waits for the exit, not\nfor a reply, and kills the service when its stop deadline passes.",
         methods: &[
             Method {
@@ -2147,6 +2171,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.logd.v1",
         id: 0x9c5197a46ce8a872,
+        service: "os.lazy.logd",
         doc: "The structured, hash-chained event log service (issue #93).\n\nEvery record chains over the previous record's hash, so `Verify` detects\ntampering with any retained record. Records are also appended to one\npersistent journal per source, `/logs/<source>.log` (issue #508), read back\nwith `Sources` and `TailFile`. Failures are returned as a structured error\nfield (errno-style code, friendly text), not as a typed reply.",
         methods: &[
             Method {
@@ -2208,6 +2233,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.logind.v1",
         id: 0x98121a421f33722d,
+        service: "os.lazy.logind",
         doc: "The console login service (issue #101): owns the session table and\nanswers the query `messengerctl sessions` renders.",
         methods: &[
             Method {
@@ -2300,6 +2326,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.mimed.v1",
         id: 0x69d01278f9971fe6,
+        service: "os.lazy.mimed",
         doc: "The MIME database and open-with registry (issues #116, #158).\n\n`mimed` guesses a MIME type from a path, resolves which app handles a type\nand verb, and turns \"open this file\" into a launch request for `init` plus\na `system/events/open/<app>` event on the central broker. Failures are\nreturned as a structured error field (errno-style code, friendly text), not\nas a typed reply.",
         methods: &[
             Method {
@@ -2378,6 +2405,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.mount.v1",
         id: 0x9d456629506ac305,
+        service: "os.lazy.mount",
         doc: "The network mount service (docs/smb-plan.md §3.4): `mountd` starts and\nsupervises one user-space filesystem daemon per mount (`ftpfuse` for an\nFTP server, `smbfuse` for an SMB share),\neach serving `/mnt/<name>` through the FUSE mechanism, so a program that\nmay not register a filesystem itself (an installed app has no\ncapabilities) can still ask for one.\n\nA mount belongs to its requester: its files are reported as owned by the\ncaller's kernel-stamped uid and gid, and only that uid (or root) may\nunmount it. `Mount` answers at once with the mount in state `connecting`;\nthe daemon then logs in and the state becomes `mounted`, or `failed` with\na reason in `detail`. Callers poll `List`. A failed mount stays listed\nuntil it is unmounted, so its reason can be read. Failures of a request\nitself are returned as a structured error field (errno-style code,\nfriendly text): `EINVAL` for a malformed argument, `EEXIST` for a name in\nuse, `ENOENT` for an unknown name, `EPERM` for another user's mount,\n`EAGAIN` when every slot is taken.\n\nThe service also automounts removable volumes (docs/usb-hotplug-plan.md):\na FAT USB stick plugged in while someone is logged in is served at\n`/media/<label>` by a `fatfuse` as that user. `Volumes` lists them and\n`Eject` finishes one: the daemon flushes everything, closes the filesystem\n(the dirty flag is cleared) and unmounts, and only then is the stick safe\nto pull. An eject is refused while a file is open on the volume, and the\nrefusal says who holds it.",
         methods: &[
             Method {
@@ -2444,6 +2472,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.net.nic.v1",
         id: 0x6748c83c2024715b,
+        service: "",
         doc: "A network interface card, **link layer only** (docs/driver-plan.md §3.8,\ndocs/networking-plan.md §5). No IP, ARP or DHCP: those belong to the stack\nservice `netd`, which is just another client of this interface and, by\npolicy, the only one. A NIC driver (`netdrv`, virtio-net first) serves it and\nnever parses a payload.\n\n**The client owns the rings.** Replies cannot carry buffers or channels (the\nkernel refuses objects in a reply), and the driver must not let its device\nread memory a client can rewrite, so the client creates two shared buffers\nand the driver copies frames between them and its own DMA slots, in both\ndirections (the audio rule, see `os.lazy.audio.v1`). A ring is the\nsingle-producer/single-consumer frame ring of `libs/framering`: fixed\n2048-byte slots, a `u16` length then the frame, a power-of-two slot count,\nfree-running `u32` indices in a header page. Nothing about the wire lives in\na request body except the slot count.\n\n`AttachRing` carries two objects (its `Ring<Rx, Tx>` and `Channel`\nparameters; the ring declarations say the layout):\n\n* `rings`: one shared buffer holding **both rings**, back to back: the\n**receive ring** (driver produces, client consumes) at byte 0 and the\n**transmit ring** (client produces, driver consumes) at byte\n`framering::ring_bytes(slots)`.\n* `notify`: the **notify endpoint**, an endpoint the client holds the\nreceiving side of, to which the driver posts `Notify`.\n\nThe buffer must be exactly `2 * framering::ring_bytes(slots)` bytes (two\nheader pages plus `2 * slots` slots) or the call fails with `EINVAL`;\n`slots` must be a power of two from 16 to 1024 or it fails with `EINVAL`. Only one client may\nbe attached (`EBUSY` otherwise); its owner is the kernel-stamped sender of\n`AttachRing`, and calls on the ring by anyone else fail with `EACCES`.\n\n**Wake-up.** This interface replaces the draft's `notify: String` topic: a\ntopic would put a broker round trip on the receive path. Instead each\ndirection has one one-way message and one shared flag, so a waiter needs a\nsingle wait on a single endpoint and a burst costs one message, not one per\nframe (the rule the kernel uses for interrupt messages):\n\n* driver to client, `Notify`: posted to the notify endpoint when frames\narrive in the receive ring, when the transmit ring gains space after\nbeing full, or when the link changes;\n* client to driver, `Kick`: sent to the driver's endpoint after the client\nqueues frames in the transmit ring.\n\nA message is sent only when the consumer of that ring has *armed* it: the\nconsumer sets the ring's `armed` flag before it sleeps (after a final look at\nthe ring, so a frame that lands in between is never missed) and the producer\nclears it with one atomic exchange when it sends. That coalesces a burst to\nat most one outstanding message per ring, with no kernel help. A consumer\nthat never arms simply polls; it can only harm itself.\n\nBoth sides treat the other as hostile: every index and length read from\nshared memory is validated and read exactly once, and a frame is copied out\nbefore it is looked at. A ring whose peer breaks the protocol (an index\nthat claims more frames than the ring holds, an oversized length) is\npoisoned: the driver counts it in `NicStats.ring_errors` and detaches the\nclient. A frame shorter than the 14-byte Ethernet header or longer than\n`NicInfo.max_frame` is dropped and counted, never truncated.\n\n**One name per card.** A driver serves one card and registers it as\n`os.lazy.net.nic/<ifname>` (`os.lazy.net.nic/eth0`): `devd` picks the\ninterface name and `init` hands it to the driver as `ifname=<name>`. The\nstack lists the registry for that prefix to find the cards, so cards may\nappear and vanish while it runs. There is no bare `os.lazy.net.nic`.\n\nFailures of calls are returned as the shared structured error field\n(`services::error_field`) instead of the declared reply fields.",
         methods: &[
             Method {
@@ -2545,6 +2574,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.net.stack.v1",
         id: 0xb80ce5d5fc59627d,
+        service: "os.lazy.net.stack",
         doc: "The network stack service `netd` (docs/networking-plan.md N2): address\nconfiguration, routes, statistics and ping, over the interfaces the stack\ndrives (one per `os.lazy.net.nic.v1` card, however many are present). `netd` runs as the `_netd` user with no\ncapabilities, is the only client of the NIC driver, and parses every frame\nthe network sends it: nothing here is authority over a device.\n\n**Nothing names a caller.** Who is asking is the kernel-stamped sender of the\ncall; `Renew` and other changes are gated by the ACL (`libs/netpolicy`), not\nby a field in a request. Failures are returned as the shared structured error\nfield (`services::error_field`) instead of the declared reply fields.\n\n**Blocking without threads.** `Ping` is a synchronous call whose reply is\n*parked*: `netd` answers it when the echo reply arrives, or with `ETIMEDOUT`\nwhen `timeout_ms` passes, and the caller sleeps in the kernel meanwhile with\nits own deadline (`msg_cancel` and the caller's death clean up). One\ncaller may have up to 4 pings outstanding and all callers together 8; past\neither limit the call fails with `EAGAIN`. The stack's clock is the 100 Hz tick, so round trips read in\nmultiples of 10 ms. `Resolve` (N3) parks the same way: the answer comes\nwhen the resolver replies, `ETIMEDOUT` when `timeout_ms` passes.",
         methods: &[
             Method {
@@ -2689,6 +2719,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.net.socket.v1",
         id: 0x5cbc5b5a07e2bb16,
+        service: "os.lazy.net.stack",
         doc: "Sockets (docs/networking-plan.md N3), served by `netd` next to\n`os.lazy.net.stack.v1`: TCP streams and UDP datagrams over IPv4.\n\n**Ownership.** A socket belongs to the kernel-stamped sender of the `Open`\nthat made it (or of the `Accept` that returned it); every call on it by\nanyone else fails with `EACCES` (and is audited). Nothing in a request\nnames a caller. The owner is the sender's task slot (and the pid the\nscheduler's task list shows in it, which today is the slot number). Until\nthe kernel stamps tasks with a spawn counter, a task that lands in a dead\nowner's slot before `netd` has reclaimed its sockets is taken for it. A socket whose owner exits is reclaimed by\n`netd` within a fraction of a second, so a client need not `Close` before\nit dies, but a well-behaved one does. One owner may hold at most 8 sockets\nand everybody together 64; past either limit `Open` and `Accept` fail with\n`EMFILE` and `ENFILE`. The interface is served on the stack service's\nendpoint (`os.lazy.net.stack`); `netd` tells the interfaces apart by id.\n\n**Blocking without threads.** `Connect`, `Accept`, `Recv`, `RecvFrom`,\n`Send` (when the send buffer is full) and `Poll` are *parked*: `netd` keeps\nthe transaction and answers it when the socket is ready, or with\n`ETIMEDOUT` when `timeout_ms` (10 to 60000; 0 means the longest wait, 60 s)\npasses. A client that wants to wait longer calls again. A caller may have\nat most 4 parked calls at once and everyone together 32 (`EAGAIN` past\neither). Because the caller sleeps in the kernel with its own deadline,\n`msg_cancel` and its death end the wait on its side; `netd` finds out when\nit tries to reply. `Close` answers a call parked on that socket with\n`EBADF`.\n\n**Bytes travel in parcels.** A `Send` carries at most 16384 bytes and\n`Recv` returns at most `max` (1 to 16384) bytes; each socket has a 16 KiB\nbuffer each way (TCP) or room for 8 datagrams of up to 1472 bytes (UDP).\n`Recv` refuses `max = 0` with `EINVAL`, so an empty reply on a stream\nsocket always means the peer closed its side. A request too large for\n`netd`'s receive buffer (about 20 KiB, so only a malformed one) is dropped\nby the kernel and the caller's call fails at once with `EPIPE`.\n\n**Ports.** `Bind` with port 0, or no `Bind` at all before `Connect`,\n`SendTo` or `Listen`, takes an ephemeral port (49152 to 65535). Ports\nbelow 1024 are refused with `EACCES` to every caller: `netd` runs without\nthe capability that would let it read a caller's `CAP_NET_BIND`, so until\nthe policy loader lands nobody binds a privileged port. A `Bind` to a port\nanother socket of the same kind holds fails with `EADDRINUSE`.\n\n**Errors** come back as the shared structured error field\n(`services::error_field`): `EBADF` for a socket id that is not open,\n`EINVAL` for an argument or a state the call does not fit (a `Listen` on a\nconnected socket, a `Recv` on a listener), `ENETUNREACH` when there is no\naddress or no route, `ECONNREFUSED` when the peer reset a connection\nattempt, `ECONNRESET` when it reset an open one, `ENOTCONN` for stream I/O\nbefore `Connect`, `EPIPE` for a `Send` after the stream was shut for\nwriting, `EMSGSIZE` for a datagram that does not fit.",
         methods: &[
             Method {
@@ -2849,6 +2880,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.notify.v1",
         id: 0xedc6a2bd550db5ab,
+        service: "os.lazy.notify",
         doc: "Desktop notifications (docs/notify-plan.md, issue #747): a service or app\ntells the user that something happened, and LazyShell shows it as a toast.\nServed by LazyShell on Messenger under the name `os.lazy.notify`.\n\nThe shell owns the presenter: placement, stacking, animation, the\ntimeouts and the policy (rate limits, do-not-disturb, per-app mute). A\nsender only says *what* and never *how*, so a hung app cannot stall a\ntoast. Nothing is kept: there is no history and no way to list what was\nshown, so a toast that is missed is gone. (An app with a tray item sets\nthe tray's `Attention` state alongside a Warn or Error toast: that is the\ndurable signal, docs/tray-plan.md section 10.)\n\nIdentity comes from the kernel, never from the call: the toast's header\nshows the registry name `init.ListApps` gives the sender's app, so an app\ncannot post as another app or as the system. A caller that is not a launched\napp but runs in the shell's session under the shell's user (a script run\nfrom the Terminal) is shown as \"Terminal\". Callers must be in the shell's\nlogin session and be uid 0 or the shell's uid; a labelled app also needs\nthis interface in its manifest. Anyone else gets `EACCES`.\n\nEvery field is validated: a title of at most 64 characters (not empty), a\nbody of at most 256 (a line feed ends a line of it; every other control\ncharacter is shown as a space), at most 3 actions of at most 24\ncharacters with unique non-zero ids, a Lucide name or an image of at most 64 x 64\npixels, `progress` at most 100, a `level` that is a `Level` value;\nanything else is `EINVAL`. An unusable icon is not an error: it falls\nback to the level's own. At most 16 notifications of one sender are\nalive (shown or waiting) at once (`ENOSPC`); a sender posting faster than\nthe rate limit gets `EBUSY` (nothing is shown). Failures reply with the\nstandard error field (id 15, `docs/midl.md`).",
         methods: &[
             Method {
@@ -2905,6 +2937,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.notify.events.v1",
         id: 0x13b1573de8af167e,
+        service: "",
         doc: "What the shell sends an app about its toasts: oneway methods on the\nchannel the app transferred with `Listen`.",
         methods: &[
             Method {
@@ -2951,6 +2984,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.pkgd.v1",
         id: 0x2e65545739956542,
+        service: "os.lazy.pkgd",
         doc: "The application package manager (`docs/packages.md`, phase 3 of the\npackage system).\n\n`pkgd` is the only task that writes `/apps` and `/docs/apps`, records\ninstalled apps in `confd`, registers their MIME verbs with `mimed` and loads\ntheir Messenger\npolicy into the kernel (`acl_load`, `CAP_IPC_CONTROL`). A GUI installer is\nan unprivileged client: it calls `Inspect`, shows the user what the package\nasks for, and forwards the user's yes as `Install`. Failures are returned\nas a structured error field (errno-style code, friendly text), not as a\ntyped reply; a package that fails validation reports every problem in\n`PackageInfo.problems` instead of an error so the installer can list them.",
         methods: &[
             Method {
@@ -3101,6 +3135,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.messenger.policy.v1",
         id: 0xe625b4ee97525d37,
+        service: "",
         doc: "The kernel's label-keyed Messenger policy (application package system,\nphase 1; `docs/architecture/ipc-security.md`).\n\nA process stamped with a label is judged by the rules loaded here, never by\nits uid. There are five label forms: `app:<reverse.dns.name>` (an installed\napp), `app:<reverse.dns.name>/<name>` (a helper program of one),\n`system:<name>` (a platform service), `dev:<reverse.dns.name>` (an app run\nfrom an IDE) and `tool:<reverse.dns.name>` (a developer tool). Apart from a\ntool, a labelled process is default-deny: it may only use what its own\nnamespace grants (`app.<id>.<name>` services, `app/<id>/...` topics) plus the\nallow rules loaded here. A tool owns the same namespaces and may use any\nfurther name or topic that is not reserved; the rules a package manager\nloads for it are default allow after a short list of explicit denies. `LoadLabel` is the one way rules get in: it is the\nrequest body of the privileged `acl_load` messenger op, which needs\n`CAP_IPC_CONTROL`, and it is never a parcel any service receives.",
         methods: &[
             Method {
@@ -3126,6 +3161,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.messenger.names.resolve.v1",
         id: 0x51c42ba74885199f,
+        service: "",
         doc: "Kernel ACL scope for resolving a service name. The kernel evaluates a\nlabelled task's `Resolve` of `name` against its rules on this interface id,\nusing `fnv1a32(name)` as the method id, so a rule grants one exact name.\nOnly the interface id is contractual; nothing ever serves this interface.",
         methods: &[
             Method {
@@ -3145,6 +3181,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.process.label.spawn.v1",
         id: 0x2b9f30ad1cbea35e,
+        service: "",
         doc: "Kernel ACL scope for spawning a child into a development label (issue #529,\n`docs/lazyrad-package-plan.md` section 3). A labelled task (an IDE) may give\na child it spawns the label `dev:<system_name>` only when its own rules\nallow this interface id with `fnv1a32(<the dev label>)` as the method, and\nonly while `pkgd` holds an approved rule set for that label. The child keeps\nthe caller's uid, gid and session, and never gains a capability. A manifest\nasks for it with `develop = true`, which compiles to the wildcard method.\nOnly the interface id is contractual; nothing ever serves this interface.",
         methods: &[
             Method {
@@ -3164,6 +3201,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.print.v1",
         id: 0xbf8d5aec16ec445f,
+        service: "os.lazy.print",
         doc: "The print spooler, `printd` (docs/printing-plan.md P6).\n\nAn app opens a job, writes its whole document with `Write` and queues it\nwith `Close`; only a closed job is sent to its printer, so a printer never\ngets half a request because the app quit. A job answers only to the uid\nthat opened it (and root): the uid is the kernel-stamped sender, never a\nwire field, and anyone else is told the job does not exist. Failures are\nthe shared structured error field, `EINVAL` with one line for the user\n(`There is no such print job`, `The print queue is full; ...`).",
         methods: &[
             Method {
@@ -3241,6 +3279,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.messenger.registry.v1",
         id: 0x51d501afec09806c,
+        service: "os.lazy.messenger.registry",
         doc: "The Messenger service name registry (issues #89, #300).\n\nNames are published by tasks and resolved into endpoint handles. Two paths\nreach the same kernel table: the native `register`/`resolve`/`unregister`/\n`list` gate ops (which take these parcels as their request and, for `List`,\nfill the reply into the caller's buffer) and the `messengerd` daemon, which\nforwards a client's request on its behalf over the bootstrap channel. The\nkernel publishes `os.lazy.messenger.registry` itself at boot, so it is the\none name every task can resolve.\n\nA daemon failure is answered with the standard error field (`docs/midl.md`)\n(id 15, which no reply field may take) instead of a typed reply; the\nkernel gate reports failures as negative errno values.",
         methods: &[
             Method {
@@ -3311,6 +3350,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.shell.v1",
         id: 0x591939ff6e05f1c8,
+        service: "os.lazy.shell",
         doc: "LazyShell, the desktop shell (issue #157), published on Messenger under the\nname `os.lazy.shell`.\n\nLazyShell is a UI client of the compositor (`os.lazy.display.v1`), `init`\n(app registry, `Launch`) and `confd` (`sys/ui/*`); it decides nothing about\nauthority. This interface lets scripts, tests and other session programs\ndrive the desktop the way a user would (open the start menu, launch an app\nas if its menu row or desktop icon was activated, reload the menu and the\ndesktop icons) and read what the shell currently shows.\n\nCallers must be uid 0 or share the shell's uid (kernel-stamped\ncredentials); anyone else gets `EACCES`. Failures are returned as a\nstructured error field (id 15, errno-style code plus friendly text) instead\nof the declared reply fields.",
         methods: &[
             Method {
@@ -3382,6 +3422,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.sysmond.v1",
         id: 0x5cd4605eb47c3d8f,
+        service: "os.lazy.sysmond",
         doc: "The system monitor service (issue #144): one live system-stats snapshot.\n\nThe snapshot is the kernel's fixed-layout `sysinfo` block returned as raw\nbytes, so a client decodes the same block `top` reads directly from the\nkernel. Failures are returned as a structured error field (errno-style\ncode, friendly text), not as a typed reply.\n\n`sysmond` also republishes the snapshot as the retained, typed\n`system/stats/memory` and `system/stats/tasks` topics (issues #144, #307),\nso a dashboard subscribes once and is handed the latest values instead of\npolling `Snapshot`.",
         methods: &[
             Method {
@@ -3432,6 +3473,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.timed.v1",
         id: 0xc3982ac21906d77,
+        service: "os.lazy.timed",
         doc: "The time-of-day service (issue #369): UTC from the kernel wall clock, the\nsystem time zone from `confd` (`sys/time/zone`), and a retained\n`time/tick` event each minute.\n\nZones come from a small built-in table (fixed offsets plus DST rules), so a\nzone name is either one of those or refused. Failures are returned as a\nstructured error field (errno-style code, friendly text), not as a typed\nreply.",
         methods: &[
             Method {
@@ -3512,6 +3554,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.messenger.topics.v1",
         id: 0xc5734f978fef7231,
+        service: "os.lazy.messenger.topics",
         doc: "The Messenger publish/subscribe broker (issue #92, `docs/messenger.md`\nsection 7.2), served by `messengerd` as `os.lazy.messenger.topics`.\n\nTopics are hierarchical (`a/b/c`); a subscription filter may use `+` for one\nsegment and a trailing `#` for the tail. `Publish` carries an opaque payload\nparcel (at most 8 KiB); `NextEvent` parks the caller until an event is\nqueued or its deadline passes. Every call is checked against the\nkernel-stamped sender and, for `Publish`/`Subscribe`, against the kernel\ntopic ACL (see `os.lazy.messenger.topics.publish.v1` and `.subscribe.v1`).\nFailures reply with a structured error field (id 15, errno-style code plus\nfriendly text) instead of the declared reply fields, which never use that\nid.",
         methods: &[
             Method {
@@ -3621,6 +3664,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.messenger.topics.bell.v1",
         id: 0xd4c79d9b36918ea0,
+        service: "",
         doc: "The subscription doorbell (`os.lazy.messenger.topics.v1` `Bell`): what\n`messengerd` sends on a subscriber's bell channel. One `Ready` per batch:\nthe subscriber drains the subscription until `NextEvent` comes back empty,\nwhich re-arms the bell.",
         methods: &[
             Method {
@@ -3640,6 +3684,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.messenger.topics.publish.v1",
         id: 0x7ffc19b03e941e16,
+        service: "",
         doc: "Kernel ACL scope for publishing. `messengerd` asks the kernel\n(`authorize_topic`) once per publish; the kernel evaluates every topic\nsegment against policy on this interface id, using `fnv1a32(segment)` as the\nmethod id (so `+`/`#` hash like any segment). Only the interface id and the\nrequest layout are contractual; the request never travels as a parcel to a\nservice.",
         methods: &[
             Method {
@@ -3661,6 +3706,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.messenger.topics.subscribe.v1",
         id: 0xefbc15f14c9d4bef,
+        service: "",
         doc: "Kernel ACL scope for `Subscribe`/`Unsubscribe`; same request layout as the\npublish scope, with `mode` `1` (subscribe) and a filter as `name`.",
         methods: &[
             Method {
@@ -3682,6 +3728,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.shell.tray.v1",
         id: 0xe125dc0e9d908624,
+        service: "os.lazy.shell.tray",
         doc: "The taskbar tray (docs/tray-plan.md), served by LazyShell on Messenger\nunder the name `os.lazy.shell.tray`.\n\nThe shell owns the tray: rendering, order, overflow, menus and policy.\nThere is **one item per app**, keyed by the caller's kernel-stamped label\n(the `init` app id for an unlabelled built-in), so there is nothing to\nname or count: `Set` creates or replaces the app's item and `Clear`\nreturns it to the default (a running resident app keeps a default item,\nany other app leaves the tray). The tooltip header, the menu header and\nthe shell-added Quit row show the registry name `init.ListApps` gives that\nlabel, never app text.\n\nCallers must be in the shell's login session (kernel-stamped\n`cred.session`) and be uid 0 or the shell's uid; a labelled app also needs\nthis interface in its manifest (implied by `resident`). Anyone else gets\n`EACCES`. Every field is validated: a tooltip of at most 256 characters,\na badge of at most 3, known `Status`/`Activation`/`MenuKind` values, at\nmost 64 menu rows of at most 128 characters with unique non-zero ids,\n`parent` naming an earlier top-level `Submenu` row (depth at most 2), at\nmost one `is_default` row (required by `DefaultItem`); anything else is\n`EINVAL`. An unusable icon is not an error: it falls back (see `Icon`).\nA session holds at most 64 items (`ENOSPC`). Failures reply with the\nstandard error field (id 15, `docs/midl.md`).",
         methods: &[
             Method {
@@ -3762,6 +3809,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.shell.tray.events.v1",
         id: 0x7dc550e02c4d9bf,
+        service: "",
         doc: "What the shell sends an app about its item: oneway methods on the channel\nthe app transferred with `Set`.",
         methods: &[
             Method {
@@ -3823,6 +3871,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.usb.audio.v1",
         id: 0xd48ce91568d0be08,
+        service: "os.lazy.usb.audio",
         doc: "A USB audio playback function, as `usbd` drives it\n(docs/usb-audio-plan.md).\n\n`usbd` owns every xHCI controller, so the isochronous endpoint of a USB\nspeaker, headset or DAC can only be fed by it. `sndd usb=1` serves the\ndevice as an ordinary sound card (`os.lazy.audio.v1` under\n`os.lazy.audio.card/usb-audio0`) and drives it through this interface,\nwhich `usbd` serves under `os.lazy.usb.audio` while an audio device is\nbound (one at a time) and withdraws when it goes away.\n\nThe model is `sndd`'s card model: periods are *submitted* in order from\none shared staging buffer and later *completed* (`Reap` counts them).\nSamples are always interleaved stereo `S16Le`; `usbd` converts them to the\ndevice's subslot and channel count as it copies them into its own DMA,\nso the staging buffer is read only by copy and a rewrite of it changes\nwhat plays, never what `usbd` touches. `Stop` completes every period\nstill queued, as a stopped virtio-sound stream hands back its buffers.\n\nOnly `_snd` (uid 901) and root may call it: anyone else gets `EACCES`.\nNo device bound (it was unplugged) is `ENODEV`; a call out of order\n(`Submit` before `Configure`, a range outside the staging buffer) is\n`EINVAL`. Failures are returned as the shared structured error field.",
         methods: &[
             Method {
@@ -3918,6 +3967,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.webd.view.v1",
         id: 0x4fe4e35a0bc7bd89,
+        service: "app.os.lazy.webd.view",
         doc: "webd's full views (docs/webd-plan.md sections 3.3 to 3.5 and 4, phase P2\nslice 3): what a browser needs of the web engine. A superset of the light\ninterface (`idl/webd_light.midl`): every method the two share has the same\nid and wire shape (`tools/webd/test_idl.py` holds them together), and the\nfull one adds navigation over the network, a profile (cookies and site\nstorage), JavaScript dialogs, downloads, notifications, content blocking, the\nlink under the pointer, the pointer's shape, new-window requests, a policy for\nother schemes, and frames that carry only what changed. Served by `webd` as\n`app.os.lazy.webd.view`, together with the two scope interfaces below.\n\n**Scopes.** What a view may reach is decided by the interface its\n`CreateView` came through, which the kernel checks against the caller's\nmanifest before webd sees the call (the way `os.lazy.display.cursor.v1` is\na scope of the display):\n\n* `os.lazy.webd.view.v1` (this interface): no network. The scheme policy\nmust be `DataOnly`; the page is what the app gives it (`LoadHtml`), with\nscripts, dialogs and a profile of the app's own if it asks.\n* `os.lazy.webd.net.v1`: also `Web` and `Origins` scheme policies: the\npage loads `http:` and `https:` content.\n* `os.lazy.webd.browser.v1`: also the shared `browser` profile (cookies and\nhistory of the person's web browsing, kept on disk), downloads into the\nperson's Downloads folder, content blocking, and `Handoff.Browser`\n(webd gives `mailto:` and other schemes to the program the person chose).\n\nEvery other call goes through this interface, so a package lists it with\nany scope it asks for. A `CreateView` the scope does not cover is `EACCES`.\n\n**Identity comes from the kernel, never from the call**, as for light\nviews: a view belongs to the (user, label) of the task that made it, and a\ncall on another's view is `ENOENT`. The profile `\"\"` is the app's own: a\ndata store per app that stays in memory (webd cannot name an app's label\nacross boots, so nothing of it is kept on disk); `browser` is the one\nprofile kept on disk.\n\n**Frames.** As for light views, the app attaches up to three `Buffer`\nslots of the view's size (slots 0 to 2) and webd paints into a released\none. With `ViewConfig.deltas`, a `Frame` may carry only what changed:\n`whole` is false, the app first moves the part of its picture inside\n`shift` by `(dx, dy)` (what leaves the area is gone, what it uncovers is\nstale) and then copies each of `rects` from the slot, where they sit at\ntheir place in a whole frame's layout (`width * 4` bytes per row). A view\nwith deltas may also attach band slots (3 and 4, `width * min(height, 1024) * 4` bytes\neach): `Band` events carry rows of the page outside the view, painted ahead\nof a scroll. A frame that cannot be delivered (no free slot, a full queue)\nmakes the next one a whole frame.\n\n**Questions.** A navigation the view's policy does not cover with\n`Handoff.Ask` is held: `NavigationRequested` asks the app, and no answer in\n10 seconds is a no. A JavaScript dialog waits for `DialogReply` (at most 3\ndialogs in 10 seconds per view: more are dismissed without asking). A\nnotification permission request waits for `NotifyPermission`.\n\nLimits (`xui-app/crates/webd/src/limits.rs`) are the light interface's,\nplus: at most 16 web processes per user for full views, and a view that\nwould start one while the user's memory charge cannot hold it is `EDQUOT`\n(a view of a new app, profile or `process_key` past that is `EDQUOT`); at\nmost 64 views for a client with the browser scope (8 otherwise); at most\n32 `process_key`s at once per client; at most 64 origins of at most 256\nbytes, at most 64 blocking exceptions, a URL at most 8 KiB, at most 256\ndownloads per profile in a session, a rule list at most 32 MiB. Failures\nreply with the standard error field (id 15).",
         methods: &[
             Method {
@@ -4486,6 +4536,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.webd.net.v1",
         id: 0xf313574271ceba59,
+        service: "app.os.lazy.webd.view",
         doc: "The scope that lets a web view load `http:` and `https:` content: a\n`CreateView` made through this interface may use the `Web` and `Origins`\nscheme policies. Same arguments as `os.lazy.webd.view.v1.CreateView`; the\nview is then used through that interface.",
         methods: &[
             Method {
@@ -4511,6 +4562,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.webd.browser.v1",
         id: 0x2c352157f6ab1380,
+        service: "app.os.lazy.webd.view",
         doc: "The scope of a web browser: everything `os.lazy.webd.net.v1` allows, plus\nthe shared `browser` profile kept on disk, downloads into the person's\nDownloads folder, content blocking and `Handoff.Browser`.",
         methods: &[
             Method {
@@ -4536,6 +4588,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.webd.light.v1",
         id: 0xc685c12f0603531c,
+        service: "app.os.lazy.webd.light",
         doc: "webd's light views (docs/webd-plan.md sections 3.6 and 4, phase P2): an app\nthat only needs WebKit's HTML/CSS/layout/font engine asks `webd` for a\nview, hands it the page's HTML, and gets the page's pixels back in shared\nmemory slots plus a few page events. A light view has **no network** (no\nscheme but `data:`, `blob:` and `about:blank` ever loads, and the engine\nrefuses the rest too), no cookies, cache or storage, no hand-off to other\nprograms, and a **locked navigation**: a link click, a form submit or a\n`<meta http-equiv=refresh>` becomes `LinkClicked` and nothing loads. Scripts\nare off unless `LightConfig.scripts` asks, and even then have no network\nand no windows. Served by `webd` as `app.os.lazy.webd.light`; a package\nthat lists only this interface cannot resolve the full service\n(`os.lazy.webd.view.v1`, a later interface).\n\nLike `os.lazy.display.v1`, one interface carries both directions. **Calls**\n(app to webd) are ordinary request/reply methods, input and slot returns\nare `oneway`. **Events** (webd to app) are `oneway` methods sent on the\nendpoint the app moved in with `CreateView` (`events`): `Frame`, `State`,\n`Scroll`, `LinkClicked`, `ClipboardWrite`, `ViewLost` and `Ping`. Method\nids are append-only from the first release; the full interface reuses\nthese ids and wire shapes (its `CreateView` also carries a `scale` as\nfield 4, which this one does not have yet), so client code is shared.\n\n**Identity comes from the kernel, never from the call.** A view belongs\nto the (user, label) of the task that created it and is unusable by any\nother caller: every call on someone else's view fails like a call on a view\nthat does not exist (`ENOENT`). Nothing in a request names the owner. A\ncaller in another login session than webd's gets `EACCES`.\n\n**Pixels.** The app owns the memory: it attaches up to three `Buffer` slots\nof the view's size (`AttachSlot`, RGBA8, `width * 4` bytes per row, at\nleast `width * height * 4` bytes). webd copies a whole frame into a slot the\napp has released and sends `Frame(view, slot, seq, width, height)`; the slot\nis the app's until it calls `ReleaseSlot`. When every slot is busy a frame\nis dropped and webd asks the engine for a fresh whole frame as soon as one\nis released, so the app always ends on the latest picture and webd never\nqueues frames or blocks on a slow app. `Resize` detaches every slot (their\nsize is no longer right): attach new ones before the next frame can come.\n\nLimits (`xui-app/crates/webd/src/limits.rs`): at most 8 live views per\nclient (`ENOSPC`); width and height 1..=8192 and at most 16 Mpixel\n(`EINVAL`); at most 3 slots per view, and at most 512 MiB of slot memory per\nclient (`EDQUOT`); `html` at most 8 MiB (`E2BIG`); `user_style` at most 64\nKiB (`EINVAL`). A call on a view the engine lost (`ViewLost`) fails with\n`ENODEV` until the app calls `DestroyView`. Failures reply with the\nstandard error field (id 15, `docs/midl.md`).",
         methods: &[
             Method {
@@ -4727,6 +4780,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.net.wifi.hw.v1",
         id: 0xa882dc6295ff08bd,
+        service: "",
         doc: "A Wi-Fi radio, **seen from the station manager** (docs/wifi-prerequisites-plan.md\nsection 3.5, docs/wifi-plan.md section 5.1). The chip driver (`wifid`, uid\n`_wifi`, holds `CAP_DEV_CLAIM` and the bus) serves it; its one client is\n`wlanmd` (uid `_wlan`, no capabilities). The simulator `wifisim` (`_wifisim`)\nserves the same interface in CI and is its first implementation, which is\nwhy nothing here is shaped by one chip.\n\n**Trust.** The side that holds DMA parses nothing from the air and the side\nthat parses the air holds no capabilities. So this interface moves\n*opaque management frames* in both directions: the driver hands over raw\nbeacon, probe-response, authentication and association bodies exactly as\nthe radio received them (with the radio's own metadata: channel, signal,\nage) and transmits frames `wlanmd` built, and it never looks inside an\ninformation element. Everything the driver does decide is a hardware\nmatter: which channels it may tune (it enforces the country it was\ngiven), key slots, and the association state its firmware needs.\n\n**The data path is not here.** Once the station is authorized, payload\nframes travel as 802.3 Ethernet over `os.lazy.net.nic.v1`, which the same\ndriver serves to `netd`. The 802.3 to 802.11 conversion happens below this\ninterface: in the chip's firmware where it offers that, else in the\ndriver's soft-MAC layer (`libs/wifimac`, docs/wifi-rtw88-plan.md), as on\nthe RTL8822CE. The NIC's link state follows this interface: it is down\nuntil `SetState(Authorized)`.\n\n**Names.** A radio serves this interface as `os.lazy.net.wifi.hw/<ifname>`,\n`<ifname>` being the name of its `os.lazy.net.nic.v1` card (`wlan0`, which\nit serves as `os.lazy.net.nic/wlan0`). The registry lets only the Wi-Fi\ndriver identities (`_wifi`, `_wifisim`) hold names there\n(`netpolicy::may_register_wifi_hw_name`); `wlanmd` finds radios by listing\nthat namespace.\n\n**One client.** The first caller of `Attach` owns the radio; its identity\nis the kernel-stamped sender, its task and its credentials (uid, label,\nsession), all of which must match on every later call, and a call or\n`Detach` by anyone else fails with `EACCES` (a second attach with\n`EBUSY`). `Attach` is accepted from `_wlan` alone, unlabelled and outside\nany session (`netpolicy::may_attach_wifi_hw`; `EPERM` otherwise), so\nnobody can take the radio before `wlanmd` does; the simulator also lets\nits own test client (`wifiprobe`, running as `_wifisim`) attach. The\nowner's exit, or its event channel reporting the peer gone, detaches it\nand leaves the radio idle: scanning stops, the BSS is left, all keys are\ndeleted.\n\n**Events.** `Attach` carries the client's event channel; the driver sends\nthe `oneway` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,\n`Deauthenticated`) on it. They carry the same bounds as calls: a frame is\nat most `HwInfo.max_mgmt` bytes, never truncated and never delivered\npartially; one that does not fit is dropped and counted. Anyone in radio\nrange can forge frames from the BSS, so `RxMgmt` is rate-limited and is\nthe first thing dropped when the client falls behind: `ScanDone`,\n`BeaconLoss` and `Deauthenticated` have room of their own and are kept\nuntil the client's inbox takes them (a repeat of a `BeaconLoss` or\n`Deauthenticated` the client has not read yet is folded into it). What is\ndropped is counted in `HwStats.mgmt_dropped`.\n\n**Keys cross this interface.** `SetKey` is the one place secret material\n(a temporal key) leaves `wlanmd`: the hardware needs it to encrypt. It is\naccepted only from the owner, the driver never logs or stores it beyond\nthe key slot, and it is cleared by `DelKey`, `Leave` and `Detach`.\n\nFailures of calls are returned as the shared structured error field\n(`services::error_field`) instead of the declared reply fields.",
         methods: &[
             Method {
@@ -4932,6 +4986,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.net.wifi.v1",
         id: 0x515b536f62b1d272,
+        service: "os.lazy.net.wifi",
         doc: "The Wi-Fi station service, **the system-facing interface** (docs/wifi-prerequisites-plan.md\nsections 3.5 and 3.7). `wlanmd` (uid `_wlan`, no capabilities) serves it\nunder the registry name `os.lazy.net.wifi` and runs the station state\nmachine over `os.lazy.net.wifi.hw.v1` and `keyd`. Front ends (the Network\napp, the tray applet, `wifictl`, `rhai`) are its clients.\n\n**Who may do what** (the caller is the kernel-stamped sender; `elevd` is a\nrecognised identity, never a claim in a request):\n\n* Reading (`Networks`, `Status`) and `Scan`: any logged-in session user.\n* `Connect`, `Disconnect`, `AddNetwork` with scope `User`, and `Forget` of\nthe caller's own network: any session user, for networks they own.\n* `AddNetwork` with scope `System`, `Forget` of a system network: only the\n`elevd` identity, after the administrator approved the prompt (action\n`net.wifi.system`); a session user gets `EPERM`. `Connect` to a system\nnetwork is allowed to anyone (the secret never leaves `keyd`).\n\n**Secrets.** A passphrase is accepted on exactly one call, `AddNetwork`\nwith scope `User`; `wlanmd` passes it to `keyd` at once\n(`StoreSecretFor`), keeps nothing and never logs it, and no method ever\nreturns one. A system network's passphrase never comes here: `elevd`\nstores it in `keyd` itself (`net.wifi.system`, under the profile id),\nand `keyd` refuses `wlanmd` a `system` secret. Everything else here is non-secret: SSIDs,\nBSSIDs, security type, signal. A profile is stored in `confd` (system\nnetworks under `sys/net/wifi/networks/<id>`, a user's under\n`user/<uid>/net/wifi/networks/<id>`); the secret lives in `keyd` under the\nsame `<id>` and scope.\n\n**Hostile input.** `Networks` and the scan topic show the result of parsing\nbeacons that any radio in range can send. Names are length-capped and\nstripped of control characters by `wlanmd` before they get here, but a\nclient still treats an SSID as untrusted text (never as markup, never as a\npath or command).\n\nEvery method takes the interface name (`wlan0`) the registry gave the\nradio; a name `wlanmd` does not manage is `ENODEV`. Failures reply with the\nshared structured error field (`services::error_field`).",
         methods: &[
             Method {

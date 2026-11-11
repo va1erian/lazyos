@@ -21,6 +21,10 @@ as a typed reply.
 | Register | 658098656 | sync | `(mime: String, app: String, verb: String, owner: U32) -> ()` |
 | Unregister | 1480320227 | sync | `(mime: String, app: String, verb: String) -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.mimed`; registered once.
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

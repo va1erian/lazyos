@@ -1,3 +1,5 @@
+service "os.lazy.messenger.registry" implements os.lazy.messenger.registry.v1;
+
 /// The Messenger service name registry (issues #89, #300).
 ///
 /// Names are published by tasks and resolved into endpoint handles. Two paths

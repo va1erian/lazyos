@@ -10,6 +10,7 @@ from __future__ import annotations
 from midlc_model import Interface, Param, SCALARS, Topic, Type, snake_case
 from midlc_topics import qos_rust_expr
 from midlc_rings import emit_method_rings, emit_ring_decls
+from midlc_rust_decls import emit_errors, emit_method_attrs, emit_service_consts
 from midlc_objects import emit_declared_objects, emit_method_objects, object_kind
 
 # Topic codegen lives here; the shared Rust runtime (`TOPIC_SUPPORT`) is in
@@ -415,6 +416,7 @@ def emit_rust(interface: Interface) -> str:
         f"    pub const INTERFACE_NAME: &str = \"{interface.name}\";",
         "",
     ]
+    lines += emit_service_consts(interface)
     # Enums travel as `U32` on the wire; the variant indices are emitted as
     # constants so callers never hand-type a discriminant.
     for enum in interface.enums:
@@ -428,7 +430,9 @@ def emit_rust(interface: Interface) -> str:
     for method in interface.methods:
         lines.append(f"    /// `{method.name}` method id.")
         lines.append(f"    pub const METHOD_{method.name.upper()}: u32 = {method.method_id};")
+        lines += emit_method_attrs(method)
     lines.append("")
+    lines += emit_errors(interface)
     for method in interface.methods:
         # A method with neither arguments nor results emits no item, so its
         # doc comment must not be left dangling onto the next method's item.

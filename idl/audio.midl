@@ -1,3 +1,6 @@
+service "os.lazy.audio" implements os.lazy.audio.v1, os.lazy.audio.mixer.v1;
+service "os.lazy.audio.card/{id}" implements os.lazy.audio.v1;
+
 /// An audio card's control and data-plane interface (docs/driver-plan.md §3.8).
 ///
 /// Two services serve it (docs/audio-plan.md). The system mixer `audiod`

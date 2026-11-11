@@ -88,6 +88,8 @@ pub struct Topic {
 pub struct Interface {
     pub name: &'static str,
     pub id: u64,
+    /// The registry name a `service` declaration gives the interface, or `""`.
+    pub service: &'static str,
     pub doc: &'static str,
     pub methods: &'static [Method],
     pub structs: &'static [Struct],
@@ -142,11 +144,14 @@ impl Interface {
         self.enums.iter().find(|e| e.name == name)
     }
 
-    /// The service name an interface is usually registered under: the
-    /// interface name without its `.vN` suffix (`os.lazy.confd.v1` ->
-    /// `os.lazy.confd`). Some services keep the suffix or another name, so
+    /// The service name an interface is registered under: the `service`
+    /// declaration of its `.midl` when it has one, else the interface name
+    /// without its `.vN` suffix (`os.lazy.confd.v1` -> `os.lazy.confd`).
     /// `msg::connect` falls back to the full name and accepts an explicit one.
     pub fn default_service(&self) -> &'static str {
+        if !self.service.is_empty() {
+            return self.service;
+        }
         match self.name.rsplit_once('.') {
             Some((base, version))
                 if version.len() > 1

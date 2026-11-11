@@ -27,6 +27,10 @@ of the declared reply fields.
 | Refresh | 4 | sync | `() -> (menu: U32, desktop: U32)` |
 | Activate | 5 | sync | `(surface: U64) -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.shell`; registered once.
+
 ## struct `TaskbarEntry`
 
 - `surface: U64`

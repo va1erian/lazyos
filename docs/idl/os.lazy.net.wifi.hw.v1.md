@@ -89,6 +89,10 @@ Failures of calls are returned as the shared structured error field
 | BeaconLoss | 683463118 | oneway | `() -> ()` |
 | Deauthenticated | 1135744209 | oneway | `(reason: U32) -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.net.wifi.hw/{ifname}`; a family, one name per instance.
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

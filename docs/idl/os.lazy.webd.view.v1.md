@@ -129,6 +129,10 @@ reply with the standard error field (id 15).
 | NotifyGone | 125 | oneway | `(view: U64, notification: U64) -> ()` |
 | WheelDone | 126 | oneway | `(view: U64, seq: U64, x: I32, y: I32) -> ()` |
 
+## Service
+
+- Served under the registry name `app.os.lazy.webd.view` (together with `os.lazy.webd.net.v1`, `os.lazy.webd.browser.v1`); registered once.
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

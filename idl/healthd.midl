@@ -1,3 +1,5 @@
+service "os.lazy.healthd" implements os.lazy.healthd.v1;
+
 /// The service health aggregator (issue #93): retained health rows, a
 /// heartbeat channel and the aggregate snapshot.
 ///

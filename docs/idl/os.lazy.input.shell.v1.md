@@ -42,6 +42,10 @@ refused (`EINVAL`).
 | GrabChanged | 26 | oneway | `(surface: Option<U64>) -> ()` |
 | KeyActivity | 27 | oneway | `() -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.input.shell.v1`; registered once.
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

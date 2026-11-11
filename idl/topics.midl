@@ -1,3 +1,5 @@
+service "os.lazy.messenger.topics" implements os.lazy.messenger.topics.v1;
+
 /// The Messenger publish/subscribe broker (issue #92, `docs/messenger.md`
 /// section 7.2), served by `messengerd` as `os.lazy.messenger.topics`.
 ///

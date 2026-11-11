@@ -38,6 +38,10 @@ No device bound (it was unplugged) is `ENODEV`; a call out of order
 | Submit | 1081664837 | sync | `(slot: U32, offset: U32, len: U32) -> ()` |
 | Reap | 1527513801 | sync | `() -> (progress: Progress)` |
 
+## Service
+
+- Served under the registry name `os.lazy.usb.audio`; registered once.
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

@@ -35,3 +35,7 @@ a structured error field (errno-style code, friendly text).
 | Get | 915881719 | sync | `(name: String) -> (secret: Bytes)` |
 | Delete | 1469573738 | sync | `(name: String) -> ()` |
 | List | 220805025 | sync | `() -> (names: Array<String>)` |
+
+## Service
+
+- Served under the registry name `os.lazy.keyd.appsecret`; registered once.

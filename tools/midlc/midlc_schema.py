@@ -93,6 +93,7 @@ def emit_interface(interface: Interface) -> list[str]:
         "    Interface {",
         f"        name: {rust_str(interface.name)},",
         f"        id: {interface.id:#x},",
+        f"        service: {rust_str(interface.service.name if interface.service else '')},",
         f"        doc: {rust_str(interface.docs)},",
     ]
     methods: list[str] = []

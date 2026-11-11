@@ -72,6 +72,10 @@ standard error field (id 15, `docs/midl.md`).
 | ViewLost | 105 | oneway | `(view: U64, reason: U32) -> ()` |
 | Ping | 106 | oneway | `() -> ()` |
 
+## Service
+
+- Served under the registry name `app.os.lazy.webd.light`; registered once.
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

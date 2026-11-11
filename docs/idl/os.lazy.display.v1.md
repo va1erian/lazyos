@@ -87,6 +87,10 @@ fields, which never use that id.
 | SetCloseMode | 48 | sync | `(surface: U64, ask: Bool) -> ()` |
 | ActivateApp | 49 | sync | `(label: U32, session: U64) -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.display.v1` (together with `os.lazy.display.cursor.v1`); registered once.
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

@@ -1,3 +1,5 @@
+service "os.lazy.logind" implements os.lazy.logind.v1;
+
 /// The console login service (issue #101): owns the session table and
 /// answers the query `messengerctl sessions` renders.
 interface os.lazy.logind.v1 {

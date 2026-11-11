@@ -31,6 +31,10 @@ typed reply; a package that fails validation reports every problem in
 | InstallApproved | 1599511615 | sync | `(path: String, digest: String, core: Bool, devtool: Bool) -> (app: Installed)` |
 | InstallDebug | 1850060999 | sync | `(path: String, digest: String) -> (app: Installed)` |
 
+## Service
+
+- Served under the registry name `os.lazy.pkgd`; registered once.
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

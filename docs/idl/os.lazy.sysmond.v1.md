@@ -20,6 +20,10 @@ polling `Snapshot`.
 |---|---|---|---|
 | Snapshot | 1312231341 | sync | `() -> (data: Bytes)` |
 
+## Service
+
+- Served under the registry name `os.lazy.sysmond`; registered once.
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

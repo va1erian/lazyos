@@ -1,3 +1,6 @@
+service "os.lazy.net.nic/{ifname}" implements os.lazy.net.nic.v1;
+service "os.lazy.net.stack" implements os.lazy.net.stack.v1, os.lazy.net.socket.v1;
+
 /// A network interface card, **link layer only** (docs/driver-plan.md §3.8,
 /// docs/networking-plan.md §5). No IP, ARP or DHCP: those belong to the stack
 /// service `netd`, which is just another client of this interface and, by

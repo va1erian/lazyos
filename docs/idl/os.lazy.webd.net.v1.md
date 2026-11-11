@@ -13,6 +13,10 @@ view is then used through that interface.
 |---|---|---|---|
 | CreateView | 1 | sync | `(config: ViewConfig, width: U32, height: U32, events: Channel<os.lazy.webd.view.v1>) -> (view: U64)` |
 
+## Service
+
+- Served under the registry name `app.os.lazy.webd.view` (together with `os.lazy.webd.view.v1`, `os.lazy.webd.browser.v1`); registered once.
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

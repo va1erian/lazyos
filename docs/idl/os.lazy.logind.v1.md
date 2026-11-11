@@ -13,6 +13,10 @@ answers the query `messengerctl sessions` renders.
 | Login | 1441655762 | sync | `(user: String, secret: String) -> (session: U64)` |
 | Logout | 125463051 | sync | `() -> (session: U64)` |
 
+## Service
+
+- Served under the registry name `os.lazy.logind`; registered once.
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

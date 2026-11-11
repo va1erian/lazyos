@@ -31,6 +31,10 @@ asking the compositor. Method ordinals are append-only.
 | GetState | 746022616 | sync | `() -> (state: State)` |
 | GetBeam | 400769696 | sync | `() -> (beam: Beam)` |
 
+## Service
+
+- Served under the registry name `os.lazy.gpu`; registered once.
+
 ## struct `Axis`
 
 - `active: U32`

@@ -27,6 +27,10 @@ kernel gate reports failures as negative errno values.
 | Unregister | 1480320227 | sync | `(name: String) -> ()` |
 | List | 220805025 | sync | `() -> (entries: Array<Entry>)` |
 
+## Service
+
+- Served under the registry name `os.lazy.messenger.registry`; registered once.
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

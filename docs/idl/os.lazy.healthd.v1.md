@@ -17,6 +17,10 @@ error field (errno-style code, friendly text), not as a typed reply.
 | Report | 1182923275 | sync | `(name: String, status: String, detail: String) -> (summary: HealthRecord, records: Array<HealthRecord>)` |
 | Status | 6222351 | sync | `() -> (summary: HealthRecord, records: Array<HealthRecord>)` |
 
+## Service
+
+- Served under the registry name `os.lazy.healthd`; registered once.
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

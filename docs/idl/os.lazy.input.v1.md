@@ -48,6 +48,10 @@ errno-style code plus friendly text) instead of the declared reply fields.
 | GamepadEnter | 18 | oneway | `() -> ()` |
 | GamepadLeave | 19 | oneway | `() -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.input.v1`; registered once.
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

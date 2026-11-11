@@ -1,3 +1,5 @@
+service "app.os.lazy.webd.view" implements os.lazy.webd.view.v1, os.lazy.webd.net.v1, os.lazy.webd.browser.v1;
+
 /// webd's full views (docs/webd-plan.md sections 3.3 to 3.5 and 4, phase P2
 /// slice 3): what a browser needs of the web engine. A superset of the light
 /// interface (`idl/webd_light.midl`): every method the two share has the same

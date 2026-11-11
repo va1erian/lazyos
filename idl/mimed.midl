@@ -1,3 +1,5 @@
+service "os.lazy.mimed" implements os.lazy.mimed.v1;
+
 /// The MIME database and open-with registry (issues #116, #158).
 ///
 /// `mimed` guesses a MIME type from a path, resolves which app handles a type

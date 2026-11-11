@@ -1,3 +1,5 @@
+service "os.lazy.timed" implements os.lazy.timed.v1;
+
 /// The time-of-day service (issue #369): UTC from the kernel wall clock, the
 /// system time zone from `confd` (`sys/time/zone`), and a retained
 /// `time/tick` event each minute.

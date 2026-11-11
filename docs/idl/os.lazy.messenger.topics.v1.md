@@ -29,6 +29,10 @@ id.
 | Ping | 2142761129 | sync | `() -> ()` |
 | Bell | 1766698328 | sync | `(subscription: U64, bell: Channel<os.lazy.messenger.topics.bell.v1>) -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.messenger.topics`; registered once.
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

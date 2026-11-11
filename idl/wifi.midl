@@ -1,3 +1,6 @@
+service "os.lazy.net.wifi" implements os.lazy.net.wifi.v1;
+service "os.lazy.net.wifi.hw/{ifname}" implements os.lazy.net.wifi.hw.v1;
+
 /// A Wi-Fi radio, **seen from the station manager** (docs/wifi-prerequisites-plan.md
 /// section 3.5, docs/wifi-plan.md section 5.1). The chip driver (`wifid`, uid
 /// `_wifi`, holds `CAP_DEV_CLAIM` and the bus) serves it; its one client is

@@ -36,6 +36,10 @@ or a `Channel`, so no client ever maps a page that holds a key.
 | StoreSecretFor | 1701625789 | sync | `(scope: String, name: String, secret: Bytes, owner: U32) -> ()` |
 | DeleteSecretFor | 268809353 | sync | `(scope: String, name: String, owner: U32) -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.keyd`; registered once.
+
 ## struct `KeyInfo`
 
 - `id: U64`

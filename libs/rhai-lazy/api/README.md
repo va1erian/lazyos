@@ -192,6 +192,8 @@ The hierarchical configuration registry (issue #260).
 | `new_value()` | struct `Value` | a `Value` at its zero value |
 | `new_change()` | struct `Change` | a `Change` at its zero value |
 
+- `KIND` = the `Kind` variants; `KIND_BOOL`, `KIND_I64`, `KIND_U64`, `KIND_STR`, `KIND_BYTES`
+
 | Topic | Payload | Helpers |
 |---|---|---|
 | `system/confd/changed/{path...}` | `Change` | `changed_topic(path)`, `on_changed(path, handler)`, `subscribe_changed(path)`, `publish_changed(path, payload)` |

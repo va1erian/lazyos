@@ -1,3 +1,5 @@
+service "os.lazy.print" implements os.lazy.print.v1;
+
 /// The print spooler, `printd` (docs/printing-plan.md P6).
 ///
 /// An app opens a job, writes its whole document with `Write` and queues it

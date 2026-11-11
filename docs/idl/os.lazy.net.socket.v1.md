@@ -73,6 +73,10 @@ writing, `EMSGSIZE` for a datagram that does not fit.
 | Close | 1300671683 | sync | `(sock: U32) -> ()` |
 | Stats | 267161228 | sync | `() -> (stats: SocketStats)` |
 
+## Service
+
+- Served under the registry name `os.lazy.net.stack` (together with `os.lazy.net.stack.v1`); registered once.
+
 ## struct `SockAddr`
 
 - `addr: Bytes`

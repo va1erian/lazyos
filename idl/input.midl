@@ -1,3 +1,6 @@
+service "os.lazy.input.v1" implements os.lazy.input.v1;
+service "os.lazy.input.shell.v1" implements os.lazy.input.shell.v1;
+
 /// The system input service (`inputd`; `docs/input-plan.md`).
 ///
 /// Two interfaces, served on one endpoint and registered under both names:

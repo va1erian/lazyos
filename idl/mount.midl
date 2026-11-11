@@ -1,3 +1,5 @@
+service "os.lazy.mount" implements os.lazy.mount.v1;
+
 /// The network mount service (docs/smb-plan.md §3.4): `mountd` starts and
 /// supervises one user-space filesystem daemon per mount (`ftpfuse` for an
 /// FTP server, `smbfuse` for an SMB share),

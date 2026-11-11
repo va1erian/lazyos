@@ -82,6 +82,10 @@ Failures of calls are returned as the shared structured error field
 | Kick | 754690623 | oneway | `(ring: U32) -> ()` |
 | Notify | 314575196 | oneway | `(ring: U32, events: U32) -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.net.nic/{ifname}`; a family, one name per instance.
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

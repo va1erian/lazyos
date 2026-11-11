@@ -16,7 +16,7 @@ Change notifications are best-effort: a subscriber observes
 `Get(path: String) -> (value: Option<Value>)`
 
 Read the value at `path`. An absent path has an empty `value`.
-A path the caller may not read fails with `CONFD_DENIED`.
+A path the caller may not read fails with `Denied`.
 
 Arguments:
 
@@ -109,12 +109,11 @@ let result = sys::confd::info();
 
 ### `Value`
 
-One typed value. `kind` selects which optional payload field is set:
-`0` bool, `1` i64, `2` u64, `3` string, `4` bytes.
+One typed value. `kind` selects which optional payload field is set.
 
 | Name | IDL type | Script value |
 |---|---|---|
-| `kind` | `U32` | int |
+| `kind` | `Kind` | string (`Kind` variant) |
 | `bool_value` | `Option<Bool>` | bool or () |
 | `i64_value` | `Option<I64>` | int or () |
 | `u64_value` | `Option<U64>` | int or () |
@@ -139,6 +138,18 @@ value; a subscriber re-reads the path.
 ```rhai
 let value = sys::confd::new_change();
 ```
+
+### `Kind`
+
+A string; the constants of this module are:
+
+- `KIND_BOOL` = `"Bool"`
+- `KIND_I64` = `"I64"`
+- `KIND_U64` = `"U64"`
+- `KIND_STR` = `"Str"`
+- `KIND_BYTES` = `"Bytes"`
+
+`KIND` is the array of all of them.
 
 ## Topics
 

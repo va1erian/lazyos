@@ -1,3 +1,5 @@
+service "os.lazy.sysmond" implements os.lazy.sysmond.v1;
+
 /// The system monitor service (issue #144): one live system-stats snapshot.
 ///
 /// The snapshot is the kernel's fixed-layout `sysinfo` block returned as raw

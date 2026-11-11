@@ -234,21 +234,24 @@ itself against.
 * `//` starts a comment to the end of the line; `///` starts a doc comment,
   attached to the next declaration (consecutive lines join with `\n`).
 * Tokens: identifiers `[A-Za-z_][A-Za-z0-9_.]*` (dots allowed, so interface
-  names are one token), decimal numbers, double-quoted strings (used only by
-  `topic`), `->`, and the punctuation `{ } ( ) < > : , ; =`.
+  names are one token), decimal numbers, double-quoted strings (`topic`,
+  `service` and `scope`), `->`, and the punctuation `{ } ( ) < > : , ; =`.
 * Whitespace is insignificant. Commas between struct fields and enum variants
   are optional.
 
 ### Grammar (EBNF)
 
 ```ebnf
-file       = interface { interface } ;
+file       = { service | interface } ;
+service    = "service" STRING "implements" NAME { "," NAME } ";" ;
 interface  = "interface" NAME "{" { member } "}" ;
-member     = method | struct | enum | topic | ring ;
+member     = method | struct | enum | topic | ring | errors ;
 method     = "method" IDENT params "->" params { attr } ";" ;
 params     = "(" [ field { "," field } ] ")" ;
 field      = IDENT ":" type [ "=" NUMBER ] ;
-attr       = "=" NUMBER | "oneway" | "sync" ;
+attr       = "=" NUMBER | "oneway" | "sync"
+           | "scope" STRING | "deadline" "=" NUMBER ( "ms" | "s" ) ;
+errors     = "errors" "{" { IDENT "=" NUMBER [ "," ] } "}" ;
 struct     = "struct" IDENT "{" { field [ "," ] } "}" ;
 enum       = "enum" IDENT "{" { IDENT [ "," ] } "}" ;
 topic      = "topic" STRING ":" IDENT { "retained" | "qos" "=" IDENT } ";" ;
@@ -257,7 +260,8 @@ type       = IDENT [ "<" type { "," type } ">" ] ;
 ```
 
 `NAME` is reverse-DNS ending in `.vN` and must match `[a-z0-9_.]+\.v\d+`
-(`os.lazy.confd.v1`). Several interfaces may share a file. `sync` is the
+(`os.lazy.confd.v1`). Several interfaces may share a file, and a `service`
+may implement an interface of another file. `sync` is the
 default and only cancels an earlier `oneway`.
 
 ### Types
@@ -330,6 +334,100 @@ end. With pinned ids a new field may be declared anywhere in the list;
 reusing, renumbering or retyping an id needs a new interface version, as
 does removing a field whose absence a peer would misread. The interface hash
 is checked at bind time (`docs/messenger.md` section 11).
+
+## Services, errors, scopes and deadlines
+
+Four declarations state protocol facts that used to live in prose or in
+constants copied between crates (`docs/client-api-plan.md` 3.1). Each is
+generated, so a client or a server never spells one.
+
+### `service`
+
+```idl
+service "os.lazy.confd" implements os.lazy.confd.v1;
+service "os.lazy.net.nic/{ifname}" implements os.lazy.net.nic.v1;
+service "os.lazy.net.stack" implements os.lazy.net.stack.v1, os.lazy.net.socket.v1;
+```
+
+A top-level declaration of the **registry name** a daemon registers and the
+interfaces it serves under it (a list, because `netd` serves the stack and the
+sockets on one endpoint). A name ending in `/{placeholder}` is a **family**:
+one name per instance (`os.lazy.net.nic/eth0`). The compiler checks that every
+interface exists in the compile (a service may name another file's), that a
+name is declared once, and that an interface has at most one singleton name
+and one family, so its name is never ambiguous.
+
+Generated, in the interface module: `SERVICE_NAME` (the singleton name) and
+`SERVICE_INSTANCE_PREFIX` (a family's name up to and including the `/`); at
+crate level, `DECLARED_SERVICES` and `declared_service(interface_id)`. A client
+of `os.lazy.confd.v1` resolves `os_lazy_confd_v1::SERVICE_NAME` and writes no
+string. The manifest lists the names under `services`, the generated Markdown
+has a **Service** section, and the Rhai module gets `SERVICE` and the schema
+table the name `msg::connect` resolves.
+
+### `errors`
+
+```idl
+interface os.lazy.confd.v1 {
+    errors {
+        /// No value is stored at the path.
+        NotFound = 1001,
+        Denied = 1004
+    }
+}
+```
+
+The service's own failure codes, carried in the standard error field below.
+Names are PascalCase and unique, codes are unique and non-zero and fit a
+`u32`; an interface has one block. Generated: `ServiceError`, a
+`#[repr(u32)]` enum with `code()`, `from_code(u32) -> Option<ServiceError>`
+and `name()`, and `SERVICE_ERRORS`. (`ServiceError`, not `Error`, because
+every interface module already imports the codec's `libmessenger::Error`; no
+struct may take the name.) Rhai modules get `ERROR_<NAME>` constants, the
+manifest an `errors` array and the Markdown an **Errors** table.
+
+### `scope`
+
+```idl
+method Offer(...) -> (token: U64) scope "os.lazy.clipboard.write.v1";
+```
+
+The ACL scope interface the request's header carries instead of the
+interface's own id, as a quoted interface name (`.vN`, like an interface
+name). It names a policy, not a wire interface, so no interface of that name
+has to exist. Generated: `METHOD_<X>_SCOPE: u64`, the same FNV-1a 64 hash the
+kernel computes for an interface id. A method without `scope` travels on
+`INTERFACE_ID` and gets no constant. The clipboard's owner scope
+(`Serialize`) is the 8 bytes `os.owner`, not a name hash, so it has no syntax.
+
+### `deadline`
+
+```idl
+method Get(path: String) -> (value: String) deadline=500ms;
+method Fetch(...) -> (...) deadline=5s;
+```
+
+How long every client waits for the reply: a positive count of `ms` or `s`
+that fits 32 bits of milliseconds, refused on a `oneway` method (there is
+nothing to wait for). Generated: `METHOD_<X>_DEADLINE_MS: u32`. A method
+without a deadline has no constant (there is no interface-wide default), so a
+client that wants a bound for it still picks one. State a deadline only where
+callers already use one.
+
+## Generated crate layout
+
+`midlc --out libs/generated/src/lib.rs` writes the crate as one file per
+interface (`os_lazy_confd_v1.rs`) and per shared module (`errors.rs`,
+`topics.rs`, `objects.rs`, `rings.rs`, `services.rs`, and `declared.rs` with the
+crate-level tables), all `@generated`, beside a `lib.rs` that declares them.
+Each interface module sits behind a cargo feature named for it without the
+`os_lazy_` prefix (`confd_v1`); `all` turns every one on and is the default,
+so the module paths (`messenger_generated::os_lazy_confd_v1`) are unchanged for
+every dependent. A program that wants fewer sets `default-features = false`
+and names its own. The `[features]` block of `libs/generated/Cargo.toml` is
+rewritten between its two markers on every run and is part of `--check`. The
+tables (`DECLARED_TOPICS`, `DECLARED_OBJECTS`, `DECLARED_SERVICES`) are data
+and are always present.
 
 ## Errors
 

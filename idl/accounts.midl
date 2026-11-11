@@ -1,3 +1,5 @@
+service "os.lazy.accountsd" implements os.lazy.accounts.v1;
+
 /// The account database service (issues #101, #624; docs/accounts-plan.md
 /// U1). `accountsd` runs as the `_accounts` system uid and owns
 /// `/accounts/db`; `/system/etc/passwd` and `/system/etc/group` are views

@@ -1,3 +1,5 @@
+service "app.os.lazy.webd.light" implements os.lazy.webd.light.v1;
+
 /// webd's light views (docs/webd-plan.md sections 3.6 and 4, phase P2): an app
 /// that only needs WebKit's HTML/CSS/layout/font engine asks `webd` for a
 /// view, hands it the page's HTML, and gets the page's pixels back in shared

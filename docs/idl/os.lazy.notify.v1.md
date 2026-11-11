@@ -41,6 +41,10 @@ standard error field (id 15, `docs/midl.md`).
 | Close | 2 | sync | `(id: U64) -> ()` |
 | Listen | 3 | sync | `(events: Channel<os.lazy.notify.events.v1>) -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.notify`; registered once.
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

@@ -53,6 +53,10 @@ shared structured error field (`services::error_field`).
 | Forget | 1849666444 | sync | `(id: String) -> ()` |
 | Status | 6222351 | sync | `(ifname: String) -> (status: WifiState)` |
 
+## Service
+
+- Served under the registry name `os.lazy.net.wifi`; registered once.
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

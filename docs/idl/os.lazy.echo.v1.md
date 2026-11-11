@@ -12,6 +12,10 @@ A tiny demo service: echo whatever you send (issue #90 sample IDL).
 | Ping | 2142761129 | sync | `() -> (alive: Bool)` |
 | Notify | 314575196 | oneway | `(event: Event) -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.echo`; registered once.
+
 ## struct `Event`
 
 - `topic: String`

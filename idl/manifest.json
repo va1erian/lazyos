@@ -39,7 +39,10 @@
         "oneway": false
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.accountsd"
+    ]
   },
   {
     "interface": "os.lazy.audio.v1",
@@ -129,6 +132,10 @@
         "producer": "client",
         "advance": "Commit"
       }
+    ],
+    "services": [
+      "os.lazy.audio",
+      "os.lazy.audio.card/{id}"
     ]
   },
   {
@@ -166,7 +173,10 @@
         "oneway": false
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.audio"
+    ]
   },
   {
     "interface": "os.lazy.clipboard.v1",
@@ -175,12 +185,16 @@
       {
         "name": "Offer",
         "id": 1313375869,
-        "oneway": false
+        "oneway": false,
+        "scope": "os.lazy.clipboard.write.v1",
+        "scope_id": "0x828647c8d352e8f3",
+        "deadline_ms": 500
       },
       {
         "name": "OfferBuffer",
         "id": 2074208755,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "data",
@@ -192,12 +206,16 @@
       {
         "name": "Request",
         "id": 38093138,
-        "oneway": false
+        "oneway": false,
+        "scope": "os.lazy.clipboard.read.v1",
+        "scope_id": "0x8c863642df2825cc",
+        "deadline_ms": 500
       },
       {
         "name": "Fetch",
         "id": 1396322691,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "into",
@@ -250,6 +268,9 @@
         "publish_permission": "publish:system/events/security/clipboard",
         "subscribe_permission": "subscribe:system/events/security/clipboard"
       }
+    ],
+    "services": [
+      "os.lazy.clipboard"
     ]
   },
   {
@@ -301,6 +322,35 @@
         "publish_permission": "publish:user/+/confd/changed/#",
         "subscribe_permission": "subscribe:user/+/confd/changed/#"
       }
+    ],
+    "services": [
+      "os.lazy.confd"
+    ],
+    "errors": [
+      {
+        "name": "NotFound",
+        "code": 1001
+      },
+      {
+        "name": "BadPath",
+        "code": 1002
+      },
+      {
+        "name": "TooLarge",
+        "code": 1003
+      },
+      {
+        "name": "Denied",
+        "code": 1004
+      },
+      {
+        "name": "Io",
+        "code": 1005
+      },
+      {
+        "name": "BadValue",
+        "code": 1006
+      }
     ]
   },
   {
@@ -323,6 +373,9 @@
         "publish_permission": "publish:system/devices/+",
         "subscribe_permission": "subscribe:system/devices/+"
       }
+    ],
+    "services": [
+      "os.lazy.devd"
     ]
   },
   {
@@ -605,7 +658,10 @@
         "oneway": false
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.display.v1"
+    ]
   },
   {
     "interface": "os.lazy.display.cursor.v1",
@@ -617,7 +673,10 @@
         "oneway": false
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.display.v1"
+    ]
   },
   {
     "interface": "os.lazy.echo.v1",
@@ -639,7 +698,10 @@
         "oneway": true
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.echo"
+    ]
   },
   {
     "interface": "os.lazy.elevd.v1",
@@ -666,6 +728,9 @@
         "publish_permission": "publish:system/events/elevd/request",
         "subscribe_permission": "subscribe:system/events/elevd/request"
       }
+    ],
+    "services": [
+      "os.lazy.elevd"
     ]
   },
   {
@@ -711,7 +776,10 @@
         "oneway": false
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.gpu"
+    ]
   },
   {
     "interface": "os.lazy.healthd.v1",
@@ -747,6 +815,9 @@
         "publish_permission": "publish:system/health/+",
         "subscribe_permission": "subscribe:system/health/+"
       }
+    ],
+    "services": [
+      "os.lazy.healthd"
     ]
   },
   {
@@ -861,6 +932,9 @@
         "publish_permission": "publish:session/+/apps/resident",
         "subscribe_permission": "subscribe:session/+/apps/resident"
       }
+    ],
+    "services": [
+      "os.lazy.init"
     ]
   },
   {
@@ -881,7 +955,10 @@
         ]
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.init.app"
+    ]
   },
   {
     "interface": "os.lazy.init.app.events.v1",
@@ -1017,7 +1094,10 @@
         "oneway": true
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.input.v1"
+    ]
   },
   {
     "interface": "os.lazy.input.shell.v1",
@@ -1147,7 +1227,10 @@
         "oneway": true
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.input.shell.v1"
+    ]
   },
   {
     "interface": "os.lazy.keyd.v1",
@@ -1239,7 +1322,10 @@
         "oneway": false
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.keyd"
+    ]
   },
   {
     "interface": "os.lazy.keyd.appsecret.v1",
@@ -1266,7 +1352,10 @@
         "oneway": false
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.keyd.appsecret"
+    ]
   },
   {
     "interface": "os.lazy.lifecycle.v1",
@@ -1310,7 +1399,10 @@
         "oneway": false
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.logd"
+    ]
   },
   {
     "interface": "os.lazy.logind.v1",
@@ -1369,6 +1461,9 @@
         "publish_permission": "publish:system/events/login/end",
         "subscribe_permission": "subscribe:system/events/login/end"
       }
+    ],
+    "services": [
+      "os.lazy.logind"
     ]
   },
   {
@@ -1416,6 +1511,9 @@
         "publish_permission": "publish:system/events/open/+",
         "subscribe_permission": "subscribe:system/events/open/+"
       }
+    ],
+    "services": [
+      "os.lazy.mimed"
     ]
   },
   {
@@ -1448,7 +1546,10 @@
         "oneway": false
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.mount"
+    ]
   },
   {
     "interface": "os.lazy.net.nic.v1",
@@ -1531,6 +1632,9 @@
         "producer": "client",
         "doorbell": "Kick"
       }
+    ],
+    "services": [
+      "os.lazy.net.nic/{ifname}"
     ]
   },
   {
@@ -1606,6 +1710,9 @@
         "publish_permission": "publish:system/events/network/up",
         "subscribe_permission": "subscribe:system/events/network/up"
       }
+    ],
+    "services": [
+      "os.lazy.net.stack"
     ]
   },
   {
@@ -1688,7 +1795,10 @@
         "oneway": false
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.net.stack"
+    ]
   },
   {
     "interface": "os.lazy.notify.v1",
@@ -1718,7 +1828,10 @@
         ]
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.notify"
+    ]
   },
   {
     "interface": "os.lazy.notify.events.v1",
@@ -1817,6 +1930,9 @@
         "publish_permission": "publish:system/events/pkg/+",
         "subscribe_permission": "subscribe:system/events/pkg/+"
       }
+    ],
+    "services": [
+      "os.lazy.pkgd"
     ]
   },
   {
@@ -1890,7 +2006,10 @@
         "oneway": false
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.print"
+    ]
   },
   {
     "interface": "os.lazy.messenger.registry.v1",
@@ -1935,7 +2054,10 @@
         "oneway": false
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.messenger.registry"
+    ]
   },
   {
     "interface": "os.lazy.shell.v1",
@@ -1967,7 +2089,10 @@
         "oneway": false
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.shell"
+    ]
   },
   {
     "interface": "os.lazy.sysmond.v1",
@@ -1998,6 +2123,9 @@
         "publish_permission": "publish:system/stats/tasks",
         "subscribe_permission": "subscribe:system/stats/tasks"
       }
+    ],
+    "services": [
+      "os.lazy.sysmond"
     ]
   },
   {
@@ -2045,6 +2173,9 @@
         "publish_permission": "publish:time/tick",
         "subscribe_permission": "subscribe:time/tick"
       }
+    ],
+    "services": [
+      "os.lazy.timed"
     ]
   },
   {
@@ -2105,7 +2236,10 @@
         ]
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.messenger.topics"
+    ]
   },
   {
     "interface": "os.lazy.messenger.topics.bell.v1",
@@ -2181,6 +2315,9 @@
         "publish_permission": "publish:session/+/shell/tray",
         "subscribe_permission": "subscribe:session/+/shell/tray"
       }
+    ],
+    "services": [
+      "os.lazy.shell.tray"
     ]
   },
   {
@@ -2267,7 +2404,10 @@
         "oneway": false
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.usb.audio"
+    ]
   },
   {
     "interface": "os.lazy.webd.view.v1",
@@ -2598,7 +2738,10 @@
         "oneway": true
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "app.os.lazy.webd.view"
+    ]
   },
   {
     "interface": "os.lazy.webd.net.v1",
@@ -2618,7 +2761,10 @@
         ]
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "app.os.lazy.webd.view"
+    ]
   },
   {
     "interface": "os.lazy.webd.browser.v1",
@@ -2638,7 +2784,10 @@
         ]
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "app.os.lazy.webd.view"
+    ]
   },
   {
     "interface": "os.lazy.webd.light.v1",
@@ -2762,7 +2911,10 @@
         "oneway": true
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "app.os.lazy.webd.light"
+    ]
   },
   {
     "interface": "os.lazy.net.wifi.hw.v1",
@@ -2867,7 +3019,10 @@
         "oneway": true
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.net.wifi.hw/{ifname}"
+    ]
   },
   {
     "interface": "os.lazy.net.wifi.v1",
@@ -2933,6 +3088,9 @@
         "publish_permission": "publish:system/net/+/wifi/scan",
         "subscribe_permission": "subscribe:system/net/+/wifi/scan"
       }
+    ],
+    "services": [
+      "os.lazy.net.wifi"
     ]
   }
 ]

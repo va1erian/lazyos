@@ -1,3 +1,5 @@
+service "os.lazy.logd" implements os.lazy.logd.v1;
+
 /// The structured, hash-chained event log service (issue #93).
 ///
 /// Every record chains over the previous record's hash, so `Verify` detects

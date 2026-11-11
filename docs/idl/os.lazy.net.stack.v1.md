@@ -35,6 +35,10 @@ when the resolver replies, `ETIMEDOUT` when `timeout_ms` passes.
 | Renew | 438534286 | sync | `() -> ()` |
 | Reattach | 60999493 | sync | `() -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.net.stack` (together with `os.lazy.net.socket.v1`); registered once.
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

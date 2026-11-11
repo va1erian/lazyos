@@ -131,6 +131,17 @@ class Method:
     # The objects the request carries, in object-list order (set by the
     # parser's `validate` once the interface's structs are known).
     objects: list[ObjectRef] = field(default_factory=list)
+    # The ACL scope interface name the request's header carries instead of the
+    # interface id (`scope "os.lazy.clipboard.write.v1"`), or None.
+    scope: str | None = None
+    # The deadline every client gives a call, in milliseconds
+    # (`deadline=500ms`), or None when the IDL states none.
+    deadline_ms: int | None = None
+
+    @property
+    def scope_id(self) -> int | None:
+        """The id the header carries: the FNV-1a hash of the scope name."""
+        return fnv1a64(self.scope) if self.scope is not None else None
 
 
 @dataclass
@@ -194,6 +205,44 @@ class Topic:
 
 
 @dataclass
+class ErrorCode:
+    """One service error of an `errors { ... }` block: a name and the
+    domain-specific code carried in the reply's standard error field."""
+
+    name: str
+    code: int
+    doc: str = ""
+    line: int = 0
+
+
+@dataclass
+class Service:
+    """A `service "<registry name>" implements <interface>, ...;` declaration:
+    the name a daemon registers and the interfaces it serves under it. A name
+    ending in `/{placeholder}` is a family (`os.lazy.net.nic/{ifname}`): one
+    instance per placeholder value, and `name` keeps the placeholder."""
+
+    name: str
+    interfaces: list[str]
+    doc: str = ""
+    line: int = 0
+
+    @property
+    def instanced(self) -> bool:
+        return self.name.endswith("}")
+
+    @property
+    def prefix(self) -> str:
+        """The registered name up to and including the `/` of a family, or
+        the whole name of a singleton."""
+        return self.name[: self.name.rindex("/") + 1] if self.instanced else self.name
+
+    @property
+    def placeholder(self) -> str | None:
+        return self.name[self.name.rindex("{") + 1 : -1] if self.instanced else None
+
+
+@dataclass
 class Interface:
     name: str
     docs: str = ""
@@ -202,6 +251,21 @@ class Interface:
     enums: list[Enum] = field(default_factory=list)
     topics: list[Topic] = field(default_factory=list)
     rings: list[Ring] = field(default_factory=list)
+    # The `errors { ... }` block, in declaration order.
+    errors: list[ErrorCode] = field(default_factory=list)
+    # The services that serve this interface (set by `attach_services` once
+    # every file of the compile is parsed).
+    services: list[Service] = field(default_factory=list)
+
+    @property
+    def service(self) -> Service | None:
+        """The singleton service name of this interface, if declared."""
+        return next((s for s in self.services if not s.instanced), None)
+
+    @property
+    def family(self) -> Service | None:
+        """The per-instance service family of this interface, if declared."""
+        return next((s for s in self.services if s.instanced), None)
 
     @property
     def id(self) -> int:

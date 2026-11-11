@@ -38,6 +38,10 @@ refusal says who holds it.
 | Volumes | 2053774420 | sync | `() -> (volumes: Array<VolumeInfo>)` |
 | Eject | 819391126 | sync | `(disk: String, force: Bool) -> (state: String, detail: String)` |
 
+## Service
+
+- Served under the registry name `os.lazy.mount`; registered once.
+
 ## struct `MountInfo`
 
 - `name: String`

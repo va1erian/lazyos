@@ -32,6 +32,10 @@ apps for the prompt, or the performing service's own error.
 | Request | 38093138 | sync | `(operation: String, args: Array<String>) -> (detail: String, values: Array<String>)` |
 | Release | 1830722334 | sync | `() -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.elevd`; registered once.
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

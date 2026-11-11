@@ -29,6 +29,10 @@ reply, so the error field is hand-written next to these stubs.
 | RelaunchApp | 734382134 | sync | `(app: String) -> (stopped: U64, started: U64)` |
 | Reloads | 930702605 | sync | `() -> (reloads: Array<ReloadState>)` |
 
+## Service
+
+- Served under the registry name `os.lazy.init`; registered once.
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

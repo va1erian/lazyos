@@ -19,6 +19,10 @@ credentials and its arguments. Failures are a structured error field
 |---|---|---|---|
 | Devices | 665645856 | sync | `() -> (devices: Array<DeviceState>)` |
 
+## Service
+
+- Served under the registry name `os.lazy.devd`; registered once.
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

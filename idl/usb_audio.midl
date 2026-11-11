@@ -1,3 +1,5 @@
+service "os.lazy.usb.audio" implements os.lazy.usb.audio.v1;
+
 /// A USB audio playback function, as `usbd` drives it
 /// (docs/usb-audio-plan.md).
 ///
