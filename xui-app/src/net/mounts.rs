@@ -2,28 +2,24 @@
 //! `idl/mount.midl`) for the Network Drives app, and the hand-off of a
 //! mounted folder to Files (`init.Launch`).
 //!
-//! Every call runs on the UI thread, so each is bounded by [`CALL_TICKS`]:
-//! `mountd` answers at once and does the slow part (logging in) in the
+//! Every call runs on the UI thread, so each waits only what `idl/mount.midl`
+//! states: `mountd` answers at once and does the slow part (logging in) in the
 //! daemon it starts. A missing `mountd` (an image without the network
 //! stack) is [`Error::NotRunning`], never a hang.
 
-use libmessenger::client::Deadline;
+use std::rc::Rc;
+
+use libmessenger::client::{CallError, Deadline};
 use messenger_generated::os_lazy_init_v1 as init_wire;
 use messenger_generated::os_lazy_mount_v1 as wire;
 use mounttable::Request;
 
-use crate::platform::messenger::Service;
+use crate::platform::messenger::{client, Observed};
 
-/// `mountd`'s registered name.
-const NAME: &str = wire::SERVICE_NAME;
-/// `init`'s registered name.
-const INIT: &str = init_wire::SERVICE_NAME;
 /// The app that opens a folder.
 const FILES_APP: &str = "os.lazy.files";
-/// The longest one call may wait (PIT ticks, 100 Hz).
-const CALL_TICKS: u64 = 200;
-const EINVAL: i64 = 22;
-const EPIPE: i64 = 32;
+/// The longest `init.Launch` may wait here (PIT ticks, 100 Hz).
+const LAUNCH_TICKS: u64 = 200;
 
 pub use wire::{MountInfo, VolumeInfo};
 
@@ -48,102 +44,58 @@ impl Error {
     }
 }
 
-/// One call on `service`, never resent: `Mount` and `Launch` are not
-/// idempotent, and a request whose reply was lost may already have started
-/// a daemon or a window. A dead cached endpoint (`EPIPE`, the service
-/// restarted) is evicted by the failure, so the next call resolves afresh.
-fn call(
-    service: &'static str,
-    interface: u64,
-    method: u32,
-    body: Vec<u8>,
-) -> Result<Vec<u8>, Error> {
-    let endpoint = Service::try_connect(service).ok_or(Error::NotRunning)?;
-    endpoint
-        .call(interface, method, body, Deadline::ticks(CALL_TICKS))
-        .map(|reply| reply.body)
-        .map_err(|error| Error::Code(error.code()))
+/// `mountd`'s client. A call is resent once only when the cached endpoint was
+/// dead (`EPIPE`, the service restarted), which resolves afresh.
+fn mountd() -> Result<Rc<wire::Client<Observed>>, Error> {
+    client(wire::Client::try_connect).map_err(|_| Error::NotRunning)
 }
 
-/// [`call`] for a read-only request, which is safe to resend once after
-/// `EPIPE`, so the list survives a restart of `mountd` without a gap.
-fn call_idempotent(
-    service: &'static str,
-    interface: u64,
-    method: u32,
-    body: Vec<u8>,
-) -> Result<Vec<u8>, Error> {
-    match call(service, interface, method, body.clone()) {
-        Err(Error::Code(code)) if -code == EPIPE => call(service, interface, method, body),
-        other => other,
-    }
-}
-
-fn decoded<T, E>(result: Result<T, E>) -> Result<T, Error> {
-    result.map_err(|_| Error::Code(-EINVAL))
+fn failed(error: CallError) -> Error {
+    Error::Code(error.code())
 }
 
 /// Every mount `mountd` knows about.
 pub fn list() -> Result<Vec<MountInfo>, Error> {
-    let body = call_idempotent(NAME, wire::INTERFACE_ID, wire::METHOD_LIST, Vec::new())?;
-    Ok(decoded(wire::decode_list_reply(&body))?.mounts)
+    mountd()?.list().map_err(failed)
 }
 
 /// Ask for a mount; the answer is the folder it will appear at.
 pub fn mount(request: &Request) -> Result<String, Error> {
-    let body = decoded(wire::encode_mount_args(&wire::MountArgs {
-        name: request.name.clone(),
-        host: request.host.clone(),
-        port: u32::from(request.port),
-        user: request.user.clone(),
-        password: request.password.clone(),
-        kind: String::from(request.kind.name()),
-        share: request.share.clone(),
-    }))?;
-    let body = call(NAME, wire::INTERFACE_ID, wire::METHOD_MOUNT, body)?;
-    Ok(decoded(wire::decode_mount_reply(&body))?.path)
+    mountd()?
+        .mount(
+            &request.name,
+            &request.host,
+            u32::from(request.port),
+            &request.user,
+            &request.password,
+            request.kind.name(),
+            &request.share,
+        )
+        .map_err(failed)
 }
 
 /// Stop and forget the mount `name`.
 pub fn unmount(name: &str) -> Result<(), Error> {
-    let body = decoded(wire::encode_unmount_args(&wire::UnmountArgs {
-        name: name.to_owned(),
-    }))?;
-    call(NAME, wire::INTERFACE_ID, wire::METHOD_UNMOUNT, body).map(drop)
+    mountd()?.unmount(name).map_err(failed)
 }
 
 /// Open the folder `path` in Files, in this session.
 pub fn open_in_files(path: &str) -> Result<(), Error> {
-    let body = decoded(init_wire::encode_launch_args(&init_wire::LaunchArgs {
-        app: FILES_APP.to_owned(),
-        args: path.to_owned(),
-        session: 0,
-    }))?;
-    call(
-        INIT,
-        init_wire::INTERFACE_ID,
-        init_wire::METHOD_LAUNCH,
-        body,
-    )
-    .map(drop)
+    let init = client(init_wire::Client::try_connect).map_err(|_| Error::NotRunning)?;
+    init.launch_within(FILES_APP, path, 0, Deadline::ticks(LAUNCH_TICKS))
+        .map(drop)
+        .map_err(failed)
 }
 
 /// The caller's removable volumes (the Removable Drives applet's list).
 pub fn volumes() -> Result<Vec<VolumeInfo>, Error> {
-    let body = call_idempotent(NAME, wire::INTERFACE_ID, wire::METHOD_VOLUMES, Vec::new())?;
-    Ok(decoded(wire::decode_volumes_reply(&body))?.volumes)
+    mountd()?.volumes().map_err(failed)
 }
 
 /// Eject the volume on `disk` (`usb<n>`): `(state, detail)` as `mountd`
-/// answers (`ejecting`, `ejected`, or `busy` with the holders). Not resent:
-/// an eject in flight is answered `ejecting` the second time, which is the
-/// same outcome, but a lost reply is better seen than hidden.
+/// answers (`ejecting`, `ejected`, or `busy` with the holders). An eject in
+/// flight is answered `ejecting` the second time, which is the same outcome.
 pub fn eject(disk: &str, force: bool) -> Result<(String, String), Error> {
-    let body = decoded(wire::encode_eject_args(&wire::EjectArgs {
-        disk: disk.to_owned(),
-        force,
-    }))?;
-    let body = call(NAME, wire::INTERFACE_ID, wire::METHOD_EJECT, body)?;
-    let reply = decoded(wire::decode_eject_reply(&body))?;
+    let reply = mountd()?.eject(disk, force).map_err(failed)?;
     Ok((reply.state, reply.detail))
 }

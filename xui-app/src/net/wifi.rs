@@ -1,8 +1,8 @@
 //! Typed client of the Wi-Fi station service `wlanmd` (`os.lazy.net.wifi.v1`,
 //! `idl/wifi.midl`) for the Network app's Wi-Fi page.
 //!
-//! Like [`super::stack`], bodies come from the generated stubs and every call
-//! is bounded, because each runs on the UI thread. A missing `wlanmd` (an
+//! Like [`super::stack`], calls go through the generated client and every call
+//! is bounded (the `.midl` deadline), because each runs on the UI thread. A missing `wlanmd` (an
 //! image without Wi-Fi, or one still booting) is [`Error::NotRunning`], never
 //! a hang. Replies are untrusted: they describe what any radio in range
 //! sent, so names are cleaned and clipped again here before a label sees
@@ -14,34 +14,23 @@
 //! this does not claim to scrub memory (the toolkit's edit buffer and the
 //! encoded request are not zeroized).
 
-use libmessenger::client::Deadline;
+use std::rc::Rc;
+
+use libmessenger::client::CallError;
 use messenger_generated::os_lazy_net_wifi_v1 as wire;
 
 use super::wifimodel::{clean, Conn, Network, Security, State, Why, MAX_SSID};
-use crate::platform::messenger::Service;
+use crate::platform::messenger::{client, Observed};
+use crate::sys::errno::{
+    EACCES, EAGAIN, EBUSY, EEXIST, EINVAL, ENODEV, ENOENT, ENOSPC, EPERM, EPIPE,
+};
 
-/// `wlanmd`'s registered name.
-const NAME: &str = wire::SERVICE_NAME;
-/// The longest one call may wait (PIT ticks, 100 Hz).
-pub const CALL_TICKS: u64 = 100;
 /// Most networks and interfaces taken from one reply (the service caps the
 /// list at 128).
 const MAX_NETWORKS: usize = 128;
 const MAX_INTERFACES: usize = 8;
 /// Longest interface name or profile id kept.
 const MAX_NAME: usize = 24;
-
-const EPERM: i64 = 1;
-const ENOENT: i64 = 2;
-const EAGAIN: i64 = 11;
-const EACCES: i64 = 13;
-const EBUSY: i64 = 16;
-/// `EEXIST`: the network is saved already.
-pub const EEXIST: i64 = 17;
-const ENODEV: i64 = 19;
-const EINVAL: i64 = 22;
-const ENOSPC: i64 = 28;
-const EPIPE: i64 = 32;
 
 /// Why a call to `wlanmd` failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,44 +73,26 @@ impl Error {
     }
 }
 
-fn call(method: u32, body: Vec<u8>) -> Result<Vec<u8>, Error> {
-    let service = Service::try_connect(NAME).ok_or(Error::NotRunning)?;
-    service
-        .call(
-            wire::INTERFACE_ID,
-            method,
-            body,
-            Deadline::ticks(CALL_TICKS),
-        )
-        .map(|reply| reply.body)
-        .map_err(|error| Error::Code(error.code()))
+/// `wlanmd`'s client. A `wlanmd` that was restarted under the cached endpoint
+/// (`EPIPE`) is resolved again and the call retried once.
+fn wlanmd() -> Result<Rc<wire::Client<Observed>>, Error> {
+    client(wire::Client::try_connect).map_err(|_| Error::NotRunning)
 }
 
-/// [`call`], once more when `wlanmd` was restarted under the cached endpoint
-/// (`EPIPE`; the failed call evicted it). Not for a call that carries a
-/// secret: its body is not kept to send twice.
-fn call_retrying(method: u32, body: Vec<u8>) -> Result<Vec<u8>, Error> {
-    match call(method, body.clone()) {
-        Err(Error::Code(code)) if -code == EPIPE => call(method, body),
-        other => other,
-    }
-}
-
-/// A wire encode or decode failure is an invalid request, whichever way.
-fn checked<T>(result: Result<T, impl Sized>) -> Result<T, Error> {
-    result.map_err(|_| Error::Code(-EINVAL))
+fn failed(error: CallError) -> Error {
+    Error::Code(error.code())
 }
 
 /// Whether `wlanmd` is registered, with or without a radio yet.
 pub fn available() -> bool {
-    Service::try_connect(NAME).is_some()
+    wlanmd().is_ok()
 }
 
 /// The wireless interfaces `wlanmd` manages (`wlan0`).
 pub fn interfaces() -> Result<Vec<String>, Error> {
-    let body = call_retrying(wire::METHOD_INTERFACES, Vec::new())?;
-    Ok(checked(wire::decode_interfaces_reply(&body))?
-        .names
+    Ok(wlanmd()?
+        .interfaces()
+        .map_err(failed)?
         .iter()
         .take(MAX_INTERFACES)
         .map(|name| clean(name, MAX_NAME))
@@ -131,22 +102,15 @@ pub fn interfaces() -> Result<Vec<String>, Error> {
 
 /// The interface's connection state now.
 pub fn status(ifname: &str) -> Result<State, Error> {
-    let body = checked(wire::encode_status_args(&wire::StatusArgs {
-        ifname: ifname.into(),
-    }))?;
-    let reply = call_retrying(wire::METHOD_STATUS, body)?;
-    Ok(state(&checked(wire::decode_status_reply(&reply))?.status))
+    Ok(state(&wlanmd()?.status(ifname).map_err(failed)?))
 }
 
 /// The networks heard on `ifname`, merged with the saved ones, strongest
 /// first (the service's order).
 pub fn networks(ifname: &str) -> Result<Vec<Network>, Error> {
-    let body = checked(wire::encode_networks_args(&wire::NetworksArgs {
-        ifname: ifname.into(),
-    }))?;
-    let reply = call_retrying(wire::METHOD_NETWORKS, body)?;
-    Ok(checked(wire::decode_networks_reply(&reply))?
-        .list
+    Ok(wlanmd()?
+        .networks(ifname)
+        .map_err(failed)?
         .iter()
         .take(MAX_NETWORKS)
         .map(network)
@@ -156,11 +120,7 @@ pub fn networks(ifname: &str) -> Result<Vec<Network>, Error> {
 /// Ask for a fresh scan, probing for `hidden` names too. Returns at once; the
 /// results show in the next [`networks`].
 pub fn scan(ifname: &str, hidden: &[String]) -> Result<(), Error> {
-    let body = checked(wire::encode_scan_args(&wire::ScanArgs {
-        ifname: ifname.into(),
-        ssids: hidden.to_vec(),
-    }))?;
-    call_retrying(wire::METHOD_SCAN, body).map(|_| ())
+    wlanmd()?.scan(ifname, hidden).map_err(failed)
 }
 
 /// Remember a network for the signed-in user and return its profile id.
@@ -184,43 +144,26 @@ pub fn add_network(
         priority: 0,
         scope: wire::SCOPE_USER,
     };
-    let args = wire::AddNetworkArgs {
-        profile,
-        passphrase,
-    };
-    let body = checked(wire::encode_add_network_args(&args))?;
-    drop(args);
-    let reply = call(wire::METHOD_ADDNETWORK, body)?;
-    Ok(clean(
-        &checked(wire::decode_add_network_reply(&reply))?.id,
-        MAX_NAME,
-    ))
+    let id = wlanmd()?
+        .add_network(&profile, passphrase.as_deref())
+        .map_err(failed)?;
+    Ok(clean(&id, MAX_NAME))
 }
 
 /// Join the saved network `id`. Returns when the attempt starts; the outcome
 /// is [`status`].
 pub fn connect(ifname: &str, id: &str) -> Result<(), Error> {
-    let body = checked(wire::encode_connect_args(&wire::ConnectArgs {
-        ifname: ifname.into(),
-        id: id.into(),
-    }))?;
-    call_retrying(wire::METHOD_CONNECT, body).map(|_| ())
+    wlanmd()?.connect_call(ifname, id).map_err(failed)
 }
 
 /// Leave the network and stop reconnecting until asked.
 pub fn disconnect(ifname: &str) -> Result<(), Error> {
-    let body = checked(wire::encode_disconnect_args(&wire::DisconnectArgs {
-        ifname: ifname.into(),
-    }))?;
-    call_retrying(wire::METHOD_DISCONNECT, body).map(|_| ())
+    wlanmd()?.disconnect(ifname).map_err(failed)
 }
 
 /// Delete a saved network and its passphrase.
 pub fn forget(id: &str) -> Result<(), Error> {
-    let body = checked(wire::encode_forget_args(&wire::ForgetArgs {
-        id: id.into(),
-    }))?;
-    call_retrying(wire::METHOD_FORGET, body).map(|_| ())
+    wlanmd()?.forget(id).map_err(failed)
 }
 
 fn security(wire_value: u32) -> Security {

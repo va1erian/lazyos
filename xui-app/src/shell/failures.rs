@@ -10,7 +10,7 @@
 //! at boot still hears of it; a retained failure older than [`STALE_TICKS`]
 //! (an old one replayed to a restarted shell) is skipped, and each failure is
 //! shown once (`(app, at)`).
-//! Every call uses the generated `os.lazy.messenger.topics.v1` and
+//! Every call uses the generated `os.lazy.messenger.topics.v1` client and the
 //! `os.lazy.init.v1` stubs; the payload comes out of the broker's envelope
 //! (`libmessenger::envelope`).
 //!
@@ -22,11 +22,9 @@ use libmessenger::client::Deadline;
 use messenger_generated::os_lazy_init_v1 as init_wire;
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 
-use crate::platform::messenger::Service;
+use crate::platform::messenger::{client, Observed};
 use crate::sys::{self};
 
-/// The central broker's registered name.
-const BROKER: &str = "os.lazy.messenger.topics";
 /// Failures the broker may hold for the shell between two looks.
 const DEPTH: u32 = 16;
 /// Ticks between looks (100 Hz).
@@ -35,8 +33,6 @@ const POLL_TICKS: u64 = 25;
 const RETRY_TICKS: u64 = 200;
 /// Most events taken per look.
 const PER_LOOK: usize = 8;
-/// Ticks the subscribe call may take.
-const SUBSCRIBE_TICKS: u64 = 50;
 /// A retained failure older than this (one minute) is history, not news.
 const STALE_TICKS: u64 = 6000;
 /// Failures remembered to show each once.
@@ -130,45 +126,27 @@ impl FailureFeed {
     }
 }
 
-fn broker() -> Result<Service, i64> {
-    Service::try_connect(BROKER).ok_or(-sys::errno::ENOENT)
+fn broker() -> Result<std::rc::Rc<topics::Client<Observed>>, i64> {
+    client(topics::Client::try_connect).map_err(|_| -sys::errno::ENOENT)
 }
 
 /// `Subscribe("system/events/app/+", Buffered, DEPTH)`: the subscription id.
 fn subscribe() -> Result<u64, i64> {
-    let body = topics::encode_subscribe_args(&topics::SubscribeArgs {
-        filter: init_wire::TOPIC_SYSTEM_EVENTS_APP.to_owned(),
-        qos: topics::QOS_BUFFERED,
-        depth: DEPTH,
-    })
-    .map_err(|_| -sys::errno::EINVAL)?;
-    let reply = broker()?.call(
-        topics::INTERFACE_ID,
-        topics::METHOD_SUBSCRIBE,
-        body,
-        Deadline::ticks(SUBSCRIBE_TICKS),
-    )?;
-    topics::decode_subscribe_reply(&reply.body)
-        .map(|reply| reply.subscription)
-        .map_err(|_| -sys::errno::EINVAL)
+    let broker = broker()?;
+    Ok(broker.subscribe(
+        init_wire::TOPIC_SYSTEM_EVENTS_APP,
+        topics::QOS_BUFFERED,
+        DEPTH,
+    )?)
 }
 
 /// One poll `NextEvent`: `None` when nothing is queued.
 fn next_event(subscription: u64) -> Result<Option<topics::Event>, i64> {
-    let body = topics::encode_next_event_args(&topics::NextEventArgs { subscription })
-        .map_err(|_| -sys::errno::EINVAL)?;
-    let reply = match broker()?.call(
-        topics::INTERFACE_ID,
-        topics::METHOD_NEXTEVENT,
-        body,
-        Deadline::Poll,
-    ) {
-        Ok(reply) => reply,
+    let broker = broker()?;
+    let event = match broker.next_event_within(subscription, Deadline::Poll) {
+        Ok(event) => event,
         Err(error) if error.is_timeout() => return Ok(None),
         Err(error) => return Err(error.code()),
     };
-    let event = topics::decode_next_event_reply(&reply.body)
-        .map_err(|_| -sys::errno::EINVAL)?
-        .event;
     Ok((!event.topic.is_empty()).then_some(event))
 }
