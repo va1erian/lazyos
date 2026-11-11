@@ -28,6 +28,18 @@ interface os.lazy.messenger.registry.v1 {
     /// Look `name` up. Over the gate the new handle is the call's return value;
     /// over the daemon it is `handle`, already open in the caller's table.
     method Resolve(name: String = 1) -> (handle: U64 = 1);
+    /// `Resolve`, but a name that is not registered yet is waited for
+    /// instead of refused: the call returns when `name` is registered or the
+    /// request's deadline passes (`ETIMEDOUT`), and the reply is a `Resolve`
+    /// reply, the handle open in the caller's table. Nothing polls: the
+    /// kernel parks the caller on the registry and a `Register` of that name
+    /// (and no other) wakes it. The name policy that gates `Resolve` is
+    /// applied before the wait starts and again when the name appears, so a
+    /// waiter learns nothing a `Resolve` would not tell it. A task waits for
+    /// one name at a time and the kernel bounds all waiters (`EAGAIN`);
+    /// a cancelled or killed caller is released at once. Kernel gate only;
+    /// `messengerd` does not proxy it, since it would park the daemon.
+    method WaitFor(name: String = 1) -> (handle: U64 = 1);
     /// Open a private connection to `name` (issue #483): the kernel mints a
     /// fresh channel, returns one end to the caller (the call's return value
     /// over the gate) and posts the other to the service as `Connected`.

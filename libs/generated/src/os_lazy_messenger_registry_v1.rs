@@ -99,6 +99,8 @@ pub fn decode_entry(body: &[u8]) -> Result<Entry, Error> {
 pub const METHOD_REGISTER: u32 = 658098656;
 /// `Resolve` method id.
 pub const METHOD_RESOLVE: u32 = 1645633795;
+/// `WaitFor` method id.
+pub const METHOD_WAITFOR: u32 = 1225377743;
 /// `Connect` method id.
 pub const METHOD_CONNECT: u32 = 1535748249;
 /// `Connected` method id.
@@ -229,6 +231,61 @@ pub fn encode_resolve_reply(value: &ResolveReply) -> Result<Vec<u8>, Error> {
 
 pub fn decode_resolve_reply(body: &[u8]) -> Result<ResolveReply, Error> {
     let mut out = ResolveReply::default();
+    let mut decoder = Decoder::new(body);
+    while let Some(field) = decoder.next()? {
+        if field.id == 1 {
+            out.handle = field.as_u64()?;
+        }
+    }
+    Ok(out)
+}
+
+/// `Resolve`, but a name that is not registered yet is waited for
+/// instead of refused: the call returns when `name` is registered or the
+/// request's deadline passes (`ETIMEDOUT`), and the reply is a `Resolve`
+/// reply, the handle open in the caller's table. Nothing polls: the
+/// kernel parks the caller on the registry and a `Register` of that name
+/// (and no other) wakes it. The name policy that gates `Resolve` is
+/// applied before the wait starts and again when the name appears, so a
+/// waiter learns nothing a `Resolve` would not tell it. A task waits for
+/// one name at a time and the kernel bounds all waiters (`EAGAIN`);
+/// a cancelled or killed caller is released at once. Kernel gate only;
+/// `messengerd` does not proxy it, since it would park the daemon.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WaitForArgs {
+    pub name: alloc::string::String,
+}
+
+pub fn encode_wait_for_args(value: &WaitForArgs) -> Result<Vec<u8>, Error> {
+    let mut target = Encoder::new();
+    target.string(1, &value.name)?;
+    Ok(target.finish())
+}
+
+pub fn decode_wait_for_args(body: &[u8]) -> Result<WaitForArgs, Error> {
+    let mut out = WaitForArgs::default();
+    let mut decoder = Decoder::new(body);
+    while let Some(field) = decoder.next()? {
+        if field.id == 1 {
+            out.name = field.as_str()?.into();
+        }
+    }
+    Ok(out)
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WaitForReply {
+    pub handle: u64,
+}
+
+pub fn encode_wait_for_reply(value: &WaitForReply) -> Result<Vec<u8>, Error> {
+    let mut target = Encoder::new();
+    target.u64(1, value.handle)?;
+    Ok(target.finish())
+}
+
+pub fn decode_wait_for_reply(body: &[u8]) -> Result<WaitForReply, Error> {
+    let mut out = WaitForReply::default();
     let mut decoder = Decoder::new(body);
     while let Some(field) = decoder.next()? {
         if field.id == 1 {

@@ -817,6 +817,7 @@ The Messenger service name registry (issues #89, #300).
 |---|---|---|
 | `register(name, endpoint, interfaces, lease_ticks, interface_names)` | `Register(name: String, endpoint: Option<U64>, interfaces: Array<U64>, lease_ticks: U64, interface_names: Array<String>) -> ()` | Publish `endpoint` (a handle in the owner's table) under `name`. The |
 | `resolve(name)` | `Resolve(name: String) -> (handle: U64)` | Look `name` up. Over the gate the new handle is the call's return value; |
+| `wait_for(name)` | `WaitFor(name: String) -> (handle: U64)` | `Resolve`, but a name that is not registered yet is waited for |
 | `unregister(name)` | `Unregister(name: String) -> ()` | Withdraw `name`. Only its owner (or an administrator) may. |
 | `list()` | `List() -> (entries: Array<Entry>)` | Snapshot the name table. |
 | `new_entry()` | struct `Entry` | a `Entry` at its zero value |

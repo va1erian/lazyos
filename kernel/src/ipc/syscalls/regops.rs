@@ -42,6 +42,10 @@ pub(super) fn registry_errno(error: registry::Error) -> i64 {
         UnknownName => errno::ENOENT,
         NotOwner => errno::EPERM,
         RegistryFull | NoResources => errno::ENOMEM,
+        Denied => errno::EACCES,
+        TimedOut => errno::ETIMEDOUT,
+        Canceled => errno::ECANCELED,
+        TooManyWaiters => errno::EAGAIN,
     }
 }
 
@@ -58,6 +62,7 @@ pub(super) fn op_registry(args: &MsgArgs, method: u32) -> Result<MsgResult, i64>
         registry::method::UNREGISTER => registry_unregister(args, target),
         registry::method::LIST => registry_list(args),
         registry::method::CONNECT => registry_connect(args, target),
+        registry::method::WAIT_FOR => registry_wait_for(args, target),
         _ => Err(errno::EINVAL),
     }
 }
@@ -132,6 +137,24 @@ pub(super) fn registry_resolve(args: &MsgArgs, target: usize) -> Result<MsgResul
     // names exist.
     policy::check_name(target, NameOp::Resolve, &args.name).map_err(|_| errno::EACCES)?;
     let handle = registry::resolve(target, &args.name).map_err(registry_errno)?;
+    Ok(MsgResult {
+        value: handle,
+        ..MsgResult::default()
+    })
+}
+
+/// `OP_WAIT_FOR`: `OP_RESOLVE` that waits for the name until the call's
+/// deadline. The policy runs first, so a name the caller may not resolve is
+/// refused without a wait (and so reveals nothing), and again as the name
+/// appears, before any handle opens (`registry::wait_for`).
+pub(super) fn registry_wait_for(args: &MsgArgs, target: usize) -> Result<MsgResult, i64> {
+    let bytes = read_parcel(args)?;
+    let request = registry_args(&bytes, registry::wire::decode_wait_for_args)?;
+    let name = request.name;
+    policy::check_name(target, NameOp::Resolve, &name).map_err(|_| errno::EACCES)?;
+    let allowed = || policy::check_name(target, NameOp::Resolve, &name).is_ok();
+    let handle = registry::wait_for(target, &name, args.deadline_ticks(), allowed)
+        .map_err(registry_errno)?;
     Ok(MsgResult {
         value: handle,
         ..MsgResult::default()

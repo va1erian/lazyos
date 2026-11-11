@@ -3301,6 +3301,15 @@ pub static INTERFACES: &[Interface] = &[
                 objects: &[],
             },
             Method {
+                name: "WaitFor",
+                id: 1225377743,
+                oneway: false,
+                doc: "`Resolve`, but a name that is not registered yet is waited for\ninstead of refused: the call returns when `name` is registered or the\nrequest's deadline passes (`ETIMEDOUT`), and the reply is a `Resolve`\nreply, the handle open in the caller's table. Nothing polls: the\nkernel parks the caller on the registry and a `Register` of that name\n(and no other) wakes it. The name policy that gates `Resolve` is\napplied before the wait starts and again when the name appears, so a\nwaiter learns nothing a `Resolve` would not tell it. A task waits for\none name at a time and the kernel bounds all waiters (`EAGAIN`);\na cancelled or killed caller is released at once. Kernel gate only;\n`messengerd` does not proxy it, since it would park the daemon.",
+                params: &[Field { name: "name", id: 1, ty: Ty::String }],
+                returns: &[Field { name: "handle", id: 1, ty: Ty::U64 }],
+                objects: &[],
+            },
+            Method {
                 name: "Connect",
                 id: 1535748249,
                 oneway: false,

@@ -170,6 +170,14 @@ pub const OP_CALL_CHECK: u64 = 25;
 /// success with `value` 0. A kernel ABI op: words cross, not parcels.
 pub const OP_CALL_DRAIN: u64 = 26;
 
+/// `Resolve` that waits for the name to register (`WaitFor`,
+/// `idl/registry.midl`): the request parcel is a `WaitFor`, `deadline` the
+/// absolute PIT tick it may wait until (`0`: for ever), `value` the caller's
+/// new handle. `ETIMEDOUT` at the deadline, `ECANCELED` for a task being
+/// killed, `EAGAIN` when the kernel's waiter table is full; the name policy
+/// of [`OP_RESOLVE`] applies before the wait and again when the name appears.
+pub const OP_WAIT_FOR: u64 = 27;
+
 /// `MsgArgs::txn_id` marker for registry ops: act on the calling task.
 pub const REGISTRY_TARGET_SELF: u64 = u64::MAX;
 

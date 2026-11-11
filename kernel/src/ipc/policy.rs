@@ -385,9 +385,9 @@ pub fn owns_topic(cred: &Cred, name: &str) -> bool {
 /// Everything else on the registry interface (listing every service) needs an
 /// explicit rule.
 fn implicit_registry_call(interface_id: u64, method: u32) -> bool {
-    use registry::method::{CONNECT, REGISTER, RESOLVE, UNREGISTER};
+    use registry::method::{CONNECT, REGISTER, RESOLVE, UNREGISTER, WAIT_FOR};
     interface_id == registry::INTERFACE
-        && matches!(method, REGISTER | UNREGISTER | RESOLVE | CONNECT)
+        && matches!(method, REGISTER | UNREGISTER | RESOLVE | CONNECT | WAIT_FOR)
 }
 
 /// Evaluate an interface/method call for a labelled task. The one hook
