@@ -5877,6 +5877,7 @@ dependencies = [
  "lazyarc",
  "xui-canvas",
  "xui-core",
+ "xui-work",
 ]
 
 [[package]]
