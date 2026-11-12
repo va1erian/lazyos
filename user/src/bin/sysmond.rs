@@ -36,7 +36,9 @@ use alloc::string::String;
 use core::panic::PanicInfo;
 use messenger_generated::os_lazy_sysmond_v1 as stats;
 use user::central;
-use user::messenger::{self, errno, registry, services, wait, Error, Message, Parcel};
+use alloc::vec::Vec;
+use libmessenger::server::{Caller, Fault};
+use user::messenger::{self, errno, registry, services, wait, Error};
 use user::sys;
 use user::sysinfo::{self, Snapshot, TaskState};
 use user::trace;
@@ -135,16 +137,7 @@ fn run() -> messenger::Result<()> {
         }
         match server.recv_with(&mut buffer, Some(messenger::EXPIRED_DEADLINE)) {
             Ok(message) => {
-                let reply = match dispatch(&message) {
-                    Ok(parcel) => parcel,
-                    // A failed request still gets an answer, or its caller
-                    // would wait forever: a structured error for the request's
-                    // own interface and method, carrying the original errno,
-                    // so a failure is never mistaken for a success.
-                    Err(error) => {
-                        services::error_reply(message.interface_id(), message.method(), error)
-                    }
-                };
+                let reply = services::sysmond::wire::dispatch(&mut Handler, &message);
                 if let Some(txn) = message.txn {
                     // A caller whose deadline passed is a normal scheduling
                     // race, not a service failure; keep serving.
@@ -268,17 +261,18 @@ fn tasks_stats(snapshot: &Snapshot) -> stats::TasksStats {
     }
 }
 
-/// Dispatch one inbound message: a `snapshot` call on the system interface.
-fn dispatch(message: &Message) -> messenger::Result<Parcel> {
-    match message.interface_id() {
-        services::SYSMOND_INTERFACE => match message.method() {
-            services::sysmond::METHOD_SNAPSHOT => {
-                let snapshot = sysinfo::snapshot().map_err(Error::Errno)?;
-                services::sysinfo_reply(&snapshot)
-            }
-            _ => Err(Error::Errno(-errno::EINVAL)),
-        },
-        _ => Err(Error::Errno(-errno::EINVAL)),
+/// The `sysmond` handler: one `Snapshot` method (the generated server).
+struct Handler;
+
+impl services::sysmond::wire::Server for Handler {
+    fn snapshot(&mut self, _: &Caller) -> Result<Vec<u8>, Fault> {
+        let snapshot = sysinfo::snapshot().map_err(Error::Errno)?;
+        // The raw fixed-layout `sysinfo` snapshot bytes.
+        let mut bytes = [0u8; sysinfo::SIZE];
+        if !snapshot.write_bytes(&mut bytes) {
+            return Err(Error::Errno(-errno::E2BIG).into());
+        }
+        Ok(bytes.to_vec())
     }
 }
 
