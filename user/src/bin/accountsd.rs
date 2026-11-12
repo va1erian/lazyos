@@ -58,11 +58,13 @@ use user::trace;
 
 use accountdb::ratelimit::Limiter;
 use accountdb::{Db, User};
-use libmessenger::client::Deadline;
+use libmessenger::client::{Deadline, Errno};
+use libmessenger::server::{Caller, Fault};
 use user::messenger::client::Native;
 use user::messenger::services::health::Client as HealthClient;
-use user::messenger::{self, accounts, errno, registry, Error, Message, Parcel};
-use user::sys;
+use accounts::wire;
+use user::messenger::{self, accounts, errno, registry, Error};
+use user::sys::{self, Cred};
 
 /// How long the service waits for a request before retrying an undelivered
 /// health report (PIT ticks, 100 Hz).
@@ -137,7 +139,7 @@ fn run() -> messenger::Result<()> {
             Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => continue,
             Err(error) => return Err(error),
         };
-        let reply = answer(&mut state, &message);
+        let reply = wire::dispatch(&mut Handler(&mut state), &message);
         if let Some(txn) = message.txn {
             server.reply_or_drop(txn, &reply)?;
         }
@@ -166,78 +168,106 @@ impl Refusal {
     }
 }
 
-/// The reply to one request: served from the database, or refused when there
-/// is none or the request is malformed (a malformed request still gets an
-/// answer, or its caller would wait forever).
-fn answer(state: &mut State, message: &Message) -> Parcel {
-    let method = message.method();
-    if let Err(reason) = &state.db {
-        let text = format!(
-            "no account database ({}: {reason})",
-            fhs::state::ACCOUNTS_DB
-        );
-        return accounts::error_reply(method, errno::EIO, &text);
-    }
-    if message.interface_id() != accounts::INTERFACE {
-        return accounts::error_reply(method, errno::EINVAL, "not an accounts request");
-    }
-    match dispatch(state, message) {
-        Ok(reply) => reply,
-        Err(Refusal(code, text)) => accounts::error_reply(method, code, &text),
+/// The service state answering requests (the generated [`wire::Server`]).
+struct Handler<'a>(&'a mut State);
+
+/// The sender's stamped credentials, as the policy code reads them.
+fn cred_of(cx: &Caller) -> Cred {
+    Cred::new(cx.uid, cx.gid, cx.caps, cx.label_id, cx.session)
+}
+
+impl Handler<'_> {
+    /// A daemon without accounts (no valid account file, issue #508) answers
+    /// every request with `EIO` and the reason, so a caller can tell "no
+    /// account database" from "no such user".
+    fn ready(&self) -> Result<(), Fault> {
+        match &self.0.db {
+            Ok(_) => Ok(()),
+            Err(reason) => Err(Fault::refuse(
+                Errno::IO,
+                &format!("no account database ({}: {reason})", fhs::state::ACCOUNTS_DB),
+            )),
+        }
     }
 }
 
-/// Answer one request.
-fn dispatch(state: &mut State, message: &Message) -> Result<Parcel, Refusal> {
-    let body = &message.parcel.body;
-    let malformed = |_| Refusal::new(errno::EINVAL, "malformed request");
-    match message.method() {
-        accounts::wire::METHOD_LOOKUP => {
-            let args = accounts::wire::decode_lookup_args(body).map_err(malformed)?;
-            let db = database(state)?;
-            let found = match (args.name, args.uid) {
-                (Some(name), _) => db.user(&name),
-                (None, Some(uid)) => db.by_uid(uid),
-                (None, None) => None,
-            };
-            let record = found.map(record);
-            accounts::user_reply(record.as_ref()).map_err(|_| Refusal::new(errno::EIO, "encode"))
-        }
-        accounts::wire::METHOD_LISTUSERS => {
-            let db = database(state)?;
-            let reply = accounts::wire::ListUsersReply {
-                users: db.users.iter().map(record).collect(),
-                setup: db.needs_setup(),
-            };
-            encoded(message, accounts::wire::encode_list_users_reply(&reply))
-        }
-        accounts::wire::METHOD_AUTHENTICATE => {
-            let args = accounts::wire::decode_authenticate_args(body).map_err(malformed)?;
-            let ok = authn::authenticate(state, &message.caller(), &args.name, &args.secret)?;
-            accounts::auth_reply(ok).map_err(|_| Refusal::new(errno::EIO, "encode"))
-        }
-        accounts::wire::METHOD_CREATE => {
-            let args = accounts::wire::decode_create_args(body).map_err(malformed)?;
-            let user = manage::create(state, message, &args)?;
-            let reply = accounts::wire::CreateReply { user };
-            encoded(message, accounts::wire::encode_create_reply(&reply))
-        }
-        accounts::wire::METHOD_DELETE => {
-            let args = accounts::wire::decode_delete_args(body).map_err(malformed)?;
-            manage::delete(state, message, &args)?;
-            Ok(accounts::reply(message.method(), alloc::vec::Vec::new()))
-        }
-        accounts::wire::METHOD_SETPASSWORD => {
-            let args = accounts::wire::decode_set_password_args(body).map_err(malformed)?;
-            manage::set_password(state, message, &args)?;
-            Ok(accounts::reply(message.method(), alloc::vec::Vec::new()))
-        }
-        accounts::wire::METHOD_SETADMIN => {
-            let args = accounts::wire::decode_set_admin_args(body).map_err(malformed)?;
-            manage::set_admin(state, message, &args)?;
-            Ok(accounts::reply(message.method(), alloc::vec::Vec::new()))
-        }
-        _ => Err(Refusal::new(errno::EINVAL, "unknown method")),
+impl wire::Server for Handler<'_> {
+    fn lookup(
+        &mut self,
+        _: &Caller,
+        name: Option<String>,
+        uid: Option<u32>,
+    ) -> Result<wire::LookupReply, Fault> {
+        self.ready()?;
+        let db = database(self.0)?;
+        let found = match (name, uid) {
+            (Some(name), _) => db.user(&name),
+            (None, Some(uid)) => db.by_uid(uid),
+            (None, None) => None,
+        };
+        let user = found.map(record);
+        Ok(wire::LookupReply {
+            found: user.is_some(),
+            user,
+        })
+    }
+
+    fn list_users(&mut self, _: &Caller) -> Result<wire::ListUsersReply, Fault> {
+        self.ready()?;
+        let db = database(self.0)?;
+        Ok(wire::ListUsersReply {
+            users: db.users.iter().map(record).collect(),
+            setup: db.needs_setup(),
+        })
+    }
+
+    fn authenticate(&mut self, cx: &Caller, name: String, secret: String) -> Result<bool, Fault> {
+        self.ready()?;
+        Ok(authn::authenticate(self.0, &cred_of(cx), &name, &secret)?)
+    }
+
+    fn create(
+        &mut self,
+        cx: &Caller,
+        name: String,
+        secret: String,
+        admin: bool,
+    ) -> Result<accounts::UserRecord, Fault> {
+        self.ready()?;
+        let args = wire::CreateArgs {
+            name,
+            secret,
+            admin,
+        };
+        Ok(manage::create(self.0, cred_of(cx), &args)?)
+    }
+
+    fn delete(&mut self, cx: &Caller, name: String, home: String) -> Result<(), Fault> {
+        self.ready()?;
+        Ok(manage::delete(self.0, cred_of(cx), &wire::DeleteArgs { name, home })?)
+    }
+
+    fn set_password(
+        &mut self,
+        cx: &Caller,
+        name: String,
+        old: Option<String>,
+        secret: String,
+    ) -> Result<(), Fault> {
+        self.ready()?;
+        let args = wire::SetPasswordArgs { name, old, secret };
+        Ok(manage::set_password(self.0, cred_of(cx), &args)?)
+    }
+
+    fn set_admin(&mut self, cx: &Caller, name: String, admin: bool) -> Result<(), Fault> {
+        self.ready()?;
+        Ok(manage::set_admin(self.0, cred_of(cx), &wire::SetAdminArgs { name, admin })?)
+    }
+}
+
+impl From<Refusal> for Fault {
+    fn from(Refusal(code, text): Refusal) -> Fault {
+        Fault::new(code as u32, &text)
     }
 }
 
@@ -247,15 +277,6 @@ fn database(state: &State) -> Result<&Db, Refusal> {
         .db
         .as_ref()
         .map_err(|_| Refusal::new(errno::EIO, "no account database"))
-}
-
-/// An encoded reply body as a parcel of the request's method.
-fn encoded(
-    message: &Message,
-    body: Result<alloc::vec::Vec<u8>, libmessenger::Error>,
-) -> Result<Parcel, Refusal> {
-    body.map(|body| accounts::reply(message.method(), body))
-        .map_err(|_| Refusal::new(errno::EIO, "encode"))
 }
 
 /// The public record of `user`.
