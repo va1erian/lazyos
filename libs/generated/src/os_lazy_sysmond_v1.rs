@@ -254,15 +254,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_STATS_MEMORY_RETAINED)
 }
 
-/// Subscribe to `system/stats/memory` with its declared QoS.
-pub fn subscribe_system_stats_memory<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+/// Subscribe to `system/stats/memory` with its declared QoS; the stream's `next` decodes `MemoryStats`.
+pub fn subscribe_system_stats_memory<S>(subscriber: &mut S) -> Result<topics::Subscription<S::Subscription, MemoryStats>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SYSTEM_STATS_MEMORY, &[], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_STATS_MEMORY_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_STATS_MEMORY_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_stats_memory))
 }
 
 /// The retained live-task table (issue #307). `live` repeats the row
@@ -301,15 +302,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_STATS_TASKS_RETAINED)
 }
 
-/// Subscribe to `system/stats/tasks` with its declared QoS.
-pub fn subscribe_system_stats_tasks<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+/// Subscribe to `system/stats/tasks` with its declared QoS; the stream's `next` decodes `TasksStats`.
+pub fn subscribe_system_stats_tasks<S>(subscriber: &mut S) -> Result<topics::Subscription<S::Subscription, TasksStats>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SYSTEM_STATS_TASKS, &[], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_STATS_TASKS_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_STATS_TASKS_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_stats_tasks))
 }
 
 #[cfg(feature = "sysmond_v1_client")]

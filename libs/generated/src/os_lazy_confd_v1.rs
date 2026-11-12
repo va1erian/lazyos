@@ -523,15 +523,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_CONFD_CHANGED_RETAINED)
 }
 
-/// Subscribe to `system/confd/changed/#` with its declared QoS.
-pub fn subscribe_system_confd_changed<S>(subscriber: &mut S, path: &str) -> Result<S::Subscription, S::Error>
+/// Subscribe to `system/confd/changed/#` with its declared QoS; the stream's `next` decodes `Change`.
+pub fn subscribe_system_confd_changed<S>(subscriber: &mut S, path: &str) -> Result<topics::Subscription<S::Subscription, Change>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SYSTEM_CONFD_CHANGED, &[path], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_CONFD_CHANGED_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_CONFD_CHANGED_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_confd_changed))
 }
 
 /// Announced for every committed `user/<uid>/<path>` change (issue #407):
@@ -572,15 +573,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_USER_CONFD_CHANGED_RETAINED)
 }
 
-/// Subscribe to `user/+/confd/changed/#` with its declared QoS.
-pub fn subscribe_user_confd_changed<S>(subscriber: &mut S, uid: &str, path: &str) -> Result<S::Subscription, S::Error>
+/// Subscribe to `user/+/confd/changed/#` with its declared QoS; the stream's `next` decodes `Change`.
+pub fn subscribe_user_confd_changed<S>(subscriber: &mut S, uid: &str, path: &str) -> Result<topics::Subscription<S::Subscription, Change>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_USER_CONFD_CHANGED, &[uid, path], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_USER_CONFD_CHANGED_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_USER_CONFD_CHANGED_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_user_confd_changed))
 }
 
 #[cfg(feature = "confd_v1_client")]

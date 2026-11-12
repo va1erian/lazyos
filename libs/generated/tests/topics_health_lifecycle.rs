@@ -55,16 +55,29 @@ impl topics::Publish for MockPublisher {
 struct MockSubscriber {
     filter: String,
     qos: u32,
+    /// What the next subscription's handle will deliver.
+    queued: Vec<topics::RawEvent>,
+}
+
+/// The subscription handle: a queue of events delivered oldest first.
+struct Handle(Vec<topics::RawEvent>);
+
+impl topics::Events for Handle {
+    type Error = MockError;
+
+    fn next_event(&mut self) -> Result<Option<topics::RawEvent>, MockError> {
+        Ok((!self.0.is_empty()).then(|| self.0.remove(0)))
+    }
 }
 
 impl topics::Subscribe for MockSubscriber {
     type Error = MockError;
-    type Subscription = u32;
+    type Subscription = Handle;
 
-    fn subscribe_topic(&mut self, filter: &str, qos: u32) -> Result<u32, Self::Error> {
+    fn subscribe_topic(&mut self, filter: &str, qos: u32) -> Result<Handle, Self::Error> {
         self.filter = String::from(filter);
         self.qos = qos;
-        Ok(7)
+        Ok(Handle(core::mem::take(&mut self.queued)))
     }
 }
 

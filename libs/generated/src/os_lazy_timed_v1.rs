@@ -328,15 +328,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_TIME_TICK_RETAINED)
 }
 
-/// Subscribe to `time/tick` with its declared QoS.
-pub fn subscribe_time_tick<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+/// Subscribe to `time/tick` with its declared QoS; the stream's `next` decodes `Tick`.
+pub fn subscribe_time_tick<S>(subscriber: &mut S) -> Result<topics::Subscription<S::Subscription, Tick>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_TIME_TICK, &[], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_TIME_TICK_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_TIME_TICK_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_time_tick))
 }
 
 #[cfg(feature = "timed_v1_client")]

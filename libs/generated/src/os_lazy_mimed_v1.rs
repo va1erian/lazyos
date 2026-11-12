@@ -460,15 +460,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_OPEN_RETAINED)
 }
 
-/// Subscribe to `system/events/open/+` with its declared QoS.
-pub fn subscribe_system_events_open<S>(subscriber: &mut S, app: &str) -> Result<S::Subscription, S::Error>
+/// Subscribe to `system/events/open/+` with its declared QoS; the stream's `next` decodes `OpenEvent`.
+pub fn subscribe_system_events_open<S>(subscriber: &mut S, app: &str) -> Result<topics::Subscription<S::Subscription, OpenEvent>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SYSTEM_EVENTS_OPEN, &[app], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_OPEN_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_OPEN_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_events_open))
 }
 
 #[cfg(feature = "mimed_v1_client")]

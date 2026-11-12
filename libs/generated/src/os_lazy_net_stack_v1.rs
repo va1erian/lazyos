@@ -742,15 +742,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_NET_INTERFACES_RETAINED)
 }
 
-/// Subscribe to `system/net/interfaces` with its declared QoS.
-pub fn subscribe_system_net_interfaces<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+/// Subscribe to `system/net/interfaces` with its declared QoS; the stream's `next` decodes `InterfaceList`.
+pub fn subscribe_system_net_interfaces<S>(subscriber: &mut S) -> Result<topics::Subscription<S::Subscription, InterfaceList>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SYSTEM_NET_INTERFACES, &[], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_NET_INTERFACES_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_NET_INTERFACES_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_net_interfaces))
 }
 
 /// Round trip in milliseconds (10 ms resolution).
@@ -792,15 +793,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_NET_ADDR_RETAINED)
 }
 
-/// Subscribe to `system/net/+/addr` with its declared QoS.
-pub fn subscribe_system_net_addr<S>(subscriber: &mut S, ifname: &str) -> Result<S::Subscription, S::Error>
+/// Subscribe to `system/net/+/addr` with its declared QoS; the stream's `next` decodes `AddressEvent`.
+pub fn subscribe_system_net_addr<S>(subscriber: &mut S, ifname: &str) -> Result<topics::Subscription<S::Subscription, AddressEvent>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SYSTEM_NET_ADDR, &[ifname], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_NET_ADDR_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_NET_ADDR_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_net_addr))
 }
 
 /// Published once when the stack first has an address (and again after a
@@ -839,15 +841,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_NETWORK_UP_RETAINED)
 }
 
-/// Subscribe to `system/events/network/up` with its declared QoS.
-pub fn subscribe_system_events_network_up<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+/// Subscribe to `system/events/network/up` with its declared QoS; the stream's `next` decodes `AddressEvent`.
+pub fn subscribe_system_events_network_up<S>(subscriber: &mut S) -> Result<topics::Subscription<S::Subscription, AddressEvent>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SYSTEM_EVENTS_NETWORK_UP, &[], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_NETWORK_UP_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_NETWORK_UP_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_events_network_up))
 }
 
 #[cfg(feature = "net_stack_v1_client")]

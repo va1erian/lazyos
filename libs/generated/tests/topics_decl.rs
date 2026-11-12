@@ -55,16 +55,29 @@ impl topics::Publish for MockPublisher {
 struct MockSubscriber {
     filter: String,
     qos: u32,
+    /// What the next subscription's handle will deliver.
+    queued: Vec<topics::RawEvent>,
+}
+
+/// The subscription handle: a queue of events delivered oldest first.
+struct Handle(Vec<topics::RawEvent>);
+
+impl topics::Events for Handle {
+    type Error = MockError;
+
+    fn next_event(&mut self) -> Result<Option<topics::RawEvent>, MockError> {
+        Ok((!self.0.is_empty()).then(|| self.0.remove(0)))
+    }
 }
 
 impl topics::Subscribe for MockSubscriber {
     type Error = MockError;
-    type Subscription = u32;
+    type Subscription = Handle;
 
-    fn subscribe_topic(&mut self, filter: &str, qos: u32) -> Result<u32, Self::Error> {
+    fn subscribe_topic(&mut self, filter: &str, qos: u32) -> Result<Handle, Self::Error> {
         self.filter = String::from(filter);
         self.qos = qos;
-        Ok(7)
+        Ok(Handle(core::mem::take(&mut self.queued)))
     }
 }
 
@@ -109,10 +122,7 @@ fn clipboard_publish_rejects_wildcards_slashes_and_empty_segments() {
 #[test]
 fn clipboard_subscribe_accepts_wildcards_and_narrow_concrete_sessions() {
     let mut subscriber = MockSubscriber::default();
-    assert_eq!(
-        clipboard::subscribe_session_clipboard_changed(&mut subscriber, "+").unwrap(),
-        7
-    );
+    clipboard::subscribe_session_clipboard_changed(&mut subscriber, "+").unwrap();
     assert_eq!(subscriber.filter, "session/+/clipboard/changed");
     assert_eq!(subscriber.qos, topics::QOS_LATEST);
 
@@ -371,4 +381,39 @@ fn new_topics_appear_in_the_declaration_table() {
     let denial = declared_topic("system/events/security/clipboard").expect("denial topic");
     assert_eq!(denial.payload, "ClipboardDenial");
     assert!(!denial.retained);
+}
+
+fn raw(topic: &str, retained: bool, payload: Vec<u8>) -> topics::RawEvent {
+    topics::RawEvent {
+        topic: String::from(topic),
+        retained,
+        payload,
+    }
+}
+
+#[test]
+fn a_subscription_decodes_each_event_as_the_topic_declares() {
+    let good = clipboard::encode_session_clipboard_changed(&meta()).unwrap();
+    let mut subscriber = MockSubscriber {
+        queued: vec![
+            raw("session/3/clipboard/changed", true, good.clone()),
+            // Not an `OfferMeta`: reported once, then the stream goes on.
+            raw("session/4/clipboard/changed", false, vec![0xFF; 3]),
+            raw("session/5/clipboard/changed", false, good),
+        ],
+        ..MockSubscriber::default()
+    };
+    let mut stream = clipboard::subscribe_session_clipboard_changed(&mut subscriber, "+").unwrap();
+
+    let first = stream.next().unwrap().unwrap();
+    assert_eq!(first.topic, "session/3/clipboard/changed");
+    assert!(first.retained);
+    assert_eq!(first.value, meta());
+
+    assert!(matches!(stream.next(), Err(topics::NextError::Decode(_))));
+    let third = stream.next().unwrap().unwrap();
+    assert_eq!(third.topic, "session/5/clipboard/changed");
+    assert!(!third.retained);
+
+    assert!(stream.next().unwrap().is_none());
 }

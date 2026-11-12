@@ -286,6 +286,7 @@ def emit_topic(interface: Interface, topic: Topic) -> list[str]:
     name_args = ", ".join(param_names)
     value_param = "value: u32" if kind == "enum" else f"value: &{topic.payload}"
     retained = str(topic.retained).lower()
+    value_type = topic.payload if kind == "struct" else "u32"
 
     lines: list[str] = []
     lines += emit_doc_lines(topic.doc, indent="    ")
@@ -346,15 +347,19 @@ def emit_topic(interface: Interface, topic: Topic) -> list[str]:
     lines.append("    }")
     lines.append("")
     subscribe_params = ", ".join(["subscriber: &mut S"] + [f"{name}: &str" for name in param_names])
-    lines.append(f"    /// Subscribe to `{topic.name}` with its declared QoS.")
-    lines.append(f"    pub fn subscribe_{suffix}<S>({subscribe_params}) -> Result<S::Subscription, S::Error>")
+    lines.append(f"    /// Subscribe to `{topic.name}` with its declared QoS; the stream's `next` decodes `{value_type}`.")
+    lines.append(
+        f"    pub fn subscribe_{suffix}<S>({subscribe_params}) -> "
+        f"Result<topics::Subscription<S::Subscription, {value_type}>, S::Error>"
+    )
     lines.append("    where")
     lines.append("        S: topics::Subscribe,")
     lines.append("        S::Error: From<topics::TopicError>,")
     lines.append("    {")
     lines.append(f"        let filter = topics::build(TOPIC_{upper}, &[{name_args}], topics::Mode::Subscribe)")
     lines.append("            .map_err(S::Error::from)?;")
-    lines.append(f"        subscriber.subscribe_topic(&filter, TOPIC_{upper}_QOS)")
+    lines.append(f"        let handle = subscriber.subscribe_topic(&filter, TOPIC_{upper}_QOS)?;")
+    lines.append(f"        Ok(topics::Subscription::new(handle, decode_{suffix}))")
     lines.append("    }")
     return lines
 

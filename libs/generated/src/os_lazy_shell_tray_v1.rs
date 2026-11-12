@@ -612,15 +612,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SESSION_SHELL_TRAY_RETAINED)
 }
 
-/// Subscribe to `session/+/shell/tray` with its declared QoS.
-pub fn subscribe_session_shell_tray<S>(subscriber: &mut S, session: &str) -> Result<S::Subscription, S::Error>
+/// Subscribe to `session/+/shell/tray` with its declared QoS; the stream's `next` decodes `Generation`.
+pub fn subscribe_session_shell_tray<S>(subscriber: &mut S, session: &str) -> Result<topics::Subscription<S::Subscription, Generation>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SESSION_SHELL_TRAY, &[session], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SESSION_SHELL_TRAY_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SESSION_SHELL_TRAY_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_session_shell_tray))
 }
 
 #[cfg(feature = "shell_tray_v1_client")]

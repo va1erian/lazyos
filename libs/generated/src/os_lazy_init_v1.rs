@@ -1255,15 +1255,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_POWER_STATE_RETAINED)
 }
 
-/// Subscribe to `system/power/state` with its declared QoS.
-pub fn subscribe_system_power_state<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+/// Subscribe to `system/power/state` with its declared QoS; the stream's `next` decodes `PowerState`.
+pub fn subscribe_system_power_state<S>(subscriber: &mut S) -> Result<topics::Subscription<S::Subscription, PowerState>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SYSTEM_POWER_STATE, &[], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_POWER_STATE_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_POWER_STATE_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_power_state))
 }
 
 /// Supervision phase (`pending`/`running`/`restarting`/`stopped`/`failed`).
@@ -1310,15 +1311,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_SERVICE_RETAINED)
 }
 
-/// Subscribe to `system/events/service/+` with its declared QoS.
-pub fn subscribe_system_events_service<S>(subscriber: &mut S, name: &str) -> Result<S::Subscription, S::Error>
+/// Subscribe to `system/events/service/+` with its declared QoS; the stream's `next` decodes `ServiceEvent`.
+pub fn subscribe_system_events_service<S>(subscriber: &mut S, name: &str) -> Result<topics::Subscription<S::Subscription, ServiceEvent>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SYSTEM_EVENTS_SERVICE, &[name], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_SERVICE_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_SERVICE_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_events_service))
 }
 
 /// The app's display name (its id when it has none).
@@ -1369,15 +1371,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_APP_RETAINED)
 }
 
-/// Subscribe to `system/events/app/+` with its declared QoS.
-pub fn subscribe_system_events_app<S>(subscriber: &mut S, app: &str) -> Result<S::Subscription, S::Error>
+/// Subscribe to `system/events/app/+` with its declared QoS; the stream's `next` decodes `AppFailure`.
+pub fn subscribe_system_events_app<S>(subscriber: &mut S, app: &str) -> Result<topics::Subscription<S::Subscription, AppFailure>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SYSTEM_EVENTS_APP, &[app], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_APP_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_APP_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_events_app))
 }
 
 /// The session's running resident apps (docs/tray-plan.md section 5),
@@ -1418,15 +1421,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SESSION_APPS_RESIDENT_RETAINED)
 }
 
-/// Subscribe to `session/+/apps/resident` with its declared QoS.
-pub fn subscribe_session_apps_resident<S>(subscriber: &mut S, session: &str) -> Result<S::Subscription, S::Error>
+/// Subscribe to `session/+/apps/resident` with its declared QoS; the stream's `next` decodes `ResidentApps`.
+pub fn subscribe_session_apps_resident<S>(subscriber: &mut S, session: &str) -> Result<topics::Subscription<S::Subscription, ResidentApps>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SESSION_APPS_RESIDENT, &[session], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SESSION_APPS_RESIDENT_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SESSION_APPS_RESIDENT_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_session_apps_resident))
 }
 
 #[cfg(feature = "init_v1_client")]

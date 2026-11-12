@@ -729,15 +729,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SESSION_CLIPBOARD_CHANGED_RETAINED)
 }
 
-/// Subscribe to `session/+/clipboard/changed` with its declared QoS.
-pub fn subscribe_session_clipboard_changed<S>(subscriber: &mut S, session: &str) -> Result<S::Subscription, S::Error>
+/// Subscribe to `session/+/clipboard/changed` with its declared QoS; the stream's `next` decodes `OfferMeta`.
+pub fn subscribe_session_clipboard_changed<S>(subscriber: &mut S, session: &str) -> Result<topics::Subscription<S::Subscription, OfferMeta>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SESSION_CLIPBOARD_CHANGED, &[session], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SESSION_CLIPBOARD_CHANGED_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SESSION_CLIPBOARD_CHANGED_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_session_clipboard_changed))
 }
 
 /// Published for every allowed paste, so `logd` keeps the audit trail.
@@ -775,15 +776,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_CLIPBOARD_PASTE_RETAINED)
 }
 
-/// Subscribe to `system/events/clipboard/paste` with its declared QoS.
-pub fn subscribe_system_events_clipboard_paste<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+/// Subscribe to `system/events/clipboard/paste` with its declared QoS; the stream's `next` decodes `PasteEvent`.
+pub fn subscribe_system_events_clipboard_paste<S>(subscriber: &mut S) -> Result<topics::Subscription<S::Subscription, PasteEvent>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SYSTEM_EVENTS_CLIPBOARD_PASTE, &[], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_CLIPBOARD_PASTE_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_CLIPBOARD_PASTE_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_events_clipboard_paste))
 }
 
 /// Published for every refused cross-session paste.
@@ -821,15 +823,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_SECURITY_CLIPBOARD_RETAINED)
 }
 
-/// Subscribe to `system/events/security/clipboard` with its declared QoS.
-pub fn subscribe_system_events_security_clipboard<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+/// Subscribe to `system/events/security/clipboard` with its declared QoS; the stream's `next` decodes `ClipboardDenial`.
+pub fn subscribe_system_events_security_clipboard<S>(subscriber: &mut S) -> Result<topics::Subscription<S::Subscription, ClipboardDenial>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SYSTEM_EVENTS_SECURITY_CLIPBOARD, &[], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_SECURITY_CLIPBOARD_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_SECURITY_CLIPBOARD_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_events_security_clipboard))
 }
 
 #[cfg(feature = "clipboard_v1_client")]

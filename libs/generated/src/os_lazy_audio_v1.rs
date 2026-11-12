@@ -770,15 +770,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_AUDIO_EVENT_RETAINED)
 }
 
-/// Subscribe to `system/audio/+/event` with its declared QoS.
-pub fn subscribe_system_audio_event<S>(subscriber: &mut S, card: &str) -> Result<S::Subscription, S::Error>
+/// Subscribe to `system/audio/+/event` with its declared QoS; the stream's `next` decodes `AudioEvent`.
+pub fn subscribe_system_audio_event<S>(subscriber: &mut S, card: &str) -> Result<topics::Subscription<S::Subscription, AudioEvent>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SYSTEM_AUDIO_EVENT, &[card], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_AUDIO_EVENT_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_AUDIO_EVENT_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_audio_event))
 }
 
 #[cfg(feature = "audio_v1_client")]

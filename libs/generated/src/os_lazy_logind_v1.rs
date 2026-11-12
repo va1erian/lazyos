@@ -445,15 +445,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_LOGIN_START_RETAINED)
 }
 
-/// Subscribe to `system/events/login/start` with its declared QoS.
-pub fn subscribe_system_events_login_start<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+/// Subscribe to `system/events/login/start` with its declared QoS; the stream's `next` decodes `LoginStart`.
+pub fn subscribe_system_events_login_start<S>(subscriber: &mut S) -> Result<topics::Subscription<S::Subscription, LoginStart>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_START, &[], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_LOGIN_START_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_LOGIN_START_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_events_login_start))
 }
 
 /// One retained event per session id, so a late subscriber sees the
@@ -492,15 +493,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_LOGIN_SESSION_RETAINED)
 }
 
-/// Subscribe to `system/events/login/session/+` with its declared QoS.
-pub fn subscribe_system_events_login_session<S>(subscriber: &mut S, id: &str) -> Result<S::Subscription, S::Error>
+/// Subscribe to `system/events/login/session/+` with its declared QoS; the stream's `next` decodes `LoginSession`.
+pub fn subscribe_system_events_login_session<S>(subscriber: &mut S, id: &str) -> Result<topics::Subscription<S::Subscription, LoginSession>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_SESSION, &[id], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_LOGIN_SESSION_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_LOGIN_SESSION_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_events_login_session))
 }
 
 /// The most recent refusal (retained, as published today).
@@ -538,15 +540,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_LOGIN_DENIED_RETAINED)
 }
 
-/// Subscribe to `system/events/login/denied` with its declared QoS.
-pub fn subscribe_system_events_login_denied<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+/// Subscribe to `system/events/login/denied` with its declared QoS; the stream's `next` decodes `LoginDenied`.
+pub fn subscribe_system_events_login_denied<S>(subscriber: &mut S) -> Result<topics::Subscription<S::Subscription, LoginDenied>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_DENIED, &[], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_LOGIN_DENIED_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_LOGIN_DENIED_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_events_login_denied))
 }
 
 /// The most recent logout (retained, as published today).
@@ -584,15 +587,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_LOGIN_END_RETAINED)
 }
 
-/// Subscribe to `system/events/login/end` with its declared QoS.
-pub fn subscribe_system_events_login_end<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+/// Subscribe to `system/events/login/end` with its declared QoS; the stream's `next` decodes `LoginEnd`.
+pub fn subscribe_system_events_login_end<S>(subscriber: &mut S) -> Result<topics::Subscription<S::Subscription, LoginEnd>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_END, &[], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_LOGIN_END_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_LOGIN_END_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_events_login_end))
 }
 
 #[cfg(feature = "logind_v1_client")]

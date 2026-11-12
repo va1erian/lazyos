@@ -234,15 +234,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_HEALTH_SUMMARY_RETAINED)
 }
 
-/// Subscribe to `system/health/summary` with its declared QoS.
-pub fn subscribe_system_health_summary<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+/// Subscribe to `system/health/summary` with its declared QoS; the stream's `next` decodes `HealthRecord`.
+pub fn subscribe_system_health_summary<S>(subscriber: &mut S) -> Result<topics::Subscription<S::Subscription, HealthRecord>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SYSTEM_HEALTH_SUMMARY, &[], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_HEALTH_SUMMARY_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_HEALTH_SUMMARY_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_health_summary))
 }
 
 /// The retained per-service health row (issue #307): `healthd` publishes
@@ -282,15 +283,16 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_HEALTH_RETAINED)
 }
 
-/// Subscribe to `system/health/+` with its declared QoS.
-pub fn subscribe_system_health<S>(subscriber: &mut S, name: &str) -> Result<S::Subscription, S::Error>
+/// Subscribe to `system/health/+` with its declared QoS; the stream's `next` decodes `HealthRecord`.
+pub fn subscribe_system_health<S>(subscriber: &mut S, name: &str) -> Result<topics::Subscription<S::Subscription, HealthRecord>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SYSTEM_HEALTH, &[name], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_HEALTH_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_HEALTH_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_health))
 }
 
 #[cfg(feature = "healthd_v1_client")]

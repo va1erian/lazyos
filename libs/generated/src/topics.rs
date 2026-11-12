@@ -3,6 +3,7 @@
 //   python tools/midlc/midlc.py --out libs/generated/src/lib.rs idl/*.midl
 
 use alloc::string::String;
+use alloc::vec::Vec;
 
 /// `Qos::Latest` (`idl/topics.midl`).
 pub const QOS_LATEST: u32 = 0;
@@ -67,10 +68,95 @@ pub trait Subscribe {
     /// The transport's error type.
     type Error;
     /// The live subscription handle.
-    type Subscription;
+    type Subscription: Events<Error = Self::Error>;
     /// Subscribe to `filter` with the `qos` code from `idl/topics.midl`.
     fn subscribe_topic(&mut self, filter: &str, qos: u32)
         -> Result<Self::Subscription, Self::Error>;
+}
+
+/// One event as a transport hands it over: the concrete topic, whether it
+/// replays the retained value, and the payload bytes the publisher's codec
+/// wrote (the transport has taken any bus envelope off).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RawEvent {
+    /// The concrete topic the event was published under.
+    pub topic: String,
+    /// Whether this is a replay of the retained value.
+    pub retained: bool,
+    /// The payload, still encoded.
+    pub payload: Vec<u8>,
+}
+
+/// A transport's subscription handle: yields queued events without waiting.
+/// How a caller learns that one is queued (a doorbell, a wake-up message)
+/// is the transport's business, never a timer.
+pub trait Events {
+    /// The transport's error type.
+    type Error;
+    /// The next queued event; `None` when nothing is queued now.
+    fn next_event(&mut self) -> Result<Option<RawEvent>, Self::Error>;
+}
+
+/// One decoded event of a declared topic.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Event<T> {
+    /// The concrete topic (the declared pattern with its wildcards filled).
+    pub topic: String,
+    /// Whether this is a replay of the retained value.
+    pub retained: bool,
+    /// The payload, decoded as the topic declares.
+    pub value: T,
+}
+
+/// Why [`Subscription::next`] gave no event.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NextError<E> {
+    /// The transport failed (for example the broker went away).
+    Transport(E),
+    /// The event's payload did not decode. The event is consumed, so the
+    /// next call goes on with the one after it.
+    Decode(libmessenger::Error),
+}
+
+/// A typed stream over a transport subscription: [`Subscription::next`]
+/// decodes each payload as the topic declares, so no consumer decodes one
+/// by hand.
+pub struct Subscription<H, T> {
+    handle: H,
+    decode: fn(&[u8]) -> Result<T, libmessenger::Error>,
+}
+
+impl<H: Events, T> Subscription<H, T> {
+    /// Wrap a transport handle with the topic's decoder (the generated
+    /// `subscribe_*` helpers do this).
+    pub fn new(handle: H, decode: fn(&[u8]) -> Result<T, libmessenger::Error>) -> Self {
+        Subscription { handle, decode }
+    }
+
+    /// The next queued event, decoded; `Ok(None)` when nothing is queued.
+    pub fn next(&mut self) -> Result<Option<Event<T>>, NextError<H::Error>> {
+        let Some(raw) = self.handle.next_event().map_err(NextError::Transport)? else {
+            return Ok(None);
+        };
+        let value = (self.decode)(&raw.payload).map_err(NextError::Decode)?;
+        Ok(Some(Event { topic: raw.topic, retained: raw.retained, value }))
+    }
+
+    /// The transport handle, for what it offers beyond events (a doorbell
+    /// to park on, counters).
+    pub fn handle(&self) -> &H {
+        &self.handle
+    }
+
+    /// The transport handle, mutably.
+    pub fn handle_mut(&mut self) -> &mut H {
+        &mut self.handle
+    }
+
+    /// Give the transport handle back (to unsubscribe it, say).
+    pub fn into_handle(self) -> H {
+        self.handle
+    }
 }
 
 /// One declared topic, for introspection (`messengerctl topics`).

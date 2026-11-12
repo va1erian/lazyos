@@ -108,13 +108,14 @@ where
     publisher.publish_topic(&topic, &payload, TOPIC_SESSION_SELECTION_RETAINED)
 }
 
-/// Subscribe to `session/+/selection` with its declared QoS.
-pub fn subscribe_session_selection<S>(subscriber: &mut S, session: &str) -> Result<S::Subscription, S::Error>
+/// Subscribe to `session/+/selection` with its declared QoS; the stream's `next` decodes `Selection`.
+pub fn subscribe_session_selection<S>(subscriber: &mut S, session: &str) -> Result<topics::Subscription<S::Subscription, Selection>, S::Error>
 where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
     let filter = topics::build(TOPIC_SESSION_SELECTION, &[session], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
-    subscriber.subscribe_topic(&filter, TOPIC_SESSION_SELECTION_QOS)
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SESSION_SELECTION_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_session_selection))
 }
