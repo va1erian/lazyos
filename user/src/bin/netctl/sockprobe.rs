@@ -104,7 +104,8 @@ pub(super) fn run(client: &Client) -> Result<u32, String> {
     c.refused(
         "an unknown method",
         send_parcel(conn, &parcel(0xDEAD_BEEF, Vec::new()), None),
-        errno::EINVAL,
+        // The generated `dispatch` refuses a method the interface lacks.
+        errno::ENOSYS,
     )?;
     for (name, method) in [
         ("Open", wire::METHOD_OPEN),

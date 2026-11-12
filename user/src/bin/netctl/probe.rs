@@ -105,7 +105,8 @@ pub(super) fn run() -> Result<u32, String> {
     checks.refused(
         "an unknown method",
         send_parcel(conn, &parcel(0xDEAD_BEEF, Vec::new()), None),
-        errno::EINVAL,
+        // The generated `dispatch` refuses a method the interface lacks.
+        errno::ENOSYS,
     )?;
     checks.rejected(
         "a Ping with an empty body",
