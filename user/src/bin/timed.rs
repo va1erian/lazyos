@@ -25,7 +25,7 @@ use core::panic::PanicInfo;
 use user::trace;
 
 use user::messenger::timed as api;
-use user::messenger::{self, errno, registry, services, wait, Error};
+use user::messenger::{self, errno, registry, wait, Error};
 use user::sys;
 
 #[path = "timed/demo.rs"]
@@ -131,10 +131,7 @@ fn run() -> messenger::Result<()> {
         }
         match server.recv_with(&mut buffer, Some(messenger::EXPIRED_DEADLINE)) {
             Ok(message) => {
-                let reply =
-                    handler::dispatch(&mut state, &mut ntp, &message).unwrap_or_else(|error| {
-                        services::error_reply(message.interface_id(), message.method(), error)
-                    });
+                let reply = handler::dispatch(&mut state, &mut ntp, &message);
                 if let Some(txn) = message.txn {
                     server.reply_or_drop(txn, &reply)?;
                 }

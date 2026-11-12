@@ -674,3 +674,120 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(())
     }
 }
+
+#[cfg(feature = "mimed_v1_server")]
+/// What a program answering `os.lazy.mimed.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// MIME type for `path` from the database; a path the database has no
+    /// entry for reports `application/octet-stream`.
+    fn guess(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<alloc::string::String, libmessenger::server::Fault> {
+        let _ = (cx, path,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The app registered for `mime` and `verb`; an empty `app` means none is.
+    fn lookup(&mut self, cx: &libmessenger::server::Caller, mime: alloc::string::String, verb: alloc::string::String) -> Result<core::option::Option<alloc::string::String>, libmessenger::server::Fault> {
+        let _ = (cx, mime, verb,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Verbs registered for `mime` (`open`, `edit`, `reveal`, ...), in
+    /// registration order.
+    fn verbs(&mut self, cx: &libmessenger::server::Caller, mime: alloc::string::String) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault> {
+        let _ = (cx, mime,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Guess the type of `path`, resolve the app for `verb` (falling back to
+    /// `open`), ask `init` to launch it and publish the launch event.
+    /// `published` reports whether the event went out, `launched` whether
+    /// `init` accepted the launch request.
+    fn open(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String, verb: alloc::string::String) -> Result<OpenReply, libmessenger::server::Fault> {
+        let _ = (cx, path, verb,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Add or replace the app registered for `mime` and `verb`; the registry
+    /// keeps the latest registration for each pair. Only a system service (the
+    /// package manager, which registers an installed app's handlers) may
+    /// register, and the registry holds a bounded number of pairs: `EPERM`
+    /// from anyone else, `ENOSPC` when it is full and the pair is new. A
+    /// user's own choice of app for a type is a preference
+    /// (`user/<uid>/mimed/default/<type>`), not a registration. `owner` is the
+    /// uid that installed the app, `0` for the image's own apps and what an
+    /// administrator installed for everyone: `Open` skips a registration whose
+    /// owner is neither `0` nor the uid that opens, so one user's package never
+    /// takes a type over for the next user.
+    fn register(&mut self, cx: &libmessenger::server::Caller, mime: alloc::string::String, app: alloc::string::String, verb: alloc::string::String, owner: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, mime, app, verb, owner,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Withdraw `app`'s registration for `mime` and `verb`, so removing an
+    /// installed app leaves no dangling handler. Only the caller's root
+    /// identity may withdraw (the package manager); the registration is
+    /// dropped only while `app` still holds it, so a later registration by
+    /// another app is never undone, and the registration `app` had replaced
+    /// takes over again. Withdrawing a registration that is not there is not
+    /// an error.
+    fn unregister(&mut self, cx: &libmessenger::server::Caller, mime: alloc::string::String, app: alloc::string::String, verb: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, mime, app, verb,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "mimed_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_GUESS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_guess_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.guess(&cx, args.path), |value| encode_guess_reply(&GuessReply { mime: value }))
+        }
+        METHOD_LOOKUP if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_lookup_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.lookup(&cx, args.mime, args.verb), |value| encode_lookup_reply(&LookupReply { app: value }))
+        }
+        METHOD_VERBS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_verbs_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.verbs(&cx, args.mime), |value| encode_verbs_reply(&VerbsReply { verbs: value }))
+        }
+        METHOD_OPEN if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_open_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.open(&cx, args.path, args.verb), |value| encode_open_reply(&value))
+        }
+        METHOD_REGISTER if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_register_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.register(&cx, args.mime, args.app, args.verb, args.owner), |()| Ok(Vec::new()))
+        }
+        METHOD_UNREGISTER if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_unregister_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.unregister(&cx, args.mime, args.app, args.verb), |()| Ok(Vec::new()))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

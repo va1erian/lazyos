@@ -760,3 +760,119 @@ impl<T: libmessenger::client::Transport> Client<T> {
             .send(INTERFACE_ID, METHOD_NOTIFY, wire_body, wire_objects)
     }
 }
+
+#[cfg(feature = "net_nic_v1_server")]
+/// What a program answering `os.lazy.net.nic.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Describe the card: MAC, MTU, link state and the negotiated feature set.
+    fn info(&mut self, cx: &libmessenger::server::Caller) -> Result<NicInfo, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Choose which received frames reach the client: an `RxMode` ordinal.
+    /// The reply says whether the driver applied it (a device without a
+    /// filter table treats `Filtered` as `Promiscuous` and answers `false`).
+    /// Only the attached client may change it.
+    fn set_rx_mode(&mut self, cx: &libmessenger::server::Caller, mode: u32) -> Result<bool, libmessenger::server::Fault> {
+        let _ = (cx, mode,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Attach the client's rings and notify endpoint (see the interface
+    /// notes for what the parcel carries). `slots` is the slot count of both
+    /// rings. The reply is the ring id later calls name.
+    fn attach_ring(&mut self, cx: &libmessenger::server::Caller, slots: u32, rings: libmessenger::Buffer, notify: u64) -> Result<u32, libmessenger::server::Fault> {
+        let _ = (cx, slots, rings, notify,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Release the rings; the driver stops reading and writing them. Also
+    /// implied when the owner exits or its notify endpoint reports the peer
+    /// gone.
+    fn detach_ring(&mut self, cx: &libmessenger::server::Caller, ring: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, ring,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Frame and error counters since the driver started.
+    fn stats(&mut self, cx: &libmessenger::server::Caller) -> Result<NicStats, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Event, client to driver: the client queued frames in the transmit ring
+    /// of `ring`. Ignored from anyone but the owner.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn kick(&mut self, cx: &libmessenger::server::Caller, ring: u32) {
+        let _ = (cx, ring,);
+    }
+
+    /// Event, driver to client: something needs the client's attention.
+    /// `events` is a bitmap: bit *n* is set for the `NotifyBit` with ordinal
+    /// *n*. Reserved bits are zero; a client ignores them.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn notify(&mut self, cx: &libmessenger::server::Caller, ring: u32, events: u32) {
+        let _ = (cx, ring, events,);
+    }
+}
+
+#[cfg(feature = "net_nic_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_INFO if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.info(&cx), |value| encode_info_reply(&InfoReply { info: value }))
+        }
+        METHOD_SETRXMODE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_rx_mode_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set_rx_mode(&cx, args.mode), |value| encode_set_rx_mode_reply(&SetRxModeReply { ok: value }))
+        }
+        METHOD_ATTACHRING if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_attach_ring_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.attach_ring(&cx, args.slots, args.rings, args.notify), |value| encode_attach_ring_reply(&AttachRingReply { ring: value }))
+        }
+        METHOD_DETACHRING if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_detach_ring_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.detach_ring(&cx, args.ring), |()| Ok(Vec::new()))
+        }
+        METHOD_STATS if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.stats(&cx), |value| encode_stats_reply(&StatsReply { stats: value }))
+        }
+        METHOD_KICK if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_kick_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.kick(&cx, args.ring);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_NOTIFY if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_notify_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.notify(&cx, args.ring, args.events);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

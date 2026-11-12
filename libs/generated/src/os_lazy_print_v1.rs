@@ -567,3 +567,98 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(reply.jobs)
     }
 }
+
+#[cfg(feature = "print_v1_server")]
+/// What a program answering `os.lazy.print.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Open a job for the printer at `printer` (`192.168.1.89`,
+    /// `host:port` or an `ipp://` URI). `user` is the `requesting-user-name`
+    /// the printer shows, a label only.
+    fn open(&mut self, cx: &libmessenger::server::Caller, printer: alloc::string::String, user: alloc::string::String, ticket: Ticket) -> Result<u32, libmessenger::server::Fault> {
+        let _ = (cx, printer, user, ticket,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Append `bytes` to an open job's document (at most 256 KiB a call).
+    fn write(&mut self, cx: &libmessenger::server::Caller, job: u32, bytes: alloc::vec::Vec<u8>) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, job, bytes,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The document is complete: queue the job for its printer.
+    fn close(&mut self, cx: &libmessenger::server::Caller, job: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, job,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Stop a job wherever it is; one the printer has is canceled there.
+    fn cancel(&mut self, cx: &libmessenger::server::Caller, job: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, job,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// What a job is doing.
+    fn status(&mut self, cx: &libmessenger::server::Caller, job: u32) -> Result<JobInfo, libmessenger::server::Fault> {
+        let _ = (cx, job,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The caller's jobs (every job for root), oldest first.
+    fn jobs(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<JobInfo>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "print_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_OPEN if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_open_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.open(&cx, args.printer, args.user, args.ticket), |value| encode_open_reply(&OpenReply { job: value }))
+        }
+        METHOD_WRITE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_write_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.write(&cx, args.job, args.bytes), |()| Ok(Vec::new()))
+        }
+        METHOD_CLOSE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_close_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.close(&cx, args.job), |()| Ok(Vec::new()))
+        }
+        METHOD_CANCEL if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_cancel_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.cancel(&cx, args.job), |()| Ok(Vec::new()))
+        }
+        METHOD_STATUS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_status_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.status(&cx, args.job), |value| encode_status_reply(&StatusReply { info: value }))
+        }
+        METHOD_JOBS if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.jobs(&cx), |value| encode_jobs_reply(&JobsReply { jobs: value }))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

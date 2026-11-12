@@ -340,6 +340,55 @@ authorization stays in the handler but never parses anything. This removes
 the 469 dispatch arms, the 16 `error_reply` builders and the per-module
 `fn parcel`; `timed`'s handler shrinks to its six method bodies.
 
+As built (C4): the trait is `Server` in each interface module, behind the
+feature `<iface>_server`, over the runtime seam `libmessenger::server`, so the
+generated crate still depends on `libmessenger` alone and one `dispatch`
+serves both runtimes:
+
+* `Incoming` (what a received message offers: `interface_id`, `method`,
+  `caller`, `decode`) is implemented by `user::messenger::Message` and
+  `xui_app::server::Request`; a host test implements it for a mock.
+* `Caller { uid, gid, caps, label_id, session, sender }` is what the kernel
+  stamped when the message was queued; `sender` is the task slot, for
+  addressing a per-client table only. Authorization stays in the handler; no
+  `requires` attribute was added, because the checks that repeat (`CAP_SETUID`
+  and unlabelled, `elevd` by identity, root only) take different shapes per
+  daemon and a declared form would have hidden what they compare.
+* `Fault { code, message, domain, hint, docs }` carries the errno or declared
+  code, the sentence and the optional detail record. `From<Errno>`; each
+  interface with `errors` gets `From<ServiceError>` (the doc line of the error
+  is its sentence); `user` adds `From<messenger::Error>` so `?` on a Messenger
+  call answers what the hand-written `error_reply` did.
+* A method returns `Result<T, Fault>`: `()` for no reply field, the field's
+  type for one, the `XxxReply` struct for several (the shapes the client
+  returns). A `oneway` method returns `()`. Every method has a default body
+  that answers `ENOSYS`, so a daemon that serves part of an interface
+  implements that part.
+* `dispatch(&mut S, &impl Incoming) -> Parcel` answers `EINVAL` for another
+  interface (or a scoped method on the wrong scope id), `ENOSYS` for an
+  undeclared method, `EINVAL` for a body that does not decode (objects stay
+  with the message and close when it drops; a decoded request's objects are
+  the handler's to close on a refusal) and `EIO` for a reply that does not
+  encode. A runtime sends the parcel only when the message was a call (a
+  `oneway` method yields an empty parcel nobody sends).
+* Interfaces that are kernel ACL scopes or policy loaders, and the
+  kernel-served registry, get no server. Tests:
+  `libs/generated/tests/server.rs` (mock message, faults, objects, scopes,
+  oneway, client to server through `Mock`), `tools/midlc/test_midlc_server.py`.
+
+Migrated (native `user`): `timed`, `mimed`, `pkgd`, `confd`, `mountd`,
+`accountsd`, `logd`, `sysmond`, `devd`, `gpud`, `elevd`, `keyd` (both of its
+interfaces), `clipboardd`, `sndd`, `usbd` (audio function), `netdrv`, `wlanmd`
+(the wifi interface) and the radio runtime (`user::wifi`: hw and nic); std
+(`xui-app`): `printd`, the shell, notify and tray services. Not migrated, and
+why: `init`, `healthd` (they also serve the topics router, stage C5), `netd`
+(replies parked until a socket is ready), `xuid` (compositor requests that
+answer later and carry surface state), `inputd` (two interfaces with one-way
+twins and a hub that owns the compositor link), `audiod` and `libs/audiomix`
+(the pure `Outcome::DrainPending` layer its host tests drive), `logind`
+(`After` actions beyond the reply) and `webd` (the quota and slot checks sit
+between decode and act; a generated dispatch must not move them).
+
 ### 3.4 One transport, one connection, one error type
 
 In `libmessenger` (no_std):
@@ -583,7 +632,7 @@ leaves `main` green.
 | C2a | midlc: `service`, `errors`, `scope`, `deadline` syntax and their generated constants; per-interface modules and features | service-name literals, `fnv1a64` copies, confd/clipboard constant copies |
 | C2b | **Built.** Rust client generation over C1's `Transport` (blocking forms; `_begin` waits for an asynchronous transport call); host tests through `Mock` (`libs/generated/tests/client.rs`); `timed` and `notify` migrated as proof | (enables C3) |
 | C3 | Migrate clients interface by interface (confd, init, topics, clipboard first: the most duplicated); `user::messenger::*` and `xui_app::platform::*` keep only domain adapters. **Native half built for** confd, mimed, pkgd, accountsd, keyd, logind, mountd, devd, gpud, usb audio, init, healthd, logd, sysmond and the clipboard (`user/src/messenger/<svc>.rs` is `pub type Client = wire::Client<Native>` plus domain meaning; slow calls keep `Deadline::Never`, `Nested` carries the clipboard's `ALLOW_NESTED`). Not yet: `net`/`netstack`/`netsock`/`netstd`, `wifi`, `display`, `input`, the `audioclient`/`trayclient` seams, and the xui lane | per-module `fn header`/`fn parcel`/`error_code`, `Service::call_*` |
-| C4 | Server generation and `dispatch`; migrate daemons, starting with small ones (`timed`, `mimed`, `pkgd`) then `xuid`, `netd`, `inputd` | 469 dispatch arms, 16 `error_reply`, `xui-app/src/server.rs` |
+| C4 | **Generator and 22 servers built** (section 3.3 lists what is migrated and what is not): `Server` and `dispatch` per interface over `libmessenger::server`; `xuid`, `netd`, `inputd`, `init`, `healthd`, `audiod`, `logind` and `webd` still hand-write theirs | dispatch arms 469 to 347 (the rest are event decoders and the unmigrated servers), `error_reply` helpers, `xui-app`'s `reply_parcel`/`error_parcel` |
 | C5 | Typed bell subscriptions; move `init`/`healthd` off the interim router; declare or drop the undeclared topics | `topic_feed`, `router`, three ad hoc pollers |
 | C6 | `check_handrolled.py --ratchet` in CI | (keeps it from coming back) |
 | X1 | `xui_app::app(..)` builder, `.opens`, panic hook, `finish`; new template; migrate every bin | `themed.rs`, outboxes, seven launch paths |

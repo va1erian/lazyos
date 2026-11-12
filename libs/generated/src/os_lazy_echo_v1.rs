@@ -276,3 +276,62 @@ impl<T: libmessenger::client::Transport> Client<T> {
             .send(INTERFACE_ID, METHOD_NOTIFY, wire_body, wire_objects)
     }
 }
+
+#[cfg(feature = "echo_v1_server")]
+/// What a program answering `os.lazy.echo.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Reply with `text` and the number of bytes received.
+    fn echo(&mut self, cx: &libmessenger::server::Caller, text: alloc::string::String, count: u32) -> Result<alloc::string::String, libmessenger::server::Fault> {
+        let _ = (cx, text, count,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Health probe.
+    fn ping(&mut self, cx: &libmessenger::server::Caller) -> Result<bool, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Broadcast an event; no reply is expected.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn notify(&mut self, cx: &libmessenger::server::Caller, event: Event) {
+        let _ = (cx, event,);
+    }
+}
+
+#[cfg(feature = "echo_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_ECHO if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_echo_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.echo(&cx, args.text, args.count), |value| encode_echo_reply(&EchoReply { reply: value }))
+        }
+        METHOD_PING if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.ping(&cx), |value| encode_ping_reply(&PingReply { alive: value }))
+        }
+        METHOD_NOTIFY if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_notify_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.notify(&cx, args.event);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

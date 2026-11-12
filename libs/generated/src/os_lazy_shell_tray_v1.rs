@@ -739,3 +739,65 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(())
     }
 }
+
+#[cfg(feature = "shell_tray_v1_server")]
+/// What a program answering `os.lazy.shell.tray.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Show the app's item, replacing its current one (custom or default).
+    /// `events` is the channel the shell sends the item's events
+    /// on; the shell `Ping`s it on its heartbeat and drops the custom item
+    /// when the channel is gone (`EPIPE`).
+    fn set(&mut self, cx: &libmessenger::server::Caller, item: Item, events: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, item, events,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Replace the given parts of the app's item; absent fields are kept
+    /// (an empty `badge` removes the badge). `ENOENT` before `Set`.
+    fn update(&mut self, cx: &libmessenger::server::Caller, icon: core::option::Option<Icon>, tooltip: core::option::Option<alloc::string::String>, status: core::option::Option<u32>, badge: core::option::Option<alloc::string::String>, menu: core::option::Option<Menu>) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, icon, tooltip, status, badge, menu,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Drop the app's custom item: a running resident app goes back to its
+    /// default item, any other app leaves the tray. Not an error without one.
+    fn clear(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "shell_tray_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_SET if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_set_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set(&cx, args.item, args.events), |()| Ok(Vec::new()))
+        }
+        METHOD_UPDATE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_update_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.update(&cx, args.icon, args.tooltip, args.status, args.badge, args.menu), |()| Ok(Vec::new()))
+        }
+        METHOD_CLEAR if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.clear(&cx), |()| Ok(Vec::new()))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

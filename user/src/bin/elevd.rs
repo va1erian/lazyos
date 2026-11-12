@@ -69,8 +69,8 @@ use elevpolicy::backoff::{Backoff, Hold};
 use elevpolicy::queue::Queue;
 use elevpolicy::{Class, Operation};
 use libmessenger::client::{CallError, Deadline};
-use libmessenger::{Encoder, Parcel};
-use messenger_generated::errors::ERROR_FIELD;
+use libmessenger::server::{Caller as Stamped, Fault, Incoming};
+use libmessenger::Parcel;
 use messenger_generated::os_lazy_elevd_v1 as wire;
 use user::messenger::accounts::Directory;
 use user::messenger::client::Native;
@@ -167,50 +167,54 @@ fn run() -> messenger::Result<()> {
 
 /// The kernel-stamped caller of `message`.
 pub(crate) fn caller_of(message: &Message) -> Caller {
-    let cred = message.caller();
+    caller_from(&Incoming::caller(message))
+}
+
+/// The approvals' view of the kernel-stamped sender of a request.
+fn caller_from(cx: &Stamped) -> Caller {
     Caller {
-        uid: cred.uid,
-        label: cred.label_id,
-        session: cred.session,
+        uid: cx.uid,
+        label: cx.label_id,
+        session: cx.session,
     }
 }
 
 /// Answer `message`: its reply, or its refusal as the error reply.
 pub(crate) fn answer_now(state: &mut State, message: &Message) -> Parcel {
-    match answer(state, message) {
-        Ok(reply) => reply,
-        Err(Refusal(code, text)) => error_reply(message.method(), code, &text),
+    wire::dispatch(state, message)
+}
+
+impl wire::Server for State {
+    fn request(
+        &mut self,
+        cx: &Stamped,
+        operation: String,
+        args: Vec<String>,
+    ) -> Result<wire::RequestReply, Fault> {
+        let caller = caller_from(cx);
+        self.active = Some(caller);
+        let result = request(self, caller, &operation, &args);
+        self.active = None;
+        let (detail, values) = result?;
+        Ok(wire::RequestReply { detail, values })
+    }
+
+    fn release(&mut self, cx: &Stamped) -> Result<(), Fault> {
+        let caller = caller_from(cx);
+        self.approvals.release(caller);
+        sys::write_str(&alloc::format!(
+            "ELEVD:RELEASE uid={} label={} session={}\n",
+            caller.uid,
+            caller.label,
+            caller.session
+        ));
+        Ok(())
     }
 }
 
-fn answer(state: &mut State, message: &Message) -> Result<Parcel, Refusal> {
-    if message.interface_id() != wire::INTERFACE_ID {
-        return Err(Refusal::new(errno::EINVAL, "not an elevd request"));
-    }
-    let caller = caller_of(message);
-    match message.method() {
-        wire::METHOD_REQUEST => {
-            let args = wire::decode_request_args(&message.parcel.body)
-                .map_err(|_| Refusal::new(errno::EINVAL, "malformed request"))?;
-            state.active = Some(caller);
-            let result = request(state, caller, &args.operation, &args.args);
-            state.active = None;
-            let (detail, values) = result?;
-            let body = wire::encode_request_reply(&wire::RequestReply { detail, values })
-                .map_err(|_| Refusal::new(errno::EIO, "the reply could not be encoded"))?;
-            Ok(parcel(wire::METHOD_REQUEST, body))
-        }
-        wire::METHOD_RELEASE => {
-            state.approvals.release(caller);
-            sys::write_str(&alloc::format!(
-                "ELEVD:RELEASE uid={} label={} session={}\n",
-                caller.uid,
-                caller.label,
-                caller.session
-            ));
-            Ok(parcel(wire::METHOD_RELEASE, Vec::new()))
-        }
-        _ => Err(Refusal::new(errno::EINVAL, "unknown method")),
+impl From<Refusal> for Fault {
+    fn from(Refusal(code, text): Refusal) -> Fault {
+        Fault::new(code as u32, &text)
     }
 }
 
@@ -379,23 +383,6 @@ fn request(
 /// A client of `accountsd` (one attempt: it may not be up).
 pub(crate) fn accounts_client() -> Result<accounts::Client, CallError> {
     accounts::Client::try_connect(Native)
-}
-
-/// A reply of `method` carrying `body`.
-fn parcel(method: u32, body: Vec<u8>) -> Parcel {
-    Parcel {
-        header: services::header(wire::INTERFACE_ID, method),
-        body,
-        ..Parcel::default()
-    }
-}
-
-/// The standard error reply: `code` and the friendly `text`.
-pub(crate) fn error_reply(method: u32, code: i64, text: &str) -> Parcel {
-    let mut body = Encoder::new();
-    // A structured error field cannot overflow a fresh encoder.
-    let _ = body.error(ERROR_FIELD, code as u32, text);
-    parcel(method, body.finish())
 }
 
 #[panic_handler]

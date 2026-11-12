@@ -25,11 +25,7 @@ pub use init::{
     LaunchRequest, LaunchResult, PowerState, ServiceEvent, ServiceStatus, POWER_MODE_POWER_OFF,
     POWER_MODE_REBOOT,
 };
-pub use logd::{
-    log_count_reply, log_records_reply, log_sources_reply, log_tail_file_reply, log_verify_reply,
-    LogRecord,
-};
-pub use sysmond::sysinfo_reply;
+pub use logd::LogRecord;
 
 /// The `init` supervisor's registered name.
 pub const INIT_NAME: &str = "os.lazy.init";

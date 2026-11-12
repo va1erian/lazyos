@@ -14,13 +14,13 @@ use std::rc::Rc;
 
 use lazyshell::notify::policy::{identify, Sender};
 use lazyshell::notify::{Refused, Request};
-use lazyshell::tray::policy::{Caller, Deny, Shell};
-use libmessenger::Parcel;
+use lazyshell::tray::policy::{Caller as Pol, Deny, Shell};
+use libmessenger::server::{Caller, Fault};
 use messenger_generated::os_lazy_notify_v1 as wire;
 
 use super::super::ctx::Ctx;
 use super::super::services;
-use crate::server::{error_parcel, reply_parcel, Request as Call, Server};
+use crate::server::Server;
 use crate::sys::{self, errno};
 
 /// Most requests answered per heartbeat.
@@ -28,8 +28,6 @@ const REQUESTS_PER_TICK: usize = 8;
 /// Receive buffer for one request: a notification with a 64x64 image fits
 /// well within it.
 const REQUEST_BYTES: usize = 64 * 1024;
-/// `ENOTSUP`, for a method this version does not have.
-const ENOTSUP: i64 = 95;
 /// `ENOSPC`: the sender has too many toasts alive.
 const ENOSPC: i64 = 28;
 /// `ESRCH`: the caller is not an app `init` launched.
@@ -82,7 +80,13 @@ impl NotifyService {
                     break;
                 }
             };
-            let reply = answer(ctx, &call, &mut rows);
+            let reply = wire::dispatch(
+                &mut Handler {
+                    ctx,
+                    rows: &mut rows,
+                },
+                &call,
+            );
             if let Some(txn) = call.txn {
                 let _ = server.reply(txn, &reply);
             }
@@ -120,23 +124,119 @@ impl NotifyService {
     }
 }
 
-/// The reply to one request.
-fn answer(ctx: &Rc<Ctx>, call: &Call, rows: &mut Rows) -> Parcel {
-    let method = call.parcel.header.method;
-    let result = if call.parcel.header.interface_id != wire::INTERFACE_ID {
-        Err((ENOTSUP, "not os.lazy.notify.v1"))
-    } else {
-        identify_owner(ctx, call, rows).and_then(|owner| dispatch(ctx, &owner, method, call))
-    };
-    match result {
-        Ok(body) => reply_parcel(wire::INTERFACE_ID, method, body),
-        Err((code, text)) => error_parcel(wire::INTERFACE_ID, method, code, text),
+/// The shell's notification state, answering `os.lazy.notify.v1` (the generated
+/// server). `rows` is `init`'s table as read once for this heartbeat.
+struct Handler<'a> {
+    ctx: &'a Rc<Ctx>,
+    rows: &'a mut Rows,
+}
+
+fn fault((code, text): Failure) -> Fault {
+    Fault::new(code as u32, text)
+}
+
+impl Handler<'_> {
+    /// The owner of the call, after the session and uid checks, and note it
+    /// for which app's windows a click on its toast brings forward: the label
+    /// and session the kernel stamped, the same for every thread of the app.
+    fn owner(&mut self, cx: &Caller) -> Result<String, Failure> {
+        let owner = identify_owner(self.ctx, cx, self.rows)?;
+        self.ctx
+            .notify
+            .listeners
+            .borrow_mut()
+            .note_sender(&owner, cx.label_id, cx.session);
+        Ok(owner)
+    }
+}
+
+impl wire::Server for Handler<'_> {
+    #[allow(clippy::too_many_arguments)]
+    fn notify(
+        &mut self,
+        cx: &Caller,
+        level: u32,
+        title: String,
+        body: String,
+        icon: Option<wire::Icon>,
+        actions: Vec<wire::Action>,
+        progress: Option<u32>,
+        replaces_id: Option<u64>,
+        timeout: Option<u32>,
+    ) -> Result<u64, Fault> {
+        let owner = self.owner(cx).map_err(fault)?;
+        let args = wire::NotifyArgs {
+            level,
+            title,
+            body,
+            icon,
+            actions,
+            progress,
+            replaces_id,
+            timeout,
+        };
+        let request = Request::from_wire(args).map_err(|why| {
+            trace::line!(
+                Channel::Shell,
+                "NOTIFY:INVALID owner={owner} field={}",
+                why.as_str()
+            );
+            fault((errno::EINVAL, "invalid notification"))
+        })?;
+        let (level, title) = (request.note.level, request.note.title.clone());
+        let now = sys::clock_ticks();
+        let posted = self
+            .ctx
+            .notify
+            .center
+            .borrow_mut()
+            .post(&owner, request, now);
+        match posted {
+            Ok(id) => {
+                trace::line!(
+                    Channel::Shell,
+                    "NOTIFY:POST owner={owner} id={id} level={} title={title}",
+                    level.as_str()
+                );
+                Ok(id)
+            }
+            Err(Refused::RateLimited) => {
+                trace::line!(Channel::Shell, "NOTIFY:LIMIT owner={owner}");
+                Err(fault((errno::EBUSY, "too many notifications: slow down")))
+            }
+            Err(Refused::Full) => Err(fault((ENOSPC, "too many notifications alive"))),
+        }
+    }
+
+    fn close(&mut self, cx: &Caller, id: u64) -> Result<(), Fault> {
+        let owner = self.owner(cx).map_err(fault)?;
+        let now = sys::clock_ticks();
+        self.ctx.notify.center.borrow_mut().close(&owner, id, now);
+        Ok(())
+    }
+
+    fn listen(&mut self, cx: &Caller, events: u64) -> Result<(), Fault> {
+        // Decoded, so the event channel is ours: kept, or closed on a refusal.
+        let owner = match self.owner(cx) {
+            Ok(owner) => owner,
+            Err(failure) => {
+                let _ = sys::msg_close(events);
+                return Err(fault(failure));
+            }
+        };
+        let kept = self.ctx.notify.listeners.borrow_mut().keep(&owner, events);
+        if !kept {
+            let _ = sys::msg_close(events);
+            return Err(fault((ENOSPC, "too many listeners")));
+        }
+        trace::line!(Channel::Shell, "NOTIFY:LISTEN owner={owner}");
+        Ok(())
     }
 }
 
 /// The owner key of the request's sender, after the session and uid checks.
-fn identify_owner(ctx: &Ctx, call: &Call, rows: &mut Rows) -> Result<String, Failure> {
-    let origin = call.origin;
+fn identify_owner(ctx: &Ctx, call: &Caller, rows: &mut Rows) -> Result<String, Failure> {
+    let origin = call;
     let shell = Shell {
         uid: ctx.uid,
         session: ctx.notify.session,
@@ -168,7 +268,7 @@ fn identify_owner(ctx: &Ctx, call: &Call, rows: &mut Rows) -> Result<String, Fai
         ctx.tray.refresh_known(ctx);
     }
     let sender = Sender {
-        caller: Caller {
+        caller: Pol {
             uid: origin.uid,
             session: origin.session,
         },
@@ -181,64 +281,4 @@ fn identify_owner(ctx: &Ctx, call: &Call, rows: &mut Rows) -> Result<String, Fai
     identify(sender, shell, table, |app| ctx.tray.knows(app))
         .map(|owner| owner.key())
         .map_err(deny)
-}
-
-fn dispatch(ctx: &Ctx, owner: &str, method: u32, call: &Call) -> Result<Vec<u8>, Failure> {
-    let bad = (errno::EINVAL, "malformed request");
-    let body = &call.parcel.body;
-    let state = &ctx.notify;
-    let now = sys::clock_ticks();
-    // Which app's windows a click on this owner's toast brings forward: the label and session
-    // the kernel stamped, the same for every thread of the app.
-    state
-        .listeners
-        .borrow_mut()
-        .note_sender(owner, call.origin.label_id, call.origin.session);
-    match method {
-        wire::METHOD_NOTIFY => {
-            let args = wire::decode_notify_args(body).map_err(|_| bad)?;
-            let request = Request::from_wire(args).map_err(|why| {
-                trace::line!(
-                    Channel::Shell,
-                    "NOTIFY:INVALID owner={owner} field={}",
-                    why.as_str()
-                );
-                (errno::EINVAL, "invalid notification")
-            })?;
-            let (level, title) = (request.note.level, request.note.title.clone());
-            let posted = state.center.borrow_mut().post(owner, request, now);
-            match posted {
-                Ok(id) => {
-                    trace::line!(
-                        Channel::Shell,
-                        "NOTIFY:POST owner={owner} id={id} level={} title={title}",
-                        level.as_str()
-                    );
-                    wire::encode_notify_reply(&wire::NotifyReply { id }).map_err(|_| bad)
-                }
-                Err(Refused::RateLimited) => {
-                    trace::line!(Channel::Shell, "NOTIFY:LIMIT owner={owner}");
-                    Err((errno::EBUSY, "too many notifications: slow down"))
-                }
-                Err(Refused::Full) => Err((ENOSPC, "too many notifications alive")),
-            }
-        }
-        wire::METHOD_CLOSE => {
-            let args = wire::decode_close_args(body).map_err(|_| bad)?;
-            state.center.borrow_mut().close(owner, args.id, now);
-            Ok(Vec::new())
-        }
-        wire::METHOD_LISTEN => {
-            // Decoded, so the event channel is ours: kept, or closed below.
-            let args = call.decode(wire::decode_listen_args).map_err(|_| bad)?;
-            let kept = state.listeners.borrow_mut().keep(owner, args.events);
-            if !kept {
-                let _ = sys::msg_close(args.events);
-                return Err((ENOSPC, "too many listeners"));
-            }
-            trace::line!(Channel::Shell, "NOTIFY:LISTEN owner={owner}");
-            Ok(Vec::new())
-        }
-        _ => Err((ENOTSUP, "unknown method")),
-    }
 }

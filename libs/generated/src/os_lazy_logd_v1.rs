@@ -474,3 +474,84 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(reply.lines)
     }
 }
+
+#[cfg(feature = "logd_v1_server")]
+/// What a program answering `os.lazy.logd.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Return the newest `count` records; an absent `count` means `10`.
+    fn tail(&mut self, cx: &libmessenger::server::Caller, count: core::option::Option<u64>) -> Result<alloc::vec::Vec<LogRecord>, libmessenger::server::Fault> {
+        let _ = (cx, count,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Return the number of records appended since boot.
+    fn count(&mut self, cx: &libmessenger::server::Caller) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Recompute the hash chain and report `ok`/first bad `index` (the record
+    /// count when the chain is intact).
+    fn verify(&mut self, cx: &libmessenger::server::Caller) -> Result<VerifyReply, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The sources that have a persisted journal (`/logs/<source>.log`),
+    /// sorted; empty when the store is absent. Served to uid 0 only, like
+    /// `TailFile`: the journals carry every user's activity.
+    fn sources(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The newest `count` lines of `/logs/<source>.log` (records of earlier
+    /// boots included), oldest first. Served to uid 0 only (`EACCES`
+    /// otherwise); a source outside `[a-z0-9_-]{1,32}` fails with `EINVAL`
+    /// and one without a journal with `ENOENT`.
+    fn tail_file(&mut self, cx: &libmessenger::server::Caller, source: alloc::string::String, count: u64) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault> {
+        let _ = (cx, source, count,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "logd_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_TAIL if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_tail_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.tail(&cx, args.count), |value| encode_tail_reply(&TailReply { records: value }))
+        }
+        METHOD_COUNT if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.count(&cx), |value| encode_count_reply(&CountReply { count: value }))
+        }
+        METHOD_VERIFY if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.verify(&cx), |value| encode_verify_reply(&value))
+        }
+        METHOD_SOURCES if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.sources(&cx), |value| encode_sources_reply(&SourcesReply { sources: value }))
+        }
+        METHOD_TAILFILE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_tail_file_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.tail_file(&cx, args.source, args.count), |value| encode_tail_file_reply(&TailFileReply { lines: value }))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

@@ -710,3 +710,64 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(reply.session)
     }
 }
+
+#[cfg(feature = "logind_v1_server")]
+/// What a program answering `os.lazy.logind.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Snapshot the session table, oldest session first.
+    fn sessions(&mut self, cx: &libmessenger::server::Caller) -> Result<SessionsReply, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Log in from the graphical login screen (issue #623): authenticate
+    /// `user` with `secret` and open their desktop session, the same path a
+    /// built-in autologin takes. Only the login screen's own identity (the
+    /// `_greeter` system uid, unlabelled) may call it; a refused password is
+    /// `EACCES` after the failed-login delay, a session already open `EBUSY`.
+    fn login(&mut self, cx: &libmessenger::server::Caller, user: alloc::string::String, secret: alloc::string::String) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, user, secret,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// End the caller's graphical session (issue #623): `init` stops every
+    /// task stamped with that session, and the login screen comes back. Only
+    /// a task of the active graphical session may call it (`EPERM`
+    /// otherwise).
+    fn logout(&mut self, cx: &libmessenger::server::Caller) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "logind_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_SESSIONS if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.sessions(&cx), |value| encode_sessions_reply(&value))
+        }
+        METHOD_LOGIN if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_login_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.login(&cx, args.user, args.secret), |value| encode_login_reply(&LoginReply { session: value }))
+        }
+        METHOD_LOGOUT if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.logout(&cx), |value| encode_logout_reply(&LogoutReply { session: value }))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

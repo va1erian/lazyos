@@ -1847,3 +1847,271 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(reply.reloads)
     }
 }
+
+#[cfg(feature = "init_v1_server")]
+/// What a program answering `os.lazy.init.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Snapshot the supervision table.
+    fn services(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<ServiceStatus>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Launch an app as a session child. `session` 0 means the caller's own
+    /// session; only the session's owner (or root) may launch into it. `args`
+    /// is empty or one absolute path (at most 1024 bytes, no control
+    /// character or `"`), appended to the app's fixed arguments as a single
+    /// `argv` item; any other value is refused with `EINVAL`. A resident app
+    /// (`AppInfo.resident`) already running in that session starts nothing:
+    /// `init` sends its instance `Reopen(args)` (`os.lazy.init.app.events.v1`)
+    /// and answers `existing` true with that instance's pid.
+    fn launch(&mut self, cx: &libmessenger::server::Caller, app: alloc::string::String, args: alloc::string::String, session: u64) -> Result<LaunchReply, libmessenger::server::Fault> {
+        let _ = (cx, app, args, session,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Enumerate the app registry: the built-in apps first, then the apps the
+    /// package manager installed (`AppInfo.installed`; the core packages
+    /// first, then the others by `system_name`), read afresh from the
+    /// configuration registry on every call. `hidden` is the caller's own.
+    fn list_apps(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<AppInfo>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Stop every running instance of the app `app` (the app id, as `Launch`
+    /// takes it), retiring its supervision row without a restart: an
+    /// instance that watches its lifecycle (`os.lazy.init.app.v1`), or a
+    /// resident app that may still come to watch, is sent `Quit` and killed
+    /// if it still runs 3 s after this call (docs/tray-plan.md section 5);
+    /// any other is killed at once. The reply comes once every instance has
+    /// exited. `stopped` is how many were running. Only root, a holder of
+    /// `CAP_SETUID` (the package manager) or the session owner may stop; an
+    /// owner reaches only instances in their own session. Unknown or idle apps
+    /// are not an error, `stopped` is just 0.
+    fn stop(&mut self, cx: &libmessenger::server::Caller, app: alloc::string::String) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, app,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Begin an orderly shutdown (docs/shutdown.md): `mode` is a `PowerMode`
+    /// value. The reply is immediate; `init` then stops the session apps, the
+    /// services in reverse dependency order, syncs and calls the kernel's
+    /// `power`. `reason` is logged (at most 128 bytes, no control character).
+    /// Root or any caller in a login session may ask; a labelled (installed)
+    /// app is refused with `EPERM`, and an unknown mode is `EINVAL`. A request
+    /// while a shutdown is already running is not an error: `accepted` is true
+    /// and `phase` is the current phase. `force` skips the graceful stop: every
+    /// remaining child is killed at once and the machine stops.
+    fn shutdown(&mut self, cx: &libmessenger::server::Caller, mode: u32, reason: alloc::string::String, force: bool) -> Result<ShutdownReply, libmessenger::server::Fault> {
+        let _ = (cx, mode, reason, force,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Start the driver row `driver` for device `device` (issue #497,
+    /// docs/driver-plan.md section 3.6). Only the running task of the `devd`
+    /// row may ask: `init` keeps each driver's program, credentials and
+    /// arguments, and `devd` names only the row and the device it matched,
+    /// which the driver receives as `dev=<device>`. `ifname` is the name `devd`
+    /// gave the card (`eth0`) for a driver that serves one named card per
+    /// instance (`netdrv`): the driver receives it as `ifname=<ifname>` and
+    /// the row may run once per card. Empty for a driver whose Messenger name
+    /// is unique (`sndd`): a row already running for that device is not an
+    /// error (`started` is false) and one running for another device is
+    /// `EBUSY` (one card per driver). A non-empty `ifname` that is not a
+    /// lower-case letter run followed by digits (at most 15 bytes), or that
+    /// names an interface another card holds, is `EINVAL`. An unknown row is
+    /// `ENOENT`, any other caller `EPERM`, and a request during a shutdown
+    /// `EBUSY`.
+    fn start_driver(&mut self, cx: &libmessenger::server::Caller, driver: alloc::string::String, device: u64, ifname: alloc::string::String) -> Result<StartDriverReply, libmessenger::server::Fault> {
+        let _ = (cx, driver, device, ifname,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// A supervised service tells `init` it is serving (docs/performance-plan.md
+    /// P7.3): its name is registered and requests are answered. Rows that
+    /// depend on it start only then, and the desktop's apps only once every
+    /// boot service is ready. Only the running task of a manifest row counts;
+    /// anything else is ignored.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn ready(&mut self, cx: &libmessenger::server::Caller) {
+        let _ = (cx,);
+    }
+
+    /// A launched app says why it is about to fail (issue #549), so the
+    /// desktop's "stopped unexpectedly" notice can show more than an exit
+    /// code. Only the running task of a launched row counts; anything else
+    /// is ignored. `reason` is shown, never parsed: control characters become
+    /// spaces and it is cut to 512 bytes. A later report replaces an earlier
+    /// one, and every new run starts with none.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn report_failure(&mut self, cx: &libmessenger::server::Caller, reason: alloc::string::String) {
+        let _ = (cx, reason,);
+    }
+
+    /// Make or retire an account's home (docs/accounts-plan.md U1). Accepted
+    /// from the accounts service alone (the `_accounts` system uid,
+    /// unlabelled): `init` runs the change as root. `op` is `create` (a 0700
+    /// `/home/<name>` owned by `uid`/`gid`, filled from the skeleton; an
+    /// existing home is kept), `archive` (moved to
+    /// `/home/.archived/<name>-<uid>`, root-only) or `remove`. `uid` must be a
+    /// human account's (1000 or more) and `name` a login name. The reply
+    /// comes once the change is done; a failed change is `EIO`.
+    fn home(&mut self, cx: &libmessenger::server::Caller, op: alloc::string::String, name: alloc::string::String, uid: u32, gid: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, op, name, uid, gid,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Restart the system service `name` (docs/accounts-plan.md U2): its
+    /// running task is killed and the supervisor starts it again as after a
+    /// crash. Accepted from `elevd` alone, after an administrator approved
+    /// it, and only for the services `elevpolicy::RESTARTABLE` lists (never
+    /// `elevd`, `logind`, `accountsd`, `keyd`, `confd`, `logd` or `init`'s
+    /// own fabric): any other name is `EPERM`, an app or an unknown row
+    /// `ENOENT`, a row not running `EAGAIN`.
+    fn restart_service(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, name,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Hot-reload the system service `name` (docs/dbgd-plan.md, v2): accepted
+    /// from `dbgd` alone, and only when `/boot/lazyos.cfg` says
+    /// `diag.dbg.control=1`; never `messengerd` or `dbgd`
+    /// (`dbgwire::control::reloadable`). With `binary` empty the row is
+    /// restarted as it is. Otherwise `binary` must be `dbgd`'s staging file
+    /// for `name`: `init` copies it to a root-owned file, checks its SHA-256
+    /// against `sha256` (hex), kills the running task and starts the copy.
+    /// If the new run exits, or cannot be spawned, before `trial_ms` has
+    /// passed, `init` rolls back to the image's binary at once; otherwise it
+    /// commits. A reload lasts until `RevertService` or the next boot.
+    /// `EPERM` for another caller or a refused name, `ENOENT` for no such
+    /// manifest row, `EAGAIN` for a row still waiting for its dependencies or
+    /// a shutdown, `EINVAL` for a bad file or a digest that does not match.
+    fn reload_service(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, binary: alloc::string::String, sha256: alloc::string::String, trial_ms: u32) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, name, binary, sha256, trial_ms,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Put the image's binary back for a hot-reloaded service and restart
+    /// it. Same callers and refusals as `ReloadService`; a service that was
+    /// never reloaded is just restarted.
+    fn revert_service(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, name,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Restart a running app after `pkgd.InstallDebug` replaced it
+    /// (docs/dbgd-plan.md, v2 app swapping): every running instance of the
+    /// app `app` (its id, as `Launch` takes it) is killed and launched again
+    /// in its own session with its own argument, from the app's current
+    /// install. Same callers as `ReloadService`. `stopped` counts the
+    /// instances killed, `started` the ones launched again; an app that is
+    /// not running is not an error (both 0).
+    fn relaunch_app(&mut self, cx: &libmessenger::server::Caller, app: alloc::string::String) -> Result<RelaunchAppReply, libmessenger::server::Fault> {
+        let _ = (cx, app,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The hot reloads since boot, one row per service that had one.
+    /// Read-only: any caller.
+    fn reloads(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<ReloadState>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "init_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_SERVICES if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.services(&cx), |value| encode_services_reply(&ServicesReply { services: value }))
+        }
+        METHOD_LAUNCH if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_launch_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.launch(&cx, args.app, args.args, args.session), |value| encode_launch_reply(&value))
+        }
+        METHOD_LISTAPPS if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.list_apps(&cx), |value| encode_list_apps_reply(&ListAppsReply { apps: value }))
+        }
+        METHOD_STOP if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_stop_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.stop(&cx, args.app), |value| encode_stop_reply(&StopReply { stopped: value }))
+        }
+        METHOD_SHUTDOWN if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_shutdown_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.shutdown(&cx, args.mode, args.reason, args.force), |value| encode_shutdown_reply(&value))
+        }
+        METHOD_STARTDRIVER if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_start_driver_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.start_driver(&cx, args.driver, args.device, args.ifname), |value| encode_start_driver_reply(&value))
+        }
+        METHOD_READY if id == INTERFACE_ID => {
+            server.ready(&cx);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_REPORTFAILURE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_report_failure_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.report_failure(&cx, args.reason);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_HOME if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_home_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.home(&cx, args.op, args.name, args.uid, args.gid), |()| Ok(Vec::new()))
+        }
+        METHOD_RESTARTSERVICE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_restart_service_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.restart_service(&cx, args.name), |value| encode_restart_service_reply(&RestartServiceReply { pid: value }))
+        }
+        METHOD_RELOADSERVICE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_reload_service_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.reload_service(&cx, args.name, args.binary, args.sha256, args.trial_ms), |value| encode_reload_service_reply(&ReloadServiceReply { pid: value }))
+        }
+        METHOD_REVERTSERVICE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_revert_service_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.revert_service(&cx, args.name), |value| encode_revert_service_reply(&RevertServiceReply { pid: value }))
+        }
+        METHOD_RELAUNCHAPP if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_relaunch_app_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.relaunch_app(&cx, args.app), |value| encode_relaunch_app_reply(&value))
+        }
+        METHOD_RELOADS if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.reloads(&cx), |value| encode_reloads_reply(&ReloadsReply { reloads: value }))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

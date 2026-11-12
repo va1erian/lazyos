@@ -470,5 +470,10 @@ def emit_rust(interface: Interface, client: bool = True) -> str:
         tail = emit_client(interface)
         if tail:
             lines += [""] + tail
+        from midlc_rust_server import emit_server
+
+        tail = emit_server(interface)
+        if tail:
+            lines += [""] + tail
     lines.append("}")
     return "\n".join(lines)

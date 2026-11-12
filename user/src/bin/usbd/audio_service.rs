@@ -11,10 +11,10 @@ use alloc::vec;
 use alloc::vec::Vec;
 use user::trace;
 
+use libmessenger::server::{Caller, Fault};
+use libmessenger::Buffer;
 use user::messenger::usb_audio::{self as api, wire};
-use user::messenger::{
-    self, errno, registry, services, Endpoint, Error as MsgError, Message, Parcel,
-};
+use user::messenger::{self, errno, registry, Endpoint, Error as MsgError};
 use user::sys;
 
 use super::audio::{AudioFn, Refusal};
@@ -35,8 +35,6 @@ pub(super) struct Server {
     /// No register attempt before this tick (the last one was refused).
     retry_at: u64,
 }
-
-type Result<T> = core::result::Result<T, MsgError>;
 
 fn err(code: i64) -> MsgError {
     MsgError::Errno(-code)
@@ -108,13 +106,7 @@ impl Server {
             };
             served = true;
             let target = controllers.iter_mut().find_map(Controller::audio);
-            let reply = match target {
-                Some((hc, device, audio)) => dispatch(hc, device, audio, &message),
-                None => Err(err(errno::ENODEV)),
-            }
-            .unwrap_or_else(|error| {
-                services::error_reply(message.interface_id(), message.method(), error)
-            });
+            let reply = wire::dispatch(&mut Handler(target), &message);
             if let Some(txn) = message.txn {
                 let _ = server.reply_or_drop(txn, &reply);
             }
@@ -131,65 +123,72 @@ fn refusal(refusal: Refusal) -> MsgError {
     })
 }
 
-fn dispatch(
-    hc: &mut Hc,
-    device: &mut Device,
-    audio: &mut AudioFn,
-    message: &Message,
-) -> Result<Parcel> {
-    if message.interface_id() != api::INTERFACE {
-        return Err(err(errno::EINVAL));
+/// The bound audio function, answering `os.lazy.usb.audio.v1` (the generated
+/// server); `None` while no function is bound.
+struct Handler<'a>(Option<(&'a mut Hc, &'a mut Device, &'a mut AudioFn)>);
+
+type Target<'h> = (&'h mut Hc, &'h mut Device, &'h mut AudioFn);
+
+impl Handler<'_> {
+    /// The function, for `_snd` and root alone (the kernel-stamped uid).
+    fn target(&mut self, cx: &Caller) -> Result<Target<'_>, Fault> {
+        let Some((hc, device, audio)) = self.0.as_mut() else {
+            return Err(err(errno::ENODEV).into());
+        };
+        if cx.uid != 0 && cx.uid != sndpolicy::SND_UID {
+            return Err(err(errno::EACCES).into());
+        }
+        Ok((&mut **hc, &mut **device, &mut **audio))
     }
-    let uid = message.caller.uid;
-    if uid != 0 && uid != sndpolicy::SND_UID {
-        return Err(err(errno::EACCES));
+}
+
+impl wire::Server for Handler<'_> {
+    fn describe(&mut self, cx: &Caller) -> Result<wire::Device, Fault> {
+        let (_, _, audio) = self.target(cx)?;
+        Ok(audio.describe())
     }
-    let body = &message.parcel.body;
-    let method = message.method();
-    let reply = match method {
-        wire::METHOD_DESCRIBE => wire::encode_describe_reply(&wire::DescribeReply {
-            device: audio.describe(),
-        })
-        .map_err(MsgError::Parcel)?,
-        wire::METHOD_ATTACH => {
-            let args = message.decode(wire::decode_attach_args)?;
-            let buffer = args.staging;
-            let Some(staging) = Staging::map(buffer.handle, buffer.offset, buffer.len) else {
-                let _ = sys::buffer_close(buffer.handle);
-                return Err(err(errno::EINVAL));
-            };
-            audio.attach(hc, device, staging);
-            Vec::new()
-        }
-        wire::METHOD_CONFIGURE => {
-            let args = wire::decode_configure_args(body).map_err(MsgError::Parcel)?;
-            let granted = audio.configure(hc, device, args.rate).map_err(refusal)?;
-            wire::encode_configure_reply(&wire::ConfigureReply { granted })
-                .map_err(MsgError::Parcel)?
-        }
-        wire::METHOD_START => {
-            audio.start(hc, device).map_err(refusal)?;
-            Vec::new()
-        }
-        wire::METHOD_STOP => {
-            audio.stop(hc, device);
-            Vec::new()
-        }
-        wire::METHOD_RELEASE => {
-            audio.release(hc, device);
-            Vec::new()
-        }
-        wire::METHOD_SUBMIT => {
-            let args = wire::decode_submit_args(body).map_err(MsgError::Parcel)?;
-            audio.submit(args.offset, args.len).map_err(refusal)?;
-            audio.pump(hc, device);
-            Vec::new()
-        }
-        wire::METHOD_REAP => wire::encode_reap_reply(&wire::ReapReply {
-            progress: audio.progress(),
-        })
-        .map_err(MsgError::Parcel)?,
-        _ => return Err(err(errno::EINVAL)),
-    };
-    Ok(api::parcel(method, reply, Vec::new()))
+
+    fn attach(&mut self, cx: &Caller, staging: Buffer) -> Result<(), Fault> {
+        let (hc, device, audio) = self.target(cx)?;
+        let Some(staging_map) = Staging::map(staging.handle, staging.offset, staging.len) else {
+            let _ = sys::buffer_close(staging.handle);
+            return Err(err(errno::EINVAL).into());
+        };
+        audio.attach(hc, device, staging_map);
+        Ok(())
+    }
+
+    fn configure(&mut self, cx: &Caller, rate: u32) -> Result<u32, Fault> {
+        let (hc, device, audio) = self.target(cx)?;
+        Ok(audio.configure(hc, device, rate).map_err(refusal)?)
+    }
+
+    fn start(&mut self, cx: &Caller) -> Result<(), Fault> {
+        let (hc, device, audio) = self.target(cx)?;
+        Ok(audio.start(hc, device).map_err(refusal)?)
+    }
+
+    fn stop(&mut self, cx: &Caller) -> Result<(), Fault> {
+        let (hc, device, audio) = self.target(cx)?;
+        audio.stop(hc, device);
+        Ok(())
+    }
+
+    fn release(&mut self, cx: &Caller) -> Result<(), Fault> {
+        let (hc, device, audio) = self.target(cx)?;
+        audio.release(hc, device);
+        Ok(())
+    }
+
+    fn submit(&mut self, cx: &Caller, _slot: u32, offset: u32, len: u32) -> Result<(), Fault> {
+        let (hc, device, audio) = self.target(cx)?;
+        audio.submit(offset, len).map_err(refusal)?;
+        audio.pump(hc, device);
+        Ok(())
+    }
+
+    fn reap(&mut self, cx: &Caller) -> Result<wire::Progress, Fault> {
+        let (_, _, audio) = self.target(cx)?;
+        Ok(audio.progress())
+    }
 }

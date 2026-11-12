@@ -71,13 +71,14 @@ use user::trace;
 
 use api::wire;
 use confd::{dir, ChangeSink, Confd};
+use libmessenger::server::{Caller, Fault};
 use messenger_generated::topics;
 use user::central;
 use user::messenger::client::Native;
 use user::messenger::confd as api;
 use user::messenger::services::health::Client as HealthClient;
 use user::messenger::services::lifecycle;
-use user::messenger::{self, errno, registry, wait, Error, Message, Parcel};
+use user::messenger::{self, errno, registry, wait, Error};
 use user::sys;
 
 use storage::{make_private, pick_dir, seed_from_lower, try_upgrade, VfsStoreFs};
@@ -246,11 +247,14 @@ fn run() -> messenger::Result<()> {
                     stop(&dir, &reason);
                     return Ok(());
                 }
-                let method = message.method();
-                let reply = match dispatch(&mut service, &message, &dir, persistent) {
-                    Ok(parcel) => parcel,
-                    Err(error) => error_reply_for(method, error),
-                };
+                let reply = wire::dispatch(
+                    &mut Handler {
+                        service: &mut service,
+                        dir: &dir,
+                        persistent,
+                    },
+                    &message,
+                );
                 if let Some(txn) = message.txn {
                     server.reply_or_drop(txn, &reply)?;
                 }
@@ -318,92 +322,67 @@ fn spawn_demo() -> u64 {
     }
 }
 
-/// Route one inbound message to the store, mapping a store rejection to a
-/// `CONFD_*` error reply. `dir` and `persistent` describe where the store
-/// lives, for `Info`.
-fn dispatch(
-    service: &mut Service,
-    message: &Message,
-    dir: &str,
+/// The `confd` state a request is answered against: the store, and where it
+/// lives (`dir`, `persistent`) for `Info`.
+struct Handler<'a> {
+    service: &'a mut Service,
+    dir: &'a str,
     persistent: bool,
-) -> messenger::Result<Parcel> {
-    if message.interface_id() != api::INTERFACE {
-        return Err(Error::Errno(-errno::EINVAL));
-    }
-    // A system service holds `CAP_SETUID`; `elevd` is one by its identity
-    // (docs/accounts-plan.md U2): it writes `sys/**` only for what an
-    // administrator approved on the trusted prompt. A session never is.
-    let cred = message.caller();
-    let caller = confd::Caller {
-        uid: caller_uid(message)?,
-        system: cred.caps & user::sys::CAP_SETUID != 0
-            || elevpolicy::is_elevd(cred.uid, cred.label_id, cred.session),
+}
+
+/// The store's view of the sender. A system service holds `CAP_SETUID`;
+/// `elevd` is one by its identity (docs/accounts-plan.md U2): it writes
+/// `sys/**` only for what an administrator approved on the trusted prompt. A
+/// session never is. The uid is the kernel-stamped one (issue #446), never a
+/// uid the caller chose.
+fn store_caller(cx: &Caller) -> confd::Caller {
+    confd::Caller {
+        uid: cx.uid,
+        system: cx.caps & user::sys::CAP_SETUID != 0
+            || elevpolicy::is_elevd(cx.uid, cx.label_id, cx.session),
         // `wlanmd` keeps the Wi-Fi profiles of the machine and of every user.
-        wifi: netpolicy::is_wlanmd(cred.uid, cred.label_id, cred.session),
-    };
-    let method = message.method();
-    match method {
-        wire::METHOD_GET => {
-            let args = wire::decode_get_args(&message.parcel.body).map_err(Error::Parcel)?;
-            let value = service.get(&args.path, caller).map_err(service_error)?;
-            let body = wire::encode_get_reply(&wire::GetReply {
-                value: value.map(api::value_to_wire),
-            })
-            .map_err(Error::Parcel)?;
-            Ok(api::parcel(method, body))
-        }
-        wire::METHOD_SET => {
-            let args = wire::decode_set_args(&message.parcel.body).map_err(Error::Parcel)?;
-            let value = api::value_from_wire(&args.value)?;
-            service
-                .set(&args.path, value, caller)
-                .map_err(service_error)?;
-            Ok(api::parcel(method, Vec::new()))
-        }
-        wire::METHOD_DELETE => {
-            let args = wire::decode_delete_args(&message.parcel.body).map_err(Error::Parcel)?;
-            service.delete(&args.path, caller).map_err(service_error)?;
-            Ok(api::parcel(method, Vec::new()))
-        }
-        wire::METHOD_LIST => {
-            let args = wire::decode_list_args(&message.parcel.body).map_err(Error::Parcel)?;
-            let paths = service.list(&args.prefix, caller).map_err(service_error)?;
-            let body = wire::encode_list_reply(&wire::ListReply {
-                paths: paths.into_iter().map(String::from).collect(),
-            })
-            .map_err(Error::Parcel)?;
-            Ok(api::parcel(method, body))
-        }
-        wire::METHOD_INFO => {
-            let body = wire::encode_info_reply(&wire::InfoReply {
-                store_dir: String::from(dir),
-                persistent,
-            })
-            .map_err(Error::Parcel)?;
-            Ok(api::parcel(method, body))
-        }
-        _ => Err(Error::Errno(-errno::EINVAL)),
+        wifi: netpolicy::is_wlanmd(cx.uid, cx.label_id, cx.session),
     }
 }
 
-/// A store rejection as the error the wire carries.
-fn service_error(error: confd::ServiceError) -> Error {
-    Error::Confd(api::service_error_code(error))
-}
+impl wire::Server for Handler<'_> {
+    fn get(&mut self, cx: &Caller, path: String) -> Result<Option<wire::Value>, Fault> {
+        let value = self
+            .service
+            .get(&path, store_caller(cx))
+            .map_err(api::store_fault)?;
+        Ok(value.map(api::value_to_wire))
+    }
 
-/// The `CONFD_*`/errno reply for a dispatch failure.
-fn error_reply_for(method: u32, error: Error) -> Parcel {
-    let code = match error {
-        Error::Confd(code) => code,
-        other => other.errno().map(|code| -code).unwrap_or(errno::EINVAL),
-    };
-    api::error_reply(method, code, error.message())
-}
+    fn set(&mut self, cx: &Caller, path: String, value: wire::Value) -> Result<(), Fault> {
+        let value = api::value_from_wire(&value)?;
+        self.service
+            .set(&path, value, store_caller(cx))
+            .map_err(api::store_fault)?;
+        Ok(())
+    }
 
-/// The uid of the Messenger sender, from the credentials the kernel stamped
-/// on the message (issue #446): never a uid the caller chose.
-fn caller_uid(message: &Message) -> messenger::Result<u32> {
-    Ok(message.caller().uid)
+    fn delete(&mut self, cx: &Caller, path: String) -> Result<(), Fault> {
+        self.service
+            .delete(&path, store_caller(cx))
+            .map_err(api::store_fault)?;
+        Ok(())
+    }
+
+    fn list(&mut self, cx: &Caller, prefix: String) -> Result<Vec<String>, Fault> {
+        let paths = self
+            .service
+            .list(&prefix, store_caller(cx))
+            .map_err(api::store_fault)?;
+        Ok(paths.into_iter().map(String::from).collect())
+    }
+
+    fn info(&mut self, _: &Caller) -> Result<wire::InfoReply, Fault> {
+        Ok(wire::InfoReply {
+            store_dir: String::from(self.dir),
+            persistent: self.persistent,
+        })
+    }
 }
 
 #[panic_handler]

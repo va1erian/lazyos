@@ -1307,3 +1307,218 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(reply.stats)
     }
 }
+
+#[cfg(feature = "net_socket_v1_server")]
+/// What a program answering `os.lazy.net.socket.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Make a socket of `kind` (a `SockKind` ordinal). The reply is the id
+    /// every other call names.
+    fn open(&mut self, cx: &libmessenger::server::Caller, kind: u32) -> Result<u32, libmessenger::server::Fault> {
+        let _ = (cx, kind,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Choose the local address and port. `addr.addr` must be all zeros (any)
+    /// or the interface's own address; port 0 picks an ephemeral one.
+    fn bind(&mut self, cx: &libmessenger::server::Caller, sock: u32, addr: SockAddr) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, sock, addr,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Stream: open a connection to `addr`; parks until it is established or
+    /// refused. Datagram: fix the peer `Send`/`Recv` use (never parks).
+    fn connect(&mut self, cx: &libmessenger::server::Caller, sock: u32, addr: SockAddr, timeout_ms: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, sock, addr, timeout_ms,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Stream only: accept connections on the bound port. `backlog` (1 to 8)
+    /// is how many connections may complete before `Accept` collects them.
+    fn listen(&mut self, cx: &libmessenger::server::Caller, sock: u32, backlog: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, sock, backlog,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Stream only: take one established connection off a listener as a new
+    /// socket owned by the caller; parks until one is there.
+    fn accept(&mut self, cx: &libmessenger::server::Caller, sock: u32, timeout_ms: u32) -> Result<AcceptReply, libmessenger::server::Fault> {
+        let _ = (cx, sock, timeout_ms,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Queue `data` (at most 16384 bytes) on a connected socket. Returns how
+    /// many bytes were taken (possibly fewer than sent); parks while no byte
+    /// would fit.
+    fn send(&mut self, cx: &libmessenger::server::Caller, sock: u32, data: alloc::vec::Vec<u8>, timeout_ms: u32) -> Result<u32, libmessenger::server::Fault> {
+        let _ = (cx, sock, data, timeout_ms,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Take up to `max` (1 to 16384) bytes from a connected socket; parks
+    /// until at least one is there. An empty reply is the end of the stream.
+    fn recv(&mut self, cx: &libmessenger::server::Caller, sock: u32, max: u32, timeout_ms: u32) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault> {
+        let _ = (cx, sock, max, timeout_ms,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Datagram: send `data` (at most 1472 bytes) to `addr`. Never parks: a
+    /// full send queue is `EAGAIN`.
+    fn send_to(&mut self, cx: &libmessenger::server::Caller, sock: u32, addr: SockAddr, data: alloc::vec::Vec<u8>) -> Result<u32, libmessenger::server::Fault> {
+        let _ = (cx, sock, addr, data,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Datagram: take the next datagram, cut to `max` bytes (1 to 16384), and
+    /// where it came from; parks until one is there.
+    fn recv_from(&mut self, cx: &libmessenger::server::Caller, sock: u32, max: u32, timeout_ms: u32) -> Result<RecvFromReply, libmessenger::server::Fault> {
+        let _ = (cx, sock, max, timeout_ms,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Wait until any bit of `interest` (a bitmap of `Ready` ordinals) is
+    /// ready; the reply is the bitmap of what is. `Closed` and `Error` are
+    /// always of interest. Parks until then.
+    fn poll(&mut self, cx: &libmessenger::server::Caller, sock: u32, interest: u32, timeout_ms: u32) -> Result<u32, libmessenger::server::Fault> {
+        let _ = (cx, sock, interest, timeout_ms,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Stream: end one or both directions (a `Shutdown` ordinal). `Write`
+    /// sends FIN after the queued bytes; the socket stays open for reading.
+    fn shutdown(&mut self, cx: &libmessenger::server::Caller, sock: u32, how: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, sock, how,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The socket's own address and port (`EINVAL` before `Bind`/`Connect`).
+    fn local_addr(&mut self, cx: &libmessenger::server::Caller, sock: u32) -> Result<SockAddr, libmessenger::server::Fault> {
+        let _ = (cx, sock,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The peer's address and port (`ENOTCONN` when there is none).
+    fn peer_addr(&mut self, cx: &libmessenger::server::Caller, sock: u32) -> Result<SockAddr, libmessenger::server::Fault> {
+        let _ = (cx, sock,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Release the socket. A stream closes gracefully (FIN); a parked call on
+    /// it is answered with `EBADF`.
+    fn close(&mut self, cx: &libmessenger::server::Caller, sock: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, sock,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Counters since `netd` started; anyone may read them.
+    fn stats(&mut self, cx: &libmessenger::server::Caller) -> Result<SocketStats, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "net_socket_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_OPEN if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_open_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.open(&cx, args.kind), |value| encode_open_reply(&OpenReply { sock: value }))
+        }
+        METHOD_BIND if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_bind_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.bind(&cx, args.sock, args.addr), |()| Ok(Vec::new()))
+        }
+        METHOD_CONNECT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_connect_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.connect(&cx, args.sock, args.addr, args.timeout_ms), |()| Ok(Vec::new()))
+        }
+        METHOD_LISTEN if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_listen_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.listen(&cx, args.sock, args.backlog), |()| Ok(Vec::new()))
+        }
+        METHOD_ACCEPT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_accept_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.accept(&cx, args.sock, args.timeout_ms), |value| encode_accept_reply(&value))
+        }
+        METHOD_SEND if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_send_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.send(&cx, args.sock, args.data, args.timeout_ms), |value| encode_send_reply(&SendReply { sent: value }))
+        }
+        METHOD_RECV if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_recv_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.recv(&cx, args.sock, args.max, args.timeout_ms), |value| encode_recv_reply(&RecvReply { data: value }))
+        }
+        METHOD_SENDTO if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_send_to_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.send_to(&cx, args.sock, args.addr, args.data), |value| encode_send_to_reply(&SendToReply { sent: value }))
+        }
+        METHOD_RECVFROM if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_recv_from_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.recv_from(&cx, args.sock, args.max, args.timeout_ms), |value| encode_recv_from_reply(&value))
+        }
+        METHOD_POLL if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_poll_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.poll(&cx, args.sock, args.interest, args.timeout_ms), |value| encode_poll_reply(&PollReply { ready: value }))
+        }
+        METHOD_SHUTDOWN if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_shutdown_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.shutdown(&cx, args.sock, args.how), |()| Ok(Vec::new()))
+        }
+        METHOD_LOCALADDR if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_local_addr_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.local_addr(&cx, args.sock), |value| encode_local_addr_reply(&LocalAddrReply { addr: value }))
+        }
+        METHOD_PEERADDR if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_peer_addr_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.peer_addr(&cx, args.sock), |value| encode_peer_addr_reply(&PeerAddrReply { addr: value }))
+        }
+        METHOD_CLOSE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_close_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.close(&cx, args.sock), |()| Ok(Vec::new()))
+        }
+        METHOD_STATS if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.stats(&cx), |value| encode_stats_reply(&StatsReply { stats: value }))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

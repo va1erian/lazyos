@@ -1346,3 +1346,273 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(())
     }
 }
+
+#[cfg(feature = "keyd_v1_server")]
+/// What a program answering `os.lazy.keyd.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Check a username/password pair against the stored Argon2id verifier.
+    /// Accepted only from the accounts service (the `_accounts` system uid,
+    /// unlabelled), which slows password guessing (`Authenticate`); anyone
+    /// else gets `EPERM`. The plaintext `secret` crosses the channel.
+    fn verify(&mut self, cx: &libmessenger::server::Caller, user: alloc::string::String, secret: alloc::string::String) -> Result<bool, libmessenger::server::Fault> {
+        let _ = (cx, user, secret,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// HMAC-SHA256 `digest` under the caller's stored key `key`; returns the tag.
+    fn sign(&mut self, cx: &libmessenger::server::Caller, key: u64, digest: alloc::vec::Vec<u8>) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault> {
+        let _ = (cx, key, digest,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Seal `plaintext` under the caller's stored key `key`; returns an
+    /// authenticated blob.
+    fn wrap(&mut self, cx: &libmessenger::server::Caller, key: u64, plaintext: alloc::vec::Vec<u8>) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault> {
+        let _ = (cx, key, plaintext,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Open a `blob` produced by `Wrap` under `key`; returns the plaintext.
+    fn unwrap(&mut self, cx: &libmessenger::server::Caller, key: u64, blob: alloc::vec::Vec<u8>) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault> {
+        let _ = (cx, key, blob,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// `len` cryptographically strong random bytes.
+    fn random(&mut self, cx: &libmessenger::server::Caller, len: u64) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault> {
+        let _ = (cx, len,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Create a fresh random key of type `kind` (`hmac` or `wrap`); returns
+    /// its opaque id.
+    fn generate(&mut self, cx: &libmessenger::server::Caller, kind: alloc::string::String) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, kind,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The caller's key ids, types and use counters; never material.
+    fn list(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<KeyInfo>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Round-trip probe.
+    fn ping(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Install or replace an account's password verifier (docs/accounts-plan.md
+    /// U1). Accepted only from the accounts service (the `_accounts` system
+    /// uid, unlabelled): whoever may plant a verifier may become that user.
+    /// `keyd` derives the Argon2id verifier over a fresh salt, starts
+    /// answering `Verify` with it, and returns it as the account database
+    /// stores it (`argon2id:<m_kib>:<t>:<p>:<salt>:<hash>`), so the account
+    /// survives a reboot; the secret does not outlive the call.
+    fn provision(&mut self, cx: &libmessenger::server::Caller, user: alloc::string::String, secret: alloc::string::String) -> Result<alloc::string::String, libmessenger::server::Fault> {
+        let _ = (cx, user, secret,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Drop an account's verifier: it can no longer log in. Accepted only
+    /// from the accounts service, like `Provision`.
+    fn forget(&mut self, cx: &libmessenger::server::Caller, user: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, user,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Put back a verifier the account database holds
+    /// (`argon2id:<m_kib>:<t>:<p>:<salt>:<hash>`), replacing what `keyd` has
+    /// for `user`: `accountsd` undoes a `Provision` whose database write
+    /// failed, so `keyd` never answers for a password the database lost.
+    /// Accepted only from the accounts service, like `Provision`.
+    fn restore(&mut self, cx: &libmessenger::server::Caller, user: alloc::string::String, verifier: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, user, verifier,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Keep `secret` (1..=256 bytes, a Wi-Fi passphrase) under `name`
+    /// (1..=64 of letters, digits and `. _ - :`), replacing one of that name
+    /// (docs/wifi-prerequisites-plan.md WP2). `scope` is `user`: the caller's
+    /// own, by its kernel-stamped uid; or `system`: available to every user
+    /// and before login, accepted only from `elevd` (the `net.wifi.system`
+    /// operation, after an administrator approved it on the trusted prompt;
+    /// `EPERM` for anyone else). Secrets persist across reboots, sealed under
+    /// a machine key (docs/security-model.md section 8). `EINVAL` for a bad
+    /// scope, name or secret; `ENOSPC` when the caller (or the table) holds
+    /// as many as it may; `EIO` when it could not be made durable (nothing
+    /// changed). No method ever returns a secret.
+    fn store_secret(&mut self, cx: &libmessenger::server::Caller, scope: alloc::string::String, name: alloc::string::String, secret: alloc::vec::Vec<u8>) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, scope, name, secret,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Forget the secret `name` of `scope` (the same rules as `StoreSecret`;
+    /// `ENOENT` when there is none).
+    fn delete_secret(&mut self, cx: &libmessenger::server::Caller, scope: alloc::string::String, name: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, scope, name,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The names of the caller's `user` secrets, or of the `system` ones
+    /// (any caller may list those: they name the machine's networks). Names
+    /// only, never material.
+    fn list_secrets(&mut self, cx: &libmessenger::server::Caller, scope: alloc::string::String) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault> {
+        let _ = (cx, scope,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The WPA2 pairwise master key of the passphrase `name` of `scope` for
+    /// `ssid` (PBKDF2-HMAC-SHA1, 4096 rounds, IEEE 802.11 Annex J.4; a
+    /// 64-hex-digit secret is a raw PSK and is its own PMK). Computed once
+    /// per (secret, SSID) and cached sealed beside the secret. Answered only
+    /// to `wlanmd` (the `_wlan` system uid, unlabelled, outside any session);
+    /// everyone else gets `EPERM`. For `user` the secret is the one `owner`
+    /// (a uid) owns, so a PMK is never given for another user's secret by
+    /// naming it; for `system`, `owner` must be 0. `name` must be a Wi-Fi
+    /// profile id (`w` and 12 lowercase hex digits), so no PMK is ever
+    /// derived from a secret that is not a network's (`EPERM` otherwise).
+    /// `ENOENT` for no such secret, `EINVAL` for a secret that is not a
+    /// passphrase (8 to 63 octets of UTF-8 without control characters) or
+    /// raw PSK, or an SSID outside 1..=32 octets.
+    fn wifi_pmk(&mut self, cx: &libmessenger::server::Caller, scope: alloc::string::String, name: alloc::string::String, ssid: alloc::vec::Vec<u8>, owner: u32) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault> {
+        let _ = (cx, scope, name, ssid, owner,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Keep `secret` under `name` for the user `owner` (scope `user`).
+    /// Answered only to `wlanmd` (the `_wlan` system uid, unlabelled, outside
+    /// any session), which takes a passphrase in `os.lazy.net.wifi.v1`
+    /// `AddNetwork` for the user who called it, and only for a `name` that is
+    /// a Wi-Fi profile id (`w` and 12 lowercase hex digits); everyone else,
+    /// any other name and the `system` scope (written by `elevd` alone) get
+    /// `EPERM`. Otherwise the rules of `StoreSecret`.
+    fn store_secret_for(&mut self, cx: &libmessenger::server::Caller, scope: alloc::string::String, name: alloc::string::String, secret: alloc::vec::Vec<u8>, owner: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, scope, name, secret, owner,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Forget the secret `name` of `owner` in `scope` (the rules of
+    /// `StoreSecretFor`; `ENOENT` when there is none).
+    fn delete_secret_for(&mut self, cx: &libmessenger::server::Caller, scope: alloc::string::String, name: alloc::string::String, owner: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, scope, name, owner,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "keyd_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_VERIFY if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_verify_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.verify(&cx, args.user, args.secret), |value| encode_verify_reply(&VerifyReply { ok: value }))
+        }
+        METHOD_SIGN if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_sign_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.sign(&cx, args.key, args.digest), |value| encode_sign_reply(&SignReply { tag: value }))
+        }
+        METHOD_WRAP if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_wrap_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.wrap(&cx, args.key, args.plaintext), |value| encode_wrap_reply(&WrapReply { blob: value }))
+        }
+        METHOD_UNWRAP if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_unwrap_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.unwrap(&cx, args.key, args.blob), |value| encode_unwrap_reply(&UnwrapReply { plaintext: value }))
+        }
+        METHOD_RANDOM if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_random_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.random(&cx, args.len), |value| encode_random_reply(&RandomReply { bytes: value }))
+        }
+        METHOD_GENERATE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_generate_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.generate(&cx, args.kind), |value| encode_generate_reply(&GenerateReply { id: value }))
+        }
+        METHOD_LIST if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.list(&cx), |value| encode_list_reply(&ListReply { keys: value }))
+        }
+        METHOD_PING if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.ping(&cx), |()| Ok(Vec::new()))
+        }
+        METHOD_PROVISION if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_provision_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.provision(&cx, args.user, args.secret), |value| encode_provision_reply(&ProvisionReply { verifier: value }))
+        }
+        METHOD_FORGET if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_forget_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.forget(&cx, args.user), |()| Ok(Vec::new()))
+        }
+        METHOD_RESTORE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_restore_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.restore(&cx, args.user, args.verifier), |()| Ok(Vec::new()))
+        }
+        METHOD_STORESECRET if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_store_secret_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.store_secret(&cx, args.scope, args.name, args.secret), |()| Ok(Vec::new()))
+        }
+        METHOD_DELETESECRET if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_delete_secret_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.delete_secret(&cx, args.scope, args.name), |()| Ok(Vec::new()))
+        }
+        METHOD_LISTSECRETS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_list_secrets_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.list_secrets(&cx, args.scope), |value| encode_list_secrets_reply(&ListSecretsReply { names: value }))
+        }
+        METHOD_WIFIPMK if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_wifi_pmk_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.wifi_pmk(&cx, args.scope, args.name, args.ssid, args.owner), |value| encode_wifi_pmk_reply(&WifiPmkReply { pmk: value }))
+        }
+        METHOD_STORESECRETFOR if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_store_secret_for_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.store_secret_for(&cx, args.scope, args.name, args.secret, args.owner), |()| Ok(Vec::new()))
+        }
+        METHOD_DELETESECRETFOR if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_delete_secret_for_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.delete_secret_for(&cx, args.scope, args.name, args.owner), |()| Ok(Vec::new()))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}
