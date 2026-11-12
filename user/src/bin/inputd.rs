@@ -208,9 +208,7 @@ fn run() -> Result<(), &'static str> {
                 // queued (a surface noted before its client's `Open`) is
                 // handled first.
                 shellchan::serve(&mut hub, &mut shell_buffer);
-                let reply = hub
-                    .handle(&message)
-                    .unwrap_or_else(|error| hub::Hub::error_reply(&message, error));
+                let reply = hub.handle(&message);
                 if let Some(txn) = message.txn {
                     // A caller that gave up is not our problem.
                     let _ = server.reply(txn, &reply);

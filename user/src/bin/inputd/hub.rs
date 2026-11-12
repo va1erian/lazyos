@@ -6,14 +6,17 @@
 //! place: the endpoint of the focused session. A session whose endpoint fills
 //! up gets the rest from a bounded backlog as it drains (`delivery.rs`).
 
+use alloc::string::String;
 use alloc::vec::Vec;
 use user::trace;
 
 use inputmap::hold::KeyHold;
 use inputmap::router::Error as RouteError;
 use inputmap::{Barrier, Engine, Grabs, KeyOut, KeyState, Layout, LayoutChoice, Output, Router};
+use libmessenger::client::Errno;
+use libmessenger::server::{Caller, Fault};
 use user::messenger::input::{self as api, shell_wire, wire};
-use user::messenger::{errno, services, Endpoint, Error, Message, Parcel, Result};
+use user::messenger::{errno, Endpoint, Error, Message, Parcel};
 use user::sys;
 
 use super::delivery::{Delivery, Reach};
@@ -80,127 +83,34 @@ impl Hub {
 
     // ---- requests ---------------------------------------------------------
 
-    /// Route one inbound call. `Ok(parcel)` is the reply; `Err` becomes the
-    /// structured error reply the caller sees.
-    pub(super) fn handle(&mut self, message: &Message) -> Result<Parcel> {
-        let interface = message.interface_id();
-        let method = message.method();
-        // A request's objects (`Open`'s and `Attach`'s channel,
-        // `AttachKeyState`'s page) stay the message's until their decoder
-        // claims them, so a refused request leaves nothing in this task's
-        // table: the message closes them when it drops.
-        let body = if interface == api::INTERFACE {
-            self.client_call(message)?
-        } else if interface == api::SHELL_INTERFACE {
-            self.shell_call(message)?
-        } else {
-            return Err(Error::Errno(-errno::EINVAL));
-        };
-        Ok(api::request(interface, method, body, Vec::new()))
-    }
-
-    /// The error reply for a refused request.
-    pub(super) fn error_reply(message: &Message, error: Error) -> Parcel {
-        services::error_reply(message.interface_id(), message.method(), error)
-    }
-
-    fn shell_call(&mut self, message: &Message) -> Result<Vec<u8>> {
-        let method = message.method();
-        if method == shell_wire::METHOD_ATTACH {
-            return self.attach(message);
-        }
-        // Everything else is the attached compositor's alone.
-        if self.shell.as_ref().map(|shell| shell.sender) != Some(message.sender) {
-            return Err(Error::Errno(-errno::EACCES));
-        }
-        let body = &message.parcel.body;
-        // The one-way twins (`Note*`, `ForgetSurface`) decode the same
-        // records; their reply is simply never sent.
-        match method {
-            shell_wire::METHOD_SETFOCUS | shell_wire::METHOD_NOTEFOCUS => {
-                let args = shell_wire::decode_set_focus_args(body).map_err(Error::Parcel)?;
-                self.set_focus(args.surface);
-                Ok(Vec::new())
-            }
-            shell_wire::METHOD_NOTEKEYSHELD => self.note_keys_held(body).map(|()| Vec::new()),
-            shell_wire::METHOD_NOTESESSIONLAYOUT => {
-                self.note_session_layout(body).map(|()| Vec::new())
-            }
-            shell_wire::METHOD_NOTEINPUTDONE => {
-                let args = shell_wire::decode_note_input_done_args(body).map_err(Error::Parcel)?;
-                self.input_done(args.seq);
-                Ok(Vec::new())
-            }
-            shell_wire::METHOD_REGISTERSURFACE | shell_wire::METHOD_NOTESURFACE => {
-                let args = shell_wire::decode_register_surface_args(body).map_err(Error::Parcel)?;
-                // Owner 0: the compositor's own surface (its trusted prompt).
-                let owner = if args.owner == 0 {
-                    message.sender
-                } else {
-                    args.owner
-                };
-                self.router
-                    .register_surface(args.surface, owner)
-                    .map_err(route_error)?;
-                Ok(Vec::new())
-            }
-            shell_wire::METHOD_UNREGISTERSURFACE | shell_wire::METHOD_FORGETSURFACE => {
-                let args =
-                    shell_wire::decode_unregister_surface_args(body).map_err(Error::Parcel)?;
-                if let Some(session) = self.router.unregister_surface(args.surface) {
-                    self.forget_endpoint(session);
-                }
-                Ok(Vec::new())
-            }
-            shell_wire::METHOD_REGISTERHOTKEY => {
-                let args = shell_wire::decode_register_hotkey_args(body).map_err(Error::Parcel)?;
-                let code = u16::try_from(args.code).map_err(|_| Error::Errno(-errno::EINVAL))?;
-                if self.engine.hotkey_count() >= MAX_HOTKEYS {
-                    return Err(Error::Errno(-errno::ENOMEM));
-                }
-                // The escape chord is nobody's to register.
-                let id = self
-                    .engine
-                    .add_hotkey(code, args.mods)
-                    .ok_or(Error::Errno(-errno::EACCES))?;
-                if let Some(shell) = self.shell.as_mut() {
-                    shell.hotkeys.push(id);
-                }
-                shell_wire::encode_register_hotkey_reply(&shell_wire::RegisterHotkeyReply { id })
-                    .map_err(Error::Parcel)
-            }
-            shell_wire::METHOD_UNREGISTERHOTKEY => {
-                let args =
-                    shell_wire::decode_unregister_hotkey_args(body).map_err(Error::Parcel)?;
-                if self.engine.remove_hotkey(args.id) {
-                    if let Some(shell) = self.shell.as_mut() {
-                        shell.hotkeys.retain(|id| *id != args.id);
-                    }
-                    Ok(Vec::new())
-                } else {
-                    Err(Error::Errno(-errno::ENOENT))
-                }
-            }
-            shell_wire::METHOD_APPROVEGRANT => self.approve_grant(body),
-            shell_wire::METHOD_SETBOUNDS | shell_wire::METHOD_GETPOINTER => {
-                self.pointer_call(method, body)
-            }
-            _ => Err(Error::Errno(-errno::EINVAL)),
+    /// Answer one inbound call through the generated servers. A request's
+    /// objects (`Open`'s and `Attach`'s channel, `AttachKeyState`'s page) stay
+    /// the message's until their decoder claims them, so a refused request
+    /// leaves nothing in this task's table: the message closes them when it
+    /// drops.
+    pub(super) fn handle(&mut self, message: &Message) -> Parcel {
+        match message.interface_id() {
+            api::SHELL_INTERFACE => shell_wire::dispatch(self, message),
+            _ => wire::dispatch(self, message),
         }
     }
 
-    /// `Attach`: only the display grant's holder (the compositor) may become
-    /// the shell client.
-    fn attach(&mut self, message: &Message) -> Result<Vec<u8>> {
-        if !is_compositor(message.sender) {
-            // The message still owns the endpoint: it closes with the message.
-            return Err(Error::Errno(-errno::EACCES));
+    /// Whether `cx` is the attached compositor: every shell call but
+    /// `Attach` is its alone.
+    fn require_compositor(&self, cx: &Caller) -> core::result::Result<(), Fault> {
+        match self.shell.as_ref() {
+            Some(shell) if shell.sender == cx.sender => Ok(()),
+            _ => Err(Fault::errno(Errno::ACCES)),
         }
-        let args = message.decode(shell_wire::decode_attach_args)?;
+    }
+
+    /// Adopt `events` as the compositor's channel (`Attach`, after the check
+    /// that its sender holds the display grant).
+    fn attach_compositor(&mut self, sender: u64, events: u64) {
         self.drop_shell();
         self.shell = Some(Shell {
-            sender: message.sender,
-            events: Endpoint::from_raw(args.events),
+            sender,
+            events: Endpoint::from_raw(events),
             hotkeys: Vec::new(),
         });
         // A re-attaching compositor has forgotten which surfaces take keys
@@ -244,7 +154,6 @@ impl Hub {
                 }),
             );
         }
-        Ok(Vec::new())
     }
 
     // ---- focus ------------------------------------------------------------
@@ -460,8 +369,8 @@ fn encode_key(key: &KeyOut) -> Encoded {
 }
 
 /// Map a router refusal onto its errno.
-pub(super) fn route_error(error: RouteError) -> Error {
-    Error::Errno(-match error {
+pub(super) fn route_error(error: RouteError) -> Fault {
+    Fault::from_syscall(-match error {
         RouteError::NoSurface | RouteError::NoSession => errno::ENOENT,
         RouteError::NotOwner => errno::EACCES,
         RouteError::Full => errno::ENOMEM,
@@ -471,6 +380,162 @@ pub(super) fn route_error(error: RouteError) -> Error {
 
 /// Whether `sender` holds the display grant: the compositor. The kernel says
 /// who that is, so no client can pose as it by registering a name.
-fn is_compositor(sender: u64) -> bool {
+pub(super) fn is_compositor(sender: u64) -> bool {
     sys::input_display_owner() == Ok(sender)
+}
+
+/// The compositor's calls and notes, on the private channel or the shared
+/// endpoint (`Attach`). The `Note*` one-ways answer nothing; a refusal of one
+/// is dropped with its reply.
+impl shell_wire::Server for Hub {
+    fn attach(&mut self, cx: &Caller, events: u64) -> core::result::Result<(), Fault> {
+        if !is_compositor(cx.sender) {
+            // The message still owns nothing: the decode claimed the endpoint.
+            let _ = Endpoint::from_raw(events).release();
+            return Err(Fault::errno(Errno::ACCES));
+        }
+        self.attach_compositor(cx.sender, events);
+        Ok(())
+    }
+
+    fn set_focus(&mut self, cx: &Caller, surface: Option<u64>) -> core::result::Result<(), Fault> {
+        self.require_compositor(cx)?;
+        Hub::set_focus(self, surface);
+        Ok(())
+    }
+
+    fn register_surface(
+        &mut self,
+        cx: &Caller,
+        surface: u64,
+        owner: u64,
+    ) -> core::result::Result<(), Fault> {
+        self.require_compositor(cx)?;
+        // Owner 0: the compositor's own surface (its trusted prompt).
+        let owner = if owner == 0 { cx.sender } else { owner };
+        self.router
+            .register_surface(surface, owner)
+            .map_err(route_error)
+    }
+
+    fn unregister_surface(&mut self, cx: &Caller, surface: u64) -> core::result::Result<(), Fault> {
+        self.require_compositor(cx)?;
+        if let Some(session) = self.router.unregister_surface(surface) {
+            self.forget_endpoint(session);
+        }
+        Ok(())
+    }
+
+    fn register_hotkey(
+        &mut self,
+        cx: &Caller,
+        code: u32,
+        mods: u32,
+    ) -> core::result::Result<u64, Fault> {
+        self.require_compositor(cx)?;
+        let code = u16::try_from(code).map_err(|_| Fault::errno(Errno::INVAL))?;
+        if self.engine.hotkey_count() >= MAX_HOTKEYS {
+            return Err(Fault::errno(Errno::NOMEM));
+        }
+        // The escape chord is nobody's to register.
+        let id = self
+            .engine
+            .add_hotkey(code, mods)
+            .ok_or(Fault::errno(Errno::ACCES))?;
+        if let Some(shell) = self.shell.as_mut() {
+            shell.hotkeys.push(id);
+        }
+        Ok(id)
+    }
+
+    fn unregister_hotkey(&mut self, cx: &Caller, id: u64) -> core::result::Result<(), Fault> {
+        self.require_compositor(cx)?;
+        if !self.engine.remove_hotkey(id) {
+            return Err(Fault::errno(Errno::NOENT));
+        }
+        if let Some(shell) = self.shell.as_mut() {
+            shell.hotkeys.retain(|held| *held != id);
+        }
+        Ok(())
+    }
+
+    fn approve_grant(
+        &mut self,
+        cx: &Caller,
+        session: u64,
+        allow: bool,
+    ) -> core::result::Result<(), Fault> {
+        self.require_compositor(cx)?;
+        Ok(self.approve(session, allow)?)
+    }
+
+    fn set_bounds(
+        &mut self,
+        cx: &Caller,
+        width: u32,
+        height: u32,
+    ) -> core::result::Result<(), Fault> {
+        self.require_compositor(cx)?;
+        self.set_pointer_bounds(width, height)
+    }
+
+    fn get_pointer(
+        &mut self,
+        cx: &Caller,
+    ) -> core::result::Result<shell_wire::GetPointerReply, Fault> {
+        self.require_compositor(cx)?;
+        Ok(self.pointer_state())
+    }
+
+    fn note_focus(&mut self, cx: &Caller, surface: Option<u64>) {
+        let _ = shell_wire::Server::set_focus(self, cx, surface);
+    }
+
+    fn note_surface(&mut self, cx: &Caller, surface: u64, owner: u64) {
+        let _ = shell_wire::Server::register_surface(self, cx, surface, owner);
+    }
+
+    fn forget_surface(&mut self, cx: &Caller, surface: u64) {
+        let _ = shell_wire::Server::unregister_surface(self, cx, surface);
+    }
+
+    fn note_input_done(&mut self, cx: &Caller, seq: u64) {
+        if self.require_compositor(cx).is_ok() {
+            self.input_done(seq);
+        }
+    }
+
+    fn note_keys_held(&mut self, cx: &Caller, held: bool) {
+        if self.require_compositor(cx).is_ok() {
+            self.set_keys_held(held);
+        }
+    }
+
+    fn note_session_layout(&mut self, cx: &Caller, layout: Option<String>) {
+        if self.require_compositor(cx).is_ok() {
+            self.set_session_layout(layout.as_deref());
+        }
+    }
+
+    // These travel inputd to the compositor; one sent to inputd is ignored.
+    fn hotkey_fired(&mut self, _: &Caller, _: u64) {}
+    fn grant_requested(&mut self, _: &Caller, _: u64, _: u32, _: u64) {}
+    fn escape_chord(&mut self, _: &Caller) {}
+    fn session_opened(&mut self, _: &Caller, _: u64) {}
+    fn session_closed(&mut self, _: &Caller, _: u64) {}
+    #[allow(clippy::too_many_arguments)]
+    fn pointer_event(
+        &mut self,
+        _: &Caller,
+        _: i32,
+        _: i32,
+        _: u32,
+        _: i32,
+        _: i32,
+        _: u64,
+        _: u64,
+    ) {
+    }
+    fn grab_changed(&mut self, _: &Caller, _: Option<u64>) {}
+    fn key_activity(&mut self, _: &Caller) {}
 }

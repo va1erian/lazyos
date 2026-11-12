@@ -13,8 +13,9 @@
 //! answering its client's `CreateSurface` is known by the time that client's
 //! `Open` is handled (the order a single endpoint used to give).
 
+use libmessenger::client::Errno;
+use libmessenger::server::{fault_reply, Fault};
 use user::messenger::input::{self as api, shell_wire};
-use user::messenger::{errno, Error};
 
 use super::hub::Hub;
 
@@ -43,10 +44,13 @@ pub(super) fn serve(hub: &mut Hub, buffer: &mut [u8]) {
             && message.method() == shell_wire::METHOD_ATTACH
         {
             // The endpoint it carried stays the message's and closes with it.
-            Hub::error_reply(&message, Error::Errno(-errno::EINVAL))
+            fault_reply(
+                message.interface_id(),
+                message.method(),
+                &Fault::errno(Errno::INVAL),
+            )
         } else {
             hub.handle(&message)
-                .unwrap_or_else(|error| Hub::error_reply(&message, error))
         };
         if let Some(txn) = message.txn {
             let _ = channel.reply(txn, &reply);

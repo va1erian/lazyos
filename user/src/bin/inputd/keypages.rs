@@ -8,12 +8,11 @@
 //! loses focus is cleared before its `KeyboardLeave` is sent.
 
 use alloc::collections::BTreeMap;
-use alloc::vec::Vec;
 
 use inputmap::keystate::{self, SharedKeys, Snapshot, Writer};
 use inputmap::Engine;
-use user::messenger::input::wire;
-use user::messenger::{errno, Error, Message, Result};
+use libmessenger::client::Errno;
+use libmessenger::server::Fault;
 use user::sys;
 
 use super::hub::{route_error, Hub};
@@ -88,27 +87,18 @@ impl KeyPages {
 
 impl Hub {
     /// `AttachKeyState`: adopt the page the caller's own session carried.
-    pub(super) fn attach_key_state(&mut self, message: &Message) -> Result<Vec<u8>> {
-        let args = message.decode(wire::decode_attach_key_state_args)?;
-        let result = self.attach_key_state_inner(message, &args);
-        if result.is_err() {
-            // Decoded, so the page is ours to close.
-            let _ = sys::buffer_close(args.state.handle);
-        }
-        result
-    }
-
-    fn attach_key_state_inner(
+    pub(super) fn adopt_key_state(
         &mut self,
-        message: &Message,
-        args: &wire::AttachKeyStateArgs,
-    ) -> Result<Vec<u8>> {
-        let va = self.map_page(message, args.session, &args.state, keystate::SIZE)?;
-        self.key_pages.forget(args.session);
+        sender: u64,
+        session: u64,
+        state: &libmessenger::Buffer,
+    ) -> Result<(), Fault> {
+        let va = self.map_page(sender, session, state, keystate::SIZE)?;
+        self.key_pages.forget(session);
         self.key_pages.pages.insert(
-            args.session,
+            session,
             Page {
-                handle: args.state.handle,
+                handle: state.handle,
                 va,
                 writer: Writer::new(),
             },
@@ -117,7 +107,7 @@ impl Hub {
         let focused = self.router.focused_session();
         let keys = self.page_keys();
         self.key_pages.publish(&self.engine, focused, keys);
-        Ok(Vec::new())
+        Ok(())
     }
 
     /// Map the page `state` carries for `session` (the caller's own), after
@@ -127,24 +117,24 @@ impl Hub {
     /// this refuses.
     pub(super) fn map_page(
         &self,
-        message: &Message,
+        sender: u64,
         session: u64,
         state: &libmessenger::Buffer,
         size: usize,
-    ) -> Result<u64> {
+    ) -> Result<u64, Fault> {
         if state.offset != 0 || state.len < size as u64 {
-            return Err(Error::Errno(-errno::EINVAL));
+            return Err(Fault::errno(Errno::INVAL));
         }
-        self.own_session(session, message.sender)?;
-        let (va, mapped) = sys::buffer_map(state.handle).map_err(Error::Errno)?;
+        self.own_session(session, sender)?;
+        let (va, mapped) = sys::buffer_map(state.handle).map_err(Fault::from_syscall)?;
         if va == 0 || va % 8 != 0 || !state.fits(mapped) {
-            return Err(Error::Errno(-errno::EINVAL));
+            return Err(Fault::errno(Errno::INVAL));
         }
         Ok(va)
     }
 
     /// `session` exists and belongs to `sender` (else `ENOENT`, as `Close`).
-    pub(super) fn own_session(&self, session: u64, sender: u64) -> Result<()> {
+    pub(super) fn own_session(&self, session: u64, sender: u64) -> Result<(), Fault> {
         match self.router.session(session) {
             Some(found) if found.owner == sender => Ok(()),
             _ => Err(route_error(inputmap::router::Error::NoSession)),
