@@ -1,4 +1,4 @@
-//! Where the NES Player keeps its files: `$HOME/.apps/os.lazy.nes`.
+//! Where the NES Player keeps its files, under its `fhs::app_data_dir`.
 //!
 //! Nothing here trusts a ROM's filename: save files are named from a
 //! sanitised stem, so a ROM called `../../etc/passwd` cannot make the app
@@ -13,11 +13,6 @@ pub const MAX_RECENT: usize = 8;
 const MAX_STEM: usize = 64;
 /// Longest path the recent list keeps (a longer line is dropped).
 const MAX_PATH: usize = 512;
-
-/// The app's directory under `home`: `<home>/.apps/os.lazy.nes`.
-pub fn app_dir(home: &Path) -> PathBuf {
-    home.join(".apps").join("os.lazy.nes")
-}
 
 /// A ROM's file stem as a save-file name: ASCII letters, digits, `-`, `_`
 /// and `.` are kept, anything else becomes `_`, the result is capped, and

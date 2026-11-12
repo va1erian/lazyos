@@ -30,6 +30,7 @@ use xui_app::trace::Channel;
 use xui_app::font;
 use xui_app::platform::argv;
 use xui_app::platform::clipboard as system_clipboard;
+use xui_app::platform::dirs;
 use xui_app::platform::storage::{PngStorage, EDITOR_MAX_LOAD_BYTES};
 use xui_app::probe;
 use xui_core::widget::StdFileSystem;
@@ -99,10 +100,7 @@ fn text_rasterizer() -> Rc<dyn TextRasterizer> {
 
 /// The default save file when no path is given.
 fn default_path() -> PathBuf {
-    match std::env::var_os("HOME") {
-        Some(home) if !home.is_empty() => PathBuf::from(home).join("xpaint.png"),
-        _ => PathBuf::from(fhs::mount::TMP).join("xpaint.png"),
-    }
+    dirs::default_dir().join("xpaint.png")
 }
 
 /// A storage wrapper that reports save/load outcomes on the serial log.
@@ -171,18 +169,13 @@ fn announce(report: &Report, default: &Path) {
     }
 }
 
-/// Where the file dialogs start: the file's directory, else `$HOME`, else `/`.
+/// Where the file dialogs start: the file's directory, else the home folder.
 fn start_dir(requested: Option<&Path>) -> PathBuf {
     requested
         .and_then(Path::parent)
         .filter(|dir| !dir.as_os_str().is_empty())
         .map(Path::to_path_buf)
-        .or_else(|| {
-            std::env::var_os("HOME")
-                .filter(|home| !home.is_empty())
-                .map(PathBuf::from)
-        })
-        .unwrap_or_else(|| PathBuf::from("/"))
+        .unwrap_or_else(dirs::default_dir)
 }
 
 fn main() {

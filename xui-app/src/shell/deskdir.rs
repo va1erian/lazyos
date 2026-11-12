@@ -66,9 +66,8 @@ pub struct Watch {
 impl Watch {
     /// The watch for this process's `$HOME` (checked: absolute, a folder).
     pub fn new() -> Watch {
-        let home = std::env::var_os("HOME").map(PathBuf::from);
-        let dir = home
-            .filter(|home| home.is_absolute() && home.is_dir())
+        let dir = crate::platform::dirs::home()
+            .filter(|home| home.is_dir())
             .map(|home| home.join(fhs::state::DESKTOP_DIR));
         Watch {
             dir,

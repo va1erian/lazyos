@@ -35,7 +35,7 @@ impl Terminal {
     pub(super) fn open_save(&mut self) {
         let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
         self.save_dialog.set_suggested_name(&suggested_name(secs));
-        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from).filter(|h| h.is_absolute()) {
+        if let Some(home) = xui_app::platform::dirs::home() {
             self.save_dialog.set_initial_dir(home);
         }
         self.save_dialog.open();
