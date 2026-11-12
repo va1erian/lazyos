@@ -43,6 +43,9 @@ pub struct Method {
     pub name: &'static str,
     pub id: u32,
     pub oneway: bool,
+    /// Sent by the service, never called: an `event` method (one-way on the
+    /// wire) a script receives on a channel instead of invoking.
+    pub event: bool,
     pub doc: &'static str,
     pub params: &'static [Field],
     pub returns: &'static [Field],

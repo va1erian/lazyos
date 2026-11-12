@@ -69,10 +69,12 @@ pub fn module_usable(interface: &Interface) -> bool {
     module(interface).is_some()
 }
 
-/// Whether a script can call `method` at all: it carries no kernel object
-/// and the gate does not keep it to itself.
+/// Whether a script can call `method` at all: it is a call, not an event the
+/// service sends, it carries no kernel object, and the gate does not keep it
+/// to itself.
 pub fn scriptable(interface: &Interface, method: &Method) -> bool {
-    method.objects.is_empty()
+    !method.event
+        && method.objects.is_empty()
         && !GATE_ONLY
             .iter()
             .any(|(i, m)| *i == interface.name && *m == method.name)

@@ -103,6 +103,7 @@ def emit_interface(interface: Interface) -> list[str]:
             f"                name: {rust_str(method.name)},",
             f"                id: {method.method_id},",
             f"                oneway: {str(method.oneway).lower()},",
+            f"                event: {str(method.event).lower()},",
             f"                doc: {rust_str(method.doc)},",
             f"                params: {fields_expr(method.params, interface)},",
             f"                returns: {fields_expr(method.returns, interface)},",
