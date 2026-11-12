@@ -48,7 +48,7 @@ use user::trace;
 
 use user::central;
 use user::messenger::net::{self as api, wire};
-use user::messenger::{self, registry, services, wait, Endpoint, Error as MsgError};
+use user::messenger::{self, registry, wait, Endpoint, Error as MsgError};
 use user::sys;
 use virtio_net::settings::Settings;
 
@@ -356,9 +356,7 @@ fn serve(
         match server.poll_recv_with(&mut buffer) {
             Ok(None) => {}
             Ok(Some(message)) => {
-                let reply = service.dispatch(&message).unwrap_or_else(|error| {
-                    services::error_reply(message.interface_id(), message.method(), error)
-                });
+                let reply = service.dispatch(&message);
                 if let Some(txn) = message.txn {
                     server.reply_or_drop(txn, &reply).map_err(fail)?;
                 }

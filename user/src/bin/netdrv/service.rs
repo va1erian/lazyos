@@ -7,16 +7,16 @@
 //! `Info` and `Stats`. The owner is then the kernel-stamped sender of
 //! `AttachRing`; nothing in a request body names a caller, so a client cannot
 //! act for another. Every failure leaves through
-//! [`user::messenger::services::error_reply`] as a structured errno. The
+//! the generated `dispatch` as a structured errno. The
 //! frames themselves move in `Service::housekeeping` (through the driver
 //! core), not in request handlers: a request only changes who is attached and
 //! how.
 
 use alloc::string::String;
-use alloc::vec::Vec;
 use user::trace;
 
 use nicdrv::engine::{AttachError, CtlError};
+use libmessenger::server::{Caller, Fault};
 use user::messenger::net::{self as api, wire};
 use user::messenger::{errno, Endpoint, Error as MsgError, Message, Parcel};
 use user::sys;
@@ -24,7 +24,7 @@ use user::sys;
 use super::card::Card;
 use super::error::Error;
 
-type Result<T> = core::result::Result<T, MsgError>;
+type Fallible<T> = core::result::Result<T, MsgError>;
 
 /// Ticks between empty `Notify` messages to an attached client: a liveness
 /// probe that notices a client which exited without detaching.
@@ -62,12 +62,11 @@ impl Service {
     }
 
     /// Whether the sender may call an owner method of this card.
-    fn may_own(&self, message: &Message) -> bool {
-        let caller = message.caller();
+    fn may_own(&self, cx: &Caller) -> bool {
         netpolicy::may_own_nic(
-            caller.uid,
-            caller.label_id,
-            caller.session,
+            cx.uid,
+            cx.label_id,
+            cx.session,
             self.own_uid,
             &self.ifname,
         )
@@ -135,118 +134,116 @@ impl Service {
         Ok(())
     }
 
-    /// Route one request. `Ok` is the reply; `Err` becomes the error reply.
-    /// The objects a request carried (`AttachRing`'s ring buffer and notify
-    /// endpoint) are the message's until its decoder claims them: a refused
-    /// request's objects close when the message drops.
-    pub(super) fn dispatch(&mut self, message: &Message) -> Result<Parcel> {
-        let result = self.route(message);
+    /// Answer one request through the generated server, then settle the
+    /// attachment (`sync`). The objects a request carried (`AttachRing`'s ring
+    /// buffer and notify endpoint) are the message's until its decoder claims
+    /// them: a refused request's objects close when the message drops.
+    pub(super) fn dispatch(&mut self, message: &Message) -> Parcel {
+        let reply = wire::dispatch(self, message);
         self.sync();
-        result
+        reply
     }
 
-    fn route(&mut self, message: &Message) -> Result<Parcel> {
-        if message.interface_id() != api::INTERFACE {
-            return Err(err(errno::EINVAL));
+    /// Refuse a caller that may not call an owner method of this card.
+    /// (A one-way `Kick` has no reply to carry the refusal; dropping it is the
+    /// refusal. A refused `AttachRing`'s objects close when the message drops.)
+    fn require_owner(&self, cx: &Caller) -> Result<(), Fault> {
+        if self.may_own(cx) {
+            Ok(())
+        } else {
+            Err(err(errno::EPERM).into())
         }
-        let method = message.method();
-        let body = &message.parcel.body;
-        let owner_method = matches!(
-            method,
-            wire::METHOD_SETRXMODE
-                | wire::METHOD_ATTACHRING
-                | wire::METHOD_DETACHRING
-                | wire::METHOD_KICK
-        );
-        if owner_method && !self.may_own(message) {
-            // A one-way `Kick` has no reply to carry the refusal; dropping
-            // it is the refusal. A refused `AttachRing`'s objects close when
-            // the message drops.
-            return Err(err(errno::EPERM));
-        }
-        let reply = match method {
-            wire::METHOD_INFO => self.info()?,
-            wire::METHOD_STATS => self.stats()?,
-            wire::METHOD_SETRXMODE => {
-                let args = wire::decode_set_rx_mode_args(body).map_err(MsgError::Parcel)?;
-                match self.card.engine.set_rx_mode(message.sender, args.mode) {
-                    Ok(Some(_)) => {}
-                    Ok(None) => return Err(err(errno::EINVAL)),
-                    Err(error) => return Err(ctl_errno(error)),
-                }
-                wire::encode_set_rx_mode_reply(&wire::SetRxModeReply { ok: true })
-                    .map_err(MsgError::Parcel)?
-            }
-            wire::METHOD_ATTACHRING => {
-                let args = message.decode(wire::decode_attach_ring_args)?;
-                let ring = self.attach(message, &args)?;
-                wire::encode_attach_ring_reply(&wire::AttachRingReply { ring })
-                    .map_err(MsgError::Parcel)?
-            }
-            wire::METHOD_DETACHRING => {
-                let args = wire::decode_detach_ring_args(body).map_err(MsgError::Parcel)?;
-                self.card
-                    .engine
-                    .detach(message.sender, args.ring)
-                    .map_err(ctl_errno)?;
-                self.drop_attachment("detached by its owner");
-                Vec::new()
-            }
-            wire::METHOD_KICK => {
-                // One-way: a kick from anyone but the owner, or for another
-                // ring, is ignored. The frames move in `housekeeping`, which
-                // runs after this request.
-                if let Ok(args) = wire::decode_kick_args(body) {
-                    let _ = self.card.engine.kick(message.sender, args.ring);
-                }
-                Vec::new()
-            }
-            _ => return Err(err(errno::EINVAL)),
-        };
-        Ok(api::parcel(method, reply, Vec::new()))
     }
+}
 
-    fn info(&self) -> Result<Vec<u8>> {
+impl wire::Server for Service {
+    fn info(&mut self, _: &Caller) -> Result<wire::NicInfo, Fault> {
         let engine = &self.card.engine;
-        wire::encode_info_reply(&wire::InfoReply {
-            info: wire::NicInfo {
-                mac: engine.mac().to_vec(),
-                mtu: u32::from(self.card.mtu),
-                max_frame: engine.max_frame() as u32,
-                link: engine.link(),
-                features: 0,
-                // Every card this driver serves is a cable.
-                kind: wire::NIC_KIND_WIRED,
-            },
+        Ok(wire::NicInfo {
+            mac: engine.mac().to_vec(),
+            mtu: u32::from(self.card.mtu),
+            max_frame: engine.max_frame() as u32,
+            link: engine.link(),
+            features: 0,
+            // Every card this driver serves is a cable.
+            kind: wire::NIC_KIND_WIRED,
         })
-        .map_err(MsgError::Parcel)
     }
 
-    fn stats(&self) -> Result<Vec<u8>> {
+    fn stats(&mut self, _: &Caller) -> Result<wire::NicStats, Fault> {
         let s = self.card.engine.stats();
-        wire::encode_stats_reply(&wire::StatsReply {
-            stats: wire::NicStats {
-                rx_frames: s.rx_frames,
-                tx_frames: s.tx_frames,
-                rx_bytes: s.rx_bytes,
-                tx_bytes: s.tx_bytes,
-                rx_dropped: s.rx_dropped,
-                tx_dropped: s.tx_dropped,
-                runts: s.runts,
-                oversize: s.oversize,
-                ring_errors: s.ring_errors,
-                interrupts: s.interrupts,
-                link_changes: s.link_changes,
-            },
+        Ok(wire::NicStats {
+            rx_frames: s.rx_frames,
+            tx_frames: s.tx_frames,
+            rx_bytes: s.rx_bytes,
+            tx_bytes: s.tx_bytes,
+            rx_dropped: s.rx_dropped,
+            tx_dropped: s.tx_dropped,
+            runts: s.runts,
+            oversize: s.oversize,
+            ring_errors: s.ring_errors,
+            interrupts: s.interrupts,
+            link_changes: s.link_changes,
         })
-        .map_err(MsgError::Parcel)
     }
 
+    fn set_rx_mode(&mut self, cx: &Caller, mode: u32) -> Result<bool, Fault> {
+        self.require_owner(cx)?;
+        match self.card.engine.set_rx_mode(cx.sender, mode) {
+            Ok(Some(_)) => Ok(true),
+            Ok(None) => Err(err(errno::EINVAL).into()),
+            Err(error) => Err(ctl_errno(error).into()),
+        }
+    }
+
+    fn attach_ring(
+        &mut self,
+        cx: &Caller,
+        slots: u32,
+        rings: libmessenger::Buffer,
+        notify: u64,
+    ) -> Result<u32, Fault> {
+        // The ring buffer and the notify endpoint are this request's: close
+        // them on every way out that is not an attachment.
+        if let Err(refused) = self.require_owner(cx) {
+            let _ = sys::buffer_close(rings.handle);
+            let _ = Endpoint::from_raw(notify).release();
+            return Err(refused);
+        }
+        let args = wire::AttachRingArgs {
+            slots,
+            rings,
+            notify,
+        };
+        Ok(self.attach(cx, &args)?)
+    }
+
+    fn detach_ring(&mut self, cx: &Caller, ring: u32) -> Result<(), Fault> {
+        self.require_owner(cx)?;
+        self.card
+            .engine
+            .detach(cx.sender, ring)
+            .map_err(ctl_errno)?;
+        self.drop_attachment("detached by its owner");
+        Ok(())
+    }
+
+    /// One-way: a kick from anyone but the owner, or for another ring, is
+    /// ignored. The frames move in `housekeeping`, which runs after this
+    /// request.
+    fn kick(&mut self, cx: &Caller, ring: u32) {
+        if self.may_own(cx) {
+            let _ = self.card.engine.kick(cx.sender, ring);
+        }
+    }
+}
+
+impl Service {
     /// `AttachRing`: map the client's buffer and hand it to the engine. The
     /// decoded request owns the ring buffer and the notify endpoint; every
     /// way out but success closes them.
-    fn attach(&mut self, message: &Message, args: &wire::AttachRingArgs) -> Result<u32> {
-        let outcome = self.attach_inner(message, args);
+    fn attach(&mut self, cx: &Caller, args: &wire::AttachRingArgs) -> Fallible<u32> {
+        let outcome = self.attach_inner(cx, args);
         if outcome.is_err() {
             let _ = sys::buffer_close(args.rings.handle);
             let _ = Endpoint::from_raw(args.notify).release();
@@ -254,7 +251,7 @@ impl Service {
         outcome
     }
 
-    fn attach_inner(&mut self, message: &Message, args: &wire::AttachRingArgs) -> Result<u32> {
+    fn attach_inner(&mut self, cx: &Caller, args: &wire::AttachRingArgs) -> Fallible<u32> {
         if self.card.engine.attached().is_some() {
             return Err(err(errno::EBUSY));
         }
@@ -276,7 +273,7 @@ impl Service {
         let attached = unsafe {
             self.card
                 .engine
-                .attach(message.sender, args.slots, base as *mut u8, len)
+                .attach(cx.sender, args.slots, base as *mut u8, len)
         };
         let slots = args.slots;
         match attached {
@@ -289,7 +286,7 @@ impl Service {
                 trace::line!(
                     trace::Channel::Netdrv,
                     "ATTACH owner={} ring={ring} slots={slots}",
-                    message.sender
+                    cx.sender
                 );
                 Ok(ring)
             }
