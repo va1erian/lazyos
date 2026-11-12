@@ -81,7 +81,7 @@ fn is_timeout(error: messenger::Error) -> bool {
 fn run() -> ! {
     let client = match Client::connect() {
         Ok(client) => client,
-        Err(error) => fail("connect", error.errno().unwrap_or(0)),
+        Err(error) => fail("connect", error.code()),
     };
 
     // Claim the display for the probe's session, then subscribe as the
@@ -92,12 +92,12 @@ fn run() -> ! {
         Err(error) => fail("create_pair", error.errno().unwrap_or(0)),
     };
     if let Err(error) = client.subscribe(display::ROLE_SHELL, &shell_published) {
-        fail("subscribe", error.errno().unwrap_or(0));
+        fail("subscribe", error.code());
     }
 
     let work = match client.get_work_area() {
         Ok(work) => work,
-        Err(error) => fail("get_work_area", error.errno().unwrap_or(0)),
+        Err(error) => fail("get_work_area", error.code()),
     };
     if work.w <= 0 || work.h <= 0 {
         fail("work area is empty", work.w as i64);
@@ -116,7 +116,7 @@ fn run() -> ! {
                 hex(theme.text),
             ));
         }
-        Err(error) => fail("get_theme", error.errno().unwrap_or(0)),
+        Err(error) => fail("get_theme", error.code()),
     }
 
     // The bottom-layer desktop, painted across the work area. The desktop's
@@ -133,7 +133,7 @@ fn run() -> ! {
         &desktop_published,
     ) {
         Ok(desktop) => desktop,
-        Err(error) => fail("create_desktop_surface", error.errno().unwrap_or(0)),
+        Err(error) => fail("create_desktop_surface", error.code()),
     };
     let desktop_bytes = (work.w * work.h * 4) as u64;
     let (desktop_buffer, desktop_va, _) = match sys::buffer_create(desktop_bytes) {
@@ -145,10 +145,10 @@ fn run() -> ! {
     let mut desktop_canvas = unsafe { Canvas::new(desktop_va, work.w, work.h) };
     paint_desktop(&mut desktop_canvas, work);
     if let Err(error) = client.attach_buffer(first_desktop, desktop_buffer, desktop_bytes) {
-        fail("attach_buffer(desktop)", error.errno().unwrap_or(0));
+        fail("attach_buffer(desktop)", error.code());
     }
     if let Err(error) = client.commit(first_desktop, work) {
-        fail("commit(desktop)", error.errno().unwrap_or(0));
+        fail("commit(desktop)", error.code());
     }
 
     // Replacing an existing desktop is allowed: a second desktop takes the
@@ -164,16 +164,13 @@ fn run() -> ! {
         &replacement_published,
     ) {
         Ok(desktop) => desktop,
-        Err(error) => fail(
-            "create_desktop_surface(replacement)",
-            error.errno().unwrap_or(0),
-        ),
+        Err(error) => fail("create_desktop_surface(replacement)", error.code()),
     };
     if let Err(error) = client.attach_buffer(desktop, desktop_buffer, desktop_bytes) {
-        fail("attach_buffer(replacement)", error.errno().unwrap_or(0));
+        fail("attach_buffer(replacement)", error.code());
     }
     if let Err(error) = client.commit(desktop, work) {
-        fail("commit(replacement)", error.errno().unwrap_or(0));
+        fail("commit(replacement)", error.code());
     }
     sys::write_str(DESKTOP_MARKER);
 
@@ -190,7 +187,7 @@ fn run() -> ! {
         &window_published,
     ) {
         Ok(window) => window,
-        Err(error) => fail("create_surface", error.errno().unwrap_or(0)),
+        Err(error) => fail("create_surface", error.code()),
     };
     let window_bytes = (WINDOW_W * WINDOW_H * 4) as u64;
     let (window_buffer, window_va, _) = match sys::buffer_create(window_bytes) {
@@ -202,10 +199,10 @@ fn run() -> ! {
     let mut window_canvas = unsafe { Canvas::new(window_va, WINDOW_W, WINDOW_H) };
     paint_window(&mut window_canvas, work);
     if let Err(error) = client.attach_buffer(window, window_buffer, window_bytes) {
-        fail("attach_buffer(window)", error.errno().unwrap_or(0));
+        fail("attach_buffer(window)", error.code());
     }
     if let Err(error) = client.commit(window, Rect::new(0, 0, WINDOW_W, WINDOW_H)) {
-        fail("commit(window)", error.errno().unwrap_or(0));
+        fail("commit(window)", error.code());
     }
 
     // Read back the surface table: the desktop and the window must both be
@@ -241,10 +238,7 @@ fn run() -> ! {
             }
         }
         Err(error) => {
-            sys::write_str(&alloc::format!(
-                "SHELLPROBE:LIST:FAIL:{}\n",
-                error.errno().unwrap_or(0)
-            ));
+            sys::write_str(&alloc::format!("SHELLPROBE:LIST:FAIL:{}\n", error.code()));
         }
     }
 

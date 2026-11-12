@@ -3,8 +3,9 @@
 //! processes of the probe (`observer`, `denied <panel>`).
 
 use alloc::format;
+use libmessenger::client::CallError;
 use user::messenger::display::{self, wire, Canvas, Client, Color, Event, Rect, ShellEvent};
-use user::messenger::{self, Endpoint, Error};
+use user::messenger::{self, Endpoint};
 use user::sys;
 use user::trace;
 
@@ -31,11 +32,11 @@ fn pair(marker: &str) -> Option<(Endpoint, Endpoint)> {
 }
 
 /// Whether `result` failed with exactly `-code`; logs a `FAIL` otherwise.
-fn refused<T>(marker: &str, what: &str, result: Result<T, Error>, code: i64) -> bool {
+fn refused<T>(marker: &str, what: &str, result: Result<T, CallError>, code: i64) -> bool {
     match result {
-        Err(Error::Errno(got)) if got == -code => true,
+        Err(error) if error.code() == -code => true,
         other => {
-            let got = other.err().and_then(|error| error.errno());
+            let got = other.err().map(|error| error.code());
             trace::line!(
                 trace::Channel::Shellprobe,
                 "{marker}:FAIL:{what} gave {got:?}, want -{code}"
@@ -46,11 +47,11 @@ fn refused<T>(marker: &str, what: &str, result: Result<T, Error>, code: i64) -> 
 }
 
 /// Whether `result` succeeded; logs a `FAIL` otherwise.
-fn ok<T>(marker: &str, what: &str, result: Result<T, Error>) -> Option<T> {
+fn ok<T>(marker: &str, what: &str, result: Result<T, CallError>) -> Option<T> {
     match result {
         Ok(value) => Some(value),
         Err(error) => {
-            let code = error.errno().unwrap_or(0);
+            let code = error.code();
             trace::line!(
                 trace::Channel::Shellprobe,
                 "{marker}:FAIL:{what} gave {code}"

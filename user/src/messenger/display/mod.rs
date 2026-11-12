@@ -9,12 +9,11 @@
 
 use alloc::vec::Vec;
 
-use libmessenger::{flags, Decoder, Encoder, Header, Kind, Object, Parcel, VERSION};
+use libmessenger::{Encoder, Header, Parcel, VERSION};
 
 mod canvas;
 mod client;
 mod cursor_blit;
-mod cursor_call;
 mod events;
 mod typeface;
 
@@ -126,25 +125,6 @@ pub mod button {
     pub const MIDDLE: u32 = 3;
 }
 
-/// A request parcel of `method` carrying an encoded `body`. `ALLOW_NESTED`
-/// keeps an app's event poll from tripping the kernel's per-channel cycle
-/// check while a `Commit` call is in flight.
-fn request(method: u32, body: Vec<u8>, objects: Vec<Object>) -> Parcel {
-    Parcel {
-        header: Header {
-            version: VERSION,
-            flags: flags::ALLOW_NESTED,
-            interface_id: INTERFACE,
-            method,
-            txn_id: 0,
-            reply_to: 0,
-            deadline_ns: 0,
-        },
-        body,
-        objects,
-    }
-}
-
 /// A reply parcel for `method`; also the compositor's reply builder.
 pub fn reply(method: u32, body: Vec<u8>) -> Parcel {
     Parcel {
@@ -168,16 +148,4 @@ pub fn error_reply(method: u32, code: i64) -> Parcel {
     // A structured error field cannot overflow a fresh encoder.
     let _ = body.error(ERROR_FIELD, code as u32, "display request failed");
     reply(method, body.finish())
-}
-
-/// The positive errno in a failure reply, when the compositor refused a call.
-fn error_field(parcel: &Parcel) -> Option<i64> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Ok(Some(field)) = decoder.next() {
-        if field.kind == Kind::Error && field.id == ERROR_FIELD {
-            let (code, _message) = field.error_parts().ok()?;
-            return Some(code as i64);
-        }
-    }
-    None
 }
