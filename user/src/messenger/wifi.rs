@@ -16,7 +16,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use libmessenger::client::{CallError, Connection, Deadline};
-use libmessenger::{Header, Object, Parcel, VERSION};
+use libmessenger::Parcel;
 
 use super::client::{call_error, Native};
 use super::{registry, Endpoint, Result};
@@ -62,27 +62,6 @@ pub fn radios() -> Result<Vec<String>> {
     names.sort();
     names.dedup();
     Ok(names)
-}
-
-fn parcel(interface: u64, method: u32, body: Vec<u8>, objects: Vec<Object>) -> Parcel {
-    Parcel {
-        header: Header {
-            version: VERSION,
-            flags: 0,
-            interface_id: interface,
-            method,
-            txn_id: 0,
-            reply_to: 0,
-            deadline_ns: 0,
-        },
-        body,
-        objects,
-    }
-}
-
-/// A `wifi.v1` parcel of `method` carrying `body` (the service's replies).
-pub fn reply(method: u32, body: Vec<u8>) -> Parcel {
-    parcel(api::INTERFACE_ID, method, body, Vec::new())
 }
 
 /// Room for the reply to a request that carried a secret: those replies
