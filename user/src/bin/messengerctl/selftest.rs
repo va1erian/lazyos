@@ -28,6 +28,7 @@ pub(crate) fn topic_selftest() {
     marker("TOPIC:QOS", selftest_qos(&mut bus));
     marker("TOPIC:UNSUB", selftest_unsubscribe(&mut bus));
     marker("TOPIC:DEPTH", super::depth_test::selftest_depth(&mut bus));
+    marker("TOPIC:QUOTA", super::quota_test::selftest_quota(&mut bus));
     marker("TOPIC:SECURITY", selftest_security());
 }
 

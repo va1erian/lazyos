@@ -990,8 +990,30 @@ A fresh-context review of the runtime, the generator and `messengerd` found:
   does not park a pull the kernel is about to end. `MAX_PENDING` equals the
   subscription cap, and `central::Feed` treats `EAGAIN` as transient.
 * `messengerd` rolls a subscription back when `Subscribe`'s reply is not
-  delivered, caps a task at 64 subscriptions (`EAGAIN`) and holds retained
-  values plus queued events to 8 MiB (`ENOMEM` on publish).
+  delivered and caps a task at 64 subscriptions (`EAGAIN`). Its byte budget
+  (8 MiB) is charged per owner, not as one pool anyone can fill (second review
+  round): a retained value is charged to the task that published it, a queue
+  to the task that subscribed. A task may have 1 MiB held for it (2 MiB for a
+  platform task: no label and no session, the rule the kernel uses for the
+  `WaitFor` reserve), an app at most 64 retained values (they cannot be
+  removed; the IDL has no clear and none was added), and the last 2 MiB of the
+  budget is for platform tasks only. A queue with no room sheds its own oldest
+  events as counted drops (replacing an event or overflowing the depth counts
+  by the net change) and never refuses the publisher or a subscribe; only a
+  retained publish over its publisher's own budget gets `ENOMEM`. A
+  subscription whose bell end is closed is reaped on the `EPIPE` of the next
+  ring. The tables live in `libs/topicsbroker` (host unit and soak tests,
+  with the byte ledger audited against the queues) and `messengerctl` checks
+  the flood case at run time as `TOPIC:QUOTA`. A retained value stays charged
+  to its publisher's slot after the task exits (the slot id can be reused;
+  bounded by the allowance).
+* The xui `Subscriber` stamps `POLL_HINT_NS` on its polling `NextEvent`s too; a
+  reply it cannot parse is `-EPROTO` (a broker refusal `-EINVAL` is the only
+  one the follow hub treats as permanent). `elevd` reads the session feed once
+  more with a one-tick wait before a standing approval decides a request,
+  closing the gap between the broker's reply to `logind` and its bell. The
+  typed settings store clears a key from its unread set once a value of the
+  user's has been written, so setting it back to the default is saved.
 * `user::messenger::client::Held` fails with `EPIPE` once evicted and released.
 
 Follow-up: `messengerd` keys subscription ownership on `Caller::sender`, a

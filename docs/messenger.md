@@ -290,6 +290,13 @@ language over TLV fields (`level == ERROR && unit == "netd"`), compiled by
 **Retained values:** publishers may mark a message retained; new subscribers get
 it immediately (state-like topics such as `system/health/netd`).
 
+**Byte budget:** the broker's memory is charged per task: a retained value to
+its publisher, a subscription's queue to its owner, each within an allowance
+(an app at most 64 retained values; retained values cannot be removed), with a
+reserve of the total only platform tasks (no label, no login session) can use.
+A queue over its allowance drops its oldest events like any overflow; only a
+retained publish over its publisher's budget is refused (`ENOMEM`).
+
 **Backpressure and scope:** a full bounded queue drops (counted in stats);
 system topics default to `conflate` so a slow subscriber cannot stall
 publishers. Topics have owners (session, system, user); policy decides who
@@ -331,8 +338,10 @@ and `timed`'s `confd` watch use it instead of polling every few ticks.
 
 Headless verification: boot with `LAZYOS_MESSENGERD=1 LAZYOS_MESSENGERCTL=1`;
 `messengerctl` runs a topic conformance self-test (`TOPIC:FANOUT|WILDCARD|
-RETAINED|DROP|QOS|UNSUB|DEPTH:PASS` on the serial log; `DEPTH` asks the generated
-client for a `u32::MAX` buffered depth and checks the broker clamps it), then `MESSAGE:OBJECTS:PASS`
+RETAINED|DROP|QOS|UNSUB|DEPTH|QUOTA:PASS` on the serial log; `DEPTH` asks the generated
+client for a `u32::MAX` buffered depth and checks the broker clamps it; `QUOTA` floods slow
+readers with full-size events and checks nothing is refused, the task stays inside its
+byte allowance and the bytes come back on unsubscribe), then `MESSAGE:OBJECTS:PASS`
 once it has checked that a received message owns its objects until a decoder
 claims them and closes the rest when it drops
 (`user/src/bin/messengerctl/object_tests.rs`). `messengerctl topics` lists

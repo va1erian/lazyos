@@ -54,6 +54,8 @@ mod depth_test;
 mod names;
 #[path = "messengerctl/object_tests.rs"]
 mod object_tests;
+#[path = "messengerctl/quota_test.rs"]
+mod quota_test;
 #[path = "messengerctl/render.rs"]
 mod render;
 #[path = "messengerctl/selftest.rs"]
