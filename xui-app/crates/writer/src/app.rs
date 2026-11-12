@@ -162,11 +162,6 @@ pub struct Writer {
 }
 
 impl Writer {
-    /// Whether the document has unsaved changes.
-    pub fn is_modified(&self) -> bool {
-        self.dirty
-    }
-
     /// The file the document belongs to.
     pub fn path(&self) -> Option<&std::path::Path> {
         self.path.as_deref()

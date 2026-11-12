@@ -22,11 +22,6 @@ impl Net {
         self.table.owners()
     }
 
-    /// Every open socket id, for the tests.
-    pub fn socket_ids(&self) -> Vec<u32> {
-        self.table.ids()
-    }
-
     /// `Open`: a new socket of `kind` for `owner`. No interface is chosen yet.
     pub fn socket_open(&mut self, owner: u64, kind: Kind) -> Result<u32, SockError> {
         self.table.check_quota(owner)?;

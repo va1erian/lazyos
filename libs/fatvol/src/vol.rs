@@ -216,11 +216,6 @@ impl<D: BlockIo> Volume<D> {
         self.clock.set(unix);
     }
 
-    /// Run `f` on the device under the cache (tests).
-    pub fn with_device<R>(&self, f: impl FnOnce(&mut D) -> R) -> R {
-        f(self.cache.0.borrow_mut().device_mut())
-    }
-
     /// The volume is idle: write everything back, mark it clean and drop the
     /// filesystem object (the next request opens it again).
     pub fn settle(&mut self) -> Result<(), Fault> {

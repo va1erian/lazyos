@@ -3,7 +3,6 @@
 
 use crate::events;
 use crate::markers::Marker;
-use crate::options::Options;
 
 use super::Editor;
 
@@ -78,11 +77,6 @@ impl<M: 'static> Editor<M> {
             state.view.goal_col = None;
             events::ensure_visible(&mut state, &ui, self.control.id());
         }
-        self.control.invalidate();
-    }
-    /// Replaces the display options.
-    pub fn set_options(&self, options: Options) {
-        self.state.borrow_mut().options = options;
         self.control.invalidate();
     }
 

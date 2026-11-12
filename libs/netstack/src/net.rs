@@ -280,16 +280,6 @@ impl Net {
         self.generation += 1;
     }
 
-    /// Change `slot`'s default-route metric.
-    pub fn set_metric(&mut self, slot: usize, metric: u32) {
-        if let Some(unit) = self.unit_mut(slot) {
-            if unit.metric != metric {
-                unit.metric = metric;
-                self.generation += 1;
-            }
-        }
-    }
-
     /// Changes whenever the interface set, a link or an attachment does. Each
     /// interface's own address changes are in `Stack::epoch`.
     pub fn generation(&self) -> u64 {

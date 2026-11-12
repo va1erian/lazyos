@@ -12,10 +12,10 @@ use std::rc::Rc;
 
 use xui_core::app::{App, Ui};
 use xui_core::arrange::{build, Handle, Mounted};
-use xui_core::backend::{Result, WidgetId};
+use xui_core::backend::Result;
 use xui_core::message::{Key, Modifiers};
 use xui_core::units::Dip;
-use xui_core::widget::{Dialog, FileDialog, Panel, StatusBar};
+use xui_core::widget::{Dialog, FileDialog};
 use xui_host::dialogs::open_dialog;
 use xui_host::SharedHost;
 
@@ -431,11 +431,6 @@ impl NesApp {
             }
         }
     }
-
-    /// The picture's node, so a test can check it is the visible one.
-    pub fn screen_id(&self) -> WidgetId {
-        self.screen.get().control().id()
-    }
 }
 
 /// The keyboard shortcuts the window owns. A key with no shortcut is left to
@@ -487,12 +482,6 @@ impl App for NesApp {
         }
     }
 }
-
-/// The welcome screen's panel type, re-exported for the binary and the tests.
-pub type WelcomePanel = Panel<Msg>;
-
-/// The status bar's type, likewise.
-pub type NesStatusBar = StatusBar<Msg>;
 
 /// A `Dip` conversion the layout constants use.
 pub const fn dip(value: i32) -> Dip {
