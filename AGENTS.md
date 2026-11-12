@@ -312,6 +312,7 @@ Always, for any code change:
 cargo fmt --all -- --check                       # `cargo fmt --all` fixes it (CI's `fmt` job); also run it in a standalone workspace you edited, with --manifest-path
 python tools/check_file_length.py                # every .rs/.py under 500 lines (generated midlc output exempt)
 python tools/trace/check_adhoc.py --ratchet      # no new ad hoc marker prints (use the trace API)
+python tools/midlc/check_handrolled.py --ratchet # no new hand-rolled Messenger protocol code (use the generated client/server)
 python tools/trace/catalog.py --check            # channel catalogue current after touching libs/tracefmt
 python tools/fhs/check_literals.py               # well-known paths come from libs/fhs, never literals
 python tools/sync/check_locks.py --ratchet       # no new raw `spin` lock in the kernel trees
