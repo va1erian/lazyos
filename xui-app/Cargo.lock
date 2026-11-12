@@ -6228,6 +6228,7 @@ dependencies = [
  "raster",
  "xui-canvas",
  "xui-core",
+ "xui-host",
  "xui-rich-text",
 ]
 
