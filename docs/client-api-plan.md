@@ -201,6 +201,9 @@ registry and `devtool` checks can read), `errors` gives a typed error enum,
 kernel and midlc), `deadline` gives every client the same bound and lets
 `tools/xui/check_call_bounds.py` read it instead of a heuristic.
 
+As built (C4d), one more addition: the direction marker `event` (a `oneway`
+the server sends and clients receive); see the C4d note in 3.3.
+
 ### 3.2 Generated client
 
 ```rust
@@ -470,6 +473,21 @@ before the handler runs (the shell-only and `elevd` checks used to run first,
 and `Commit`, `DestroySurface`, `DragStart` and the like answered a default
 instead), an undeclared method is `ENOSYS` (was `EINVAL`), and an error reply
 carries the errno's friendly text.
+
+As built (C4d), `event`: a server-to-client message is declared `event` in place
+of `oneway` (`method PointerMove(x: I32 = 1, y: I32 = 2) -> () = 5 event;`). It
+is `oneway` on the wire (same ids, same encoding, `idl_compat` sees no change
+beyond the added `"event": true` manifest key) but the generators leave it out
+of the `Server` trait and `dispatch`, out of the `Client`, and out of the Rhai
+API (listed as events in the docs). The server still sends it with
+`encode_<m>_args` and clients receive it with `decode_<m>_args`. This removed
+the empty bodies that C4b and C4c required for events only a client receives
+(`xuid` 22, `inputd` 18, `netdrv` 1, `user::wifi` 5). A `oneway` a client sends
+(`Present`, `Note*`, `Ready`, `Kick`) stays `oneway`. Converted: display (all
+but `Present`), input and input shell (the key, text and gamepad events, and
+the shell set), init app events, notify and tray events, `nic.Notify`, the
+wifi hw events, the registry's `Connected`, and the webd view and light events
+(ids 100 and up). `topics.Ready` is left as `oneway`.
 
 Not migrated, and why: `audiod` and `libs/audiomix` (the pure `Outcome` layer its host
 tests drive decodes bodies itself; it moves with its 479 lines of tests) and

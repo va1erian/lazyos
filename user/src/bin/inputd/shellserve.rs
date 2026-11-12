@@ -142,26 +142,4 @@ impl shell_wire::Server for Hub {
             self.set_session_layout(layout.as_deref());
         }
     }
-
-    // These travel inputd to the compositor; one sent to inputd is ignored.
-    fn hotkey_fired(&mut self, _: &Caller, _: u64) {}
-    fn grant_requested(&mut self, _: &Caller, _: u64, _: u32, _: u64) {}
-    fn escape_chord(&mut self, _: &Caller) {}
-    fn session_opened(&mut self, _: &Caller, _: u64) {}
-    fn session_closed(&mut self, _: &Caller, _: u64) {}
-    #[allow(clippy::too_many_arguments)]
-    fn pointer_event(
-        &mut self,
-        _: &Caller,
-        _: i32,
-        _: i32,
-        _: u32,
-        _: i32,
-        _: i32,
-        _: u64,
-        _: u64,
-    ) {
-    }
-    fn grab_changed(&mut self, _: &Caller, _: Option<u64>) {}
-    fn key_activity(&mut self, _: &Caller) {}
 }

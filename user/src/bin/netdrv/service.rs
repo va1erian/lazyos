@@ -230,9 +230,6 @@ impl wire::Server for Service {
             let _ = self.card.engine.kick(cx.sender, ring);
         }
     }
-
-    // `Notify` travels driver to client; one sent to the driver is ignored.
-    fn notify(&mut self, _: &Caller, _: u32, _: u32) {}
 }
 
 impl Service {

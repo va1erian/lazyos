@@ -419,13 +419,6 @@ impl<R: Radio> wire::Server for HwHandler<'_, R> {
             .leave(sender_of(cx), reason)
             .map_err(|e| fault(mac_err(e)))
     }
-
-    // The events travel driver to client; a client that sends one to the
-    // driver is ignored.
-    fn scan_done(&mut self, _: &StampedCaller, _: u32, _: bool) {}
-    fn rx_mgmt(&mut self, _: &StampedCaller, _: u32, _: i32, _: Vec<u8>) {}
-    fn beacon_loss(&mut self, _: &StampedCaller) {}
-    fn deauthenticated(&mut self, _: &StampedCaller, _: u32) {}
 }
 
 /// The one-way parcel of an event.

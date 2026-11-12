@@ -1,8 +1,6 @@
 //! `os.lazy.input.v1` requests: open and close sessions, state, grabs, the
 //! key-state and gamepad-state pages and `Ping`. Key content itself is pushed (`hub.rs`).
 
-use alloc::string::String;
-use alloc::vec::Vec;
 use libmessenger::client::Errno;
 use libmessenger::server::{Caller, Fault};
 use user::sys;
@@ -106,18 +104,6 @@ impl wire::Server for Hub {
         }
         attached
     }
-
-    // Events travel inputd to its clients; one sent to inputd is ignored.
-    fn key_event(&mut self, _: &Caller, _: u32, _: u32, _: u32, _: u32, _: u64, _: u64) {}
-    fn text_input(&mut self, _: &Caller, _: String) {}
-    fn keyboard_enter(&mut self, _: &Caller, _: Vec<u32>) {}
-    fn keyboard_leave(&mut self, _: &Caller) {}
-    fn layout_changed(&mut self, _: &Caller, _: String) {}
-    fn grant_changed(&mut self, _: &Caller, _: u32, _: bool, _: u32) {}
-    fn gamepad_axis(&mut self, _: &Caller, _: u32, _: u32, _: i32, _: u64, _: u64) {}
-    fn gamepad_button(&mut self, _: &Caller, _: u32, _: u32, _: bool, _: u64, _: u64) {}
-    fn gamepad_enter(&mut self, _: &Caller) {}
-    fn gamepad_leave(&mut self, _: &Caller) {}
 }
 
 impl Hub {
