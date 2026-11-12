@@ -5,6 +5,7 @@
 use alloc::format;
 use alloc::string::String;
 
+use libmessenger::client::CallError;
 use nicdrv::arp;
 use user::messenger::net::{self as api, Attachment};
 use user::messenger::Error as MsgError;
@@ -23,7 +24,13 @@ pub(super) fn nap() {
 }
 
 /// Prefix a Messenger failure with what was being attempted.
-pub(super) fn fail(what: &str) -> impl Fn(MsgError) -> String + '_ {
+pub(super) fn fail(what: &str) -> impl Fn(CallError) -> String + '_ {
+    move |error| format!("{what}: {}", error.message())
+}
+
+/// [`fail`] for a local Messenger operation (a wait on the notify endpoint, a
+/// fabric statistic) rather than a call.
+pub(super) fn local(what: &str) -> impl Fn(MsgError) -> String + '_ {
     move |error| format!("{what}: {}", error.message())
 }
 
@@ -52,13 +59,12 @@ pub(super) fn ifname() -> String {
 
 /// Resolve the driver, retrying while it is still starting up.
 pub(super) fn connect() -> Result<api::Client, String> {
-    api::Client::connect_waiting(&ifname())
-        .map_err(|error| format!("no NIC service: {}", error.message()))
+    api::connect_waiting(&ifname()).map_err(|error| format!("no NIC service: {}", error.message()))
 }
 
 /// Whether `result` failed with exactly `errno` (a positive errno value).
-pub(super) fn is_errno<T>(result: &Result<T, MsgError>, errno: i64) -> bool {
-    matches!(result, Err(MsgError::Errno(code)) if *code == -errno)
+pub(super) fn is_errno<T>(result: &Result<T, CallError>, errno: i64) -> bool {
+    matches!(result, Err(error) if error.code() == -errno)
 }
 
 /// Broadcast an ARP request for `target` and wait for its reply through the
@@ -99,6 +105,6 @@ pub(super) fn arp_exchange(
         }
         attachment
             .wait(next_send.min(deadline))
-            .map_err(fail("waiting for a notice"))?;
+            .map_err(local("waiting for a notice"))?;
     }
 }

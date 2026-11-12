@@ -23,10 +23,11 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use user::messenger::net as api;
 use user::messenger::{fabric_stats, FabricStats};
 use user::task_snapshot::{task_snapshot, TaskSnapshot};
 
-use super::common::{arp_exchange, connect, fail, GATEWAY_IP};
+use super::common::{arp_exchange, connect, fail, local, GATEWAY_IP};
 
 /// Ring size used by every iteration.
 const SLOTS: u32 = 16;
@@ -41,20 +42,20 @@ pub(super) fn run(iterations: u32) -> Result<u32, String> {
         .try_into()
         .map_err(|_| String::from("the driver reported a bad MAC"))?;
     let involved = Involved::find()?;
-    let before = fabric_stats().map_err(fail("fabric stats"))?;
-    let tasks_before = task_snapshot().map_err(fail("task snapshot"))?;
+    let before = fabric_stats().map_err(local("fabric stats"))?;
+    let tasks_before = task_snapshot().map_err(local("task snapshot"))?;
     let stats_before = client.stats().map_err(fail("stats"))?;
     for round in 0..iterations {
         let what = |step: &str| format!("iteration {round}: {step}");
-        let mut attachment = client.attach(SLOTS).map_err(fail(&what("attach")))?;
+        let mut attachment = api::attach(&client, SLOTS).map_err(fail(&what("attach")))?;
         arp_exchange(&client, &mut attachment, mac, GATEWAY_IP).map_err(|e| what(&e))?;
         client
-            .detach(attachment.ring)
+            .detach_ring(attachment.ring)
             .map_err(fail(&what("detach")))?;
         attachment.close();
     }
-    let after = fabric_stats().map_err(fail("fabric stats"))?;
-    let tasks_after = task_snapshot().map_err(fail("task snapshot"))?;
+    let after = fabric_stats().map_err(local("fabric stats"))?;
+    let tasks_after = task_snapshot().map_err(local("task snapshot"))?;
     let stats_after = client.stats().map_err(fail("stats"))?;
     involved.same_tasks(&tasks_before, &tasks_after)?;
     report_others(&involved, &before, &after, &tasks_after);
@@ -102,7 +103,7 @@ impl Involved {
     /// `nicctl` would share the driver with it (one attachment at a time),
     /// and with two drivers the counts could belong to the other card.
     fn find() -> Result<Involved, String> {
-        let tasks = task_snapshot().map_err(fail("task snapshot"))?;
+        let tasks = task_snapshot().map_err(local("task snapshot"))?;
         Ok(Involved {
             me: only(&tasks, fhs::bin::NICCTL)?,
             driver: only(&tasks, fhs::bin::NETDRV)?,

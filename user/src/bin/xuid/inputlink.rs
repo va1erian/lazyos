@@ -17,8 +17,9 @@ use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
 use inputmap::Layout;
+use libmessenger::client::CallError;
+use user::messenger::errno;
 use user::messenger::input::{PointerState, ShellEvent, ShellLink};
-use user::messenger::{errno, Error};
 use user::sys;
 
 use super::compositor::Compositor;
@@ -140,7 +141,7 @@ impl Compositor {
             Err(error) => {
                 // Say why once; `inputd` legitimately starts after the
                 // compositor, so the retries stay quiet.
-                let code = error.errno();
+                let code = Some(error.code());
                 if self.input.reported != Some(code) {
                     self.input.reported = Some(code);
                     sys::write_str(&alloc::format!(
@@ -393,10 +394,10 @@ impl Compositor {
 
 /// How a one-way note went: `Some(true)` queued, `Some(false)` the queue
 /// was full (retry later, the link is fine), `None` the link is dead.
-fn sent(result: Result<(), Error>) -> Option<bool> {
+fn sent(result: Result<(), CallError>) -> Option<bool> {
     match result {
         Ok(()) => Some(true),
-        Err(Error::Errno(code)) if code == -errno::EAGAIN => Some(false),
+        Err(error) if error.code() == -errno::EAGAIN => Some(false),
         Err(_) => None,
     }
 }

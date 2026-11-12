@@ -65,7 +65,8 @@ service "os.lazy.net.wifi.hw/{ifname}" implements os.lazy.net.wifi.hw.v1;
 /// Failures of calls are returned as the shared structured error field
 /// (`services::error_field`) instead of the declared reply fields.
 interface os.lazy.net.wifi.hw.v1 {
-    default deadline=5s;
+    /// `wlanmd` gives a driver 3 s before it is considered wedged.
+    default deadline=3s;
     /// Describe the radio: addresses, bands, ciphers, limits. Any caller the
     /// label policy lets reach the driver may ask, attached or not: it reveals
     /// only hardware facts.

@@ -20,10 +20,10 @@
 #[path = "volume/outputs.rs"]
 mod outputs;
 
-use audioclient::MixerControl;
 use std::rc::Rc;
 use trayclient::{item, lucide, menu_row, wire, Event};
-use xui_app::platform::audio::{Audio, UNITY_GAIN};
+use xui_app::platform::audio::{self, UNITY_GAIN};
+use xui_app::platform::messenger::Observed;
 use xui_app::resident::{Resident, Wake};
 use xui_app::trace::{self, Channel};
 
@@ -78,14 +78,14 @@ impl Volume {
     }
 }
 
-fn mixer() -> Option<MixerControl<Audio>> {
-    Some(MixerControl::new(Audio::try_connect()?))
+fn mixer() -> Option<audioclient::MixerControl<Observed>> {
+    audio::mixer()
 }
 
 /// Read the mixer's master volume and outputs; `None` without a mixer.
 fn read() -> Option<Volume> {
     let mixer = mixer()?;
-    let master = mixer.master().ok()?;
+    let master = mixer.get_master().ok()?;
     let mut outputs = Outputs::default();
     outputs.refresh(&mixer);
     Some(Volume {
@@ -178,7 +178,7 @@ fn poll(volume: &mut Volume) -> bool {
     let Some(mixer) = mixer() else {
         return false;
     };
-    let card = mixer.master().is_ok_and(|master| master.card);
+    let card = mixer.get_master().is_ok_and(|master| master.card);
     let changed = volume.outputs.refresh(&mixer) || card != volume.card;
     volume.card = card;
     volume.outputs.reapply(&mixer);
@@ -209,8 +209,8 @@ fn run(res: &Rc<Resident>) {
     first.menu = volume.menu();
     // Before the shell serves the tray the item is set when it announces
     // itself (`xui_app::tray`), so a refusal here is not fatal.
-    if let Err(code) = res.tray.borrow_mut().set(first) {
-        trace::line!(Channel::Volume, "TRAY:LATER err={}", -code);
+    if let Err(error) = res.tray.borrow_mut().set(first) {
+        trace::line!(Channel::Volume, "TRAY:LATER err={}", -error.code());
     }
     trace::line!(
         Channel::Volume,

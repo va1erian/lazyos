@@ -21,7 +21,7 @@ use user::messenger::netstd::{TcpListener, TcpStream, UdpSocket};
 use user::messenger::{fabric_stats, TaskUsage};
 use user::sysinfo;
 
-use super::common::{fail, nap};
+use super::common::{fail, local, nap};
 
 const GATEWAY: [u8; 4] = [10, 0, 2, 2];
 /// The host's TCP echo server (`tools/net/run.py`).
@@ -35,7 +35,7 @@ const SETTLE_NAPS: u32 = 300;
 
 /// What `netd` holds right now.
 fn netd_holdings() -> Result<Option<TaskUsage>, String> {
-    let fabric = fabric_stats().map_err(fail("fabric stats"))?;
+    let fabric = fabric_stats().map_err(local("fabric stats"))?;
     let snapshot =
         sysinfo::snapshot().map_err(|code| format!("system snapshot: errno {}", -code))?;
     for task in snapshot.live_tasks() {

@@ -25,7 +25,7 @@ pub(super) struct Outputs {
 impl Outputs {
     /// Read the list again; whether it changed.
     pub(super) fn refresh<T: Transport>(&mut self, mixer: &MixerControl<T>) -> bool {
-        let Ok(mut list) = mixer.outputs() else {
+        let Ok(mut list) = mixer.list_outputs() else {
             return false;
         };
         // The mixer lists the playing output first; the menu keeps its rows
@@ -61,7 +61,11 @@ impl Outputs {
             heading,
         ];
         for (index, output) in self.list.iter().enumerate() {
-            let mut row = menu_row(FIRST_ROW + index as u32, &output.name, wire::MENU_KIND_RADIO);
+            let mut row = menu_row(
+                FIRST_ROW + index as u32,
+                &output.name,
+                wire::MENU_KIND_RADIO,
+            );
             row.checked = output.active;
             rows.push(row);
         }

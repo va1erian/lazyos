@@ -18,19 +18,21 @@ use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use user::trace;
 
-use user::messenger::input::{self as api, wire};
-use user::messenger::{create_pair, registry, services, Endpoint, Error, DEFAULT_BUFFER};
+use libmessenger::client::Deadline;
+use user::messenger::client::Native;
+use user::messenger::input::wire;
+use user::messenger::{create_pair, Endpoint, DEFAULT_BUFFER};
 use user::sys;
 
-/// Ticks the `Open`/`Close` calls may take.
-const CALL_TICKS: u64 = 100;
+/// How long the `Open`/`Close` calls may take.
+const CALL_BOUND: Deadline = Deadline::ticks(100);
 /// The byte `read_line` treats as end of line, and as rubout.
 const ENTER: u8 = b'\n';
 const BACKSPACE: u8 = 8;
 
 /// The console session, while one is open.
 struct Session {
-    input: Endpoint,
+    input: wire::Client<Native>,
     events: Endpoint,
     id: u64,
 }
@@ -83,14 +85,8 @@ impl ConsoleKeys {
     pub(super) fn end(&mut self) {
         self.pending.clear();
         if let Some(session) = self.session.take() {
-            let body = wire::encode_close_args(&wire::CloseArgs {
-                session: session.id,
-            })
-            .unwrap_or_default();
-            let parcel = api::request(api::INTERFACE, wire::METHOD_CLOSE, body, Vec::new());
-            let _ = session.input.call(&parcel, Some(sys::clock() + CALL_TICKS));
+            let _ = session.input.close_within(session.id, CALL_BOUND);
             let _ = session.events.close();
-            let _ = session.input.release();
         }
         let _ = sys::input_console_release();
     }
@@ -145,36 +141,16 @@ impl ConsoleKeys {
 /// Claim the console and open the sessionless session.
 fn open() -> Result<Session, &'static str> {
     sys::input_console_claim().map_err(|_| "claim-refused")?;
-    let input = registry::resolve(api::NAME).map_err(|_| "no-inputd")?;
+    let input = wire::Client::try_connect(Native).map_err(|_| "no-inputd")?;
     let (events, peer) = create_pair().map_err(|_| "no-channel")?;
-    let (body, objects) = wire::encode_open_args(&wire::OpenArgs {
-        surface: None,
-        events: peer.handle(),
-    })
-    .unwrap_or_default();
-    let parcel = api::request(api::INTERFACE, wire::METHOD_OPEN, body, objects);
-    let mut buffer = [0u8; 256];
-    let reply = input
-        .call_with(&parcel, &mut buffer, Some(sys::clock() + CALL_TICKS))
-        .and_then(|reply| match services::error_field(&reply)? {
-            Some(code) => Err(Error::Errno(-code)),
-            None => Ok(reply),
-        });
-    let opened = reply
-        .ok()
-        .and_then(|reply| wire::decode_open_reply(&reply.body).ok());
+    let opened = input.open_within(None, peer.handle(), CALL_BOUND).ok();
     match opened {
-        Some(reply) => Ok(Session {
-            input,
-            events,
-            id: reply.session,
-        }),
+        Some(id) => Ok(Session { input, events, id }),
         None => {
             // The peer may or may not have moved; closing a stale handle
             // only fails harmlessly.
             let _ = peer.close();
             let _ = events.close();
-            let _ = input.release();
             Err("open-refused")
         }
     }

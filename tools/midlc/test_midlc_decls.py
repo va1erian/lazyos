@@ -273,8 +273,9 @@ class SplitLayoutTests(unittest.TestCase):
         cargo = "[features]\n# @generated features begin (tools/midlc/midlc.py, do not edit)\nold\n# @generated features end\n[x]\n"
         text = rewrite_features(cargo, interfaces)
         self.assertIn('default = ["all"]', text)
-        self.assertIn('all = ["demo_v1", "demo_admin_v1", "demo_v1_client", "demo_admin_v1_client"]', text)
+        self.assertIn('all = ["demo_v1", "demo_admin_v1", "demo_v1_client", "demo_admin_v1_client", "demo_v1_server", "demo_admin_v1_server"]', text)
         self.assertIn("demo_v1 = []", text)
+        self.assertIn('demo_v1_server = ["demo_v1"]', text)
         self.assertNotIn("old", text)
         self.assertTrue(text.endswith("[x]\n"))
         self.assertIsNone(rewrite_features("[features]\n", interfaces))

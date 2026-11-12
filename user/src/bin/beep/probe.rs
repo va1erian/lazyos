@@ -10,8 +10,11 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use audioclient::{wire, Client, Error, Grant, Object, RingBuffer, RingRef, Transport, UNITY_GAIN};
-use user::audio::Native;
+use audioclient::{
+    wire, CallError, Client, Deadline, Grant, Object, RingBuffer, RingRef, Runtime, UNITY_GAIN,
+};
+use libmessenger::client::Retry;
+use user::messenger::client::Native;
 use user::sys;
 
 use super::common::{connect, fail, is_errno, now};
@@ -39,7 +42,29 @@ impl Checks {
     }
 }
 
-type Probe<'a> = Client<&'a Native>;
+/// One request framed by hand, which is the point of this probe: it sends
+/// what the generated client never would (an attach with no buffer, a method
+/// carrying a stray object), so it goes through the connection untyped.
+fn raw(
+    client: &Probe,
+    method: u32,
+    body: Vec<u8>,
+    objects: Vec<Object>,
+) -> Result<Vec<u8>, CallError> {
+    client
+        .connection()
+        .call(
+            wire::INTERFACE_ID,
+            method,
+            body,
+            objects,
+            Deadline::secs(5),
+            Retry::Never,
+        )
+        .map(|reply| reply.body)
+}
+
+type Probe = Client<Native>;
 
 fn open(
     client: &Probe,
@@ -48,11 +73,11 @@ fn open(
     rate: u32,
     channels: u32,
     period: u32,
-) -> Result<Grant, Error> {
+) -> Result<Grant, CallError> {
     client.open_stream(dir, format, rate, channels, period)
 }
 
-fn playback(client: &Probe) -> Result<Grant, Error> {
+fn playback(client: &Probe) -> Result<Grant, CallError> {
     open(
         client,
         wire::DIRECTION_PLAYBACK,
@@ -65,8 +90,7 @@ fn playback(client: &Probe) -> Result<Grant, Error> {
 
 /// The owner side: returns the number of checks that passed.
 pub(super) fn run() -> Result<u32, String> {
-    let audio = connect()?;
-    let client = Client::new(&audio);
+    let client = connect()?;
     let mut checks = Checks { passed: 0 };
     malformed_opens(&client, &mut checks)?;
 
@@ -103,26 +127,30 @@ pub(super) fn run() -> Result<u32, String> {
     checks.expect(
         "attach without a buffer",
         is_errno(
-            &client.raw(wire::METHOD_ATTACHRING, no_buffer, Vec::new()),
+            &raw(&client, wire::METHOD_ATTACHRING, no_buffer, Vec::new()),
             EINVAL,
         ),
     )?;
 
     // A ring shorter than the grant is refused; a good one attaches once.
     let ring_bytes = grant.period_bytes as usize * grant.periods as usize;
-    let short = audio.create_ring(4096).map_err(fail("ring"))?;
+    let short = user::audio::Runtime
+        .create_ring(4096)
+        .map_err(fail("ring"))?;
     checks.expect(
         "short ring refused",
-        is_errno(&client.attach_ring(stream, short.share()), EINVAL),
+        is_errno(&client.attach_ring(stream, short.share().buffer()), EINVAL),
     )?;
     drop(short);
-    let ring = audio.create_ring(ring_bytes).map_err(fail("ring"))?;
+    let ring = user::audio::Runtime
+        .create_ring(ring_bytes)
+        .map_err(fail("ring"))?;
     client
-        .attach_ring(stream, ring.share())
+        .attach_ring(stream, ring.share().buffer())
         .map_err(fail("attach"))?;
     checks.expect(
         "second attach is busy",
-        is_errno(&client.attach_ring(stream, ring.share()), EBUSY),
+        is_errno(&client.attach_ring(stream, ring.share().buffer()), EBUSY),
     )?;
 
     commit_rules(&client, &grant, &mut checks)?;
@@ -267,15 +295,12 @@ fn stray_transfers(
     checks.expect(
         "a stray buffer on another method is refused",
         is_errno(
-            &client.raw(wire::METHOD_POSITION, position, stray()),
+            &raw(client, wire::METHOD_POSITION, position, stray()),
             EINVAL,
         ),
     )?;
-    let flood = (0..300).all(|_| {
-        client
-            .raw(wire::METHOD_ATTACHRING, Vec::new(), stray())
-            .is_err()
-    });
+    let flood =
+        (0..300).all(|_| raw(client, wire::METHOD_ATTACHRING, Vec::new(), stray()).is_err());
     checks.expect("malformed AttachRing flood is refused", flood)?;
     checks.expect(
         "mixer still serves after the flood",
@@ -302,25 +327,29 @@ fn intruder(stream: u32) -> Result<bool, String> {
 /// The intruder side: every attempt on the owner's `stream` must fail with
 /// `EACCES`, and its own open must succeed with a different stream.
 pub(super) fn run_intruder(stream: u32) -> Result<(), String> {
-    let audio = connect()?;
-    let client = Client::new(&audio);
-    let refused = |name: &str, result: Result<(), Error>| {
+    let client = connect()?;
+    let refused = |name: &str, result: Result<(), CallError>| {
         if is_errno(&result, EACCES) {
             Ok(())
         } else {
             Err(format!("{name} was not refused with EACCES"))
         }
     };
-    refused("start", client.start(stream))?;
-    refused("stop", client.stop(stream))?;
+    refused("start", client.start(stream).map(|_| ()))?;
+    refused("stop", client.stop(stream).map(|_| ()))?;
     refused("commit", client.commit(stream, 1).map(|_| ()))?;
     refused("position", client.position(stream).map(|_| ()))?;
-    refused("drain", client.drain(stream, Some(now() + 50)))?;
+    refused(
+        "drain",
+        client.drain_within(stream, Deadline::ticks(50)).map(|_| ()),
+    )?;
     refused("volume", client.set_volume(stream, 0))?;
     refused("mute", client.set_mute(stream, true))?;
     refused("close", client.close_stream(stream))?;
-    let ring = audio.create_ring(65536).map_err(fail("ring"))?;
-    refused("attach", client.attach_ring(stream, ring.share()))?;
+    let ring = user::audio::Runtime
+        .create_ring(65536)
+        .map_err(fail("ring"))?;
+    refused("attach", client.attach_ring(stream, ring.share().buffer()))?;
     let own = playback(&client).map_err(fail("own stream"))?;
     if own.stream == stream {
         return Err(String::from("the intruder was handed the owner's stream"));

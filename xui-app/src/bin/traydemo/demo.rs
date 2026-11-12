@@ -97,7 +97,7 @@ impl Demo {
         item.menu = self.menu();
         match self.res.tray.borrow_mut().set(item) {
             Ok(()) => trace::line!(Channel::Traydemo, "TRAY:SET:PASS"),
-            Err(code) => trace::line!(Channel::Traydemo, "TRAY:SET:FAIL err={}", -code),
+            Err(error) => trace::line!(Channel::Traydemo, "TRAY:SET:FAIL err={}", -error.code()),
         }
     }
 
@@ -115,7 +115,7 @@ impl Demo {
     pub fn clear_item(&mut self) {
         match self.res.tray.borrow_mut().clear() {
             Ok(()) => trace::pass!(Channel::Traydemo, "CLEAR"),
-            Err(code) => trace::line!(Channel::Traydemo, "CLEAR:FAIL err={}", -code),
+            Err(error) => trace::line!(Channel::Traydemo, "CLEAR:FAIL err={}", -error.code()),
         }
         self.status = String::from("Item cleared: the tray shows the default item");
     }
@@ -128,7 +128,7 @@ impl Demo {
         }
     }
 
-    fn update(&mut self, patch: wire::UpdateArgs) -> Result<(), i64> {
+    fn update(&mut self, patch: wire::UpdateArgs) -> Result<(), libmessenger::client::CallError> {
         self.res.tray.borrow_mut().update(patch)
     }
 
@@ -142,7 +142,7 @@ impl Demo {
         };
         match self.update(patch) {
             Ok(()) => trace::line!(Channel::Traydemo, "ICON:{name}"),
-            Err(code) => trace::line!(Channel::Traydemo, "ICON:FAIL err={}", -code),
+            Err(error) => trace::line!(Channel::Traydemo, "ICON:FAIL err={}", -error.code()),
         }
         self.status = format!("Icon: {name}");
     }

@@ -48,6 +48,7 @@ use alloc::rc::Rc;
 use core::panic::PanicInfo;
 
 use dbgwire::config::{self, Config, Refusal};
+use user::messenger::client::Native;
 use user::messenger::netsock::Client;
 use user::messenger::netstack::Client as Stack;
 use user::messenger::netstd::{is_timeout, TcpListener};
@@ -90,7 +91,7 @@ fn load_config() -> Result<Config, Refusal> {
 fn serve(config: &Config) -> u32 {
     let deadline = sys::clock() + STACK_TICKS;
     loop {
-        if Stack::connect().is_ok() {
+        if Stack::try_connect(Native).is_ok() {
             break;
         }
         if sys::clock() >= deadline {

@@ -6,7 +6,7 @@
 use libmessenger::client::{
     resolve_waiting as wait_resolving, CallFailure, Deadline, Errno, Handle, Retry, Transport,
 };
-use libmessenger::Parcel;
+use libmessenger::{flags, Parcel};
 
 use super::{errno, park_tick, registry, Endpoint, Error, Result};
 use crate::sys;
@@ -23,6 +23,120 @@ pub struct Native;
 /// (a malformed parcel is `EINVAL`).
 fn errno_of(error: Error) -> Errno {
     error.errno().map_or(Errno::INVAL, Errno::from_syscall)
+}
+
+/// The native transport with `ALLOW_NESTED` on every request.
+///
+/// For a service every client resolves to the same endpoint and that answers
+/// each request before servicing the next, calling out only on a different
+/// channel: the clipboard (a paste by one task can overlap an offer by
+/// another) and the compositor (an app's event poll must not trip the
+/// kernel's per-channel cycle check while a `Commit` is in flight). Nesting
+/// cannot form a cycle there; without the flag the kernel would refuse the
+/// second call with `EDEADLK`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Nested;
+
+impl Transport for Nested {
+    fn connect_bound(&self) -> Deadline {
+        Native.connect_bound()
+    }
+
+    fn call_flags(&self) -> u16 {
+        flags::ALLOW_NESTED
+    }
+
+    fn resolve(&self, name: &str, until: Deadline) -> core::result::Result<Handle, Errno> {
+        Native.resolve(name, until)
+    }
+
+    fn call(
+        &self,
+        handle: Handle,
+        request: &Parcel,
+        until: Deadline,
+        retry: Retry,
+    ) -> core::result::Result<Parcel, CallFailure> {
+        Native.call(handle, request, until, retry)
+    }
+
+    fn send(&self, handle: Handle, request: &Parcel) -> core::result::Result<(), Errno> {
+        Native.send(handle, request)
+    }
+
+    fn release(&self, handle: Handle) {
+        Native.release(handle);
+    }
+}
+
+/// A service reached over an endpoint this task already holds, instead of one
+/// the registry resolves: `inputd`'s private shell channel, or an endpoint
+/// resolved once and kept. The connection's "resolve" hands back that handle;
+/// dropping the connection releases it only when [`Held::resolved`] says the
+/// handle came from name resolution (a handle obtained by name is released,
+/// never closed, or the service's own endpoint would report a closed peer).
+#[derive(Clone, Copy, Debug)]
+pub struct Held {
+    handle: Handle,
+    release: bool,
+}
+
+impl Held {
+    /// A channel this task owns: closing it is the owner's business.
+    pub fn private(endpoint: Endpoint) -> Held {
+        Held {
+            handle: endpoint.handle(),
+            release: false,
+        }
+    }
+
+    /// An endpoint obtained by name: released with the connection.
+    pub fn resolved(endpoint: Endpoint) -> Held {
+        Held {
+            handle: endpoint.handle(),
+            release: true,
+        }
+    }
+}
+
+impl Transport for Held {
+    fn connect_bound(&self) -> Deadline {
+        Native.connect_bound()
+    }
+
+    fn call_flags(&self) -> u16 {
+        0
+    }
+
+    fn resolve(&self, _name: &str, _until: Deadline) -> core::result::Result<Handle, Errno> {
+        Ok(self.handle)
+    }
+
+    fn call(
+        &self,
+        handle: Handle,
+        request: &Parcel,
+        until: Deadline,
+        retry: Retry,
+    ) -> core::result::Result<Parcel, CallFailure> {
+        Native.call(handle, request, until, retry)
+    }
+
+    fn send(&self, handle: Handle, request: &Parcel) -> core::result::Result<(), Errno> {
+        Native.send(handle, request)
+    }
+
+    fn release(&self, handle: Handle) {
+        if self.release {
+            Native.release(handle);
+        }
+    }
+}
+
+/// A failed local Messenger operation as the call error the generated clients
+/// return, for code that mixes the two (a malformed parcel is `EINVAL`).
+pub fn call_error(error: Error) -> libmessenger::client::CallError {
+    libmessenger::client::CallError::Transport(errno_of(error))
 }
 
 /// Resolve `name`, waiting for it to register no longer than `until`.

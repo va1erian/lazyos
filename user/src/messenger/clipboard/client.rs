@@ -5,54 +5,12 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use libmessenger::client::{CallError, CallFailure, Deadline, Errno, Handle, Retry, Transport};
-use libmessenger::{flags, Buffer, Parcel};
+use libmessenger::client::{CallError, Errno, Transport};
+use libmessenger::Buffer;
 
 use super::{wire, MAX_BUFFER, MAX_DATA};
-use crate::messenger::client::Native;
+pub use crate::messenger::client::Nested;
 use crate::sys;
-
-/// The native transport with `ALLOW_NESTED` on every request.
-///
-/// Every client resolves the same service endpoint, and a paste by one task
-/// can overlap an offer by another, so the kernel's per-channel cycle check
-/// would otherwise refuse the second call with `EDEADLK`. The service answers
-/// each request before servicing the next and only calls out on a different
-/// channel (the owner's `Serialize`), so nesting cannot form a cycle here.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Nested;
-
-impl Transport for Nested {
-    fn connect_bound(&self) -> Deadline {
-        Native.connect_bound()
-    }
-
-    fn call_flags(&self) -> u16 {
-        flags::ALLOW_NESTED
-    }
-
-    fn resolve(&self, name: &str, until: Deadline) -> Result<Handle, Errno> {
-        Native.resolve(name, until)
-    }
-
-    fn call(
-        &self,
-        handle: Handle,
-        request: &Parcel,
-        until: Deadline,
-        retry: Retry,
-    ) -> Result<Parcel, CallFailure> {
-        Native.call(handle, request, until, retry)
-    }
-
-    fn send(&self, handle: Handle, request: &Parcel) -> Result<(), Errno> {
-        Native.send(handle, request)
-    }
-
-    fn release(&self, handle: Handle) {
-        Native.release(handle);
-    }
-}
 
 /// A blocking client of the clipboard service: `Client::connect(Nested)`
 /// (waits for `clipboardd` to register) or `try_connect` for one attempt.

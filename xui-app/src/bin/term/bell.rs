@@ -6,7 +6,7 @@
 use std::f32::consts::TAU;
 
 use lazyterm::settings::Bell;
-use xui_app::platform::audio::{Audio, Params, PlaybackStream};
+use xui_app::platform::audio::{self, Params};
 use xui_app::platform::notify::{self, Level, Notice};
 
 /// At most one bell in this long (milliseconds): a program that rings in a
@@ -66,11 +66,11 @@ pub fn tone(rate: u32) -> Vec<i16> {
 /// Without a sound card or a mixer nothing happens.
 pub fn play() {
     std::thread::spawn(|| {
-        let Some(audio) = Audio::try_connect() else {
+        let Some(audio) = audio::try_connect() else {
             return;
         };
         let rate = 22_050;
-        let Ok(mut stream) = PlaybackStream::open(audio, Params::new(rate, 2)) else {
+        let Ok(mut stream) = audio::open(audio, Params::new(rate, 2)) else {
             return;
         };
         if stream.write(&tone(rate)).is_ok() {
@@ -104,7 +104,11 @@ mod tests {
     #[test]
     fn the_setting_and_the_count_decide() {
         let mut l = Limiter::default();
-        assert_eq!(decide(Bell::Visual, 0, &mut l, 10_000), None, "no bell rang");
+        assert_eq!(
+            decide(Bell::Visual, 0, &mut l, 10_000),
+            None,
+            "no bell rang"
+        );
         assert_eq!(decide(Bell::None, 3, &mut l, 10_000), None, "disabled");
         assert_eq!(decide(Bell::Visual, 3, &mut l, 10_000), Some(Bell::Visual));
         assert_eq!(decide(Bell::Sound, 1, &mut l, 10_100), None, "rate limited");
@@ -120,12 +124,21 @@ mod tests {
         let t = tone(22_050);
         assert_eq!(t.len(), (22_050 * 110 / 1000) * 2, "stereo, 110 ms");
         assert_eq!(&t[..2], &[0, 0], "starts at silence");
-        assert!(t[t.len() - 2..].iter().all(|v| v.abs() < 200), "ends near silence");
+        assert!(
+            t[t.len() - 2..].iter().all(|v| v.abs() < 200),
+            "ends near silence"
+        );
         let peak = t.iter().map(|v| v.unsigned_abs()).max().unwrap();
         assert!(peak > 3000 && peak < 8000, "audible but quiet: {peak}");
         assert!(t.chunks(2).all(|f| f[0] == f[1]), "both channels alike");
         // Crosses zero about 2 * 880 * 0.11 times.
-        let crossings = t.chunks(2).map(|f| f[0]).collect::<Vec<_>>().windows(2).filter(|w| (w[0] < 0) != (w[1] < 0)).count();
+        let crossings = t
+            .chunks(2)
+            .map(|f| f[0])
+            .collect::<Vec<_>>()
+            .windows(2)
+            .filter(|w| (w[0] < 0) != (w[1] < 0))
+            .count();
         assert!((150..230).contains(&crossings), "{crossings}");
     }
 }

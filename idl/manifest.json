@@ -170,42 +170,42 @@
         "name": "ListStreams",
         "id": 711680798,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 2000,
         "retry": "safe"
       },
       {
         "name": "SetStreamVolume",
         "id": 953940373,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 2000,
         "retry": "safe"
       },
       {
         "name": "GetMaster",
         "id": 1362695053,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 2000,
         "retry": "safe"
       },
       {
         "name": "SetMaster",
         "id": 301176513,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 2000,
         "retry": "safe"
       },
       {
         "name": "ListOutputs",
         "id": 124559009,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 2000,
         "retry": "safe"
       },
       {
         "name": "SelectOutput",
         "id": 234575836,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 2000,
         "retry": "safe"
       }
     ],
@@ -2616,7 +2616,7 @@
         "name": "Set",
         "id": 1,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 1000,
         "objects": [
           {
             "name": "events",
@@ -2630,13 +2630,13 @@
         "name": "Update",
         "id": 2,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 1000
       },
       {
         "name": "Clear",
         "id": 3,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 1000
       }
     ],
     "topics": [
@@ -3299,14 +3299,14 @@
         "name": "Info",
         "id": 266462757,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 3000,
         "retry": "safe"
       },
       {
         "name": "Attach",
         "id": 145305188,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 3000,
         "objects": [
           {
             "name": "events",
@@ -3320,74 +3320,74 @@
         "name": "Detach",
         "id": 475812562,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "SetCountry",
         "id": 820455787,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "Scan",
         "id": 1830061320,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "AbortScan",
         "id": 1659626708,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "ScanResults",
         "id": 536623814,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 3000,
         "retry": "safe"
       },
       {
         "name": "Join",
         "id": 805458841,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "TxMgmt",
         "id": 583187128,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "SetState",
         "id": 1345327380,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "SetKey",
         "id": 1206977594,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "DelKey",
         "id": 36584897,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "Leave",
         "id": 2049913440,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "Stats",
         "id": 267161228,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 3000,
         "retry": "safe"
       },
       {

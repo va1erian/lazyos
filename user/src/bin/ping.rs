@@ -22,8 +22,10 @@ use alloc::string::String;
 use core::panic::PanicInfo;
 use user::trace;
 
-use user::messenger::netstack::Client;
-use user::messenger::Error as MsgError;
+use libmessenger::client::CallError;
+use user::messenger::client::Native;
+use user::messenger::netsock::{errno, is_errno};
+use user::messenger::netstack::{self, Client};
 use user::sys;
 
 const DEFAULT_COUNT: u32 = 4;
@@ -47,16 +49,16 @@ fn parse_ipv4(text: &str) -> Option<[u8; 4]> {
 }
 
 fn connect() -> Result<Client, String> {
-    Client::connect_waiting().map_err(|error| format!("no network stack: {}", error.message()))
+    Client::connect(Native).map_err(|error| format!("no network stack: {}", error.message()))
 }
 
-fn describe(error: &MsgError) -> String {
-    match error {
-        MsgError::Errno(code) if *code == -110 => String::from("request timed out"),
-        MsgError::Errno(code) if *code == -101 => {
-            String::from("network is unreachable (no address yet)")
-        }
-        other => String::from(other.message()),
+fn describe(error: &CallError) -> String {
+    if is_errno(error, errno::ETIMEDOUT) {
+        String::from("request timed out")
+    } else if is_errno(error, errno::ENETUNREACH) {
+        String::from("network is unreachable (no address yet)")
+    } else {
+        String::from(error.message())
     }
 }
 
@@ -71,8 +73,7 @@ fn run() -> Result<(u32, u32), String> {
     let client = connect()?;
     let dst = match parse_ipv4(host) {
         Some(addr) => addr,
-        None => client
-            .lookup_host(host, TIMEOUT_MS)
+        None => netstack::lookup_host(&client, host, TIMEOUT_MS)
             .map_err(|error| format!("{host}: cannot resolve ({})", describe(&error)))?,
     };
     let count = words
@@ -85,7 +86,7 @@ fn run() -> Result<(u32, u32), String> {
     let mut received = 0;
     for seq in 1..=count {
         let started = sys::clock();
-        match client.ping(dst, PAYLOAD, TIMEOUT_MS) {
+        match netstack::ping(&client, dst, PAYLOAD, TIMEOUT_MS) {
             Ok(reply) => {
                 received += 1;
                 let from: [u8; 4] = reply.source.as_slice().try_into().unwrap_or([0; 4]);

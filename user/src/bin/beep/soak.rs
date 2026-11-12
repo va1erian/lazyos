@@ -9,17 +9,16 @@
 use alloc::format;
 use alloc::string::String;
 
-use audioclient::{wire, Client, RingBuffer, Transport};
+use audioclient::{wire, Deadline, RingBuffer, Runtime};
 
-use super::common::{connect, fail, now};
+use super::common::{connect, fail};
 
 /// Small periods keep each iteration short (a 2 KiB period is ~10 ms).
 const PERIOD_BYTES: u32 = 2048;
 
 /// Run `iterations` stream lifecycles; returns how many completed.
 pub(super) fn run(iterations: u32) -> Result<u32, String> {
-    let audio = connect()?;
-    let client = Client::new(&audio);
+    let client = connect()?;
     for round in 0..iterations {
         let what = |step: &str| format!("iteration {round}: {step}");
         let grant = client
@@ -37,18 +36,18 @@ pub(super) fn run(iterations: u32) -> Result<u32, String> {
 
         // A fresh ring is zero-filled: a ring of silence. Dropping it at the
         // end of the iteration closes the buffer.
-        let ring = audio
+        let ring = user::audio::Runtime
             .create_ring(ring_bytes)
             .map_err(fail(&what("ring allocation")))?;
         client
-            .attach_ring(stream, ring.share())
+            .attach_ring(stream, ring.share().buffer())
             .map_err(fail(&what("attach")))?;
         client
             .commit(stream, frames)
             .map_err(fail(&what("commit")))?;
         client.start(stream).map_err(fail(&what("start")))?;
         client
-            .drain(stream, Some(now() + 500))
+            .drain_within(stream, Deadline::ticks(500))
             .map_err(fail(&what("drain")))?;
         let played = client.position(stream).map_err(fail(&what("position")))?;
         if played != frames {

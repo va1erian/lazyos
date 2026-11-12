@@ -22,7 +22,9 @@
 /// structured error field (see `services::error_field`): an unknown stream is
 /// `ENOENT`, an out-of-range gain `EINVAL`.
 interface os.lazy.audio.mixer.v1 {
-    default deadline=5s;
+    /// The panel is read and set from an app's UI thread: a mixer that does not
+    /// answer in two seconds costs the call, not the window.
+    default deadline=2s;
     /// Every open stream, in opening order.
     method ListStreams() -> (streams: Array<StreamStatus> = 1) retry=safe;
     /// Set one stream's gain and mute flag, whoever owns it.
