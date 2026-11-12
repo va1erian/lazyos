@@ -30,7 +30,7 @@ def has_server(interface: Interface) -> bool:
     """Whether `interface` gets a server: it has methods and a user-space
     program answers it. A kernel ACL scope or policy loader never receives a
     parcel, and the registry is served by the kernel."""
-    return interface.name not in KERNEL_SCOPES and interface.name not in KERNEL_SERVED and bool(interface.methods)
+    return interface.name not in KERNEL_SCOPES and interface.name not in KERNEL_SERVED and bool(interface.calls)
 
 
 def server_feature(interface: Interface) -> str:
@@ -44,7 +44,7 @@ def method_fn(method: Method) -> str:
 def check_names(interface: Interface) -> None:
     """Refuse a name that would collide in the generated trait."""
     seen: dict[str, str] = {}
-    for method in interface.methods:
+    for method in interface.calls:
         name = method_fn(method)
         if name in seen:
             raise MidlError(f"{interface.name}: methods {seen[name]} and {method.name} both become the server function `{name}`")
@@ -76,7 +76,7 @@ def emit_trait(interface: Interface, gate: str) -> list[str]:
         "#[allow(clippy::too_many_arguments)]",
         "pub trait Server {",
     ]
-    for method in interface.methods:
+    for method in interface.calls:
         lines += emit_doc_lines(method.doc, "    ")
         if method.oneway:
             lines += ["    ///", "    /// `oneway`: it has no reply, so it returns nothing."]
@@ -125,8 +125,10 @@ def emit_arm(method: Method) -> list[str]:
 
 def emit_dispatch(interface: Interface, gate: str) -> list[str]:
     ours = ["id == INTERFACE_ID"] + [
-        f"id == METHOD_{m.name.upper()}_SCOPE" for m in interface.methods if m.scope is not None
+        f"id == METHOD_{m.name.upper()}_SCOPE" for m in interface.calls if m.scope is not None
     ]
+    # An event is a server-to-client message, so it is no arm here.
+    event_note = ["/// A server-to-client `event` has no arm either (`ENOSYS`)."] if len(interface.calls) < len(interface.methods) else []
     lines = [
         gate,
         "/// Answers one request of this interface through `server`: checks the header's interface (or",
@@ -134,6 +136,7 @@ def emit_dispatch(interface: Interface, gate: str) -> list[str]:
         "/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)",
         "/// as the standard error field. A method this interface does not declare is `ENOSYS`.",
         "/// A `oneway` method yields an empty reply a runtime drops when the message was no call.",
+        *event_note,
         "/// Objects of the request are claimed by the decode and passed by value.",
         f"pub fn dispatch<S: Server>(server: &mut S, message: &impl {RT}::Incoming) -> libmessenger::Parcel {{",
         "    let id = message.interface_id();",
@@ -141,7 +144,7 @@ def emit_dispatch(interface: Interface, gate: str) -> list[str]:
         "    let cx = message.caller();",
         "    match method {",
     ]
-    for method in interface.methods:
+    for method in interface.calls:
         lines += emit_arm(method)
     lines += [
         f"        _ if {' || '.join(ours)} => {RT}::unknown_method(id, method),",

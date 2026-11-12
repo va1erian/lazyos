@@ -176,8 +176,8 @@ class MidlBrowser:
         iface_iid = self._add(file_iid, f"{interface.name}", "interface")
         self.nodes[iface_iid] = Node("interface", loaded, loaded.path)
 
-        calls = [m for m in shown.methods if not m.oneway]
-        events = [m for m in shown.methods if m.oneway]
+        calls = [m for m in shown.methods if not m.event]
+        events = [m for m in shown.methods if m.event]
         self._add_method_group(iface_iid, loaded, "Methods", calls)
         self._add_method_group(iface_iid, loaded, "Events", events)
         if shown.structs:
@@ -277,8 +277,8 @@ class MidlBrowser:
         if interface.docs:
             self._put(f"\n{interface.docs}\n", "doc")
 
-        calls = [m for m in interface.methods if not m.oneway]
-        events = [m for m in interface.methods if m.oneway]
+        calls = [m for m in interface.methods if not m.event]
+        events = [m for m in interface.methods if m.event]
         self._render_method_list(calls, "Methods")
         self._render_method_list(events, "Events")
 

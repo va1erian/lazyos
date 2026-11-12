@@ -1441,57 +1441,6 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let reply = decode_stats_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.stats)
     }
-
-    /// Event, driver to client: the scan finished (`aborted` false) or was
-    /// stopped (`aborted` true, or the radio could not finish); its results
-    /// are readable with `ScanResults` until the next `Scan`.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn scan_done(&self, scan_id: u32, aborted: bool) -> Result<(), ClientError> {
-        let wire_body = encode_scan_done_args(&ScanDoneArgs { scan_id, aborted }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_SCANDONE, wire_body, wire_objects)
-    }
-
-    /// Event, driver to client: a management or EAPOL frame addressed to this
-    /// station arrived from the joined BSS, and the client can be waiting for
-    /// it: an authentication or (re)association response only after
-    /// `TxMgmt` sent its request, an action frame once `Associated`, EAPOL
-    /// once the AP answered the association; a retransmission of the last
-    /// unprotected frame is dropped. `kind` is a `FrameKind` ordinal,
-    /// `rssi_dbm` the signal in dBm. The frame has the shape `TxMgmt` takes:
-    /// a whole management frame (from the MAC header, no FCS), or EAPOL as
-    /// an 802.3 frame (destination, source, ethertype 0x888E, then the
-    /// EAPOL PDU), decrypted. The bytes are unparsed and hostile.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn rx_mgmt(&self, kind: u32, rssi_dbm: i32, frame: &[u8]) -> Result<(), ClientError> {
-        let wire_body = encode_rx_mgmt_args(&RxMgmtArgs { kind, rssi_dbm, frame: frame.to_vec() }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_RXMGMT, wire_body, wire_objects)
-    }
-
-    /// Event, driver to client: the radio stopped hearing the AP (the
-    /// firmware's missed-beacon threshold). The client decides what to do.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn beacon_loss(&self) -> Result<(), ClientError> {
-        let wire_body = Vec::new();
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_BEACONLOSS, wire_body, wire_objects)
-    }
-
-    /// Event, driver to client: the AP deauthenticated or disassociated us.
-    /// `reason` is the IEEE 802.11 reason code, taken from the frame by the
-    /// firmware (the one field of a frame the driver reports; the frame
-    /// itself is also delivered as `RxMgmt`).
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn deauthenticated(&self, reason: u32) -> Result<(), ClientError> {
-        let wire_body = encode_deauthenticated_args(&DeauthenticatedArgs { reason }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_DEAUTHENTICATED, wire_body, wire_objects)
-    }
 }
 
 #[cfg(feature = "net_wifi_hw_v1_server")]
@@ -1605,41 +1554,6 @@ pub trait Server {
 
     /// Counters since the driver started.
     fn stats(&mut self, cx: &libmessenger::server::Caller) -> Result<HwStats, libmessenger::server::Fault>;
-
-    /// Event, driver to client: the scan finished (`aborted` false) or was
-    /// stopped (`aborted` true, or the radio could not finish); its results
-    /// are readable with `ScanResults` until the next `Scan`.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn scan_done(&mut self, cx: &libmessenger::server::Caller, scan_id: u32, aborted: bool);
-
-    /// Event, driver to client: a management or EAPOL frame addressed to this
-    /// station arrived from the joined BSS, and the client can be waiting for
-    /// it: an authentication or (re)association response only after
-    /// `TxMgmt` sent its request, an action frame once `Associated`, EAPOL
-    /// once the AP answered the association; a retransmission of the last
-    /// unprotected frame is dropped. `kind` is a `FrameKind` ordinal,
-    /// `rssi_dbm` the signal in dBm. The frame has the shape `TxMgmt` takes:
-    /// a whole management frame (from the MAC header, no FCS), or EAPOL as
-    /// an 802.3 frame (destination, source, ethertype 0x888E, then the
-    /// EAPOL PDU), decrypted. The bytes are unparsed and hostile.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn rx_mgmt(&mut self, cx: &libmessenger::server::Caller, kind: u32, rssi_dbm: i32, frame: alloc::vec::Vec<u8>);
-
-    /// Event, driver to client: the radio stopped hearing the AP (the
-    /// firmware's missed-beacon threshold). The client decides what to do.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn beacon_loss(&mut self, cx: &libmessenger::server::Caller);
-
-    /// Event, driver to client: the AP deauthenticated or disassociated us.
-    /// `reason` is the IEEE 802.11 reason code, taken from the frame by the
-    /// firmware (the one field of a frame the driver reports; the frame
-    /// itself is also delivered as `RxMgmt`).
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn deauthenticated(&mut self, cx: &libmessenger::server::Caller, reason: u32);
 }
 
 #[cfg(feature = "net_wifi_hw_v1_server")]
@@ -1648,6 +1562,7 @@ pub trait Server {
 /// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
 /// as the standard error field. A method this interface does not declare is `ENOSYS`.
 /// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// A server-to-client `event` has no arm either (`ENOSYS`).
 /// Objects of the request are claimed by the decode and passed by value.
 pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
     let id = message.interface_id();
@@ -1728,31 +1643,6 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
         }
         METHOD_STATS if id == INTERFACE_ID => {
             libmessenger::server::finish(id, method, server.stats(&cx), |value| encode_stats_reply(&StatsReply { stats: value }))
-        }
-        METHOD_SCANDONE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_scan_done_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.scan_done(&cx, args.scan_id, args.aborted);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_RXMGMT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_rx_mgmt_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.rx_mgmt(&cx, args.kind, args.rssi_dbm, args.frame);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_BEACONLOSS if id == INTERFACE_ID => {
-            server.beacon_loss(&cx);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_DEAUTHENTICATED if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_deauthenticated_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.deauthenticated(&cx, args.reason);
-            libmessenger::server::reply(id, method, Vec::new())
         }
         _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
         _ => libmessenger::server::wrong_interface(id, method),

@@ -127,21 +127,21 @@ interface os.lazy.shell.tray.v1 {
     enum Activation { Event, Menu, DefaultItem }
 }
 
-/// What the shell sends an app about its item: oneway methods on the channel
+/// What the shell sends an app about its item: `event` methods on the channel
 /// the app transferred with `Set`.
 interface os.lazy.shell.tray.events.v1 {
     /// Primary click. `anchor` is the icon in screen pixels; `popup` a
     /// one-shot token for a flyout (0 when flyouts are unavailable).
-    method Activate(anchor: Rect = 1, popup: U64 = 2) -> () = 1 oneway;
+    method Activate(anchor: Rect = 1, popup: U64 = 2) -> () = 1 event;
     /// Secondary click on an item without a menu.
-    method SecondaryActivate(anchor: Rect = 1) -> () = 2 oneway;
+    method SecondaryActivate(anchor: Rect = 1) -> () = 2 event;
     /// The user picked menu row `id`; `checked` is a check or radio row's
     /// new state (the app sends `Update` to show it).
-    method MenuItem(id: U32 = 1, checked: Bool = 2) -> () = 3 oneway;
+    method MenuItem(id: U32 = 1, checked: Bool = 2) -> () = 3 event;
     /// The wheel rolled `delta` notches over the icon (positive: up).
-    method Scroll(delta: I32 = 1) -> () = 4 oneway;
+    method Scroll(delta: I32 = 1) -> () = 4 event;
     /// Liveness probe; nothing to answer.
-    method Ping() -> () = 5 oneway;
+    method Ping() -> () = 5 event;
 
     /// A rectangle in screen pixels.
     struct Rect {

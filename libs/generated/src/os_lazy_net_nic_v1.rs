@@ -753,17 +753,6 @@ impl<T: libmessenger::client::Transport> Client<T> {
         self.conn
             .send(INTERFACE_ID, METHOD_KICK, wire_body, wire_objects)
     }
-
-    /// Event, driver to client: something needs the client's attention.
-    /// `events` is a bitmap: bit *n* is set for the `NotifyBit` with ordinal
-    /// *n*. Reserved bits are zero; a client ignores them.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn notify(&self, ring: u32, events: u32) -> Result<(), ClientError> {
-        let wire_body = encode_notify_args(&NotifyArgs { ring, events }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_NOTIFY, wire_body, wire_objects)
-    }
 }
 
 #[cfg(feature = "net_nic_v1_server")]
@@ -800,13 +789,6 @@ pub trait Server {
     ///
     /// `oneway`: it has no reply, so it returns nothing.
     fn kick(&mut self, cx: &libmessenger::server::Caller, ring: u32);
-
-    /// Event, driver to client: something needs the client's attention.
-    /// `events` is a bitmap: bit *n* is set for the `NotifyBit` with ordinal
-    /// *n*. Reserved bits are zero; a client ignores them.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn notify(&mut self, cx: &libmessenger::server::Caller, ring: u32, events: u32);
 }
 
 #[cfg(feature = "net_nic_v1_server")]
@@ -815,6 +797,7 @@ pub trait Server {
 /// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
 /// as the standard error field. A method this interface does not declare is `ENOSYS`.
 /// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// A server-to-client `event` has no arm either (`ENOSYS`).
 /// Objects of the request are claimed by the decode and passed by value.
 pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
     let id = message.interface_id();
@@ -850,13 +833,6 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
                 return libmessenger::server::bad_request(id, method);
             };
             server.kick(&cx, args.ring);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_NOTIFY if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_notify_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.notify(&cx, args.ring, args.events);
             libmessenger::server::reply(id, method, Vec::new())
         }
         _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),

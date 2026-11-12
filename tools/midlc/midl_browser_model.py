@@ -87,7 +87,7 @@ def signature(method: midlc.Method) -> str:
 
 def kind_of(method: midlc.Method) -> str:
     """A oneway method is an event (fire-and-forget); the rest are calls."""
-    return "event" if method.oneway else "method"
+    return "event" if method.event else "method"
 
 
 def ring_summary(ring: midlc.Ring) -> str:

@@ -477,32 +477,38 @@
       {
         "name": "PointerMove",
         "id": 5,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "PointerDown",
         "id": 6,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "PointerUp",
         "id": 7,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "KeyDown",
         "id": 8,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "KeyUp",
         "id": 9,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "WindowClose",
         "id": 10,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "DragStart",
@@ -519,27 +525,32 @@
       {
         "name": "DragEnter",
         "id": 13,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "DragOver",
         "id": 14,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "DragLeave",
         "id": 15,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Drop",
         "id": 16,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "DragEnded",
         "id": 17,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "ListSurfaces",
@@ -579,17 +590,20 @@
       {
         "name": "SurfaceChanged",
         "id": 22,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "FocusChanged",
         "id": 23,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "StartMenu",
         "id": 24,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "AttachBufferSlot",
@@ -612,12 +626,14 @@
       {
         "name": "BufferRelease",
         "id": 27,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "FrameDone",
         "id": 28,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "SetTitle",
@@ -635,7 +651,8 @@
       {
         "name": "PointerWheel",
         "id": 31,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "SetSizeHints",
@@ -647,7 +664,8 @@
       {
         "name": "Configure",
         "id": 33,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "RequestSize",
@@ -658,7 +676,8 @@
       {
         "name": "Ping",
         "id": 35,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "PlaceSurface",
@@ -701,7 +720,8 @@
       {
         "name": "Dismiss",
         "id": 42,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "GetOutput",
@@ -725,12 +745,14 @@
       {
         "name": "PanelKey",
         "id": 46,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "TrayKeys",
         "id": 47,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "SetCloseMode",
@@ -1087,12 +1109,14 @@
       {
         "name": "Reopen",
         "id": 1,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Quit",
         "id": 2,
-        "oneway": true
+        "oneway": true,
+        "event": true
       }
     ],
     "topics": []
@@ -1176,52 +1200,62 @@
       {
         "name": "KeyEvent",
         "id": 10,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "TextInput",
         "id": 11,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "KeyboardEnter",
         "id": 12,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "KeyboardLeave",
         "id": 13,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "LayoutChanged",
         "id": 14,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "GrantChanged",
         "id": 15,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "GamepadAxis",
         "id": 16,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "GamepadButton",
         "id": 17,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "GamepadEnter",
         "id": 18,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "GamepadLeave",
         "id": 19,
-        "oneway": true
+        "oneway": true,
+        "event": true
       }
     ],
     "topics": [],
@@ -1329,42 +1363,50 @@
       {
         "name": "HotkeyFired",
         "id": 20,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "GrantRequested",
         "id": 21,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "EscapeChord",
         "id": 22,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "SessionOpened",
         "id": 23,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "SessionClosed",
         "id": 24,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "PointerEvent",
         "id": 25,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "GrabChanged",
         "id": 26,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "KeyActivity",
         "id": 27,
-        "oneway": true
+        "oneway": true,
+        "event": true
       }
     ],
     "topics": [],
@@ -1808,7 +1850,8 @@
       {
         "name": "Notify",
         "id": 314575196,
-        "oneway": true
+        "oneway": true,
+        "event": true
       }
     ],
     "topics": [
@@ -2078,22 +2121,26 @@
       {
         "name": "Activated",
         "id": 1,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "ActionInvoked",
         "id": 2,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Closed",
         "id": 3,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Ping",
         "id": 4,
-        "oneway": true
+        "oneway": true,
+        "event": true
       }
     ],
     "topics": []
@@ -2305,6 +2352,7 @@
         "name": "Connected",
         "id": 2079757168,
         "oneway": true,
+        "event": true,
         "objects": [
           {
             "name": "connection",
@@ -2661,27 +2709,32 @@
       {
         "name": "Activate",
         "id": 1,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "SecondaryActivate",
         "id": 2,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "MenuItem",
         "id": 3,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Scroll",
         "id": 4,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Ping",
         "id": 5,
-        "oneway": true
+        "oneway": true,
+        "event": true
       }
     ],
     "topics": []
@@ -2973,137 +3026,164 @@
       {
         "name": "Frame",
         "id": 100,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "State",
         "id": 101,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Scroll",
         "id": 102,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "LinkClicked",
         "id": 103,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "ClipboardWrite",
         "id": 104,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "ViewLost",
         "id": 105,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Ping",
         "id": 106,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Band",
         "id": 107,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Hover",
         "id": 108,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Cursor",
         "id": 109,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "NewWindowRequested",
         "id": 110,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "NavigationRequested",
         "id": 111,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Dialog",
         "id": 112,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "DownloadStarted",
         "id": 113,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "DownloadProgress",
         "id": 114,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "DownloadDone",
         "id": 115,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "DownloadFailed",
         "id": 116,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "NotifyPermissionRequest",
         "id": 117,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "NotifyClicked",
         "id": 118,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "BlockingList",
         "id": 119,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Blocked",
         "id": 120,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Responsive",
         "id": 121,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "HandedOff",
         "id": 122,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "NotifyShow",
         "id": 123,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "NotifyCancel",
         "id": 124,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "NotifyGone",
         "id": 125,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "WheelDone",
         "id": 126,
-        "oneway": true
+        "oneway": true,
+        "event": true
       }
     ],
     "topics": [],
@@ -3253,37 +3333,44 @@
       {
         "name": "Frame",
         "id": 100,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "State",
         "id": 101,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Scroll",
         "id": 102,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "LinkClicked",
         "id": 103,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "ClipboardWrite",
         "id": 104,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "ViewLost",
         "id": 105,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Ping",
         "id": 106,
-        "oneway": true
+        "oneway": true,
+        "event": true
       }
     ],
     "topics": [],
@@ -3393,22 +3480,26 @@
       {
         "name": "ScanDone",
         "id": 2037373080,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "RxMgmt",
         "id": 1961753042,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "BeaconLoss",
         "id": 683463118,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Deauthenticated",
         "id": 1135744209,
-        "oneway": true
+        "oneway": true,
+        "event": true
       }
     ],
     "topics": [],

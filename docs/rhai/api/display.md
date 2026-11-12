@@ -10,7 +10,7 @@ compositor) are ordinary request/reply methods: `CreateSurface`,
 `AttachBuffer`, `Commit`, `DestroySurface`, `DragStart`, `DragCancel`,
 `ListSurfaces`, `GetWorkArea`, `Subscribe`, `GetTheme`, `SetTitle`,
 `HintOpenOrigin` and `SetSizeHints`. **Events** (compositor to app, or to
-the shell subscriber) are `oneway` methods sent on the event endpoint the
+the shell subscriber) are `event` methods sent on the event endpoint the
 client transferred: `PointerMove`, `PointerDown`, `PointerUp`,
 `PointerWheel`, `KeyDown`, `KeyUp`, `WindowClose`, `Configure`, the
 drag-and-drop set
@@ -76,116 +76,6 @@ Returns `()`.
 let result = sys::display::destroy_surface(surface);
 ```
 
-### `pointer_move(x, y)`
-
-`PointerMove(x: I32, y: I32) -> () oneway`
-
-Event: the pointer moved to `(x, y)`, relative to the focused surface.
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `x` | `I32` | int |
-| `y` | `I32` | int |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::pointer_move(x, y);
-```
-
-### `pointer_down(x, y, button)`
-
-`PointerDown(x: I32, y: I32, button: U32) -> () oneway`
-
-Event: pointer button `button` went down at `(x, y)`, relative to the
-surface.
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `x` | `I32` | int |
-| `y` | `I32` | int |
-| `button` | `U32` | int |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::pointer_down(x, y, button);
-```
-
-### `pointer_up(x, y, button)`
-
-`PointerUp(x: I32, y: I32, button: U32) -> () oneway`
-
-Event: pointer button `button` went up at `(x, y)`, relative to the
-surface.
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `x` | `I32` | int |
-| `y` | `I32` | int |
-| `button` | `U32` | int |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::pointer_up(x, y, button);
-```
-
-### `key_down(key)`
-
-`KeyDown(key: U32) -> () oneway`
-
-Event: key `key` was pressed (a character or a non-printable code).
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `key` | `U32` | int |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::key_down(key);
-```
-
-### `key_up(key)`
-
-`KeyUp(key: U32) -> () oneway`
-
-Event: key `key` was released.
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `key` | `U32` | int |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::key_up(key);
-```
-
-### `window_close()`
-
-`WindowClose() -> () oneway`
-
-Event: the window manager closed this surface (the X button or Alt+F4).
-The app is expected to exit or re-create it.
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::window_close();
-```
-
 ### `drag_start(surface, token, mime)`
 
 `DragStart(surface: U64, token: U64, mime: String) -> ()`
@@ -224,104 +114,6 @@ Returns `()`.
 
 ```rhai
 let result = sys::display::drag_cancel(surface);
-```
-
-### `drag_enter(x, y, mime)`
-
-`DragEnter(x: I32, y: I32, mime: String) -> () oneway`
-
-Event: a drag carrying `mime` entered this surface at `(x, y)`.
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `x` | `I32` | int |
-| `y` | `I32` | int |
-| `mime` | `String` | string |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::drag_enter(x, y, mime);
-```
-
-### `drag_over(x, y)`
-
-`DragOver(x: I32, y: I32) -> () oneway`
-
-Event: a drag moved inside this surface to `(x, y)`.
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `x` | `I32` | int |
-| `y` | `I32` | int |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::drag_over(x, y);
-```
-
-### `drag_leave()`
-
-`DragLeave() -> () oneway`
-
-Event: a drag left this surface.
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::drag_leave();
-```
-
-### `drop(x, y, token, mime, modifiers, source)`
-
-`Drop(x: I32, y: I32, token: U64, mime: String, modifiers: Option<U32>, source: Option<U64>) -> () oneway`
-
-Event: a drag was released over this surface at `(x, y)`; the target
-pastes `token` of type `mime` through the clipboard service.
-`modifiers` are the `MOD_*` key bits held at the release (the
-keyboard may be another client's, so the target cannot read them
-itself) and `source` is the surface the drag started from, so a
-client can tell a drag between its own windows from another app's.
-Both are absent from an older compositor.
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `x` | `I32` | int |
-| `y` | `I32` | int |
-| `token` | `U64` | int |
-| `mime` | `String` | string |
-| `modifiers` | `Option<U32>` | int or () |
-| `source` | `Option<U64>` | int or () |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::drop(x, y, token, mime, modifiers, source);
-```
-
-### `drag_ended(dropped)`
-
-`DragEnded(dropped: Bool) -> () oneway`
-
-Event to the drag's source: the drag ended (`dropped`) or was cancelled.
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `dropped` | `Bool` | bool |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::drag_ended(dropped);
 ```
 
 ### `list_surfaces()`
@@ -384,66 +176,6 @@ Returns a map:
 let result = sys::display::get_theme();
 ```
 
-### `surface_changed(surface, kind, x, y, w, h, minimized, focused, title, role, maximized)`
-
-`SurfaceChanged(surface: U64, kind: U32, x: I32, y: I32, w: I32, h: I32, minimized: Bool, focused: Bool, title: Option<String>, role: U32, maximized: Bool) -> () oneway`
-
-Shell event: surface `surface` changed. `kind` is a `Change` value;
-`title` is set on `Created` and `Title`. `role` is a `Role` value.
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `surface` | `U64` | int |
-| `kind` | `U32` | int |
-| `x` | `I32` | int |
-| `y` | `I32` | int |
-| `w` | `I32` | int |
-| `h` | `I32` | int |
-| `minimized` | `Bool` | bool |
-| `focused` | `Bool` | bool |
-| `title` | `Option<String>` | string or () |
-| `role` | `U32` | int |
-| `maximized` | `Bool` | bool |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::surface_changed(surface, kind, x, y, w, h, minimized, focused, title, role, maximized);
-```
-
-### `focus_changed(surface)`
-
-`FocusChanged(surface: Option<U64>) -> () oneway`
-
-Shell event: the focused surface changed; absent when nothing is
-focused.
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `surface` | `Option<U64>` | int or () |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::focus_changed(surface);
-```
-
-### `start_menu()`
-
-`StartMenu() -> () oneway`
-
-Shell event: the global start-menu hotkey (Ctrl+Esc or Super) fired.
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::start_menu();
-```
-
 ### `present(surface, slot, seq, damage)`
 
 `Present(surface: U64, slot: U32, seq: U64, damage: Array<Rect>) -> () oneway`
@@ -473,46 +205,6 @@ One-way: the call returns `()` once the message is queued.
 
 ```rhai
 let result = sys::display::present(surface, slot, seq, damage);
-```
-
-### `buffer_release(surface, slot)`
-
-`BufferRelease(surface: U64, slot: U32) -> () oneway`
-
-Event: the compositor no longer reads `slot` of `surface`; the client
-may write it again. Only sent to surfaces that use `Present`.
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `surface` | `U64` | int |
-| `slot` | `U32` | int |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::buffer_release(surface, slot);
-```
-
-### `frame_done(surface, seq)`
-
-`FrameDone(surface: U64, seq: U64) -> () oneway`
-
-Event: the compositor consumed the `Present` numbered `seq`. Frames
-complete in submission order.
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `surface` | `U64` | int |
-| `seq` | `U64` | int |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::frame_done(surface, seq);
 ```
 
 ### `set_title(surface, title)`
@@ -576,30 +268,6 @@ Returns `()`.
 let result = sys::display::hint_open_origin(surface, x, y, w, h);
 ```
 
-### `pointer_wheel(x, y, delta)`
-
-`PointerWheel(x: I32, y: I32, delta: I32) -> () oneway`
-
-Event: the mouse wheel rolled `delta` notches over this surface's
-content at `(x, y)` (relative to the content origin). Positive scrolls
-up (the wheel rolled away from the user), negative down. The compositor
-sends it to the topmost window under the pointer, which need not be the
-focused one, and never to the title bar or an area outside every window.
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `x` | `I32` | int |
-| `y` | `I32` | int |
-| `delta` | `I32` | int |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::pointer_wheel(x, y, delta);
-```
-
 ### `set_size_hints(surface, min_w, min_h, max_w, max_h)`
 
 `SetSizeHints(surface: U64, min_w: U32, min_h: U32, max_w: U32, max_h: U32) -> ()`
@@ -629,31 +297,6 @@ Returns `()`.
 let result = sys::display::set_size_hints(surface, min_w, min_h, max_w, max_h);
 ```
 
-### `configure(surface, width, height, state)`
-
-`Configure(surface: U64, width: U32, height: U32, state: U32) -> () oneway`
-
-Event: the window manager changed the surface's content size to
-`width` x `height` (`state` is a `WindowState`). The client should
-attach buffer(s) of the new size (`AttachBuffer`, or `AttachBufferSlot`
-on non-current slots for `Present` users) and present a full frame.
-Until it does the compositor shows the old buffer cropped or padded.
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `surface` | `U64` | int |
-| `width` | `U32` | int |
-| `height` | `U32` | int |
-| `state` | `U32` | int |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::configure(surface, width, height, state);
-```
-
 ### `request_size(surface, width, height)`
 
 `RequestSize(surface: U64, width: U32, height: U32) -> ()`
@@ -679,22 +322,6 @@ Returns `()`.
 
 ```rhai
 let result = sys::display::request_size(surface, width, height);
-```
-
-### `ping()`
-
-`Ping() -> () oneway`
-
-Event: a liveness probe. The compositor sends it to each window's
-event endpoint about once a second; a send that fails with `EPIPE`
-tells it the client died without calling `DestroySurface`, and it
-removes the window. Clients ignore it (an old client drops an unknown
-event), so there is nothing to answer.
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::ping();
 ```
 
 ### `place_surface(surface, x, y)`
@@ -835,20 +462,6 @@ Returns `()`.
 let result = sys::display::hint_launch_origin(x, y, w, h);
 ```
 
-### `dismiss()`
-
-`Dismiss() -> () oneway`
-
-Shell event: a pointer button went down outside every `Panel` surface
-(on a window, the desktop or the bare background), so the shell closes
-any open popup panel such as the start menu.
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::dismiss();
-```
-
 ### `get_output()`
 
 `GetOutput() -> (width: U32, height: U32, scale: U32, refresh_millihz: U32)`
@@ -928,38 +541,6 @@ Returns `()`.
 
 ```rhai
 let result = sys::display::grab_panel_keys(grab);
-```
-
-### `panel_key(key)`
-
-`PanelKey(key: U32) -> () oneway`
-
-Shell event: a key went down while the shell holds the panel keys
-(`GrabPanelKeys`), with the held modifiers OR-ed in like `KeyDown`.
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `key` | `U32` | int |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::panel_key(key);
-```
-
-### `tray_keys()`
-
-`TrayKeys() -> () oneway`
-
-Shell event: Super+B (Win+B) went down: move the keyboard to the
-tray. Super pressed and released alone still sends `StartMenu`.
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::display::tray_keys();
 ```
 
 ### `set_close_mode(surface, ask)`

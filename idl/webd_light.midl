@@ -15,7 +15,7 @@ service "app.os.lazy.webd.light" implements os.lazy.webd.light.v1;
 ///
 /// Like `os.lazy.display.v1`, one interface carries both directions. **Calls**
 /// (app to webd) are ordinary request/reply methods, input and slot returns
-/// are `oneway`. **Events** (webd to app) are `oneway` methods sent on the
+/// are `oneway`. **Events** (webd to app) are `event` methods sent on the
 /// endpoint the app moved in with `CreateView` (`events`): `Frame`, `State`,
 /// `Scroll`, `LinkClicked`, `ClipboardWrite`, `ViewLost` and `Ping`. Method
 /// ids are append-only from the first release; the full interface reuses
@@ -94,26 +94,26 @@ interface os.lazy.webd.light.v1 {
 
     /// Event: slot `slot` of `view` holds frame number `seq` (counting from 1)
     /// of `width` x `height` pixels. The slot is the app's until `ReleaseSlot`.
-    method Frame(view: U64 = 1, slot: U32 = 2, seq: U64 = 3, width: U32 = 4, height: U32 = 5) -> () = 100 oneway;
+    method Frame(view: U64 = 1, slot: U32 = 2, seq: U64 = 3, width: U32 = 4, height: U32 = 5) -> () = 100 event;
     /// Event: what the page says about itself. `loading` while a load is in
     /// progress; `finished` counts the loads that have finished (so the first
     /// paint of a `LoadHtml` can be told from the old page's); `error` is
     /// empty or a short reason a load failed. Texts are cut at 48 KiB.
-    method State(view: U64 = 1, title: String = 2, loading: Bool = 3, finished: U32 = 4, error: String = 5) -> () = 101 oneway;
+    method State(view: U64 = 1, title: String = 2, loading: Bool = 3, finished: U32 = 4, error: String = 5) -> () = 101 event;
     /// Event: the page scrolled to `(x, y)` in document pixels; `at_bottom`
     /// when it cannot scroll further.
-    method Scroll(view: U64 = 1, x: I32 = 2, y: I32 = 3, at_bottom: Bool = 4) -> () = 102 oneway;
+    method Scroll(view: U64 = 1, x: I32 = 2, y: I32 = 3, at_bottom: Bool = 4) -> () = 102 event;
     /// Event: a link was clicked, a form submitted or a meta refresh fired,
     /// and nothing loaded. `url` is absolute.
-    method LinkClicked(view: U64 = 1, url: String = 2) -> () = 103 oneway;
+    method LinkClicked(view: U64 = 1, url: String = 2) -> () = 103 event;
     /// Event: the user copied `text` out of the page.
-    method ClipboardWrite(view: U64 = 1, text: String = 2) -> () = 104 oneway;
+    method ClipboardWrite(view: U64 = 1, text: String = 2) -> () = 104 event;
     /// Event: the view cannot go on (`reason` is a `LostReason`). The id stays
     /// the app's to `DestroyView`; the app makes a new view and loads again.
-    method ViewLost(view: U64 = 1, reason: U32 = 2) -> () = 105 oneway;
+    method ViewLost(view: U64 = 1, reason: U32 = 2) -> () = 105 event;
     /// Event: liveness probe, about once a second; nothing to answer. `EPIPE`
     /// on the endpoint tells webd the app is gone and ends its views.
-    method Ping() -> () = 106 oneway;
+    method Ping() -> () = 106 event;
 
     /// How a light view is configured: these four fields and nothing else. No
     /// origins, profile, scheme policy or storage exists to ask for.

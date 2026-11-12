@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from midlc_rust import emit_rust  # noqa: E402
+from midlc_rust_client import emit_client, has_client  # noqa: E402
 from midlc_rust_server import emit_server, has_server  # noqa: E402
 from midlc_split import features_block  # noqa: E402
 from test_midlc_client import DEMO, parse  # noqa: E402
@@ -79,6 +80,61 @@ class ServerTests(unittest.TestCase):
     def test_the_module_carries_the_server(self) -> None:
         self.assertIn("pub fn dispatch<S: Server>", emit_rust(parse()["os.lazy.demo.v1"]))
         self.assertNotIn("pub fn dispatch<S: Server>", emit_rust(parse()["os.lazy.demo.v1"], client=False))
+
+
+FEED = """
+service "os.lazy.feed" implements os.lazy.feed.v1, os.lazy.feed.events.v1;
+
+interface os.lazy.feed.v1 {
+    default deadline=1s;
+    method Watch(events: Channel<os.lazy.feed.events.v1> = 1) -> () = 1;
+    method Poke(code: U32 = 1) -> () = 2 oneway;
+    /// Server to client: the value moved.
+    method Moved(x: I32 = 1, y: I32 = 2) -> () = 3 event;
+}
+interface os.lazy.feed.events.v1 {
+    method Tick(n: U32 = 1) -> () = 1 event;
+}
+"""
+
+
+class EventTests(unittest.TestCase):
+    def test_event_is_oneway_on_the_wire_and_flagged(self) -> None:
+        interface = parse(FEED)["os.lazy.feed.v1"]
+        poke, moved = interface.methods[1], interface.methods[2]
+        self.assertTrue(poke.oneway and not poke.event)
+        self.assertTrue(moved.oneway and moved.event)
+        self.assertEqual([m.name for m in interface.calls], ["Watch", "Poke"])
+
+    def test_sync_cancels_an_earlier_event(self) -> None:
+        text = FEED.replace("= 3 event;", "= 3 event sync;")
+        moved = parse(text)["os.lazy.feed.v1"].methods[2]
+        self.assertFalse(moved.oneway or moved.event)
+
+    def test_the_server_has_no_event_function_or_arm(self) -> None:
+        text = server_text("os.lazy.feed.v1", FEED)
+        self.assertIn("fn poke(&mut self", text)
+        self.assertNotIn("fn moved", text)
+        self.assertNotIn("METHOD_MOVED", text)
+
+    def test_an_events_only_interface_gets_no_server_or_client(self) -> None:
+        events = parse(FEED)["os.lazy.feed.events.v1"]
+        self.assertFalse(has_server(events))
+        self.assertFalse(has_client(events))
+
+    def test_the_wire_codecs_of_an_event_stay(self) -> None:
+        text = emit_rust(parse(FEED)["os.lazy.feed.v1"])
+        self.assertIn("pub const METHOD_MOVED: u32 = 3;", text)
+        self.assertIn("pub fn encode_moved_args(", text)
+        self.assertIn("pub fn decode_moved_args(", text)
+
+    def test_the_client_cannot_call_an_event(self) -> None:
+        text = "\n".join(emit_client(parse(FEED)["os.lazy.feed.v1"]))
+        self.assertIn("pub fn poke(", text)
+        self.assertNotIn("pub fn moved(", text)
+
+    def test_an_event_still_satisfies_the_channel_rule(self) -> None:
+        parse(FEED)  # `Channel<events>` needs a oneway method on the target
 
 
 if __name__ == "__main__":

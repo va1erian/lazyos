@@ -49,7 +49,7 @@
 // deleted.
 //
 // **Events.** `Attach` carries the client's event channel; the driver sends
-// the `oneway` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,
+// the `event` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,
 // `Deauthenticated`) on it. They carry the same bounds as calls: a frame is
 // at most `HwInfo.max_mgmt` bytes, never truncated and never delivered
 // partially; one that does not fit is dropped and counted. Anyone in radio
@@ -228,57 +228,6 @@ fn leave(reason) {
 /// Counters since the driver started.
 fn stats() {
     msg::connect("os.lazy.net.wifi.hw.v1").invoke("Stats", [])
-}
-
-/// `ScanDone(scan_id: U32, aborted: Bool) -> () oneway`
-///
-/// Event, driver to client: the scan finished (`aborted` false) or was
-/// stopped (`aborted` true, or the radio could not finish); its results
-/// are readable with `ScanResults` until the next `Scan`.
-///
-/// One-way: returns `()` once the message is queued.
-fn scan_done(scan_id, aborted) {
-    msg::connect("os.lazy.net.wifi.hw.v1").invoke("ScanDone", [scan_id, aborted])
-}
-
-/// `RxMgmt(kind: U32, rssi_dbm: I32, frame: Bytes) -> () oneway`
-///
-/// Event, driver to client: a management or EAPOL frame addressed to this
-/// station arrived from the joined BSS, and the client can be waiting for
-/// it: an authentication or (re)association response only after
-/// `TxMgmt` sent its request, an action frame once `Associated`, EAPOL
-/// once the AP answered the association; a retransmission of the last
-/// unprotected frame is dropped. `kind` is a `FrameKind` ordinal,
-/// `rssi_dbm` the signal in dBm. The frame has the shape `TxMgmt` takes:
-/// a whole management frame (from the MAC header, no FCS), or EAPOL as
-/// an 802.3 frame (destination, source, ethertype 0x888E, then the
-/// EAPOL PDU), decrypted. The bytes are unparsed and hostile.
-///
-/// One-way: returns `()` once the message is queued.
-fn rx_mgmt(kind, rssi_dbm, frame) {
-    msg::connect("os.lazy.net.wifi.hw.v1").invoke("RxMgmt", [kind, rssi_dbm, frame])
-}
-
-/// `BeaconLoss() -> () oneway`
-///
-/// Event, driver to client: the radio stopped hearing the AP (the
-/// firmware's missed-beacon threshold). The client decides what to do.
-///
-/// One-way: returns `()` once the message is queued.
-fn beacon_loss() {
-    msg::connect("os.lazy.net.wifi.hw.v1").invoke("BeaconLoss", [])
-}
-
-/// `Deauthenticated(reason: U32) -> () oneway`
-///
-/// Event, driver to client: the AP deauthenticated or disassociated us.
-/// `reason` is the IEEE 802.11 reason code, taken from the frame by the
-/// firmware (the one field of a frame the driver reports; the frame
-/// itself is also delivered as `RxMgmt`).
-///
-/// One-way: returns `()` once the message is queued.
-fn deauthenticated(reason) {
-    msg::connect("os.lazy.net.wifi.hw.v1").invoke("Deauthenticated", [reason])
 }
 
 // Not callable from a script (the request carries a channel, buffer

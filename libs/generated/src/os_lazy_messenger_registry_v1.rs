@@ -636,19 +636,6 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(reply.handle)
     }
 
-    /// Posted by the kernel on a registered endpoint for each `Connect`: the
-    /// service serves the caller's requests on `connection`, which speaks the
-    /// registered name's interfaces (the `Channel` type below is nominal: MIDL
-    /// has no untyped channel, and a service answers on its own interfaces,
-    /// not on this one). The message is stamped with the connecting task's
-    /// identity.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn connected(&self, name: &str, connection: u64) -> Result<(), ClientError> {
-        let (wire_body, wire_objects) = encode_connected_args(&ConnectedArgs { name: name.into(), connection }).map_err(ClientError::bad_request)?;
-        self.conn
-            .send(INTERFACE_ID, METHOD_CONNECTED, wire_body, wire_objects)
-    }
-
     /// Withdraw `name`. Only its owner (or an administrator) may.
     ///
     /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).

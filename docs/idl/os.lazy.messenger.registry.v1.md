@@ -24,7 +24,7 @@ kernel gate reports failures as negative errno values.
 | Resolve | 1645633795 | sync | `(name: String) -> (handle: U64)` |
 | WaitFor | 1225377743 | sync | `(name: String) -> (handle: U64)` |
 | Connect | 1535748249 | sync | `(name: String) -> (handle: U64)` |
-| Connected | 2079757168 | oneway | `(name: String, connection: Channel<os.lazy.messenger.registry.v1>) -> ()` |
+| Connected | 2079757168 | event | `(name: String, connection: Channel<os.lazy.messenger.registry.v1>) -> ()` |
 | Unregister | 1480320227 | sync | `(name: String) -> ()` |
 | List | 220805025 | sync | `() -> (entries: Array<Entry>)` |
 

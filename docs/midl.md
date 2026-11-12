@@ -119,9 +119,9 @@ interface os.lazy.display.v1 {
 
 * **`Channel<I>`**: one end of a channel pair (`user::messenger::create_pair`).
   It **moves**: the sender's handle closes when the message is queued, and
-  the receiver keeps the fresh one and sends `I`'s `oneway` methods on it
-  (the event-endpoint pattern). `I` may be declared in another file, and it
-  must have at least one `oneway` method.
+  the receiver keeps the fresh one and sends `I`'s `event` (or `oneway`) methods
+  on it (the event-endpoint pattern). `I` may be declared in another file, and
+  it must have at least one `oneway` or `event` method.
 * **`Buffer`**: a shared buffer with a byte range (`libmessenger::Buffer`:
   `handle`, `offset`, `len`). It is **shared**: the sender keeps its handle
   and mapping, the receiver gets a new handle to the same pages and maps it
@@ -256,7 +256,7 @@ member     = method | struct | enum | topic | ring | errors | default ;
 method     = "method" IDENT params "->" params { attr } ";" ;
 params     = "(" [ field { "," field } ] ")" ;
 field      = IDENT ":" type [ "=" NUMBER ] ;
-attr       = "=" NUMBER | "oneway" | "sync"
+attr       = "=" NUMBER | "oneway" | "event" | "sync"
            | "scope" STRING | deadline | retry ;
 deadline   = "deadline" "=" ( NUMBER ( "ms" | "s" ) | "never" ) ;
 retry      = "retry" "=" ( "safe" | "never" ) ;
@@ -272,7 +272,22 @@ type       = IDENT [ "<" type { "," type } ">" ] ;
 `NAME` is reverse-DNS ending in `.vN` and must match `[a-z0-9_.]+\.v\d+`
 (`os.lazy.confd.v1`). Several interfaces may share a file, and a `service`
 may implement an interface of another file. `sync` is the
-default and only cancels an earlier `oneway`.
+default and only cancels an earlier `oneway` or `event`.
+
+`event` marks a **server-to-client** message: a `oneway` (no reply, no
+deadline, the same wire) that the server sends on the event endpoint a client
+handed it (a `Channel<I>` field) and that clients receive. A `oneway` that a
+client sends to the server stays `oneway`. The generators treat the direction:
+an `event` is no function of the `Server` trait and no arm of `dispatch`
+(a server never writes an empty body for what it only sends), no function of
+the generated `Client`, and no Rhai function (a script cannot call it; the
+docs list it as an event, the `manifest.json` row carries `"event": true`
+next to `"oneway": true`). The encoder the server sends it with
+(`encode_<method>_args`, `METHOD_<NAME>`) and the decoder a client receives
+it with (`decode_<method>_args`) are generated as for any method. An
+interface whose methods are all events (a callback channel) gets neither a
+server nor a client. A `ring` doorbell may be an `event` (`Notify` of the
+`nic` interface) or a `oneway`.
 
 ### Types
 
@@ -495,8 +510,8 @@ An interface with a `service` (a singleton name or a family) gets a typed
 client over `libmessenger::client` (`docs/client-api-plan.md` 3.2), in its
 module, behind the cargo feature `<interface>_client` (`confd_v1_client`, which
 implies `confd_v1`; `all` includes every one). Kernel ACL scopes and policy
-loaders, and interfaces no `service` serves (a callback channel's `oneway`
-events), get none.
+loaders, and interfaces no `service` serves (a callback channel's `event`
+methods), get none. An `event` is no client function either.
 
 ```rust
 use messenger_generated::os_lazy_confd_v1 as confd;
@@ -559,7 +574,8 @@ let reply: Parcel = timed::dispatch(&mut handler, &message);
   were claimed by the decode, so the handler owns them and closes them on a
   refusal.
 * The result is `()` for no reply field, the field itself for one, the
-  `XxxReply` struct for several. A `oneway` method returns nothing.
+  `XxxReply` struct for several. A `oneway` method returns nothing. An `event`
+  is not in the trait at all (it is sent, never served).
 * `Caller` is the kernel's stamp (`uid`, `gid`, `caps`, `label_id`, `session`,
   and the sender's task slot for addressing only). Authorize from it, never
   from the body.
