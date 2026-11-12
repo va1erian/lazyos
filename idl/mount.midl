@@ -97,7 +97,7 @@ interface os.lazy.mount.v1 {
     /// The removable volumes of the caller (all of them for root), oldest
     /// plug first. An ended volume stays listed until its stick is pulled,
     /// so its outcome can be read.
-    method Volumes() -> (volumes: Array<VolumeInfo> = 1) deadline=2s;
+    method Volumes() -> (volumes: Array<VolumeInfo> = 1) deadline=5s;
 
     /// Eject the volume on `disk` (`usb<n>`): flush, close and unmount it,
     /// then let the stick be pulled. Answers at once; the answer's `state`
@@ -108,5 +108,5 @@ interface os.lazy.mount.v1 {
     /// request itself are `ENOENT` (no such disk), `EPERM` (another user's
     /// volume), `EINVAL` (not a disk name) and `EAGAIN` (still starting:
     /// ask again in a moment).
-    method Eject(disk: String = 1, force: Bool = 2) -> (state: String = 1, detail: String = 2) deadline=2s;
+    method Eject(disk: String = 1, force: Bool = 2) -> (state: String = 1, detail: String = 2) deadline=5s;
 }

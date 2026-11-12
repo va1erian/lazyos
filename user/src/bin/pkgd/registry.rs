@@ -9,36 +9,56 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use libmessenger::client::{CallError, Connection, Deadline};
 use pkgstore::layout;
-use user::messenger::confd::{Client as ConfdClient, NAME as CONFD_NAME};
-use user::messenger::mime::Client as MimeClient;
+use user::messenger::client::Native;
+use user::messenger::confd::{self, Client as ConfdClient, ValueClient};
+use user::messenger::mime::{self, Client as MimeClient};
 use user::messenger::pkgd::{wire, Installed};
+use user::messenger::services::init::Client as InitClient;
 use user::messenger::{errno, services, Error, Result};
 
-use super::peers::Peer;
+use super::peers::retry;
+
+/// `pkgd` has always waited as long as its peers take (an install writes to
+/// disk through `confd` and holds a whole boot's provisioning behind it), so
+/// none of its calls takes the crate's default bound.
+const UNBOUNDED: Deadline = Deadline::Never;
 
 /// The connections and the operations on them.
 pub(crate) struct Registry {
-    confd: Peer,
-    mimed: Peer,
-    init: Peer,
+    confd: Option<ConfdClient>,
+    mimed: Option<MimeClient>,
+    init: Option<InitClient>,
 }
 
 impl Registry {
     pub(crate) const fn new() -> Registry {
         Registry {
-            confd: Peer::new(CONFD_NAME),
-            mimed: Peer::new(user::messenger::mime::NAME),
-            init: Peer::new(services::INIT_NAME),
+            confd: None,
+            mimed: None,
+            init: None,
         }
+    }
+
+    /// The `confd` client: it resolves on its first call and again after a
+    /// restart, so it is built once.
+    fn confd(&mut self) -> &ConfdClient {
+        self.confd.get_or_insert_with(|| {
+            ConfdClient::from_connection(Connection::new(Native, confd::NAME))
+        })
+    }
+
+    fn mimed(&mut self) -> &MimeClient {
+        self.mimed
+            .get_or_insert_with(|| MimeClient::from_connection(Connection::new(Native, mime::NAME)))
     }
 
     /// One installed app, if present.
     pub(crate) fn get(&mut self, system_name: &str) -> Result<Option<Installed>> {
         let key = row_key(system_name)?;
-        let value = self
-            .confd
-            .run(|endpoint| ConfdClient::from_endpoint(endpoint).get(&key))?;
+        let client = self.confd();
+        let value = retry(|| client.get_value_within(&key, UNBOUNDED)).map_err(confd::lower)?;
         match value {
             Some(::confd::Value::Bytes(bytes)) => decode_row(&bytes).map(Some),
             Some(_) => Err(Error::Errno(-errno::EINVAL)),
@@ -51,23 +71,23 @@ impl Registry {
         let key = row_key(&row.system_name)?;
         let bytes = wire::encode_installed(row).map_err(Error::Parcel)?;
         let value = ::confd::Value::Bytes(bytes);
-        self.confd
-            .run(|endpoint| ConfdClient::from_endpoint(endpoint).set(&key, &value))
+        let client = self.confd();
+        retry(|| client.set_value_within(&key, &value, UNBOUNDED)).map_err(confd::lower)
     }
 
     /// Forget an app; deleting an absent row succeeds.
     pub(crate) fn delete(&mut self, system_name: &str) -> Result<()> {
         let key = row_key(system_name)?;
-        self.confd
-            .run(|endpoint| ConfdClient::from_endpoint(endpoint).delete(&key))
+        let client = self.confd();
+        retry(|| client.delete_within(&key, UNBOUNDED)).map_err(confd::lower)
     }
 
     /// Every installed app in install order (oldest first). A row that does not
     /// decode is skipped, so one corrupt value cannot hide the others.
     pub(crate) fn list(&mut self) -> Result<Vec<Installed>> {
-        let keys = self
-            .confd
-            .run(|endpoint| ConfdClient::from_endpoint(endpoint).list(layout::CONFD_PREFIX))?;
+        let client = self.confd();
+        let keys =
+            retry(|| client.list_within(layout::CONFD_PREFIX, UNBOUNDED)).map_err(confd::lower)?;
         let mut rows = Vec::new();
         for key in keys {
             let Some(name) = layout::system_name_of_key(&key) else {
@@ -90,9 +110,9 @@ impl Registry {
     /// The provisioning stamp of the last pass (`provision::STAMP_KEY`), if
     /// one was stored.
     pub(crate) fn stamp(&mut self) -> Result<Option<String>> {
-        let value = self.confd.run(|endpoint| {
-            ConfdClient::from_endpoint(endpoint).get(pkgstore::provision::STAMP_KEY)
-        })?;
+        let client = self.confd();
+        let value = retry(|| client.get_value_within(pkgstore::provision::STAMP_KEY, UNBOUNDED))
+            .map_err(confd::lower)?;
         Ok(match value {
             Some(::confd::Value::Str(text)) => Some(text),
             _ => None,
@@ -102,9 +122,9 @@ impl Registry {
     /// Record the provisioning stamp.
     pub(crate) fn set_stamp(&mut self, stamp: &str) -> Result<()> {
         let value = ::confd::Value::Str(String::from(stamp));
-        self.confd.run(|endpoint| {
-            ConfdClient::from_endpoint(endpoint).set(pkgstore::provision::STAMP_KEY, &value)
-        })
+        let client = self.confd();
+        retry(|| client.set_value_within(pkgstore::provision::STAMP_KEY, &value, UNBOUNDED))
+            .map_err(confd::lower)
     }
 
     /// Register `app` as the handler of `mime` for `verb`.
@@ -115,20 +135,28 @@ impl Registry {
         verb: &str,
         owner: u32,
     ) -> Result<()> {
-        self.mimed
-            .run(|endpoint| MimeClient::from_endpoint(endpoint).register(mime, app, verb, owner))
+        let client = self.mimed();
+        retry(|| client.register_within(mime, app, verb, owner, UNBOUNDED)).map_err(lower)
     }
 
     /// Withdraw `app`'s registration of `mime` for `verb`.
     pub(crate) fn mime_unregister(&mut self, mime: &str, app: &str, verb: &str) -> Result<()> {
-        self.mimed
-            .run(|endpoint| MimeClient::from_endpoint(endpoint).unregister(mime, app, verb))
+        let client = self.mimed();
+        retry(|| client.unregister_within(mime, app, verb, UNBOUNDED)).map_err(lower)
     }
 
     /// Ask `init` to stop every running instance of `app`; returns how many.
     pub(crate) fn stop(&mut self, app: &str) -> Result<u64> {
-        self.init.run(|endpoint| services::stop(&endpoint, app))
+        let client = self.init.get_or_insert_with(|| {
+            InitClient::from_connection(Connection::new(Native, services::INIT_NAME))
+        });
+        retry(|| client.stop_within(app, UNBOUNDED)).map_err(lower)
     }
+}
+
+/// A `mimed` failure as `pkgd`'s own error type.
+fn lower(error: CallError) -> Error {
+    Error::Errno(error.code())
 }
 
 /// The `confd` key of `system_name`, refusing a malformed name.

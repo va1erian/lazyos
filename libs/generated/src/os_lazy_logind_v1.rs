@@ -267,6 +267,8 @@ pub fn decode_login_end(body: &[u8]) -> Result<LoginEnd, Error> {
 
 /// `Sessions` method id.
 pub const METHOD_SESSIONS: u32 = 916097772;
+/// How long a client waits for `Sessions`'s reply, in milliseconds.
+pub const METHOD_SESSIONS_DEADLINE_MS: u32 = 1000;
 /// `Login` method id.
 pub const METHOD_LOGIN: u32 = 1441655762;
 /// How long a client waits for `Login`'s reply, in milliseconds.
@@ -638,9 +640,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Snapshot the session table, oldest session first.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
     pub fn sessions(&self) -> Result<SessionsReply, ClientError> {
-        self.sessions_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.sessions_within(libmessenger::client::Deadline::millis(METHOD_SESSIONS_DEADLINE_MS as u64))
     }
 
     /// [`Self::sessions`] with the caller's deadline instead of the IDL's.

@@ -4,9 +4,7 @@
 //! errors back. Every request is decoded again with the generated
 //! `decode_*_args`, so the client and the codec cannot drift apart.
 
-use libmessenger::client::{
-    CallError, Connection, Deadline, Errno, Mock, Recorded, DEFAULT_DEADLINE, ERROR_FIELD,
-};
+use libmessenger::client::{CallError, Connection, Deadline, Errno, Mock, Recorded, ERROR_FIELD};
 use libmessenger::{flags, Buffer, Encoder, Object, Parcel};
 use messenger_generated::{
     os_lazy_clipboard_v1 as clipboard, os_lazy_confd_v1 as confd, os_lazy_net_nic_v1 as nic,
@@ -85,7 +83,10 @@ fn a_one_field_reply_returns_the_field() {
     let request = only_call(client.connection().transport());
     assert_eq!(request.header.interface_id, confd::INTERFACE_ID);
     assert_eq!(request.header.method, confd::METHOD_GET);
-    assert_eq!(request.until, Some(DEFAULT_DEADLINE));
+    assert_eq!(
+        request.until,
+        Some(Deadline::millis(u64::from(confd::METHOD_GET_DEADLINE_MS)))
+    );
     let args = confd::decode_get_args(&request.body).unwrap();
     assert_eq!(args.path, "sys/ui/theme");
 }
@@ -152,13 +153,16 @@ fn a_malformed_reply_is_a_bad_message() {
 }
 
 #[test]
-fn the_deadline_override_replaces_the_default() {
+fn the_deadline_override_replaces_the_declared_deadline() {
     let client = confd::Client::connect(mock(confd::SERVICE_NAME)).unwrap();
     let _ = client.get_within("a", Deadline::millis(50));
     let _ = client.get("a");
     let calls = client.connection().transport().calls();
     assert_eq!(calls[0].until, Some(Deadline::millis(50)));
-    assert_eq!(calls[1].until, Some(DEFAULT_DEADLINE));
+    assert_eq!(
+        calls[1].until,
+        Some(Deadline::millis(u64::from(confd::METHOD_GET_DEADLINE_MS)))
+    );
 }
 
 #[test]

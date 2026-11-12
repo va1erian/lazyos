@@ -59,6 +59,9 @@ mod ring;
 mod serve;
 
 use core::panic::PanicInfo;
+use libmessenger::client::Deadline;
+use user::messenger::client::Native;
+use user::messenger::services::health::Client as HealthClient;
 use user::messenger::services::lifecycle;
 use user::messenger::{self, registry, services, wait, Endpoint, Error, Message};
 use user::sys;
@@ -191,14 +194,11 @@ fn report_health(journals: &Journals, reported: &mut Option<&'static str>) {
     if *reported == Some(status) {
         return;
     }
-    let Ok(endpoint) = services::resolve_service(services::HEALTHD_NAME) else {
+    let Ok(healthd) = HealthClient::try_connect(Native) else {
         return;
     };
-    let Ok(request) = services::health_report_request("logd", status, &detail) else {
-        return;
-    };
-    if endpoint
-        .call(&request, Some(sys::clock() + HEALTH_TICKS))
+    if healthd
+        .report_within("logd", status, &detail, Deadline::ticks(HEALTH_TICKS))
         .is_ok()
     {
         *reported = Some(status);

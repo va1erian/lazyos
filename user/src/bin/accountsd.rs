@@ -58,7 +58,10 @@ use user::trace;
 
 use accountdb::ratelimit::Limiter;
 use accountdb::{Db, User};
-use user::messenger::{self, accounts, errno, registry, services, Error, Message, Parcel};
+use libmessenger::client::Deadline;
+use user::messenger::client::Native;
+use user::messenger::services::health::Client as HealthClient;
+use user::messenger::{self, accounts, errno, registry, Error, Message, Parcel};
 use user::sys;
 
 /// How long the service waits for a request before retrying an undelivered
@@ -147,14 +150,10 @@ fn report_health(db: &Result<Db, String>) -> bool {
         Ok(db) => ("ok", format!("rows={}", db.users.len())),
         Err(reason) => ("failed", format!("no accounts: {reason}")),
     };
-    let Ok(endpoint) = services::resolve_service(services::HEALTHD_NAME) else {
-        return false;
-    };
-    let Ok(request) = services::health_report_request("accountsd", status, &detail) else {
-        return false;
-    };
-    endpoint
-        .call(&request, Some(sys::clock() + HEALTH_TICKS))
+    HealthClient::try_connect(Native)
+        .and_then(|healthd| {
+            healthd.report_within("accountsd", status, &detail, Deadline::ticks(HEALTH_TICKS))
+        })
         .is_ok()
 }
 

@@ -7,9 +7,12 @@
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use libmessenger::client::{CallError, Deadline};
 use user::central;
+use user::messenger::client::Native;
 use user::messenger::mime::wire;
-use user::messenger::{self, errno, mime, services, Endpoint, Error, Message, Parcel};
+use user::messenger::services::init::Client as InitClient;
+use user::messenger::{self, errno, mime, services, Error, Message, Parcel};
 use user::sys;
 
 use super::apps::{choose, AppRegistry};
@@ -202,16 +205,16 @@ fn launch_via_init(
     // (`logd`/`healthd` subscribing, `messengerctl`'s self-tests), so the
     // retry window is generous: ~1.3 s of parked ticks.
     const ATTEMPTS: usize = 128;
-    let mut endpoint: Option<Endpoint> = None;
+    let mut init: Option<InitClient> = None;
     for _ in 0..ATTEMPTS {
-        if endpoint.is_none() {
-            endpoint = services::resolve_service(services::INIT_NAME).ok();
+        if init.is_none() {
+            init = InitClient::try_connect(Native).ok();
         }
-        let Some(active) = &endpoint else {
+        let Some(active) = &init else {
             park_tick();
             continue;
         };
-        match services::launch(active, app, path, session) {
+        match active.launch_within(app, path, session, Deadline::Never) {
             Ok(result) => {
                 sys::write_str(&format!(
                     "mimed: launched {} pid {} (session {})\n",
@@ -219,8 +222,9 @@ fn launch_via_init(
                 ));
                 return Ok(result);
             }
-            Err(Error::Errno(code)) if code == -errno::EDEADLK => park_tick(),
-            Err(error) => return Err(error),
+            Err(error) if error.code() == -errno::EDEADLK => park_tick(),
+            Err(CallError::Remote { code, .. }) => return Err(Error::Init(i64::from(code))),
+            Err(error) => return Err(Error::Errno(error.code())),
         }
     }
     Err(Error::Errno(-errno::EAGAIN))

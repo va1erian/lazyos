@@ -38,7 +38,9 @@ mod handler;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
-use user::messenger::{self, registry, router, services, wait, Endpoint, Error};
+use user::messenger::client::Native;
+use user::messenger::services::init::Client as InitClient;
+use user::messenger::{self, registry, router, services, wait, Error};
 use user::sys;
 
 use aggregate::{apply_state, records, refresh, summary};
@@ -112,7 +114,7 @@ fn run() -> messenger::Result<()> {
     user::messenger::services::init::notify_ready();
     let mut broker = router::TopicBroker::new("os.lazy.health.sink");
     let mut rows: Vec<HealthRow> = Vec::new();
-    let mut init: Option<Endpoint> = None;
+    let mut init: Option<InitClient> = None;
     let mut bus: Option<router::Bus> = None;
     let mut events: Option<router::Subscriber> = None;
     let mut next_poll = 0u64;
@@ -120,7 +122,6 @@ fn run() -> messenger::Result<()> {
     // Reused receive buffers: the user bump allocator never reclaims per-call
     // buffers, so long-lived loops must not allocate one per message.
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
-    let mut reply_buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
 
     loop {
         // Service state changes arrive on `init`'s retained topic; subscribe
@@ -136,13 +137,12 @@ fn run() -> messenger::Result<()> {
         // Resolve the supervisor when it becomes available (logd/healthd can
         // start before it has finished registering itself).
         if init.is_none() {
-            init = registry::resolve(services::INIT_NAME).ok();
+            init = InitClient::try_connect(Native).ok();
         }
         let now = sys::clock();
         if now >= next_poll {
-            let supervisor = init;
-            if let Some(endpoint) = &supervisor {
-                match services::fetch_services_with(endpoint, &mut reply_buffer) {
+            if let Some(client) = &init {
+                match client.services() {
                     Ok(statuses) => refresh(&mut rows, &statuses, &mut broker, &mut summary_state),
                     // `init` is gone: drop the handle and retry the resolution.
                     Err(_) => init = None,

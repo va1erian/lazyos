@@ -13,8 +13,9 @@ use alloc::string::String;
 use dbgwire::control::{self, Upload, Write};
 use dbgwire::json::{self, Object, Value};
 use dbgwire::rpc::code;
-use user::messenger::services;
-use user::sys;
+use libmessenger::client::Deadline;
+use user::messenger::client::Native;
+use user::messenger::services::init::{Client as InitClient, ClientError as InitError};
 
 use super::handlers::Failure;
 
@@ -44,12 +45,12 @@ pub(crate) fn prepare() {
     let _ = user::files::chmod(fhs::state::DBGD_STAGE, 0o700);
 }
 
-fn init() -> Result<user::messenger::Endpoint, Failure> {
-    services::resolve_service(services::INIT_NAME)
+fn init() -> Result<InitClient, Failure> {
+    InitClient::try_connect(Native)
         .map_err(|e| (code::UNAVAILABLE, format!("init: {}", e.message())))
 }
 
-fn init_failed(what: &str, name: &str, error: user::messenger::Error) -> Failure {
+fn init_failed(what: &str, name: &str, error: InitError) -> Failure {
     (
         code::DENIED,
         format!(
@@ -59,15 +60,16 @@ fn init_failed(what: &str, name: &str, error: user::messenger::Error) -> Failure
     )
 }
 
-fn deadline() -> Option<u64> {
-    Some(sys::clock() + INIT_TICKS)
+fn deadline() -> Deadline {
+    Deadline::ticks(INIT_TICKS)
 }
 
 /// `service.restart`.
 pub(crate) fn restart(params: &Value) -> Result<String, Failure> {
     let name = text(params, "name");
     control::reloadable(name).map_err(refused)?;
-    let pid = services::init::reload_service(&init()?, name, "", "", 0, deadline())
+    let pid = init()?
+        .reload_service_within(name, "", "", 0, deadline())
         .map_err(|e| init_failed("restart", name, e))?;
     Ok(Object::new()
         .str("name", name)
@@ -114,8 +116,7 @@ pub(crate) fn reload(params: &Value, current: &mut Option<Upload>) -> Result<Str
     let size = Upload::finished(current, name).map_err(refused)?.total;
     let trial_ms = number(params, "trial_ms", control::TRIAL_DEFAULT_MS);
     let path = control::staged_path(name);
-    let result =
-        services::init::reload_service(&init()?, name, &path, sha256, trial_ms as u32, deadline());
+    let result = init()?.reload_service_within(name, &path, sha256, trial_ms as u32, deadline());
     // `init` has its own copy (or refused): the staged file is done either way.
     *current = None;
     let _ = user::files::remove(&path);
@@ -133,7 +134,8 @@ pub(crate) fn reload(params: &Value, current: &mut Option<Upload>) -> Result<Str
 pub(crate) fn revert(params: &Value) -> Result<String, Failure> {
     let name = text(params, "name");
     control::reloadable(name).map_err(refused)?;
-    let pid = services::init::revert_service(&init()?, name, deadline())
+    let pid = init()?
+        .revert_service_within(name, deadline())
         .map_err(|e| init_failed("revert", name, e))?;
     Ok(Object::new()
         .str("name", name)
@@ -143,7 +145,8 @@ pub(crate) fn revert(params: &Value) -> Result<String, Failure> {
 
 /// `service.reloads`.
 pub(crate) fn reloads() -> Result<String, Failure> {
-    let rows = services::init::reloads(&init()?, deadline())
+    let rows = init()?
+        .reloads_within(deadline())
         .map_err(|e| (code::UNAVAILABLE, format!("init: {}", e.message())))?;
     let rows = rows.iter().map(|r| {
         Object::new()

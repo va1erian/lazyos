@@ -18,6 +18,8 @@
 //! `XUID:PROVISION:ABSENT` or `XUID:PROVISION:TIMEOUT`.
 
 use alloc::format;
+use libmessenger::client::Deadline;
+use user::messenger::client::Native;
 use user::messenger::{self, pkgd};
 use user::sys;
 use user::trace;
@@ -57,7 +59,7 @@ pub(super) fn wait_for_core_packages() {
             );
             return;
         }
-        match client.provisioned_until(Some(now + CALL_TICKS)) {
+        match client.provisioned_within(Deadline::ticks(CALL_TICKS)) {
             Ok(state) if state.done => {
                 trace::line!(
                     trace::Channel::Xuid,
@@ -136,7 +138,7 @@ pub(super) fn hold_for_diagnosis() {
 /// A `pkgd` client, retrying until the absolute tick `until`.
 fn connect(until: u64) -> Option<pkgd::Client> {
     loop {
-        if let Ok(client) = pkgd::Client::connect() {
+        if let Ok(client) = pkgd::Client::try_connect(Native) {
             return Some(client);
         }
         if sys::clock() >= until {

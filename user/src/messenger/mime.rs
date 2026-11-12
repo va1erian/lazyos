@@ -5,15 +5,16 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, VERSION};
+use libmessenger::{Encoder, Header, Parcel, VERSION};
 
-use super::{errno, registry, Endpoint, Error, Result};
+use super::client::Native;
+use super::{errno, Error};
 
 /// The generated `os.lazy.mimed.v1` stubs (see `idl/mimed.midl`).
 pub use messenger_generated::os_lazy_mimed_v1 as wire;
 
 /// The MIME service's registered name.
-pub const NAME: &str = "os.lazy.mimed";
+pub const NAME: &str = wire::SERVICE_NAME;
 
 /// The interface id every `mimed` parcel carries.
 pub const INTERFACE: u64 = wire::INTERFACE_ID;
@@ -24,7 +25,7 @@ use messenger_generated::errors::ERROR_FIELD;
 /// Type reported for a path the database has no entry for.
 pub const FALLBACK_MIME: &str = "application/octet-stream";
 
-/// Verb [`Client::open`] falls back to when the requested verb has no
+/// Verb [`Client::open`](wire::Client::open) falls back to when the requested verb has no
 /// registration for the guessed type.
 pub const DEFAULT_VERB: &str = "open";
 
@@ -56,7 +57,7 @@ pub fn ok_reply(method: u32) -> Parcel {
 }
 
 /// The service's error answer: errno-style code plus friendly text. The
-/// client turns the code back into [`Error::Mime`].
+/// client reads it as a refusal.
 pub fn error_reply(method: u32, error: Error) -> Parcel {
     let code = error.errno().map(|code| -code).unwrap_or(errno::EINVAL);
     let mut body = Encoder::new();
@@ -65,155 +66,34 @@ pub fn error_reply(method: u32, error: Error) -> Parcel {
     parcel(method, body.finish())
 }
 
-/// The first structured error field, when the reply is a service failure.
-fn error_field(parcel: &Parcel) -> Result<Option<i64>> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Some(field) = decoder.next().map_err(Error::Parcel)? {
-        if field.kind == Kind::Error && field.id == ERROR_FIELD {
-            let (code, _message) = field.error_parts().map_err(Error::Parcel)?;
-            return Ok(Some(code as i64));
-        }
-    }
-    Ok(None)
-}
+/// A blocking client of the `mimed` service: `Client::connect(Native)`.
+pub type Client = wire::Client<Native>;
 
-/// A client of the `mimed` service.
-pub struct Client {
-    endpoint: Endpoint,
-}
-
-impl Client {
-    /// Resolve [`NAME`] and wrap the service endpoint.
-    pub fn connect() -> Result<Client> {
-        Ok(Client {
-            endpoint: registry::resolve(NAME)?,
-        })
-    }
-
-    /// Wrap an already-resolved endpoint.
-    pub fn from_endpoint(endpoint: Endpoint) -> Client {
-        Client { endpoint }
-    }
-
-    /// The underlying service endpoint (diagnostics).
-    pub fn endpoint(&self) -> Endpoint {
-        self.endpoint
-    }
-
-    /// Run one request as a blocking call and fail on a service error.
-    fn call(&self, method: u32, body: Vec<u8>) -> Result<Parcel> {
-        let reply = self.endpoint.call(&parcel(method, body), None)?;
-        if let Some(code) = error_field(&reply)? {
-            return Err(Error::Mime(code));
-        }
-        Ok(reply)
-    }
-
-    /// MIME type for `path`.
-    pub fn guess(&self, path: &str) -> Result<String> {
-        let body = wire::encode_guess_args(&wire::GuessArgs {
-            path: String::from(path),
-        })
-        .map_err(Error::Parcel)?;
-        let reply = self.call(wire::METHOD_GUESS, body)?;
-        Ok(wire::decode_guess_reply(&reply.body)
-            .map_err(Error::Parcel)?
-            .mime)
-    }
-
-    /// App registered for `mime` and `verb`; `None` when none is.
-    pub fn lookup(&self, mime: &str, verb: &str) -> Result<Option<String>> {
-        let body = wire::encode_lookup_args(&wire::LookupArgs {
-            mime: String::from(mime),
-            verb: String::from(verb),
-        })
-        .map_err(Error::Parcel)?;
-        let reply = self.call(wire::METHOD_LOOKUP, body)?;
-        Ok(wire::decode_lookup_reply(&reply.body)
-            .map_err(Error::Parcel)?
-            .app)
-    }
-
-    /// Verbs registered for `mime`, in registration order.
-    pub fn verbs(&self, mime: &str) -> Result<Vec<String>> {
-        let body = wire::encode_verbs_args(&wire::VerbsArgs {
-            mime: String::from(mime),
-        })
-        .map_err(Error::Parcel)?;
-        let reply = self.call(wire::METHOD_VERBS, body)?;
-        Ok(wire::decode_verbs_reply(&reply.body)
-            .map_err(Error::Parcel)?
-            .verbs)
-    }
-
-    /// Guess `path`, resolve the app for `verb`, and publish the launch
-    /// event. [`OpenResult::published`] reports whether the event went out.
-    pub fn open(&self, path: &str, verb: &str) -> Result<OpenResult> {
-        let body = wire::encode_open_args(&wire::OpenArgs {
-            path: String::from(path),
-            verb: String::from(verb),
-        })
-        .map_err(Error::Parcel)?;
-        let reply = self.call(wire::METHOD_OPEN, body)?;
-        wire::decode_open_reply(&reply.body).map_err(Error::Parcel)
-    }
-
-    /// Withdraw `app`'s registration for `mime` and `verb` (root only; the
-    /// package manager's removal path).
-    pub fn unregister(&self, mime: &str, app: &str, verb: &str) -> Result<()> {
-        let body = wire::encode_unregister_args(&wire::UnregisterArgs {
-            mime: String::from(mime),
-            app: String::from(app),
-            verb: String::from(verb),
-        })
-        .map_err(Error::Parcel)?;
-        self.call(wire::METHOD_UNREGISTER, body)?;
-        Ok(())
-    }
-
-    /// Add or replace the app registered for `mime` and `verb`. `owner` is the
-    /// uid that installed the app, `0` for an app every user sees.
-    pub fn register(&self, mime: &str, app: &str, verb: &str, owner: u32) -> Result<()> {
-        let body = wire::encode_register_args(&wire::RegisterArgs {
-            mime: String::from(mime),
-            app: String::from(app),
-            verb: String::from(verb),
-            owner,
-        })
-        .map_err(Error::Parcel)?;
-        self.call(wire::METHOD_REGISTER, body)?;
-        Ok(())
-    }
-}
+/// Why a `mimed` call failed.
+pub type ClientError = wire::ClientError;
 
 /// Convenience: the MIME type for `path`, or [`FALLBACK_MIME`] when the
 /// service is unreachable.
 pub fn guess(path: &str) -> String {
-    match Client::connect().and_then(|client| client.guess(path)) {
-        Ok(mime) => mime,
-        Err(_) => String::from(FALLBACK_MIME),
-    }
+    Client::connect(Native)
+        .and_then(|client| client.guess(path))
+        .unwrap_or_else(|_| String::from(FALLBACK_MIME))
 }
 
 /// Convenience: the app registered for `mime` and `verb`; `None` when none
 /// is registered or the service is unreachable.
 pub fn lookup(mime: &str, verb: &str) -> Option<String> {
-    Client::connect().ok()?.lookup(mime, verb).ok()?
+    Client::connect(Native).ok()?.lookup(mime, verb).ok()?
 }
 
 /// Convenience: the verbs registered for `mime` (empty when unreachable).
 pub fn verbs(mime: &str) -> Vec<String> {
-    Client::connect()
+    Client::connect(Native)
         .and_then(|client| client.verbs(mime))
         .unwrap_or_default()
 }
 
 /// Convenience: connect and open.
-pub fn open(path: &str, verb: &str) -> Result<OpenResult> {
-    Client::connect()?.open(path, verb)
-}
-
-/// Convenience: connect and register.
-pub fn register(mime: &str, app: &str, verb: &str, owner: u32) -> Result<()> {
-    Client::connect()?.register(mime, app, verb, owner)
+pub fn open(path: &str, verb: &str) -> Result<OpenResult, ClientError> {
+    Client::connect(Native)?.open(path, verb)
 }

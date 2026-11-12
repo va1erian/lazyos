@@ -140,7 +140,7 @@ fn denials() -> Result<(), String> {
 
 /// `devd`'s view: each device's match, driver, state and claim holder.
 fn drivers() -> Result<(), String> {
-    let client = user::messenger::devd::Client::connect()
+    let client = user::messenger::devd::Client::try_connect(user::messenger::client::Native)
         .map_err(|_| String::from("devctl: devd is not running (an image without drivers?)"))?;
     let devices = client
         .devices()

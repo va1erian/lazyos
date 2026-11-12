@@ -1462,7 +1462,8 @@
       {
         "name": "Sessions",
         "id": 916097772,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Login",
@@ -1596,13 +1597,13 @@
         "name": "Volumes",
         "id": 2053774420,
         "oneway": false,
-        "deadline_ms": 2000
+        "deadline_ms": 5000
       },
       {
         "name": "Eject",
         "id": 819391126,
         "oneway": false,
-        "deadline_ms": 2000
+        "deadline_ms": 5000
       }
     ],
     "topics": [],

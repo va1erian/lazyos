@@ -73,7 +73,7 @@ pub(super) fn connect_display() -> Client {
 /// Resolve `clipboardd`, retrying while the supervisor starts it. `None` when
 /// it never appears (the plain `LAZYOS_XUID=1` demo boots without services).
 pub(super) fn connect_clipboard() -> Option<clipboard::Client> {
-    clipboard::Client::connect_waiting().ok()
+    clipboard::Client::connect(clipboard::Nested).ok()
 }
 
 /// Whether an error is the `recv` deadline firing.

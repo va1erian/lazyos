@@ -73,9 +73,11 @@ use api::wire;
 use confd::{dir, ChangeSink, Confd};
 use messenger_generated::topics;
 use user::central;
+use user::messenger::client::Native;
 use user::messenger::confd as api;
+use user::messenger::services::health::Client as HealthClient;
 use user::messenger::services::lifecycle;
-use user::messenger::{self, errno, registry, services, wait, Error, Message, Parcel};
+use user::messenger::{self, errno, registry, wait, Error, Message, Parcel};
 use user::sys;
 
 use storage::{make_private, pick_dir, seed_from_lower, try_upgrade, VfsStoreFs};
@@ -105,13 +107,8 @@ impl TopicSink {
 
     /// Best-effort heartbeat to `healthd`.
     fn report_health(&mut self, status: &str, detail: &str) {
-        let Ok(endpoint) = services::resolve_service(services::HEALTHD_NAME) else {
-            return;
-        };
-        let Ok(request) = services::health_report_request("confd", status, detail) else {
-            return;
-        };
-        let _ = endpoint.call(&request, None);
+        let _ = HealthClient::try_connect(Native)
+            .and_then(|healthd| healthd.report("confd", status, detail));
     }
 }
 

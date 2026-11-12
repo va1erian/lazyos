@@ -45,7 +45,10 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
-use user::messenger::{self, accounts, logind, registry, router, services, wait, Endpoint, Parcel};
+use libmessenger::client::Deadline;
+use user::messenger::accounts::{self, Directory};
+use user::messenger::client::Native;
+use user::messenger::{self, logind, registry, router, services, wait, Endpoint, Parcel};
 use user::sys::{self, Cred};
 use user::trace;
 
@@ -102,7 +105,7 @@ fn run() -> messenger::Result<()> {
         graphical::run(&server, &mut buffer)?;
     }
     sys::write_str("logind: waiting for the accounts service\n");
-    let mut accountsd: Option<Endpoint> = None;
+    let mut accountsd: Option<accounts::Client> = None;
     let mut bus: Option<router::Bus> = None;
     let mut sessions: Vec<logind::SessionRecord> = Vec::new();
     let mut active: Option<ActiveSession> = None;
@@ -113,7 +116,7 @@ fn run() -> messenger::Result<()> {
         // Answer `Sessions` queries even while a shell runs.
         serve_queries(&server, &sessions, &mut buffer)?;
         if accountsd.is_none() {
-            accountsd = registry::resolve(accounts::NAME).ok();
+            accountsd = accounts::Client::try_connect(Native).ok();
             if accountsd.is_some() {
                 sys::write_str("logind: accounts service ready; login enabled\n");
                 sys::write_str(LOGIN_HELP);
@@ -158,7 +161,7 @@ fn run() -> messenger::Result<()> {
 
 /// Run the identify/authenticate/spawn pipeline for one console attempt.
 fn prompt_login(
-    endpoint: &Endpoint,
+    accounts: &accounts::Client,
     sessions: &mut Vec<logind::SessionRecord>,
     next_session: &mut u64,
     bus: &mut Option<router::Bus>,
@@ -176,7 +179,7 @@ fn prompt_login(
     // The keyboard goes back to the terminal before any shell can start.
     keys.end();
 
-    let user = match accounts::lookup_name(endpoint, &name) {
+    let user = match accounts.lookup_name(&name) {
         Ok(Some(user)) => user,
         Ok(None) => {
             deny(bus, &name, "unknown-user");
@@ -194,7 +197,9 @@ fn prompt_login(
             return None;
         }
     };
-    let matched = accounts::authenticate(endpoint, &name, &secret).unwrap_or(false);
+    let matched = accounts
+        .authenticate_within(&name, &secret, Deadline::Never)
+        .unwrap_or(false);
     if !matched {
         deny(bus, &name, "bad-secret");
         return None;

@@ -5,7 +5,8 @@
 //!
 //! Split out of `dragdemo.rs`; the code is unchanged.
 
-use user::messenger::{errno, Error};
+use user::messenger::clipboard::Clipboard;
+use user::messenger::errno;
 use user::sys;
 use user::trace;
 
@@ -28,7 +29,7 @@ pub(super) fn probe(token: u64, mime: &str) -> ! {
         sys::exit(1);
     }
     match client.paste_token(token, mime) {
-        Err(Error::Errno(code)) if code == -errno::EACCES => {
+        Err(error) if error.code() == -errno::EACCES => {
             trace::line!(trace::Channel::Dnd, "DENIED:PASS");
             sys::exit(0)
         }

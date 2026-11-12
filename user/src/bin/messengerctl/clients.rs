@@ -1,6 +1,7 @@
 //! Key, clipboard and MIME/open-with command output.
 
 use alloc::format;
+use user::messenger::client::Native;
 use user::messenger::{clipboard, keyd, mime};
 use user::sys;
 
@@ -10,11 +11,11 @@ use super::commands::report;
 /// Key material is never part of the protocol, so this command cannot and
 /// does not print any.
 pub(crate) fn print_keys() {
-    let client = match keyd::Client::connect() {
+    let client = match keyd::Client::try_connect(Native) {
         Ok(client) => client,
         Err(error) => return report(error.message()),
     };
-    match client.keys() {
+    match client.list() {
         Ok(keys) if keys.is_empty() => sys::write_str("keyd: no keys held\n"),
         Ok(keys) => {
             sys::write_str(&format!("keyd: {} key(s)\n", keys.len()));
@@ -33,7 +34,7 @@ pub(crate) fn print_keys() {
 /// (issue #115). Metadata only: the `Current` method has no content field, so
 /// this command cannot and does not print any payload bytes.
 pub(crate) fn print_clipboard() {
-    let client = match clipboard::Client::connect() {
+    let client = match clipboard::Client::try_connect(clipboard::Nested) {
         Ok(client) => client,
         Err(error) => return report(error.message()),
     };

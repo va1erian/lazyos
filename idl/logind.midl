@@ -4,7 +4,7 @@ service "os.lazy.logind" implements os.lazy.logind.v1;
 /// answers the query `messengerctl sessions` renders.
 interface os.lazy.logind.v1 {
     /// Snapshot the session table, oldest session first.
-    method Sessions() -> (active: U64 = 1, sessions: Array<Session> = 2);
+    method Sessions() -> (active: U64 = 1, sessions: Array<Session> = 2) deadline=1s;
 
     /// Log in from the graphical login screen (issue #623): authenticate
     /// `user` with `secret` and open their desktop session, the same path a

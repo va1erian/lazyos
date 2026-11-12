@@ -11,6 +11,8 @@
 //! never waits long on another service. Each try costs a reply buffer on the compositor's heap, which is
 //! a bump allocator, hence the small bound.
 
+use libmessenger::client::Deadline;
+use user::messenger::client::Native;
 use user::messenger::gpu;
 use user::sys;
 use user::trace::{self, Channel};
@@ -79,9 +81,8 @@ impl Refresh {
 
 /// `gpud`'s measured rate, if it runs, answers in time and measured a sane one.
 fn measured() -> Option<u32> {
-    let client = gpu::Client::connect().ok()?;
-    let beam = client.beam_by(Some(sys::clock() + DEADLINE_TICKS));
-    client.release();
+    let client = gpu::Client::try_connect(Native).ok()?;
+    let beam = client.get_beam_within(Deadline::ticks(DEADLINE_TICKS));
     sane(beam.ok()?.measured_millihz)
 }
 

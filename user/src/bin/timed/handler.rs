@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 use libmessenger::client::Connection;
 use user::messenger::client::Native;
 use user::messenger::timed::{self as api, wire};
-use user::messenger::{errno, services, Error, Message, Parcel, Result};
+use user::messenger::{confd, errno, services, Error, Message, Parcel, Result};
 use user::sys;
 
 use crate::ntp::Ntp;
@@ -89,7 +89,7 @@ fn now_reply(state: &State) -> Result<Vec<u8>> {
 /// the retained value never shows a stale zone.
 fn set_zone(state: &mut State, name: &str) -> Result<()> {
     let zone = timezone::find(name).ok_or(Error::Errno(-errno::EINVAL))?;
-    state.store_zone(zone)?;
+    state.store_zone(zone).map_err(confd::lower)?;
     state.next_tick = 0;
     Ok(())
 }

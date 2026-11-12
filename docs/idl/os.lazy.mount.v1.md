@@ -49,8 +49,8 @@ refusal says who holds it.
 | Mount | this interface | - | 2000 ms |
 | Unmount | this interface | - | 2000 ms |
 | List | this interface | - | 2000 ms |
-| Volumes | this interface | - | 2000 ms |
-| Eject | this interface | - | 2000 ms |
+| Volumes | this interface | - | 5000 ms |
+| Eject | this interface | - | 5000 ms |
 
 ## struct `MountInfo`
 

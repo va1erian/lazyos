@@ -81,6 +81,33 @@ impl<E> CallError<E> {
     pub fn is_timeout(&self) -> bool {
         matches!(self, CallError::Transport(errno) if *errno == Errno::TIMEDOUT)
     }
+
+    /// The error with its declared service error spelled out as a refusal:
+    /// `describe` gives the code and the sentence. For a caller that shows
+    /// or forwards any service's failure (`code`, `message` and `Display`
+    /// work on the untyped form).
+    pub fn flatten(self, describe: impl FnOnce(E) -> (u32, String)) -> CallError {
+        match self {
+            CallError::Transport(errno) => CallError::Transport(errno),
+            CallError::Remote {
+                code,
+                message,
+                detail,
+            } => CallError::Remote {
+                code,
+                message,
+                detail,
+            },
+            CallError::Service(error) => {
+                let (code, message) = describe(error);
+                CallError::Remote {
+                    code,
+                    message,
+                    detail: Detail::default(),
+                }
+            }
+        }
+    }
 }
 
 impl CallError {

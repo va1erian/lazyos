@@ -13,6 +13,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use lazyos_crypto::rng::Entropy;
+use libmessenger::client::Deadline;
+use user::messenger::client::Native;
 use user::messenger::pkgd;
 use user::sys;
 use user::trace;
@@ -77,6 +79,11 @@ enum Outcome {
     Retry,
 }
 
+/// The time left until the absolute tick `end`, as a call bound.
+fn left(end: u64) -> Deadline {
+    Deadline::ticks(end.saturating_sub(sys::clock()))
+}
+
 /// One sweep, within [`BUDGET`]. It deletes nothing unless `pkgd` finished
 /// provisioning without a failure (an app that failed to install is absent,
 /// not removed) and answered "not installed" for the same app at two sweeps
@@ -88,10 +95,10 @@ fn sweep(secrets: &mut AppSecrets, entropy: &mut Entropy, missed: &mut Vec<Strin
         return Outcome::Done(0);
     }
     let end = sys::clock() + BUDGET;
-    let Ok(client) = pkgd::Client::connect() else {
+    let Ok(client) = pkgd::Client::try_connect(Native) else {
         return Outcome::Retry;
     };
-    match client.provisioned_until(Some(end)) {
+    match client.provisioned_within(left(end)) {
         Ok(state) if state.done && state.failed == 0 => {}
         _ => return Outcome::Retry,
     }
@@ -100,7 +107,7 @@ fn sweep(secrets: &mut AppSecrets, entropy: &mut Entropy, missed: &mut Vec<Strin
         if sys::clock() >= end {
             return Outcome::Retry;
         }
-        match client.installed_until(&app, Some(end)) {
+        match client.installed_within(&app, left(end)) {
             Ok(Some(_)) => {}
             Ok(None) => now_missing.push(app),
             Err(_) => return Outcome::Retry,

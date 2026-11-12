@@ -21,6 +21,7 @@ answers the query `messengerctl sessions` renders.
 
 | Method | Scope interface | Scope id | Deadline |
 |---|---|---|---|
+| Sessions | this interface | - | 1000 ms |
 | Login | this interface | - | 30000 ms |
 | Logout | this interface | - | 3000 ms |
 

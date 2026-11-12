@@ -6,6 +6,7 @@
 
 use alloc::format;
 use alloc::string::String;
+use user::messenger::clipboard::Clipboard;
 use user::messenger::display::{self, Canvas, Color, DragKind, Rect};
 use user::messenger::{clipboard, errno, Error};
 use user::sys;
