@@ -6,8 +6,7 @@
 //! writer) each carried the same things: the file system the pickers browse,
 //! the folder they open in, a way to write and to launch, and a way to say
 //! what happened. [`AppHost`] is that, once. `xui_app::AppContext` implements
-//! it for LazyOS; [`testing::StdHost`] and [`testing::MemHost`] implement it
-//! for host tests.
+//! it for LazyOS; [`testing::StdHost`] implements it for host tests.
 //!
 //! # Evidence
 //!

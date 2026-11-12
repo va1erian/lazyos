@@ -8,9 +8,6 @@
 
 use libmessenger::{Header, VERSION};
 
-use super::{registry, Endpoint, Result};
-
-pub mod drivers;
 pub mod health;
 pub mod init;
 pub mod lifecycle;
@@ -53,9 +50,4 @@ pub fn header(interface_id: u64, method: u32) -> Header {
         reply_to: 0,
         deadline_ns: 0,
     }
-}
-
-/// Resolve a service's registered name.
-pub fn resolve_service(name: &str) -> Result<Endpoint> {
-    registry::resolve(name)
 }

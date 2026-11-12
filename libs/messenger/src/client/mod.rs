@@ -13,9 +13,9 @@ mod connection;
 mod deadline;
 mod errno;
 mod error;
-#[cfg(any(test, feature = "mock"))]
-mod mock;
 mod policy;
+#[cfg(any(test, feature = "mock"))]
+mod test_mock;
 #[cfg(test)]
 mod tests;
 mod waiting;
@@ -24,7 +24,7 @@ pub use connection::{is_peer_gone, Connection, Handle, Transport, CONNECT_BOUND}
 pub use deadline::{Deadline, TICK_MILLIS};
 pub use errno::Errno;
 pub use error::{remote_error, CallError, Detail, ERROR_FIELD};
-#[cfg(any(test, feature = "mock"))]
-pub use mock::{Mock, Recorded};
 pub use policy::{CallFailure, Retry};
+#[cfg(any(test, feature = "mock"))]
+pub use test_mock::{Mock, Recorded};
 pub use waiting::resolve_waiting;

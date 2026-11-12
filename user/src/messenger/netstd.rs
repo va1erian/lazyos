@@ -107,14 +107,6 @@ impl TcpStream {
     pub fn peer_addr(&self) -> Result<Addr> {
         self.client.peer_addr(self.sock)
     }
-
-    /// Wait until the socket is readable or closed (or `timeout_ms` passes).
-    pub fn wait_readable(&self, timeout_ms: u32) -> Result<bool> {
-        let ready = self
-            .client
-            .poll(self.sock, 1 << wire::READY_READABLE, timeout_ms)?;
-        Ok(ready != 0)
-    }
 }
 
 impl Drop for TcpStream {

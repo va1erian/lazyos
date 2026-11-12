@@ -6,7 +6,6 @@
 //! own text, and every call is bounded by the crate-wide default deadline.
 
 use super::client::Native;
-use super::{Error, Result};
 
 /// The generated `os.lazy.timed.v1` stubs.
 pub use messenger_generated::os_lazy_timed_v1 as wire;
@@ -22,11 +21,3 @@ pub use wire::NowReply as Now;
 
 /// A blocking client of the `timed` service: `Client::connect(Native)`.
 pub type Client = wire::Client<Native>;
-
-/// The retained `time/tick` topic, declared in `idl/timed.midl` (issue #307).
-pub const TICK_TOPIC: &str = wire::TOPIC_TIME_TICK;
-
-/// Decode a `time/tick` topic payload.
-pub fn decode_tick(payload: &[u8]) -> Result<wire::Tick> {
-    wire::decode_time_tick(payload).map_err(Error::Parcel)
-}

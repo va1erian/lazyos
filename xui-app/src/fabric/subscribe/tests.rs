@@ -4,7 +4,7 @@
 use libmessenger::{flags, Parcel};
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 
-use super::fake::{EmptyAs, Fake};
+use super::test_fake::{EmptyAs, Fake};
 use super::{wire, Qos, SubId, Subscriber, Wait, ETIMEDOUT, MAX_DRAIN};
 
 pub(super) type Client = Subscriber<Fake>;
