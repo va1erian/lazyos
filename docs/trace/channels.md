@@ -15,7 +15,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 |---|---|---|---|---|---|
 | `ABI` | `Abi` | `abi` | kernel, kernel suite, other | tools/abi | programs |
 | `ABOUT` | `About` | `about` | xui-app | sessions | programs |
-| `ACCOUNTS` | `Accounts` | `accounts` | user | sessions, tools/devtool, tools/services | programs |
+| `ACCOUNTS` | `Accounts` | `accounts` | user, xui-app | sessions, tools/devtool, tools/services | programs |
 | `APP` | `App` | `app` | user | sessions, tools/crash, tools/shutdown, tools/tray | programs |
 | `ARCHIVER` | `Archiver` | `archiver` | xui-app | sessions | programs |
 | `ASYNC` | `Async` | `async` | user | sessions | programs |
@@ -112,7 +112,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `SYSMOND` | `Sysmond` | `sysmond` | user | - | programs |
 | `TERM` | `Term` | `term` | lazyrad-os, xui-app | sessions, tools/abi, tools/accounts, tools/bench, tools/emusic, tools/fuse, tools/install, tools/keyd, tools/lazygui, tools/lazysky, tools/lazyweb, tools/nes, tools/rhai, tools/run_demo.py, tools/screenshot, tools/shutdown, tools/storage, tools/tray, tools/webd | programs |
 | `TEST` | `Test` | `test` | kernel, kernel suite, other, xui-app | sessions, tools/test | programs |
-| `THEME` | `Theme` | `theme` | user | sessions, tools/emusic | programs |
+| `THEME` | `Theme` | `theme` | user, xui-app | sessions, tools/emusic | programs |
 | `TIMECTL` | `Timectl` | `timectl` | user | tools/services | programs |
 | `TIMED` | `Timed` | `timed` | user | tools/ntp, tools/services | programs |
 | `TLS` | `Tls` | `tls` | other, xui-app | tools/net, tools/nettls | programs |
