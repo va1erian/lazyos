@@ -2,12 +2,12 @@
 //! values, fanout and the drop accounting behind `docs/messenger.md` section
 //! 7.2's QoS table.
 
-use alloc::collections::VecDeque;
 use alloc::string::String;
 use alloc::vec::Vec;
 use user::messenger::{self, errno, topics_client};
 
-use super::filter::{is_system_topic, Filter};
+use super::filter::is_system_topic;
+pub(super) use super::queue::Subscription;
 
 /// Largest number of live subscriptions the broker keeps: every service and
 /// app follows its topics through it (the per-service routers are gone).
@@ -17,8 +17,17 @@ pub(super) const MAX_SUBSCRIPTIONS: usize = 256;
 /// late subscriber's replay that never comes (the supervisors' per-service
 /// rows alone are a hundred).
 const MAX_TOPICS: usize = 1024;
-/// Largest number of parked `NextEvent` transactions.
-pub(super) const MAX_PENDING: usize = 64;
+/// Largest number of live subscriptions one task may hold.
+pub(super) const MAX_PER_OWNER: usize = 64;
+/// Largest number of parked `NextEvent` transactions: one per subscription
+/// at most (a new pull replaces its own stale entry), so a parked pull is
+/// never refused for want of a slot.
+pub(super) const MAX_PENDING: usize = MAX_SUBSCRIPTIONS;
+/// Bytes the broker holds for retained values and queued events together.
+/// A publish that would pass it is refused (`ENOMEM`) instead of growing
+/// the daemon without bound; 256 subscriptions of 64 events of 8 KiB could
+/// otherwise reach 128 MiB.
+pub(super) const MAX_BYTES: usize = 8 * 1024 * 1024;
 
 /// What one broker request produced: an optional immediate reply plus any
 /// parked pulls that the request satisfied.
@@ -29,6 +38,10 @@ pub struct Outcome {
     /// An event handed out in the request's own `NextEvent` reply; it is
     /// committed only when that reply reaches the caller.
     pub(super) delivery: Option<Delivery>,
+    /// A subscription this request created: rolled back when its reply
+    /// cannot be delivered (the caller timed out or is gone), or the
+    /// caller never learns the id and the entry leaks.
+    pub(super) created: Option<u64>,
 }
 
 /// A parked pull the broker can answer.
@@ -46,33 +59,6 @@ pub struct Wake {
 pub(super) struct Delivery {
     pub(super) subscription: u64,
     pub(super) sequence: u64,
-}
-
-/// One live subscription with its QoS queue and counters.
-pub(super) struct Subscription {
-    pub(super) id: u64,
-    /// Task slot the subscribing call came from (kernel-stamped).
-    pub(super) owner: u64,
-    pub(super) filter: Filter,
-    pub(super) qos: topics_client::Qos,
-    /// Events ready for delivery (latest / buffered / reliable).
-    pub(super) queue: VecDeque<topics_client::Event>,
-    /// Coalesced per-publisher slots (conflate only).
-    pub(super) conflated: Vec<(u64, topics_client::Event)>,
-    pub(super) drops: u64,
-    pub(super) delivered: u64,
-    pub(super) matched: u64,
-    /// The owner's doorbell (`Bell`, P7.2): this end of its channel.
-    pub(super) bell: Option<messenger::Endpoint>,
-    /// Whether the bell rang since the owner last found the queue empty.
-    pub(super) rung: bool,
-}
-
-impl Subscription {
-    /// Pending events across whichever queue the QoS uses.
-    pub(super) fn queued(&self) -> u64 {
-        (self.queue.len() + self.conflated.len()) as u64
-    }
 }
 
 /// One parked `NextEvent` transaction waiting for a matching publish.
@@ -95,6 +81,8 @@ pub struct Broker {
     pub(super) subscriptions: Vec<Subscription>,
     /// Retained value per topic, most recent last.
     retained: Vec<(String, topics_client::Event)>,
+    /// Bytes the retained values hold.
+    retained_bytes: usize,
     topics: Vec<TopicRow>,
     pub(super) pending: Vec<Pending>,
     pub(super) next_subscription: u64,
@@ -107,6 +95,7 @@ impl Default for Broker {
         Broker {
             subscriptions: Vec::new(),
             retained: Vec::new(),
+            retained_bytes: 0,
             topics: Vec::new(),
             pending: Vec::new(),
             next_subscription: 1,
@@ -139,6 +128,40 @@ impl Broker {
         (topics, subs)
     }
 
+    /// Bytes held for retained values and queued events.
+    pub(super) fn bytes_used(&self) -> usize {
+        self.retained_bytes
+            + self
+                .subscriptions
+                .iter()
+                .map(|sub| sub.bytes)
+                .sum::<usize>()
+    }
+
+    /// Whether `payload_len` bytes published on `topic` (every matching
+    /// subscription queues a copy, and a retained publish keeps one) fit the
+    /// memory budget.
+    pub(super) fn has_room(&self, topic: &str, payload_len: usize, retained: bool) -> bool {
+        let copies = self
+            .subscriptions
+            .iter()
+            .filter(|sub| sub.filter.matches(topic))
+            .count()
+            + usize::from(retained);
+        let each = payload_len + topic.len() + 64;
+        self.bytes_used()
+            .saturating_add(each.saturating_mul(copies))
+            <= MAX_BYTES
+    }
+
+    /// How many subscriptions `owner` holds.
+    pub(super) fn owned_by(&self, owner: u64) -> usize {
+        self.subscriptions
+            .iter()
+            .filter(|sub| sub.owner == owner)
+            .count()
+    }
+
     /// Fan one publish out to every matching subscription, applying each
     /// subscription's QoS policy and counting drops. Returns the match count,
     /// which the publish reply reports.
@@ -166,7 +189,7 @@ impl Broker {
             if self.subscriptions[index].filter.matches(topic) {
                 matched += 1;
                 self.subscriptions[index].matched += 1;
-                enqueue(&mut self.subscriptions[index], event.clone());
+                self.subscriptions[index].push(event.clone());
             }
         }
         self.touch_topic(topic, retained);
@@ -175,14 +198,18 @@ impl Broker {
 
     /// Remember (or replace) the retained value for a topic.
     fn set_retained(&mut self, event: &topics_client::Event) {
+        let cost = super::queue::event_cost(event);
         if let Some(slot) = self
             .retained
             .iter_mut()
             .find(|(topic, _)| topic == &event.topic)
         {
+            let old = super::queue::event_cost(&slot.1);
             slot.1 = event.clone();
+            self.retained_bytes = self.retained_bytes.saturating_sub(old) + cost;
         } else if self.retained.len() < MAX_TOPICS {
             self.retained.push((event.topic.clone(), event.clone()));
+            self.retained_bytes += cost;
         }
     }
 
@@ -198,7 +225,7 @@ impl Broker {
         let sub = &mut self.subscriptions[index];
         for mut event in matches {
             event.retained = true;
-            enqueue(sub, event);
+            sub.push(event);
         }
         debug_assert_eq!(sub.id, id);
     }
@@ -220,7 +247,7 @@ impl Broker {
                 self.pending.remove(index);
                 continue;
             };
-            match peek(&self.subscriptions[sub_index]) {
+            match self.subscriptions[sub_index].peek() {
                 Some(event) => {
                     let sequence = event.sequence;
                     let encoded = super::wire::reply_event(event);
@@ -261,28 +288,7 @@ impl Broker {
             return;
         };
         sub.drops += 1;
-        match sub.qos {
-            topics_client::Qos::Conflate => {
-                if sub
-                    .conflated
-                    .first()
-                    .is_some_and(|(_, event)| event.sequence == sequence)
-                {
-                    sub.conflated.remove(0);
-                }
-            }
-            topics_client::Qos::Reliable
-            | topics_client::Qos::Latest
-            | topics_client::Qos::Buffered(_) => {
-                if sub
-                    .queue
-                    .front()
-                    .is_some_and(|event| event.sequence == sequence)
-                {
-                    sub.queue.pop_front();
-                }
-            }
-        }
+        sub.retire(sequence);
     }
 
     /// Retire the event a successful reply carried. The head is checked by
@@ -297,26 +303,8 @@ impl Broker {
             return;
         };
         sub.delivered += 1;
-        match sub.qos {
-            topics_client::Qos::Reliable => {}
-            topics_client::Qos::Conflate => {
-                if sub
-                    .conflated
-                    .first()
-                    .is_some_and(|(_, event)| event.sequence == sequence)
-                {
-                    sub.conflated.remove(0);
-                }
-            }
-            topics_client::Qos::Latest | topics_client::Qos::Buffered(_) => {
-                if sub
-                    .queue
-                    .front()
-                    .is_some_and(|event| event.sequence == sequence)
-                {
-                    sub.queue.pop_front();
-                }
-            }
+        if sub.qos != topics_client::Qos::Reliable {
+            sub.retire(sequence);
         }
     }
 
@@ -412,74 +400,5 @@ impl Broker {
                 retained: row.retained,
             })
             .collect()
-    }
-}
-
-/// Queue one event under a subscription's QoS policy.
-///
-/// * `latest`: one slot; a new event replaces the old one (a drop).
-/// * `buffered`: `depth` slots; overflow drops the oldest.
-/// * `conflate`: the latest event per publisher; replacing a publisher's
-///   pending event drops the coalesced one. The window is "until consumed":
-///   without a clock the broker cannot time-window, and the subscriber's
-///   `NextEvent` is the natural boundary.
-/// * `reliable`: like buffered, but delivery does not pop; [`take`] hands out
-///   the head until the subscriber acks it.
-fn enqueue(sub: &mut Subscription, event: topics_client::Event) {
-    match sub.qos {
-        topics_client::Qos::Latest => {
-            if !sub.queue.is_empty() {
-                sub.queue.pop_front();
-                sub.drops += 1;
-            }
-            sub.queue.push_back(event);
-        }
-        topics_client::Qos::Buffered(_) => {
-            // Clamped again here: a subscription's depth bounds broker memory.
-            let depth = sub.qos.depth() as usize;
-            while sub.queue.len() >= depth {
-                sub.queue.pop_front();
-                sub.drops += 1;
-            }
-            sub.queue.push_back(event);
-        }
-        topics_client::Qos::Reliable => {
-            let depth = topics_client::Qos::RELIABLE_DEPTH as usize;
-            while sub.queue.len() >= depth {
-                sub.queue.pop_front();
-                sub.drops += 1;
-            }
-            sub.queue.push_back(event);
-        }
-        topics_client::Qos::Conflate => {
-            if let Some(slot) = sub
-                .conflated
-                .iter_mut()
-                .find(|(publisher, _)| *publisher == event.publisher)
-            {
-                *slot = (event.publisher, event);
-                sub.drops += 1;
-            } else {
-                let window = topics_client::Qos::CONFLATE_WINDOW as usize;
-                while sub.conflated.len() >= window {
-                    sub.conflated.remove(0);
-                    sub.drops += 1;
-                }
-                sub.conflated.push((event.publisher, event));
-            }
-        }
-    }
-}
-
-/// The next event for a subscription, without consuming it: the pop happens
-/// in [`Broker::commit`] once the reply carrying the event has reached the
-/// subscriber. Borrowed rather than cloned: `reply_event` only needs to read
-/// it, and cloning a payload-sized event on every poll is an avoidable copy.
-pub(super) fn peek(sub: &Subscription) -> Option<&topics_client::Event> {
-    match sub.qos {
-        topics_client::Qos::Conflate => sub.conflated.first().map(|(_, event)| event),
-        topics_client::Qos::Reliable
-        | topics_client::Qos::Latest
-        | topics_client::Qos::Buffered(_) => sub.queue.front(),
     }
 }

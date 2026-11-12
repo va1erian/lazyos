@@ -87,6 +87,24 @@ fn the_first_resolve_waits_the_runtimes_bound_and_try_connect_does_not() {
 }
 
 #[test]
+fn only_a_poll_carries_the_poll_hint() {
+    let conn = connection();
+    call(&conn).unwrap();
+    conn.call(
+        IFACE,
+        7,
+        Vec::new(),
+        Vec::new(),
+        Deadline::Poll,
+        Retry::Safe,
+    )
+    .unwrap();
+    let calls = conn.transport().calls();
+    assert_eq!(calls[0].header.deadline_ns, 0);
+    assert_eq!(calls[1].header.deadline_ns, POLL_HINT_NS);
+}
+
+#[test]
 fn a_calls_first_connect_never_waits_longer_than_its_deadline() {
     let conn = Connection::new(Mock::new(), NAME);
     // call_as asks for 500 ms, under the mock's 10 s connect bound.

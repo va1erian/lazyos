@@ -260,7 +260,10 @@ pub const METHOD_BELL_RETRY: libmessenger::client::Retry = libmessenger::client:
 
 /// Publish `payload` under the literal `topic`; `retained` also remembers
 /// it as the topic's retained value. Returns how many subscriptions the
-/// event reached.
+/// event reached. Never resent, and the broker cannot undo a publish whose
+/// reply was lost: a timeout means "maybe published". A full broker (its
+/// byte budget for retained values and queued events) refuses with
+/// `ENOMEM`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PublishArgs {
     pub topic: alloc::string::String,
@@ -321,6 +324,9 @@ pub fn decode_publish_reply(body: &[u8]) -> Result<PublishReply, Error> {
 /// Create a subscription for `filter`. `qos` is a `Qos` value; `depth` is
 /// the queue depth for `Buffered` (clamped to 1..=64) and ignored by the
 /// other policies, which use fixed depths. Retained values are replayed.
+/// One task holds at most 64 subscriptions (`EAGAIN` beyond); a subscribe
+/// whose reply cannot be delivered is rolled back, so a timeout leaks
+/// nothing.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SubscribeArgs {
     pub filter: alloc::string::String,
@@ -813,7 +819,10 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Publish `payload` under the literal `topic`; `retained` also remembers
     /// it as the topic's retained value. Returns how many subscriptions the
-    /// event reached.
+    /// event reached. Never resent, and the broker cannot undo a publish whose
+    /// reply was lost: a timeout means "maybe published". A full broker (its
+    /// byte budget for retained values and queued events) refuses with
+    /// `ENOMEM`.
     ///
     /// Waits for the reply at most 500 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn publish(&self, topic: &str, payload: &[u8], retained: bool) -> Result<u64, ClientError> {
@@ -835,6 +844,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Create a subscription for `filter`. `qos` is a `Qos` value; `depth` is
     /// the queue depth for `Buffered` (clamped to 1..=64) and ignored by the
     /// other policies, which use fixed depths. Retained values are replayed.
+    /// One task holds at most 64 subscriptions (`EAGAIN` beyond); a subscribe
+    /// whose reply cannot be delivered is rolled back, so a timeout leaks
+    /// nothing.
     ///
     /// Waits for the reply at most 500 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn subscribe(&self, filter: &str, qos: u32, depth: u32) -> Result<u64, ClientError> {
@@ -1000,12 +1012,18 @@ impl<T: libmessenger::client::Transport> Client<T> {
 pub trait Server {
     /// Publish `payload` under the literal `topic`; `retained` also remembers
     /// it as the topic's retained value. Returns how many subscriptions the
-    /// event reached.
+    /// event reached. Never resent, and the broker cannot undo a publish whose
+    /// reply was lost: a timeout means "maybe published". A full broker (its
+    /// byte budget for retained values and queued events) refuses with
+    /// `ENOMEM`.
     fn publish(&mut self, cx: &libmessenger::server::Caller, topic: alloc::string::String, payload: alloc::vec::Vec<u8>, retained: bool) -> Result<u64, libmessenger::server::Fault>;
 
     /// Create a subscription for `filter`. `qos` is a `Qos` value; `depth` is
     /// the queue depth for `Buffered` (clamped to 1..=64) and ignored by the
     /// other policies, which use fixed depths. Retained values are replayed.
+    /// One task holds at most 64 subscriptions (`EAGAIN` beyond); a subscribe
+    /// whose reply cannot be delivered is rolled back, so a timeout leaks
+    /// nothing.
     fn subscribe(&mut self, cx: &libmessenger::server::Caller, filter: alloc::string::String, qos: u32, depth: u32) -> Result<u64, libmessenger::server::Fault>;
 
     /// Drop a subscription; later publishes stop matching it.

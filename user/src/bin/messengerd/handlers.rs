@@ -2,7 +2,6 @@
 //! behind the generated `dispatch`, the one request that parks (`NextEvent`),
 //! and the endpoint-level wake/reply plumbing.
 
-use alloc::collections::VecDeque;
 use alloc::string::String;
 use alloc::vec::Vec;
 use libmessenger::server::{self, Caller, Fault};
@@ -11,7 +10,8 @@ use user::messenger::{self, errno, topics_client};
 use user::sys;
 
 use super::broker::{
-    peek, Broker, Delivery, Outcome, Pending, Subscription, MAX_PENDING, MAX_SUBSCRIPTIONS,
+    Broker, Delivery, Outcome, Pending, Subscription, MAX_BYTES, MAX_PENDING, MAX_PER_OWNER,
+    MAX_SUBSCRIPTIONS,
 };
 use super::filter::{
     holds_nic_name, is_system_topic, may_publish_system, nic_link_ifname, valid_topic, Filter,
@@ -95,6 +95,12 @@ impl generated::Server for Request<'_> {
         if !may_publish(cx, &topic) {
             return Err(refuse(errno::EACCES));
         }
+        // `ENOMEM`, not a silent drop: the publisher learns the broker is
+        // full. A publish is never retried, so a timeout means "maybe
+        // published" (idl/topics.midl).
+        if !self.broker.has_room(&topic, payload.len(), retained) {
+            return Err(refuse(errno::ENOMEM));
+        }
         let matched = self.broker.publish(&topic, cx.sender, payload, retained);
         self.outcome.wakes = self.broker.satisfy();
         Ok(matched)
@@ -117,22 +123,20 @@ impl generated::Server for Request<'_> {
         if broker.subscriptions.len() >= MAX_SUBSCRIPTIONS {
             return Err(refuse(errno::ENOMEM));
         }
+        // One task cannot take the whole table, nor a full memory budget.
+        if broker.owned_by(cx.sender) >= MAX_PER_OWNER {
+            return Err(refuse(errno::EAGAIN));
+        }
+        if broker.bytes_used() >= MAX_BYTES {
+            return Err(refuse(errno::ENOMEM));
+        }
         let id = broker.next_subscription;
         broker.next_subscription += 1;
-        broker.subscriptions.push(Subscription {
-            id,
-            owner: cx.sender,
-            filter: parsed,
-            qos,
-            queue: VecDeque::new(),
-            conflated: Vec::new(),
-            drops: 0,
-            delivered: 0,
-            matched: 0,
-            bell: None,
-            rung: false,
-        });
+        broker
+            .subscriptions
+            .push(Subscription::new(id, cx.sender, parsed, qos));
         broker.replay_retained(broker.subscriptions.len() - 1, id);
+        self.outcome.created = Some(id);
         Ok(id)
     }
 
@@ -148,16 +152,7 @@ impl generated::Server for Request<'_> {
 
     fn ack(&mut self, cx: &Caller, subscription: u64, sequence: u64) -> Result<(), Fault> {
         let index = self.owned(subscription, cx.sender)?;
-        let sub = &mut self.broker.subscriptions[index];
-        if sub.qos == topics_client::Qos::Reliable {
-            while sub
-                .queue
-                .front()
-                .is_some_and(|front| front.sequence <= sequence)
-            {
-                sub.queue.pop_front();
-            }
-        }
+        self.broker.subscriptions[index].ack(sequence);
         Ok(())
     }
 
@@ -201,7 +196,7 @@ fn pull(broker: &mut Broker, message: &messenger::Message) -> Result<Outcome, Fa
         return Err(refuse(errno::EPERM));
     }
     let mut outcome = Outcome::default();
-    match peek(&broker.subscriptions[index]) {
+    match broker.subscriptions[index].peek() {
         Some(event) => {
             let sequence = event.sequence;
             match wire::reply_event(event) {
@@ -225,6 +220,12 @@ fn pull(broker: &mut Broker, message: &messenger::Message) -> Result<Outcome, Fa
             // The owner drained the queue: the next event rings its bell
             // again.
             broker.subscriptions[index].rung = false;
+            // A poll (the caller's deadline already passed) is ended by the
+            // kernel when this turn returns, so parking it would leave a
+            // dead transaction in the table.
+            if message.parcel.header.deadline_ns == libmessenger::client::POLL_HINT_NS {
+                return Ok(outcome);
+            }
             let txn = message.txn.ok_or_else(|| refuse(errno::EINVAL))?;
             // One parked pull per (subscription, owner): the client's
             // retry/timeout replaces its own stale entry.
@@ -299,7 +300,13 @@ fn serve_request(
                     if let Some(delivery) = outcome.delivery {
                         broker.commit(delivery.subscription, delivery.sequence);
                     }
+                } else if let Some(id) = outcome.created {
+                    // The caller never got the id: nobody can unsubscribe.
+                    let _ = broker.remove(id, message.sender);
                 }
+            } else if let Some(id) = outcome.created {
+                // A subscribe sent one way has no reply to carry the id.
+                let _ = broker.remove(id, message.sender);
             }
         }
         Err(fault) => {

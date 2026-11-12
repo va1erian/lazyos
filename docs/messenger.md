@@ -143,7 +143,7 @@ validates in place with `ParcelView`).
 |  u16 version (=2)          u16 flags      u32 object_count   |
 |  u64 interface_id          u32 method     u32 body_len       |
 |  u64 txn_id                u64 reply_to (0 if a call)        |
-|  u64 deadline_ns (0 = none)                                  |
+|  u64 deadline_ns (0 = none; 1 = poll hint, see below)        |
 +--------------------------------------------------------------+
 | Body: sequence of TLV fields                                 |
 |   u32 type (kind | id << 8)   u32 len   u8[len] value        |
@@ -236,7 +236,11 @@ it has not answered ends with `ERR_TIMEOUT`, and a late reply is refused. A
 callee that never receives the poll cannot stall the caller: the poll expires
 `POLL_GRACE_TICKS` (3 ticks) after it was sent, replaced once received by
 `POLL_SERVICE_TICKS` (100 ticks), which only bounds a callee that wedges
-mid-request. Cancel and peer death end it as usual. The mechanism and its
+mid-request. Cancel and peer death end it as usual. The kernel does not say
+how long a caller waits, so a client that polls also sets the header's
+`deadline_ns` to `POLL_HINT_NS` (1, advisory); a long-poll service reads it
+to answer or return at once instead of parking a transaction that is already
+dead. The mechanism and its
 history are in [`architecture/ipc-core.md`](architecture/ipc-core.md),
 "Poll calls".
 

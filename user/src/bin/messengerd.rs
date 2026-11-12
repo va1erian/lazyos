@@ -38,6 +38,8 @@ mod broker;
 mod filter;
 #[path = "messengerd/handlers.rs"]
 mod handlers;
+#[path = "messengerd/queue.rs"]
+mod queue;
 #[path = "messengerd/soak.rs"]
 mod soak;
 #[path = "messengerd/wire.rs"]

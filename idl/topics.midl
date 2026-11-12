@@ -16,11 +16,17 @@ interface os.lazy.messenger.topics.v1 {
     default deadline=5s;
     /// Publish `payload` under the literal `topic`; `retained` also remembers
     /// it as the topic's retained value. Returns how many subscriptions the
-    /// event reached.
+    /// event reached. Never resent, and the broker cannot undo a publish whose
+    /// reply was lost: a timeout means "maybe published". A full broker (its
+    /// byte budget for retained values and queued events) refuses with
+    /// `ENOMEM`.
     method Publish(topic: String = 1, payload: Bytes = 2, retained: Bool = 3) -> (matched: U64 = 1) deadline=500ms;
     /// Create a subscription for `filter`. `qos` is a `Qos` value; `depth` is
     /// the queue depth for `Buffered` (clamped to 1..=64) and ignored by the
     /// other policies, which use fixed depths. Retained values are replayed.
+    /// One task holds at most 64 subscriptions (`EAGAIN` beyond); a subscribe
+    /// whose reply cannot be delivered is rolled back, so a timeout leaks
+    /// nothing.
     method Subscribe(filter: String = 1, qos: U32 = 2, depth: U32 = 3) -> (subscription: U64 = 1) deadline=500ms;
     /// Drop a subscription; later publishes stop matching it.
     method Unsubscribe(subscription: U64 = 1) -> ();

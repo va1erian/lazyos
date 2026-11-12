@@ -17,6 +17,14 @@ pub type Handle = u64;
 /// How long [`Transport::connect_bound`] waits for a name to register.
 pub const CONNECT_BOUND: Deadline = Deadline::secs(10);
 
+/// The header's `deadline_ns` of a call made with [`Deadline::Poll`]. The
+/// kernel does not tell a callee how long its caller waits, and ends a poll
+/// the moment the callee returns to `recv` unanswered, so a long-poll service
+/// (the topics broker) reads this hint to answer or refuse at once instead of
+/// parking a transaction that is already dead. Advisory: a caller can only
+/// mislead the service about its own call.
+pub const POLL_HINT_NS: u64 = 1;
+
 /// What a runtime provides for Messenger calls: the native `user` library,
 /// the std programs over `lazyos-sys`, and a [`super::Mock`] in tests. It
 /// moves parcels and knows nothing of interfaces, errors or retries; that
@@ -184,13 +192,16 @@ impl<T: Transport> Connection<T> {
         until: Deadline,
         retry: Retry,
     ) -> Result<Parcel, CallError> {
-        let request = Self::request(
+        let mut request = Self::request(
             interface,
             method,
             self.transport.call_flags(),
             body,
             objects,
         );
+        if until == Deadline::Poll {
+            request.header.deadline_ns = POLL_HINT_NS;
+        }
         let reply = self
             .call_once_more(&request, until, retry)
             .map_err(CallError::Transport)?;

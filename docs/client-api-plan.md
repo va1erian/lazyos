@@ -967,3 +967,33 @@ like the tests they serve (`xui-app/src/fabric/subscribe/test_fake.rs`,
   was still hand-framed then; it has since moved to the generated `topics`
   client and `messengerd` to the generated dispatch (section 3.5, "As built
   (topics client)").
+
+### Runtime review fixes (as built)
+
+A fresh-context review of the runtime, the generator and `messengerd` found:
+
+* A method that declares no object field now refuses an attached object
+  (`libmessenger::server::no_objects` wraps its decoder; `EINVAL`), and the
+  message releases it on drop. Before, the claim after a successful decode
+  forgot the handle, so 256 `Get` calls with a buffer filled the daemon table.
+* `retry=safe` is refused on a method that carries objects (the first
+  send moved them). Id-based setters (`audio.SetVolume`/`SetMute`, mixer
+  `SetStreamVolume`, display `SetTitle`/`SetSizeHints`/`SetCloseMode`/
+  `SetIconGeometry`, `SetCursor`), `confd.Delete`, `init.Home` and net
+  `Ping` are `retry=never`: a resend can reach a reused id, run an archive
+  twice or ping twice.
+* A call's first connect waits `min(call deadline, connect bound)`; a poll
+  resolves once. A `Poll` call stamps `header.deadline_ns = POLL_HINT_NS`
+  (the kernel does not tell a callee its caller's deadline), so `messengerd`
+  does not park a pull the kernel is about to end. `MAX_PENDING` equals the
+  subscription cap, and `central::Feed` treats `EAGAIN` as transient.
+* `messengerd` rolls a subscription back when `Subscribe`'s reply is not
+  delivered, caps a task at 64 subscriptions (`EAGAIN`) and holds retained
+  values plus queued events to 8 MiB (`ENOMEM` on publish).
+* `user::messenger::client::Held` fails with `EPIPE` once evicted and released.
+
+Follow-up: `messengerd` keys subscription ownership on `Caller::sender`, a
+reusable task slot. The kernel Caller block carries no pid or generation, so
+a task reusing a dead owner's slot could touch (and a dead owner's
+subscriptions linger until unsubscribed). Keying on a stable task identity
+needs a kernel change (a generation in the stamp) and is not done here.

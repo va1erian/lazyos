@@ -33,7 +33,10 @@ fn connect() {
 ///
 /// Publish `payload` under the literal `topic`; `retained` also remembers
 /// it as the topic's retained value. Returns how many subscriptions the
-/// event reached.
+/// event reached. Never resent, and the broker cannot undo a publish whose
+/// reply was lost: a timeout means "maybe published". A full broker (its
+/// byte budget for retained values and queued events) refuses with
+/// `ENOMEM`.
 fn publish(topic, payload, retained) {
     msg::connect("os.lazy.messenger.topics.v1").invoke("Publish", [topic, payload, retained])
 }
@@ -43,6 +46,9 @@ fn publish(topic, payload, retained) {
 /// Create a subscription for `filter`. `qos` is a `Qos` value; `depth` is
 /// the queue depth for `Buffered` (clamped to 1..=64) and ignored by the
 /// other policies, which use fixed depths. Retained values are replayed.
+/// One task holds at most 64 subscriptions (`EAGAIN` beyond); a subscribe
+/// whose reply cannot be delivered is rolled back, so a timeout leaks
+/// nothing.
 fn subscribe(filter, qos, depth) {
     msg::connect("os.lazy.messenger.topics.v1").invoke("Subscribe", [filter, qos, depth])
 }

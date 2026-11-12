@@ -17,6 +17,7 @@
 //!   ([`Feed::drain_rung`]) asks the bell instead: that is a local message
 //!   queue, never a call to the broker, so looking is cheap at any rate.
 //!
+//! A busy broker (`EAGAIN`) keeps the stream, read again at the next drain.
 //! A transport failure (the broker went away) drops the stream, and it is
 //! made again, replay included.
 
@@ -25,13 +26,18 @@ use alloc::vec::Vec;
 use messenger_generated::topics::{Event, NextError, Subscription};
 
 use super::Bus;
-use crate::messenger::{Endpoint, Result};
+use crate::messenger::{errno, Endpoint, Error, Result};
 use crate::sys;
 
 /// Ticks (100 Hz) between attempts to make a missing stream.
 pub const RETRY_TICKS: u64 = 50;
 /// Ticks one call to the broker may take.
 const BOUND_TICKS: u64 = 50;
+
+/// Whether the broker refused a pull as busy, a transient state.
+fn is_busy(error: &Error) -> bool {
+    error.errno() == Some(-errno::EAGAIN)
+}
 
 /// The typed stream a [`Feed`] holds.
 pub type Stream<T> = Subscription<super::Subscription, T>;
@@ -162,6 +168,12 @@ impl<T> Feed<T> {
                 Ok(Some(event)) => apply(event),
                 Ok(None) => return,
                 Err(NextError::Decode(_)) => {}
+                // The broker is busy (`EAGAIN`), not gone: keep the stream and
+                // read again at the next drain.
+                Err(NextError::Transport(error)) if is_busy(&error) => {
+                    self.fresh = true;
+                    return;
+                }
                 Err(NextError::Transport(_)) => {
                     self.stream = None;
                     return;

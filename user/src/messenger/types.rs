@@ -150,7 +150,7 @@ fn topics_message(code: i64) -> &'static str {
     } else if code == errno::E2BIG {
         "the event payload exceeds the topic broker's limit"
     } else if code == errno::ENOMEM {
-        "the topic broker is out of subscription slots"
+        "the topic broker is out of subscription slots or memory"
     } else {
         "the topic request failed"
     }

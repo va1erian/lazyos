@@ -20,7 +20,7 @@ mod test_mock;
 mod tests;
 mod waiting;
 
-pub use connection::{is_peer_gone, Connection, Handle, Transport, CONNECT_BOUND};
+pub use connection::{is_peer_gone, Connection, Handle, Transport, CONNECT_BOUND, POLL_HINT_NS};
 pub use deadline::{Deadline, TICK_MILLIS};
 pub use errno::Errno;
 pub use error::{remote_error, CallError, Detail, ERROR_FIELD};
