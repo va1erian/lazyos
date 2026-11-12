@@ -640,12 +640,10 @@ carries a channel end), plus the one-way `Ready` it rings with. `messengerctl`
 and `dbgd` use `Bus` and the raw client (`Bus::client`, for the hostile-depth
 check and the envelope-bare view `dbgd msg.topic` shows). Measured: 541,321 to
 540,649 production lines (-672), and the topics hand-framing lint entries
-(`topics_client/{bell,mod,wire}.rs`, 8 hits) are gone. Left: `NextEvent` is
-`retry=never`, so the native transport issues its two-step call
-(`begin_call`, `await_reply`) for every poll where the hand client made one
-`call`; a `retry=safe` on `NextEvent` (the broker commits an event only when
-its reply lands, so a resend is safe) would give one syscall back, at the cost
-of a generated-file change.
+(`topics_client/{bell,mod,wire}.rs`, 8 hits) are gone. `NextEvent` is
+`retry=safe` (the broker commits an event only when its reply lands, so a
+resend is served the same head), which keeps each poll to one `call` syscall
+as the hand client had.
 
 ### 3.6 Generated crate layout
 

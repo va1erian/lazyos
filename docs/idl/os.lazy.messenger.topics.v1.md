@@ -40,7 +40,7 @@ id.
 | Publish | this interface | - | 500 ms | never |
 | Subscribe | this interface | - | 500 ms | never |
 | Unsubscribe | this interface | - | 5000 ms | never |
-| NextEvent | this interface | - | 5000 ms | never |
+| NextEvent | this interface | - | 5000 ms | safe |
 | Ack | this interface | - | 5000 ms | never |
 | ListTopics | this interface | - | 5000 ms | safe |
 | Stats | this interface | - | 5000 ms | safe |

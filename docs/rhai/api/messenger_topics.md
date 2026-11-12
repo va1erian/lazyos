@@ -85,6 +85,8 @@ let result = sys::messenger_topics::unsubscribe(subscription);
 
 Wait for (or, with an expired deadline, poll) the next event of a
 subscription. A `Reliable` subscription redelivers its head until acked.
+Safe to resend: the broker pops an event only once its reply reached the
+caller, so a resent poll is served the same head again.
 
 Arguments:
 

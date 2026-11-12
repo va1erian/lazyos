@@ -26,7 +26,9 @@ interface os.lazy.messenger.topics.v1 {
     method Unsubscribe(subscription: U64 = 1) -> ();
     /// Wait for (or, with an expired deadline, poll) the next event of a
     /// subscription. A `Reliable` subscription redelivers its head until acked.
-    method NextEvent(subscription: U64 = 1) -> (event: Event = 1);
+    /// Safe to resend: the broker pops an event only once its reply reached the
+    /// caller, so a resent poll is served the same head again.
+    method NextEvent(subscription: U64 = 1) -> (event: Event = 1) retry=safe;
     /// Retire every event up to `sequence` on a `Reliable` subscription.
     method Ack(subscription: U64 = 1, sequence: U64 = 2) -> ();
     /// Topics the broker has seen, with live subscriber counts.

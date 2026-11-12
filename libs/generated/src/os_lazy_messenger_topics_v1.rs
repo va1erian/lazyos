@@ -221,7 +221,7 @@ pub const METHOD_NEXTEVENT: u32 = 1278354512;
 pub const METHOD_NEXTEVENT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
 /// Whether a client resends `NextEvent` to a restarted service after the peer died
 /// handling it (`retry` in the `.midl`; `Never` unless stated).
-pub const METHOD_NEXTEVENT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
+pub const METHOD_NEXTEVENT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Ack` method id.
 pub const METHOD_ACK: u32 = 483717538;
 /// How long a client waits for `Ack`'s reply: at most 5000 ms (`deadline` in the `.midl`).
@@ -403,6 +403,8 @@ pub fn decode_unsubscribe_args(body: &[u8]) -> Result<UnsubscribeArgs, Error> {
 
 /// Wait for (or, with an expired deadline, poll) the next event of a
 /// subscription. A `Reliable` subscription redelivers its head until acked.
+/// Safe to resend: the broker pops an event only once its reply reached the
+/// caller, so a resent poll is served the same head again.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct NextEventArgs {
     pub subscription: u64,
@@ -871,8 +873,10 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Wait for (or, with an expired deadline, poll) the next event of a
     /// subscription. A `Reliable` subscription redelivers its head until acked.
+    /// Safe to resend: the broker pops an event only once its reply reached the
+    /// caller, so a resent poll is served the same head again.
     ///
-    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn next_event(&self, subscription: u64) -> Result<Event, ClientError> {
         self.next_event_within(subscription, METHOD_NEXTEVENT_DEADLINE)
     }
@@ -1009,6 +1013,8 @@ pub trait Server {
 
     /// Wait for (or, with an expired deadline, poll) the next event of a
     /// subscription. A `Reliable` subscription redelivers its head until acked.
+    /// Safe to resend: the broker pops an event only once its reply reached the
+    /// caller, so a resent poll is served the same head again.
     fn next_event(&mut self, cx: &libmessenger::server::Caller, subscription: u64) -> Result<Event, libmessenger::server::Fault>;
 
     /// Retire every event up to `sequence` on a `Reliable` subscription.

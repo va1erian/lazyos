@@ -3597,7 +3597,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "NextEvent",
                 id: 1278354512,
                 oneway: false,
-                doc: "Wait for (or, with an expired deadline, poll) the next event of a\nsubscription. A `Reliable` subscription redelivers its head until acked.",
+                doc: "Wait for (or, with an expired deadline, poll) the next event of a\nsubscription. A `Reliable` subscription redelivers its head until acked.\nSafe to resend: the broker pops an event only once its reply reached the\ncaller, so a resent poll is served the same head again.",
                 params: &[Field { name: "subscription", id: 1, ty: Ty::U64 }],
                 returns: &[Field { name: "event", id: 1, ty: Ty::Struct("Event") }],
                 objects: &[],

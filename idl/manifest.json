@@ -2543,7 +2543,8 @@
         "name": "NextEvent",
         "id": 1278354512,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Ack",
