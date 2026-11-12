@@ -3,7 +3,7 @@
 //! `Remove`, boot reconciliation) are in [`install`](super::install).
 //!
 //! Every method answers: a refusal is a structured error (errno-style code plus
-//! friendly text, `messenger::pkgd::error_reply`), never silence, so a caller
+//! friendly text, built by the generated `dispatch`), never silence, so a caller
 //! never waits on a request that was dropped.
 
 use alloc::format;
@@ -16,8 +16,7 @@ use pkgstore::provision::Shipped;
 use user::messenger::accounts::{self, Directory};
 use user::messenger::client::Native;
 use user::messenger::pkgd::wire::ProvisionState;
-use user::messenger::pkgd::{self, wire, Failure};
-use user::messenger::{Message, Parcel};
+use user::messenger::pkgd::{wire, Failure};
 
 use super::audit::Audit;
 use super::develop::Logouts;
@@ -27,6 +26,8 @@ use super::provision::Pass;
 use super::registry::Registry;
 use super::store;
 use libmessenger::client::{Connection, Deadline};
+use libmessenger::server::{Caller as Stamped, Fault};
+use user::messenger::pkgd::Installed;
 
 pub(crate) const EPERM: i64 = 1;
 pub(crate) const ENOENT: i64 = 2;
@@ -114,110 +115,17 @@ impl Pkgd {
         }
     }
 
-    /// Answer one request.
-    pub(crate) fn dispatch(&mut self, message: &Message) -> Parcel {
-        let method = message.method();
-        if message.interface_id() != pkgd::INTERFACE {
-            return pkgd::error_reply(method, EINVAL, "that is not a package manager request");
-        }
-        let Some(caller) = caller_of(message) else {
-            return pkgd::error_reply(method, EPERM, "the caller's identity could not be read");
-        };
-        // The user's shell (the Terminal) is a labelled caller that acts as
-        // the session's owner; every other labelled caller stays refused.
-        let caller = if caller.label_id != 0 && method != wire::METHOD_LABELNAME {
+    /// The identity a request is judged by: the stamped one, except that the
+    /// user's shell (the Terminal), a labelled caller, acts as the session's
+    /// owner; every other labelled caller stays refused. `LabelName` keeps the
+    /// raw identity (`elevd` asks it).
+    fn identity(&mut self, cx: &Stamped, labelname: bool) -> Caller {
+        let caller = caller_of(cx);
+        if caller.label_id != 0 && !labelname {
             let shell = self.is_shell_label(caller.label_id);
             pkgstore::shellrole::as_session_owner(caller, shell)
         } else {
             caller
-        };
-        match self.handle(method, &caller, &message.parcel.body) {
-            Ok(body) => pkgd::parcel(method, body),
-            Err(failure) => pkgd::error_reply(method, failure.code, &failure.text),
-        }
-    }
-
-    fn handle(&mut self, method: u32, caller: &Caller, body: &[u8]) -> Result<Vec<u8>, Failure> {
-        let malformed = |_| fail(EINVAL, "the request is malformed");
-        match method {
-            wire::METHOD_INSPECT => {
-                let args = wire::decode_inspect_args(body).map_err(malformed)?;
-                let info = self.inspect(caller, &args.path)?;
-                wire::encode_inspect_reply(&wire::InspectReply { info }).map_err(malformed)
-            }
-            wire::METHOD_INSTALL => {
-                let args = wire::decode_install_args(body).map_err(malformed)?;
-                let app = self.install(caller, &args.path)?;
-                wire::encode_install_reply(&wire::InstallReply { app }).map_err(malformed)
-            }
-            wire::METHOD_INSTALLAPPROVED => {
-                let args = wire::decode_install_approved_args(body).map_err(malformed)?;
-                let app = self.install_approved(
-                    caller,
-                    &args.path,
-                    &args.digest,
-                    args.core,
-                    args.devtool,
-                )?;
-                wire::encode_install_approved_reply(&wire::InstallApprovedReply { app })
-                    .map_err(malformed)
-            }
-            wire::METHOD_INSTALLDEBUG => {
-                let args = wire::decode_install_debug_args(body).map_err(malformed)?;
-                let app = self.install_debug(caller, &args.path, &args.digest)?;
-                wire::encode_install_debug_reply(&wire::InstallDebugReply { app })
-                    .map_err(malformed)
-            }
-            wire::METHOD_REMOVE => {
-                let args = wire::decode_remove_args(body).map_err(malformed)?;
-                self.remove(caller, &args.system_name)?;
-                Ok(Vec::new())
-            }
-            wire::METHOD_LIST => {
-                access::may_inspect(caller).map_err(|why| fail(EPERM, why))?;
-                let apps = self.registry.list().map_err(registry_down)?;
-                wire::encode_list_reply(&wire::ListReply { apps }).map_err(malformed)
-            }
-            wire::METHOD_INSTALLED => {
-                let args = wire::decode_installed_args(body).map_err(malformed)?;
-                access::may_inspect(caller).map_err(|why| fail(EPERM, why))?;
-                if !layout::valid_system_name(&args.system_name) {
-                    return Err(fail(EINVAL, "that is not a valid application name"));
-                }
-                let app = self
-                    .registry
-                    .get(&args.system_name)
-                    .map_err(registry_down)?;
-                // The origin installs go by (the shipped set), not the row's,
-                // which provisioning may not have promoted or demoted yet:
-                // elevd's core check must agree with `InstallApproved`'s.
-                let app = app.map(|mut row| {
-                    row.origin = self.origin_of(&row.system_name);
-                    row
-                });
-                wire::encode_installed_reply(&wire::InstalledReply { app }).map_err(malformed)
-            }
-            wire::METHOD_LABELNAME => {
-                let args = wire::decode_label_name_args(body).map_err(malformed)?;
-                let label = label_name_for_elevd(caller, args.label_id)?;
-                wire::encode_label_name_reply(&wire::LabelNameReply { label }).map_err(malformed)
-            }
-            wire::METHOD_DEVELOP => {
-                let args = wire::decode_develop_args(body).map_err(malformed)?;
-                let (label, approved) = self.develop(caller, &args.path, args.confirm)?;
-                wire::encode_develop_reply(&wire::DevelopReply { label, approved })
-                    .map_err(malformed)
-            }
-            wire::METHOD_DEVELOPDECLINED => {
-                let args = wire::decode_develop_declined_args(body).map_err(malformed)?;
-                self.develop_declined(caller, &args.path)?;
-                Ok(Vec::new())
-            }
-            wire::METHOD_PROVISIONED => {
-                let state = self.provisioned.clone();
-                wire::encode_provisioned_reply(&wire::ProvisionedReply { state }).map_err(malformed)
-            }
-            _ => Err(fail(EINVAL, "that is not a package manager method")),
         }
     }
 
@@ -280,19 +188,106 @@ impl Pkgd {
     }
 }
 
+/// The generated [`wire::Server`]: each method is the old dispatch arm, and a
+/// refusal is a [`Failure`] the framing turns into the structured error.
+impl wire::Server for Pkgd {
+    fn inspect(&mut self, cx: &Stamped, path: String) -> Result<wire::PackageInfo, Fault> {
+        let caller = self.identity(cx, false);
+        Ok(Pkgd::inspect(self, &caller, &path)?)
+    }
+
+    fn install(&mut self, cx: &Stamped, path: String) -> Result<Installed, Fault> {
+        let caller = self.identity(cx, false);
+        Ok(Pkgd::install(self, &caller, &path)?)
+    }
+
+    fn install_approved(
+        &mut self,
+        cx: &Stamped,
+        path: String,
+        digest: String,
+        core: bool,
+        devtool: bool,
+    ) -> Result<Installed, Fault> {
+        let caller = self.identity(cx, false);
+        Ok(Pkgd::install_approved(self, &caller, &path, &digest, core, devtool)?)
+    }
+
+    fn install_debug(
+        &mut self,
+        cx: &Stamped,
+        path: String,
+        digest: String,
+    ) -> Result<Installed, Fault> {
+        let caller = self.identity(cx, false);
+        Ok(Pkgd::install_debug(self, &caller, &path, &digest)?)
+    }
+
+    fn remove(&mut self, cx: &Stamped, system_name: String) -> Result<(), Fault> {
+        let caller = self.identity(cx, false);
+        Ok(Pkgd::remove(self, &caller, &system_name)?)
+    }
+
+    fn list(&mut self, cx: &Stamped) -> Result<Vec<Installed>, Fault> {
+        let caller = self.identity(cx, false);
+        access::may_inspect(&caller).map_err(|why| fail(EPERM, why))?;
+        Ok(self.registry.list().map_err(registry_down)?)
+    }
+
+    fn installed(&mut self, cx: &Stamped, system_name: String) -> Result<Option<Installed>, Fault> {
+        let caller = self.identity(cx, false);
+        access::may_inspect(&caller).map_err(|why| fail(EPERM, why))?;
+        if !layout::valid_system_name(&system_name) {
+            return Err(fail(EINVAL, "that is not a valid application name").into());
+        }
+        let app = self.registry.get(&system_name).map_err(registry_down)?;
+        // The origin installs go by (the shipped set), not the row's, which
+        // provisioning may not have promoted or demoted yet: elevd's core
+        // check must agree with `InstallApproved`'s.
+        Ok(app.map(|mut row| {
+            row.origin = self.origin_of(&row.system_name);
+            row
+        }))
+    }
+
+    fn label_name(&mut self, cx: &Stamped, label_id: u32) -> Result<String, Fault> {
+        let caller = self.identity(cx, true);
+        Ok(label_name_for_elevd(&caller, label_id)?)
+    }
+
+    fn develop(
+        &mut self,
+        cx: &Stamped,
+        path: String,
+        confirm: bool,
+    ) -> Result<wire::DevelopReply, Fault> {
+        let caller = self.identity(cx, false);
+        let (label, approved) = Pkgd::develop(self, &caller, &path, confirm)?;
+        Ok(wire::DevelopReply { label, approved })
+    }
+
+    fn develop_declined(&mut self, cx: &Stamped, path: String) -> Result<(), Fault> {
+        let caller = self.identity(cx, false);
+        Ok(Pkgd::develop_declined(self, &caller, &path)?)
+    }
+
+    fn provisioned(&mut self, _: &Stamped) -> Result<ProvisionState, Fault> {
+        Ok(self.provisioned.clone())
+    }
+}
+
 /// The kernel-stamped identity of the sender (issue #446). A system service
 /// holds `CAP_SETUID`; `elevd` (docs/accounts-plan.md U2) is one too, by its
 /// identity: it asks only for what an administrator approved, and installs
 /// through `InstallApproved` alone ([`is_elevd`]).
-fn caller_of(message: &Message) -> Option<Caller> {
-    let cred = message.caller();
-    let elevd = elevpolicy::is_elevd(cred.uid, cred.label_id, cred.session);
-    Some(Caller {
-        uid: cred.uid,
-        session: cred.session,
-        label_id: cred.label_id,
-        system: cred.caps & user::sys::CAP_SETUID != 0 || elevd,
-    })
+fn caller_of(cx: &Stamped) -> Caller {
+    let elevd = elevpolicy::is_elevd(cx.uid, cx.label_id, cx.session);
+    Caller {
+        uid: cx.uid,
+        session: cx.session,
+        label_id: cx.label_id,
+        system: cx.caps & user::sys::CAP_SETUID != 0 || elevd,
+    }
 }
 
 /// `LabelName(label_id)`: the label's name, for `elevd` alone. `elevd` holds
