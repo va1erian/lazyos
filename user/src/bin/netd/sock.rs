@@ -10,13 +10,15 @@
 use alloc::vec::Vec;
 use core::cell::Cell;
 
+use libmessenger::client::Errno;
+use libmessenger::server::{fault_reply, Caller, Fault};
 use netstack::stack::MAX_CHUNK;
 use netstack::{Kind, SockAddr, SockError};
 use user::messenger::netsock::{self as api, errno as sock_errno, wire};
-use user::messenger::{errno, services, Error as MsgError, Message, Parcel};
+use user::messenger::{errno, Error as MsgError, Parcel};
 use user::sys;
 
-use super::parked::Op;
+use super::parked::{Done, Op};
 use super::service::Netd;
 
 pub(super) type Result<T> = core::result::Result<T, MsgError>;
@@ -57,19 +59,11 @@ pub(super) struct SockStats {
     not_owner: u64,
     denials_logged: u32,
     /// Set by the error mapping when a call named a socket of another owner.
-    owner_denied: Cell<bool>,
-}
-
-pub(super) fn reply(
-    method: u32,
-    body: core::result::Result<Vec<u8>, libmessenger::Error>,
-) -> Result<Parcel> {
-    body.map(|body| api::parcel(method, body))
-        .map_err(MsgError::Parcel)
+    pub(super) owner_denied: Cell<bool>,
 }
 
 pub(super) fn error_parcel(method: u32, code: i64) -> Parcel {
-    services::error_reply(api::INTERFACE, method, err(code))
+    fault_reply(api::INTERFACE, method, &Fault::from_syscall(code))
 }
 
 pub(super) fn sock_addr(addr: &wire::SockAddr) -> Result<SockAddr> {
@@ -99,202 +93,24 @@ pub(super) fn wait_ms(timeout_ms: u32) -> Result<i64> {
 }
 
 impl Netd {
-    /// Route one socket request. `Ok(Some)` is the reply; `Ok(None)` means
-    /// the call was parked and is answered later.
-    pub(super) fn dispatch_socket(
-        &mut self,
-        message: &Message,
-        now_ms: i64,
-    ) -> Result<Option<Parcel>> {
-        let tick = sys::clock();
-        let method = message.method();
-        let body = &message.parcel.body;
-        let Some(owner) = self.tasks.owner_of(message.sender, tick) else {
-            return Err(err(errno::EACCES));
-        };
-        let result = self.socket_call(message, owner, method, body, now_ms);
-        if self.sock_stats.owner_denied.replace(false) {
-            self.note_denied(owner, method);
-        }
-        result
+    /// The owner the kernel-stamped sender stands for, or `EACCES`.
+    fn owner(&mut self, cx: &Caller) -> core::result::Result<u64, Fault> {
+        let owner = self
+            .tasks
+            .owner_of(cx.sender, sys::clock())
+            .ok_or_else(|| Fault::errno(Errno::ACCES))?;
+        self.call.owner = owner;
+        Ok(owner)
     }
 
     /// Count (and, a few times, log) a refusal: every one is audited.
-    fn note_denied(&mut self, owner: u64, method: u32) {
+    pub(super) fn note_denied(&mut self, owner: u64, method: u32) {
         self.sock_stats.not_owner += 1;
         if self.sock_stats.denials_logged < DENY_LOG_LIMIT {
             self.sock_stats.denials_logged += 1;
             sys::write_str(&alloc::format!(
                 "NETD:DENY owner={owner:#x} method={method}\n"
             ));
-        }
-    }
-
-    fn socket_call(
-        &mut self,
-        message: &Message,
-        owner: u64,
-        method: u32,
-        body: &[u8],
-        now_ms: i64,
-    ) -> Result<Option<Parcel>> {
-        let done = |parcel: Result<Parcel>| parcel.map(Some);
-        let empty = || Ok(Some(api::parcel(method, Vec::new())));
-        match method {
-            wire::METHOD_OPEN => {
-                let args = wire::decode_open_args(body).map_err(MsgError::Parcel)?;
-                let kind = match args.kind {
-                    wire::SOCK_KIND_STREAM => Kind::Stream,
-                    wire::SOCK_KIND_DATAGRAM => Kind::Datagram,
-                    _ => return Err(err(errno::EINVAL)),
-                };
-                let sock = self
-                    .net
-                    .socket_open(owner, kind)
-                    .map_err(|e| self.sock_error(e))?;
-                done(reply(
-                    method,
-                    wire::encode_open_reply(&wire::OpenReply { sock }),
-                ))
-            }
-            wire::METHOD_BIND => {
-                let args = wire::decode_bind_args(body).map_err(MsgError::Parcel)?;
-                let local = sock_addr(&args.addr)?;
-                self.net
-                    .socket_bind(args.sock, owner, local)
-                    .map_err(|e| self.sock_error(e))?;
-                empty()
-            }
-            wire::METHOD_CONNECT => {
-                let args = wire::decode_connect_args(body).map_err(MsgError::Parcel)?;
-                let wait = wait_ms(args.timeout_ms)?;
-                let peer = sock_addr(&args.addr)?;
-                // A call that timed out left the handshake running: asking
-                // again waits for the same attempt instead of starting one.
-                match self.net.socket_connect_status(args.sock, owner) {
-                    Ok(false) => {}
-                    Err(error) if error != SockError::NotConnected => {
-                        return Err(self.sock_error(error))
-                    }
-                    _ => self
-                        .net
-                        .socket_connect(args.sock, owner, peer)
-                        .map_err(|e| self.sock_error(e))?,
-                }
-                self.park(message, owner, args.sock, Op::Connect, wait, now_ms)
-            }
-            wire::METHOD_LISTEN => {
-                let args = wire::decode_listen_args(body).map_err(MsgError::Parcel)?;
-                self.net
-                    .socket_listen(args.sock, owner, args.backlog)
-                    .map_err(|e| self.sock_error(e))?;
-                empty()
-            }
-            wire::METHOD_ACCEPT => {
-                let args = wire::decode_accept_args(body).map_err(MsgError::Parcel)?;
-                let wait = wait_ms(args.timeout_ms)?;
-                self.park(message, owner, args.sock, Op::Accept, wait, now_ms)
-            }
-            wire::METHOD_SEND => {
-                let args = wire::decode_send_args(body).map_err(MsgError::Parcel)?;
-                let wait = wait_ms(args.timeout_ms)?;
-                if args.data.is_empty() || args.data.len() > MAX_CHUNK {
-                    return Err(err(errno::EINVAL));
-                }
-                self.park(message, owner, args.sock, Op::Send(args.data), wait, now_ms)
-            }
-            wire::METHOD_RECV => {
-                let args = wire::decode_recv_args(body).map_err(MsgError::Parcel)?;
-                let wait = wait_ms(args.timeout_ms)?;
-                let max = args.max as usize;
-                self.park(message, owner, args.sock, Op::Recv(max), wait, now_ms)
-            }
-            wire::METHOD_SENDTO => {
-                let args = wire::decode_send_to_args(body).map_err(MsgError::Parcel)?;
-                let to = sock_addr(&args.addr)?;
-                let sent = self
-                    .net
-                    .socket_sendto(args.sock, owner, to, &args.data)
-                    .map_err(|e| self.sock_error(e))?;
-                let sent = sent as u32;
-                done(reply(
-                    method,
-                    wire::encode_send_to_reply(&wire::SendToReply { sent }),
-                ))
-            }
-            wire::METHOD_RECVFROM => {
-                let args = wire::decode_recv_from_args(body).map_err(MsgError::Parcel)?;
-                let wait = wait_ms(args.timeout_ms)?;
-                let max = args.max as usize;
-                self.park(message, owner, args.sock, Op::RecvFrom(max), wait, now_ms)
-            }
-            wire::METHOD_POLL => {
-                let args = wire::decode_poll_args(body).map_err(MsgError::Parcel)?;
-                let wait = wait_ms(args.timeout_ms)?;
-                if args.interest == 0 || args.interest > 0x1F {
-                    return Err(err(errno::EINVAL));
-                }
-                self.park(
-                    message,
-                    owner,
-                    args.sock,
-                    Op::Poll(args.interest),
-                    wait,
-                    now_ms,
-                )
-            }
-            wire::METHOD_SHUTDOWN => {
-                let args = wire::decode_shutdown_args(body).map_err(MsgError::Parcel)?;
-                let (read, write) = match args.how {
-                    wire::SHUTDOWN_READ => (true, false),
-                    wire::SHUTDOWN_WRITE => (false, true),
-                    wire::SHUTDOWN_BOTH => (true, true),
-                    _ => return Err(err(errno::EINVAL)),
-                };
-                self.net
-                    .socket_shutdown(args.sock, owner, read, write)
-                    .map_err(|e| self.sock_error(e))?;
-                empty()
-            }
-            wire::METHOD_LOCALADDR => {
-                let args = wire::decode_local_addr_args(body).map_err(MsgError::Parcel)?;
-                let addr = self
-                    .net
-                    .socket_local_addr(args.sock, owner)
-                    .map_err(|e| self.sock_error(e))?;
-                let addr = wire_addr(addr);
-                done(reply(
-                    method,
-                    wire::encode_local_addr_reply(&wire::LocalAddrReply { addr }),
-                ))
-            }
-            wire::METHOD_PEERADDR => {
-                let args = wire::decode_peer_addr_args(body).map_err(MsgError::Parcel)?;
-                let addr = self
-                    .net
-                    .socket_peer_addr(args.sock, owner)
-                    .map_err(|e| self.sock_error(e))?;
-                let addr = wire_addr(addr);
-                done(reply(
-                    method,
-                    wire::encode_peer_addr_reply(&wire::PeerAddrReply { addr }),
-                ))
-            }
-            wire::METHOD_CLOSE => {
-                let args = wire::decode_close_args(body).map_err(MsgError::Parcel)?;
-                self.net
-                    .socket_close(args.sock, owner, now_ms)
-                    .map_err(|e| self.sock_error(e))?;
-                self.drop_calls_on(owner, args.sock);
-                empty()
-            }
-            wire::METHOD_STATS => done(reply(
-                method,
-                wire::encode_stats_reply(&wire::StatsReply {
-                    stats: self.socket_stats(),
-                }),
-            )),
-            _ => Err(err(errno::EINVAL)),
         }
     }
 
@@ -326,5 +142,191 @@ impl Netd {
             park_timeouts: self.sock_stats.park_timeouts,
             not_owner: self.sock_stats.not_owner,
         }
+    }
+}
+
+type Reply<T> = core::result::Result<T, Fault>;
+
+impl wire::Server for Netd {
+    fn open(&mut self, cx: &Caller, kind: u32) -> Reply<u32> {
+        let owner = self.owner(cx)?;
+        let kind = match kind {
+            wire::SOCK_KIND_STREAM => Kind::Stream,
+            wire::SOCK_KIND_DATAGRAM => Kind::Datagram,
+            _ => return Err(Fault::errno(Errno::INVAL)),
+        };
+        Ok(self
+            .net
+            .socket_open(owner, kind)
+            .map_err(|e| self.sock_error(e))?)
+    }
+
+    fn bind(&mut self, cx: &Caller, sock: u32, addr: wire::SockAddr) -> Reply<()> {
+        let owner = self.owner(cx)?;
+        let local = sock_addr(&addr)?;
+        Ok(self
+            .net
+            .socket_bind(sock, owner, local)
+            .map_err(|e| self.sock_error(e))?)
+    }
+
+    fn connect(
+        &mut self,
+        cx: &Caller,
+        sock: u32,
+        addr: wire::SockAddr,
+        timeout_ms: u32,
+    ) -> Reply<()> {
+        let owner = self.owner(cx)?;
+        let wait = wait_ms(timeout_ms)?;
+        let peer = sock_addr(&addr)?;
+        // A call that timed out left the handshake running: asking again
+        // waits for the same attempt instead of starting one.
+        match self.net.socket_connect_status(sock, owner) {
+            Ok(false) => {}
+            Err(error) if error != SockError::NotConnected => {
+                return Err(self.sock_error(error).into())
+            }
+            _ => self
+                .net
+                .socket_connect(sock, owner, peer)
+                .map_err(|e| self.sock_error(e))?,
+        }
+        match self.park(wire::METHOD_CONNECT, owner, sock, Op::Connect, wait)? {
+            Done::Unit => Ok(()),
+            _ => Err(Fault::unserved()),
+        }
+    }
+
+    fn listen(&mut self, cx: &Caller, sock: u32, backlog: u32) -> Reply<()> {
+        let owner = self.owner(cx)?;
+        Ok(self
+            .net
+            .socket_listen(sock, owner, backlog)
+            .map_err(|e| self.sock_error(e))?)
+    }
+
+    fn accept(&mut self, cx: &Caller, sock: u32, timeout_ms: u32) -> Reply<wire::AcceptReply> {
+        let owner = self.owner(cx)?;
+        let wait = wait_ms(timeout_ms)?;
+        match self.park(wire::METHOD_ACCEPT, owner, sock, Op::Accept, wait)? {
+            Done::Accept(reply) => Ok(reply),
+            _ => Err(Fault::unserved()),
+        }
+    }
+
+    fn send(&mut self, cx: &Caller, sock: u32, data: Vec<u8>, timeout_ms: u32) -> Reply<u32> {
+        let owner = self.owner(cx)?;
+        let wait = wait_ms(timeout_ms)?;
+        if data.is_empty() || data.len() > MAX_CHUNK {
+            return Err(Fault::errno(Errno::INVAL));
+        }
+        match self.park(wire::METHOD_SEND, owner, sock, Op::Send(data), wait)? {
+            Done::Send(sent) => Ok(sent),
+            _ => Err(Fault::unserved()),
+        }
+    }
+
+    fn recv(&mut self, cx: &Caller, sock: u32, max: u32, timeout_ms: u32) -> Reply<Vec<u8>> {
+        let owner = self.owner(cx)?;
+        let wait = wait_ms(timeout_ms)?;
+        match self.park(wire::METHOD_RECV, owner, sock, Op::Recv(max as usize), wait)? {
+            Done::Recv(data) => Ok(data),
+            _ => Err(Fault::unserved()),
+        }
+    }
+
+    fn send_to(
+        &mut self,
+        cx: &Caller,
+        sock: u32,
+        addr: wire::SockAddr,
+        data: Vec<u8>,
+    ) -> Reply<u32> {
+        let owner = self.owner(cx)?;
+        let to = sock_addr(&addr)?;
+        let sent = self
+            .net
+            .socket_sendto(sock, owner, to, &data)
+            .map_err(|e| self.sock_error(e))?;
+        Ok(sent as u32)
+    }
+
+    fn recv_from(
+        &mut self,
+        cx: &Caller,
+        sock: u32,
+        max: u32,
+        timeout_ms: u32,
+    ) -> Reply<wire::RecvFromReply> {
+        let owner = self.owner(cx)?;
+        let wait = wait_ms(timeout_ms)?;
+        match self.park(
+            wire::METHOD_RECVFROM,
+            owner,
+            sock,
+            Op::RecvFrom(max as usize),
+            wait,
+        )? {
+            Done::RecvFrom(reply) => Ok(reply),
+            _ => Err(Fault::unserved()),
+        }
+    }
+
+    fn poll(&mut self, cx: &Caller, sock: u32, interest: u32, timeout_ms: u32) -> Reply<u32> {
+        let owner = self.owner(cx)?;
+        let wait = wait_ms(timeout_ms)?;
+        if interest == 0 || interest > 0x1F {
+            return Err(Fault::errno(Errno::INVAL));
+        }
+        match self.park(wire::METHOD_POLL, owner, sock, Op::Poll(interest), wait)? {
+            Done::Poll(ready) => Ok(ready),
+            _ => Err(Fault::unserved()),
+        }
+    }
+
+    fn shutdown(&mut self, cx: &Caller, sock: u32, how: u32) -> Reply<()> {
+        let owner = self.owner(cx)?;
+        let (read, write) = match how {
+            wire::SHUTDOWN_READ => (true, false),
+            wire::SHUTDOWN_WRITE => (false, true),
+            wire::SHUTDOWN_BOTH => (true, true),
+            _ => return Err(Fault::errno(Errno::INVAL)),
+        };
+        Ok(self
+            .net
+            .socket_shutdown(sock, owner, read, write)
+            .map_err(|e| self.sock_error(e))?)
+    }
+
+    fn local_addr(&mut self, cx: &Caller, sock: u32) -> Reply<wire::SockAddr> {
+        let owner = self.owner(cx)?;
+        let addr = self
+            .net
+            .socket_local_addr(sock, owner)
+            .map_err(|e| self.sock_error(e))?;
+        Ok(wire_addr(addr))
+    }
+
+    fn peer_addr(&mut self, cx: &Caller, sock: u32) -> Reply<wire::SockAddr> {
+        let owner = self.owner(cx)?;
+        let addr = self
+            .net
+            .socket_peer_addr(sock, owner)
+            .map_err(|e| self.sock_error(e))?;
+        Ok(wire_addr(addr))
+    }
+
+    fn close(&mut self, cx: &Caller, sock: u32) -> Reply<()> {
+        let owner = self.owner(cx)?;
+        self.net
+            .socket_close(sock, owner, self.call.now_ms)
+            .map_err(|e| self.sock_error(e))?;
+        self.drop_calls_on(owner, sock);
+        Ok(())
+    }
+
+    fn stats(&mut self, _: &Caller) -> Reply<wire::SocketStats> {
+        Ok(self.socket_stats())
     }
 }

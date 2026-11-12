@@ -9,11 +9,10 @@ use netstack::config::Mode;
 use netstack::{DhcpState, IfKind, Net, Source};
 use user::messenger::net::wire as nic_wire;
 use user::messenger::netstack::wire;
-use user::messenger::Error as MsgError;
 use user::sys;
 
 use super::ports::Ports;
-use super::service::{Netd, Result};
+use super::service::Netd;
 
 /// Every interface as the wire describes it.
 pub(super) fn interface_infos(net: &Net, ports: &Ports) -> Vec<wire::InterfaceInfo> {
@@ -47,17 +46,9 @@ pub(super) fn interface_infos(net: &Net, ports: &Ports) -> Vec<wire::InterfaceIn
 }
 
 impl Netd {
-    pub(super) fn interfaces(&self) -> Result<Vec<u8>> {
-        wire::encode_interfaces_reply(&wire::InterfacesReply {
-            list: interface_infos(&self.net, &self.ports),
-        })
-        .map_err(MsgError::Parcel)
-    }
-
-    pub(super) fn addresses(&self) -> Result<Vec<u8>> {
+    pub(super) fn address_list(&self) -> Vec<wire::AddressInfo> {
         let now_ms = sys::monotonic_ms() as i64;
-        let list = self
-            .net
+        self.net
             .units()
             .filter_map(|(_, unit)| {
                 let state = unit.stack.state();
@@ -74,13 +65,11 @@ impl Netd {
                         .map_or(0, |end| ((end - now_ms).max(0) / 1000) as u32),
                 })
             })
-            .collect();
-        wire::encode_addresses_reply(&wire::AddressesReply { list }).map_err(MsgError::Parcel)
+            .collect()
     }
 
-    pub(super) fn routes(&self) -> Result<Vec<u8>> {
-        let list = self
-            .net
+    pub(super) fn route_list(&self) -> Vec<wire::RouteInfo> {
+        self.net
             .routes()
             .into_iter()
             .filter_map(|route| {
@@ -92,33 +81,29 @@ impl Netd {
                     metric: route.metric,
                 })
             })
-            .collect();
-        wire::encode_routes_reply(&wire::RoutesReply { list }).map_err(MsgError::Parcel)
+            .collect()
     }
 
-    pub(super) fn stats(&self) -> Result<Vec<u8>> {
+    pub(super) fn stack_stats(&self) -> wire::StackStats {
         let d = self.net.device_stats();
         let c = self.net.counters();
-        wire::encode_stats_reply(&wire::StatsReply {
-            stats: wire::StackStats {
-                rx_frames: d.rx_frames,
-                tx_frames: d.tx_frames,
-                rx_bytes: d.rx_bytes,
-                tx_bytes: d.tx_bytes,
-                tx_dropped: d.tx_dropped,
-                rx_bad_length: d.rx_bad_length,
-                nic_resets: self.ports.resets,
-                leases: c.leases,
-                lease_losses: c.lease_losses,
-                pings_sent: c.pings_sent,
-                pings_answered: c.pings_answered,
-                pings_timed_out: c.pings_timed_out,
-                lookups_sent: c.lookups_sent,
-                lookups_answered: c.lookups_answered,
-                lookups_failed: c.lookups_failed,
-            },
-        })
-        .map_err(MsgError::Parcel)
+        wire::StackStats {
+            rx_frames: d.rx_frames,
+            tx_frames: d.tx_frames,
+            rx_bytes: d.rx_bytes,
+            tx_bytes: d.tx_bytes,
+            tx_dropped: d.tx_dropped,
+            rx_bad_length: d.rx_bad_length,
+            nic_resets: self.ports.resets,
+            leases: c.leases,
+            lease_losses: c.lease_losses,
+            pings_sent: c.pings_sent,
+            pings_answered: c.pings_answered,
+            pings_timed_out: c.pings_timed_out,
+            lookups_sent: c.lookups_sent,
+            lookups_answered: c.lookups_answered,
+            lookups_failed: c.lookups_failed,
+        }
     }
 }
 
