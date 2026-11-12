@@ -9,14 +9,6 @@ use crate::platform::confd_store::ConfdStore;
 /// A handle on `confd`; free to copy, so the save worker builds its own.
 pub(super) struct ConfdKv;
 
-impl ConfdKv {
-    /// `user/<uid>/<app>/<name>`, for this task's uid.
-    pub(super) fn key(app: &str, name: &str) -> Option<String> {
-        let uid = ConfdStore::new().uid()?;
-        Some(user_key(uid, app, name))
-    }
-}
-
 impl KeyValue for ConfdKv {
     fn get(&self, key: &str) -> Option<Value> {
         ConfigStore::get(&ConfdStore::new(), key)

@@ -33,18 +33,6 @@ impl<M: 'static> ErrorDialog<M> {
         self.0.open();
     }
 
-    /// Shows `what` (what the app was doing) and then `error`: "Could not
-    /// open /a.pdf: no such file".
-    pub fn show_while(&self, what: &str, error: &dyn Display) {
-        self.show(&format_args!("{what}: {error}"));
-    }
-
-    /// Shows `error` under another title than the dialog was built with.
-    pub fn show_titled(&self, title: &str, error: &dyn Display) {
-        self.0.set_title(title);
-        self.show(error);
-    }
-
     /// Whether the dialog is up (a modal gate for the app's hotkeys).
     pub fn is_open(&self) -> bool {
         self.0.is_open()

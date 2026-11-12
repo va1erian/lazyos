@@ -106,13 +106,6 @@ impl AppContext {
         Settings::open(kv.as_ref(), &self.settings_id, saver)
     }
 
-    /// The `confd` key `name` in the app's subtree (`user/<uid>/<id>/<name>`),
-    /// for a key that is not a field of a typed setting (a per-name key, a
-    /// subscription topic); `None` when the uid cannot be read.
-    pub fn settings_key(&self, name: &str) -> Option<String> {
-        ConfdKv::key(&self.settings_id, name)
-    }
-
     /// The well-known folders.
     pub fn dirs(&self) -> Dirs {
         Dirs::new(self.system_name.clone())

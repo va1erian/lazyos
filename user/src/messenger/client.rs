@@ -11,9 +11,7 @@ use libmessenger::{flags, Parcel};
 use super::{errno, park_tick, registry, Endpoint, Error, Result};
 use crate::sys;
 
-/// How long a native program waits for a service to register: the one connect
-/// bound of this runtime (10 s), instead of one `CONNECT_TICKS` per program.
-pub const CONNECT_BOUND: Deadline = Deadline::secs(10);
+pub use libmessenger::client::CONNECT_BOUND;
 
 /// The native transport. Stateless: the handle cache is the `Connection`'s.
 #[derive(Clone, Copy, Debug, Default)]
@@ -38,10 +36,6 @@ fn errno_of(error: Error) -> Errno {
 pub struct Nested;
 
 impl Transport for Nested {
-    fn connect_bound(&self) -> Deadline {
-        Native.connect_bound()
-    }
-
     fn call_flags(&self) -> u16 {
         flags::ALLOW_NESTED
     }
@@ -100,10 +94,6 @@ impl Held {
 }
 
 impl Transport for Held {
-    fn connect_bound(&self) -> Deadline {
-        Native.connect_bound()
-    }
-
     fn call_flags(&self) -> u16 {
         0
     }
@@ -184,10 +174,6 @@ pub fn resolve_waiting(name: &str) -> Result<Endpoint> {
 }
 
 impl Transport for Native {
-    fn connect_bound(&self) -> Deadline {
-        CONNECT_BOUND
-    }
-
     /// No `ALLOW_NESTED`: a native call that would close a wait cycle is
     /// refused with `Deadlock`, as before the shared runtime.
     fn call_flags(&self) -> u16 {

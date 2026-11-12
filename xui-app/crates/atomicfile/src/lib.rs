@@ -22,15 +22,6 @@ const TEMP_TRIES: usize = 8;
 
 /// Writes `bytes` to `path` atomically (see the module docs).
 pub fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    write_with(path, |file| file.write_all(bytes))
-}
-
-/// Like [`write`], with the body streamed by `fill` into the temp file (for a
-/// writer that does not hold the whole file in memory).
-pub fn write_with(
-    path: &Path,
-    fill: impl FnOnce(&mut fs::File) -> io::Result<()>,
-) -> io::Result<()> {
     let permissions = match fs::symlink_metadata(path) {
         Ok(meta) if meta.file_type().is_symlink() => {
             return Err(io::Error::new(
@@ -42,7 +33,8 @@ pub fn write_with(
         Err(_) => None,
     };
     let (temp, mut file) = create_temp(path)?;
-    let result = fill(&mut file)
+    let result = file
+        .write_all(bytes)
         .and_then(|()| file.flush())
         .and_then(|()| file.sync_all())
         .and_then(|()| match permissions {
@@ -141,14 +133,12 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_fill_removes_the_temp_and_keeps_the_original() {
+    fn a_failed_rename_removes_the_temp() {
         let dir = scratch("fail");
-        let path = dir.join("a.txt");
-        write(&path, b"keep").unwrap();
-        let error = write_with(&path, |_| Err(io::Error::other("boom"))).unwrap_err();
-        assert_eq!(error.to_string(), "boom");
-        assert_eq!(fs::read(&path).unwrap(), b"keep");
-        assert_eq!(names(&dir), ["a.txt"]);
+        let target = dir.join("a");
+        fs::create_dir(&target).unwrap();
+        assert!(write(&target, b"x").is_err());
+        assert_eq!(names(&dir), ["a"]);
         let _ = fs::remove_dir_all(dir);
     }
 

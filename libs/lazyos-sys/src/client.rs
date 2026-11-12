@@ -20,10 +20,6 @@ use crate::time::clock;
 /// `libmessenger::MAX_PARCEL_BYTES` (1 MiB).
 const REPLY_BUF: usize = 64 * 1024;
 
-/// How long a program waits for a service to register: the one connect bound
-/// of the std runtime.
-const CONNECT_BOUND: Deadline = Deadline::secs(10);
-
 /// Pause between plain resolves while the kernel has no room for another
 /// waiter (`EAGAIN`): the overload path only, never the normal wait.
 const OVERLOAD_PAUSE: Duration = Duration::from_millis(10);
@@ -33,10 +29,6 @@ const OVERLOAD_PAUSE: Duration = Duration::from_millis(10);
 pub struct Std;
 
 impl Transport for Std {
-    fn connect_bound(&self) -> Deadline {
-        CONNECT_BOUND
-    }
-
     /// The UI and LazyRAD loops serve and call on one thread, so their calls
     /// must not trip the kernel's cycle check.
     fn call_flags(&self) -> u16 {
