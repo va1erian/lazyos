@@ -982,8 +982,11 @@ A fresh-context review of the runtime, the generator and `messengerd` found:
   `SetIconGeometry`, `SetCursor`), `confd.Delete`, `init.Home` and net
   `Ping` are `retry=never`: a resend can reach a reused id, run an archive
   twice or ping twice.
-* A call's first connect waits `min(call deadline, connect bound)`; a poll
-  resolves once. A `Poll` call stamps `header.deadline_ns = POLL_HINT_NS`
+* A connection's first waiting resolve waits the connect bound whatever the
+  call's deadline (services and clients start together at boot); once the
+  service was lost (peer gone, or a waiting resolve failed) a reconnect waits
+  `min(call deadline, connect bound)`, so a UI thread does not stall on a dead
+  service call after call; a poll resolves once. A `Poll` call stamps `header.deadline_ns = POLL_HINT_NS`
   (the kernel does not tell a callee its caller's deadline), so `messengerd`
   does not park a pull the kernel is about to end. `MAX_PENDING` equals the
   subscription cap, and `central::Feed` treats `EAGAIN` as transient.

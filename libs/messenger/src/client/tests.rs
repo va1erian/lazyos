@@ -105,36 +105,29 @@ fn only_a_poll_carries_the_poll_hint() {
 }
 
 #[test]
-fn a_calls_first_connect_never_waits_longer_than_its_deadline() {
+fn the_first_connect_waits_the_bound_and_a_lost_service_only_the_deadline() {
     let conn = Connection::new(Mock::new(), NAME);
-    // call_as asks for 500 ms, under the mock's 10 s connect bound.
-    assert!(call(&conn).is_err());
-    // A poll (a topic pull) resolves once without waiting.
-    assert!(conn
-        .call(
+    let poll = |conn: &Connection<Mock>| {
+        conn.call(
             IFACE,
             7,
             Vec::new(),
             Vec::new(),
             Deadline::Poll,
-            Retry::Safe
+            Retry::Safe,
         )
-        .is_err());
-    // A call that waits for ever keeps the runtime's bound.
-    assert!(conn
-        .call(
-            IFACE,
-            7,
-            Vec::new(),
-            Vec::new(),
-            Deadline::Never,
-            Retry::Safe
-        )
-        .is_err());
+    };
+    // A poll (a topic pull) resolves once without waiting.
+    assert!(poll(&conn).is_err());
+    // The first waiting resolve waits the runtime's bound although the
+    // call asks for 500 ms: at boot the service may register a moment later.
+    assert!(call(&conn).is_err());
+    // It never registered, so later calls wait only their own deadline.
+    assert!(call(&conn).is_err());
     let bounds: Vec<Deadline> = conn.transport().resolves().iter().map(|r| r.1).collect();
     assert_eq!(
         bounds,
-        [Deadline::millis(500), Deadline::Poll, Deadline::secs(10)]
+        [Deadline::Poll, Deadline::secs(10), Deadline::millis(500)]
     );
 }
 

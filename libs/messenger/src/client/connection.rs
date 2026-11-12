@@ -82,6 +82,9 @@ pub struct Connection<T: Transport> {
     transport: T,
     name: Cow<'static, str>,
     handle: Cell<Option<Handle>>,
+    /// Set once a call found the peer gone or a waiting resolve failed: from
+    /// then on a reconnect never outlasts the call's own deadline.
+    evicted: Cell<bool>,
 }
 
 impl<T: Transport> Connection<T> {
@@ -92,6 +95,7 @@ impl<T: Transport> Connection<T> {
             transport,
             name: Cow::Borrowed(name),
             handle: Cell::new(None),
+            evicted: Cell::new(false),
         }
     }
 
@@ -103,6 +107,7 @@ impl<T: Transport> Connection<T> {
             transport,
             name: Cow::Owned(name),
             handle: Cell::new(None),
+            evicted: Cell::new(false),
         }
     }
 
@@ -137,7 +142,13 @@ impl<T: Transport> Connection<T> {
         if let Some(handle) = self.handle.get() {
             return Ok(handle);
         }
-        let handle = self.transport.resolve(&self.name, until)?;
+        let handle = self.transport.resolve(&self.name, until).inspect_err(|_| {
+            // A name that did not register in a full wait is treated like a
+            // lost service: later calls stop paying the connect bound.
+            if until != Deadline::Poll {
+                self.evicted.set(true);
+            }
+        })?;
         self.handle.set(Some(handle));
         Ok(handle)
     }
@@ -146,7 +157,24 @@ impl<T: Transport> Connection<T> {
     /// resolves a restarted service.
     pub fn evict(&self) {
         if let Some(handle) = self.handle.take() {
+            self.evicted.set(true);
             self.transport.release(handle);
+        }
+    }
+
+    /// How long a call waits for the name to register. The first resolve
+    /// waits the runtime's connect bound whatever the call's deadline: at
+    /// boot services and their clients start together, and a short method
+    /// must not fail because its service came up a moment later. A poll
+    /// never waits, and once the service was lost (restarting, gone for
+    /// good, or never registered) a call waits no longer than its own
+    /// deadline, so a UI thread does not stall on it call after call.
+    fn first_wait(&self, until: Deadline) -> Deadline {
+        let bound = self.transport.connect_bound();
+        match until {
+            Deadline::Poll => Deadline::Poll,
+            _ if self.evicted.get() => bound.min(until),
+            _ => bound,
         }
     }
 
@@ -240,8 +268,7 @@ impl<T: Transport> Connection<T> {
         until: Deadline,
         retry: Retry,
     ) -> Result<Parcel, Errno> {
-        // Waiting for the name must not outlast the call's own deadline.
-        let handle = self.resolve_within(self.transport.connect_bound().min(until))?;
+        let handle = self.resolve_within(self.first_wait(until))?;
         match self.transport.call(handle, request, until, retry) {
             Err(failure) if is_peer_gone(failure.errno) => {
                 self.evict();
