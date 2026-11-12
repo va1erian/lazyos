@@ -220,7 +220,19 @@ impl From<Refusal> for Fault {
 
 /// Read `logind`'s records and end what the sessions that are over held.
 fn follow_sessions(state: &mut State) {
-    for session in state.sessions.ended() {
+    let ended = state.sessions.ended();
+    end_sessions(state, ended);
+}
+
+/// [`follow_sessions`] for a decision a standing approval is about to make:
+/// the last pull waits a tick for a record the broker has not rung yet.
+fn follow_sessions_waiting(state: &mut State) {
+    let ended = state.sessions.ended_waiting(1);
+    end_sessions(state, ended);
+}
+
+fn end_sessions(state: &mut State, ended: Vec<u64>) {
+    for session in ended {
         state.approvals.end_session(session);
         state.backoff.end_session(session);
     }
@@ -327,10 +339,18 @@ fn request(
     // The label's kind is looked up only when a standing approval exists to be
     // judged against it: a request that must prompt anyway asks `pkgd` nothing
     // (the kind is needed again only to record a granted approval below).
-    let standing = op.class() == Class::View && state.approvals.holds(caller, now) && {
-        let kind = label_kind(state, caller, op.class());
-        state.approvals.covers(caller, kind, op.class(), now)
-    };
+    let standing = op.class() == Class::View
+        && state.approvals.holds(caller, now)
+        && {
+            // The approval decides without a prompt, so no ended session's record
+            // may still be in flight (a request that prompts pays nothing).
+            follow_sessions_waiting(state);
+            state.approvals.holds(caller, now)
+        }
+        && {
+            let kind = label_kind(state, caller, op.class());
+            state.approvals.covers(caller, kind, op.class(), now)
+        };
     if standing {
         record.admin = String::from("(standing approval)");
     } else {
