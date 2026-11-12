@@ -11,9 +11,10 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::central;
 use user::trace;
 
-use user::messenger::{self, errno, router, services, Message, Parcel};
+use user::messenger::{self, errno, services, Message, Parcel};
 
 use super::service::{Phase, Service};
 use super::shutdown;
@@ -79,7 +80,7 @@ fn errno_error(code: i64) -> messenger::Error {
 /// `StartDriver(driver, device)`.
 pub(super) fn start(
     services: &mut Vec<Service>,
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     message: &Message,
 ) -> messenger::Result<Parcel> {
     let request = services::init::wire::decode_start_driver_args(&message.parcel.body)

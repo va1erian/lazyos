@@ -10,9 +10,10 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::central;
 use user::trace;
 
-use user::messenger::{self, errno, router, services, Error, Message, Parcel};
+use user::messenger::{self, errno, services, Error, Message, Parcel};
 use user::sys::{self, Cred as SysCred, CAP_SETUID};
 
 use super::installed::InstalledApps;
@@ -27,7 +28,7 @@ const SUPERVISOR: SysCred = SysCred::new(0, 0, CAP_SETUID, 0, 0);
 /// `RelaunchApp`.
 pub(super) fn relaunch(
     services: &mut Vec<Service>,
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     installed: &mut InstalledApps,
     message: &Message,
 ) -> messenger::Result<Parcel> {

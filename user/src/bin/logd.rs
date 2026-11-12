@@ -3,11 +3,11 @@
 //!
 //! `logd` is the S2 event log from the platform plan section 4.9. It:
 //!
-//! * subscribes to the system topics: `system/events/#` on `init` (service
-//!   starts/stops/crashes and login events), `system/health/+` on `healthd`
-//!   (the declared retained rows, aggregate included), and `system/events/#`
-//!   on `messengerd`'s central broker (the events services publish centrally:
-//!   `mimed`'s launch records, the clipboard audit trail, `pkgd`'s events);
+//! * subscribes, on `messengerd`'s central broker, to the system topics:
+//!   `system/events/#` (`init`'s service starts/stops/crashes, login events,
+//!   `mimed`'s launch records, the clipboard audit trail, `pkgd`'s events) and
+//!   `system/health/+` (`healthd`'s declared retained rows, aggregate
+//!   included), each with its own doorbell;
 //! * samples the fabric audit counters and appends a
 //!   `system/events/security/denial` record whenever they advance, which is
 //!   the interim signal until the kernel exposes audit records to userspace;
@@ -128,8 +128,8 @@ fn run() -> messenger::Result<()> {
 
         // Park on requests and every feed at once (P7.2): an idle `logd`
         // wakes only for a journal flush, a retry, or the denial fallback.
-        let mut ends = [server; 4];
-        let mut sources = [Source::Events; 3];
+        let mut ends = [server; 3];
+        let mut sources = [Source::Events; 2];
         let count = 1 + feeds.wait_set(&mut ends[1..], &mut sources);
         let deadline = [
             Some(next_denials),
@@ -162,8 +162,7 @@ fn run() -> messenger::Result<()> {
         // still hold (the services' last stop events), make the journals
         // durable, then go.
         if let Some(reason) = lifecycle::stop_requested(&message) {
-            feeds.drain_local(&mut log, &mut buffer);
-            feeds.drain_central(&mut log, &mut buffer);
+            feeds.drain_all(&mut log, &mut buffer);
             log.journals.sync(sys::clock());
             trace::line!(
                 trace::Channel::Logd,

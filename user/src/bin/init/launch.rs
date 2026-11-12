@@ -7,10 +7,11 @@
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use user::central;
 use user::trace;
 
 use user::messenger::client::Native;
-use user::messenger::{self, logind, router, services, Message};
+use user::messenger::{self, logind, services, Message};
 use user::sys::{self, Cred as SysCred};
 
 use super::apps::{find_app, is_available, SHELL_APP_ID};
@@ -152,7 +153,7 @@ fn has_url_scheme(text: &str) -> bool {
 /// `USER`, `PATH`; [`sessions::env`]).
 pub(super) fn launch(
     services: &mut Vec<Service>,
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     installed: &mut InstalledApps,
     request: &services::LaunchRequest,
     caller: &SysCred,
@@ -197,7 +198,7 @@ fn admit(
 /// is spawned or logged: the registry lists it, the image just lacks it.
 pub(super) fn launch_row(
     services: &mut Vec<Service>,
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     request: &services::LaunchRequest,
     caller: &SysCred,
     autostart: bool,
@@ -246,7 +247,7 @@ fn admit_system(
 /// arguments (`svcpolicy::starts_in_background`, `INIT:LAUNCH:BACKGROUND`).
 fn launch_installed(
     services: &mut Vec<Service>,
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     app: &InstalledApp,
     request: &services::LaunchRequest,
     caller: &SysCred,
@@ -342,7 +343,7 @@ fn retire_stopped(services: &mut Vec<Service>, id: &str) {
 /// adopt it as a supervised child.
 fn start_row(
     services: &mut Vec<Service>,
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     mut row: Service,
     cred: &SysCred,
     session: u64,

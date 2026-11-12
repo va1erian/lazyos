@@ -57,7 +57,8 @@ fn run() -> messenger::Result<()> {
     // the broker replays the retained offer to a late subscriber.
     let mut changes_bus = central::Bus::connect()?;
     let session_text = format!("{}", clipboard::session().map_err(lower)?);
-    let changes = clipboard::subscribe_session_clipboard_changed(&mut changes_bus, &session_text)?;
+    let changes = clipboard::subscribe_session_clipboard_changed(&mut changes_bus, &session_text)?
+        .into_handle();
     let token = client
         .offer_lazy("clipcopy", SINK, &[DEMO_MIME])
         .map_err(lower)?;

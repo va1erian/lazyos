@@ -35,15 +35,14 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use libmessenger::client::{CallError, Deadline};
+use user::central;
 use user::messenger::accounts::Directory;
 use user::messenger::client::Native;
 use user::messenger::confd::ValueClient;
 use user::messenger::services::init::{Client as InitClient, ClientError as InitError};
 use user::trace;
 
-use user::messenger::{
-    self, accounts, confd, errno, logind, router, services, Endpoint, Message, Parcel,
-};
+use user::messenger::{self, accounts, confd, errno, logind, Endpoint, Message, Parcel};
 use user::sys;
 
 /// The confd key that selects the session kind.
@@ -103,7 +102,7 @@ struct Desktop {
     sessions: Vec<logind::SessionRecord>,
     active: Option<Active>,
     next_session: u64,
-    bus: Option<router::Bus>,
+    bus: Option<central::Publisher>,
     accounts: Option<accounts::Client>,
     init: Option<InitClient>,
     greeter: bool,
@@ -171,7 +170,7 @@ impl Desktop {
             self.accounts = accounts::Client::try_connect(Native).ok();
         }
         if self.bus.is_none() {
-            self.bus = router::Bus::connect(services::INIT_NAME).ok();
+            self.bus = Some(central::Publisher::new());
         }
         if self.init.is_none() {
             self.init = InitClient::try_connect(Native).ok();
@@ -428,7 +427,7 @@ impl Desktop {
 /// the account's home, so `init` can give the session's apps their
 /// environment without looking the account up again (issue #508).
 pub fn publish_session(
-    bus: &mut Option<router::Bus>,
+    bus: &mut Option<central::Publisher>,
     account: &accounts::UserRecord,
     session: u64,
     pid: u64,
@@ -450,7 +449,7 @@ pub fn publish_session(
 /// Publish `system/events/login/end` for `session`; whether the broker took
 /// it (`init` stops the session's tasks on it).
 fn publish_end(
-    bus: &mut Option<router::Bus>,
+    bus: &mut Option<central::Publisher>,
     account: &accounts::UserRecord,
     session: u64,
     status: u64,

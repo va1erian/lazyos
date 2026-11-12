@@ -4,8 +4,9 @@
 //! Split out of `healthd.rs` (issue #194).
 
 use alloc::vec::Vec;
+use user::central;
 use user::messenger::{
-    self, router, services,
+    self, services,
     services::health::wire::{decode_report_args, ReportArgs},
     Error, Message, Parcel,
 };
@@ -13,15 +14,14 @@ use user::messenger::{
 use super::aggregate::{records, report, summary};
 use super::HealthRow;
 
-/// Dispatch one inbound message: heartbeat reports, the broker, or a status
+/// Dispatch one inbound message: heartbeat reports or a status
 /// query.
 pub(crate) fn dispatch(
     rows: &mut Vec<HealthRow>,
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     message: &Message,
 ) -> messenger::Result<Parcel> {
     match message.interface_id() {
-        router::INTERFACE => broker.handle(message),
         services::HEALTHD_INTERFACE => match message.method() {
             services::health::METHOD_REPORT => {
                 let ReportArgs {

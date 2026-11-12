@@ -1,5 +1,5 @@
 //! Logouts (issue #623): `xuid` follows `logind`'s retained session records,
-//! `system/events/login/session/<id>`, on `init`'s broker and, when the
+//! `system/events/login/session/<id>`, on the central broker and, when the
 //! session that owns the display has exited, lets the next desktop session's
 //! LazyShell claim the shell role.
 //!
@@ -21,31 +21,26 @@
 //! Serial: `XUID:LOGOUT session=<id>` when the display owner's session ended.
 
 use alloc::vec::Vec;
-use user::messenger::{logind, router, services, DEFAULT_BUFFER, EXPIRED_DEADLINE};
+use user::central::Feed;
+use user::messenger::logind;
 use user::sys;
 
-/// Ticks (100 Hz) between looks at the topic.
+/// Ticks (100 Hz) between looks at the doorbell.
 const POLL_TICKS: u64 = 25;
-/// Ticks between attempts to subscribe while `init` is unreachable.
-const RETRY_TICKS: u64 = 300;
 /// The `state` of a session record whose session has ended.
 const EXITED: &str = "exited";
 
 /// Follows `system/events/login/session/+`.
 pub(super) struct LoginFeed {
-    sub: Option<router::Subscriber>,
+    feed: Feed<logind::wire::LoginSession>,
     next_poll: u64,
-    next_connect: u64,
-    buffer: Vec<u8>,
 }
 
 impl LoginFeed {
     pub(super) fn new() -> LoginFeed {
         LoginFeed {
-            sub: None,
+            feed: Feed::new(|bus| logind::wire::subscribe_system_events_login_session(bus, "+")),
             next_poll: 0,
-            next_connect: 0,
-            buffer: alloc::vec![0u8; DEFAULT_BUFFER],
         }
     }
 
@@ -59,34 +54,18 @@ impl LoginFeed {
             return ended;
         }
         self.next_poll = now + POLL_TICKS;
-        if self.sub.is_none() {
-            if now < self.next_connect {
-                return ended;
+        self.feed.ensure();
+        self.feed.drain_rung(|event| {
+            if event.value.state == EXITED {
+                ended.extend(
+                    event
+                        .topic
+                        .rsplit('/')
+                        .next()
+                        .and_then(|id| id.parse::<u64>().ok()),
+                );
             }
-            self.next_connect = now + RETRY_TICKS;
-            self.sub = router::Bus::connect(services::INIT_NAME)
-                .and_then(|mut bus| {
-                    logind::wire::subscribe_system_events_login_session(&mut bus, "+")
-                })
-                .ok();
-        }
-        while let Some(sub) = &self.sub {
-            match sub.recv_with(&mut self.buffer, Some(EXPIRED_DEADLINE)) {
-                Ok(Some(event)) => ended.extend(exited_session(&event)),
-                Ok(None) => break,
-                // The broker went away: subscribe again later (and replay).
-                Err(_) => self.sub = None,
-            }
-        }
+        });
         ended
     }
-}
-
-/// The session id of a record saying its session has exited.
-fn exited_session(event: &router::Event) -> Option<u64> {
-    let record = logind::wire::decode_system_events_login_session(&event.payload).ok()?;
-    if record.state != EXITED {
-        return None;
-    }
-    event.topic.rsplit('/').next()?.parse().ok()
 }

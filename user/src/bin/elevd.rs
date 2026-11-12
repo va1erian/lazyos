@@ -99,7 +99,7 @@ pub(crate) struct State {
     /// The caller of the request being answered.
     pub(crate) active: Option<Caller>,
     /// `logind`'s session records.
-    pub(crate) sessions: sessions::Feed,
+    pub(crate) sessions: sessions::SessionFeed,
     pub(crate) audit: audit::Audit,
     /// The receive buffer `intake.rs` reads into.
     pub(crate) intake_buffer: Vec<u8>,
@@ -145,7 +145,7 @@ fn run() -> messenger::Result<()> {
         backoff: Backoff::new(),
         queue: Queue::new(),
         active: None,
-        sessions: sessions::Feed::new(),
+        sessions: sessions::SessionFeed::new(),
         audit: audit::Audit::new(),
         intake_buffer: alloc::vec![0u8; messenger::DEFAULT_BUFFER],
     };

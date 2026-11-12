@@ -46,9 +46,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use libmessenger::client::Deadline;
+use user::central;
 use user::messenger::accounts::{self, Directory};
 use user::messenger::client::Native;
-use user::messenger::{self, logind, registry, router, services, wait, Endpoint, Parcel};
+use user::messenger::{self, logind, registry, wait, Endpoint, Parcel};
 use user::sys::{self, Cred};
 use user::trace;
 
@@ -106,7 +107,7 @@ fn run() -> messenger::Result<()> {
     }
     sys::write_str("logind: waiting for the accounts service\n");
     let mut accountsd: Option<accounts::Client> = None;
-    let mut bus: Option<router::Bus> = None;
+    let mut bus: Option<central::Publisher> = None;
     let mut sessions: Vec<logind::SessionRecord> = Vec::new();
     let mut active: Option<ActiveSession> = None;
     let mut next_session = 0u64;
@@ -123,7 +124,7 @@ fn run() -> messenger::Result<()> {
             }
         }
         if bus.is_none() {
-            bus = router::Bus::connect(services::INIT_NAME).ok();
+            bus = Some(central::Publisher::new());
         }
 
         if let Some(current) = active.as_ref() {
@@ -164,7 +165,7 @@ fn prompt_login(
     accounts: &accounts::Client,
     sessions: &mut Vec<logind::SessionRecord>,
     next_session: &mut u64,
-    bus: &mut Option<router::Bus>,
+    bus: &mut Option<central::Publisher>,
     keys: &mut console::ConsoleKeys,
 ) -> Option<ActiveSession> {
     keys.begin();
@@ -276,7 +277,7 @@ const LOGIN_SCRIPT: &str =
 
 /// Record a refused attempt, print its serial marker, and rate-limit the next
 /// prompt.
-fn deny(bus: &mut Option<router::Bus>, name: &str, reason: &str) {
+fn deny(bus: &mut Option<central::Publisher>, name: &str, reason: &str) {
     trace::line!(
         trace::Channel::Login,
         "DENIED:PASS user={name} reason={reason}"
@@ -297,7 +298,7 @@ fn end_session(
     sessions: &mut [logind::SessionRecord],
     active: &ActiveSession,
     status: u64,
-    bus: &mut Option<router::Bus>,
+    bus: &mut Option<central::Publisher>,
 ) {
     sessions[active.index].state = String::from("exited");
     let record = &sessions[active.index];

@@ -7,10 +7,11 @@
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use user::central;
 use user::sys;
 use user::trace;
 
-use user::messenger::{self, router, services, Endpoint, Message, Parcel};
+use user::messenger::{self, services, Endpoint, Message, Parcel};
 
 use super::apps::app_infos;
 use super::apps::GREETER_APP_ID;
@@ -18,7 +19,6 @@ use super::installed::InstalledApps;
 use super::launch::{actor, launch};
 use super::lifecycle::{self, Stops};
 use super::logout::Logouts;
-use super::sessions;
 use super::shutdown::{self, Shutdown};
 use super::state::{Service, LAUNCH_CAP_PER_SESSION};
 use super::stop::stop_app;
@@ -64,7 +64,7 @@ impl StatusCache {
 /// shutdown, if one is running.
 pub(super) struct Supervisor<'a> {
     pub(super) services: &'a mut Vec<Service>,
-    pub(super) broker: &'a mut router::TopicBroker,
+    pub(super) broker: &'a mut central::Publisher,
     pub(super) installed: &'a mut InstalledApps,
     pub(super) cache: &'a mut StatusCache,
     pub(super) shutdown: &'a mut Option<Shutdown>,
@@ -177,17 +177,6 @@ fn dispatch_now(state: &mut Supervisor, message: &Message) -> messenger::Result<
         ..
     } = state;
     match message.interface_id() {
-        router::INTERFACE => {
-            // `logind`'s login events also tell the launch path who owns
-            // each session (see `sessions.rs`); a logout ends every task of
-            // the session (`logout.rs`, issues #623, #651).
-            if let Some(ended) = sessions::observe(services, message) {
-                logouts.begin(services, broker, ended);
-            }
-            // `pkgd`'s provisioning progress, for the autostart.
-            super::provisioning::observe(services, message);
-            broker.handle(message)
-        }
         services::INIT_INTERFACE => match message.method() {
             services::init::METHOD_SERVICES => cache.parcel(services),
             services::init::METHOD_LISTAPPS => {

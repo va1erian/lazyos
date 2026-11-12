@@ -21,6 +21,7 @@ extern crate alloc;
 
 use alloc::format;
 use core::panic::PanicInfo;
+use messenger_generated::topics::NextError;
 use user::central;
 use user::messenger::clipboard::{Clipboard, Nested};
 use user::messenger::{self, clipboard, errno, Error};
@@ -55,17 +56,23 @@ fn run() -> messenger::Result<()> {
     // (issue #169); a late subscriber is handed the offer.
     let mut changes_bus = central::Bus::connect()?;
     let session_text = format!("{}", clipboard::session().map_err(lower)?);
-    let changes = clipboard::subscribe_session_clipboard_changed(&mut changes_bus, &session_text)?;
-    let mut changed_buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
-    let event = match changes.recv_with(
-        &mut changed_buffer,
-        Some(sys::clock().saturating_add(CHANGED_TICKS)),
-    )? {
-        Some(event) => event,
-        None => fail("PASTE", "no changed event"),
+    let mut changes =
+        clipboard::subscribe_session_clipboard_changed(&mut changes_bus, &session_text)?;
+    let deadline = sys::clock().saturating_add(CHANGED_TICKS);
+    // The typed stream: read until nothing is queued, park on its doorbell,
+    // read again.
+    let meta = loop {
+        match changes.next() {
+            Ok(Some(event)) => break event.value,
+            Ok(None) => {
+                if !changes.handle_mut().park(Some(deadline))? {
+                    fail("PASTE", "no changed event");
+                }
+            }
+            Err(NextError::Decode(error)) => return Err(Error::Parcel(error)),
+            Err(NextError::Transport(error)) => return Err(error),
+        }
     };
-    let meta =
-        clipboard::decode_session_clipboard_changed(&event.payload).map_err(Error::Parcel)?;
     let info = clipboard::from_wire_meta(meta);
     if !info.mimes.iter().any(|mime| mime == DEMO_MIME) {
         fail("PASTE", "offer lacks the demo MIME type");
@@ -102,7 +109,7 @@ fn run() -> messenger::Result<()> {
     // denial probe are done: this demo client is about to exit, but a leaked
     // subscription would still fill the broker's bounded table on repeated
     // runs.
-    let _ = changes.unsubscribe();
+    let _ = changes.into_handle().unsubscribe();
     Ok(())
 }
 

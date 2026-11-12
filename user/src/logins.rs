@@ -3,8 +3,10 @@
 //! (`wlansta::Station::set_active_users`) and `mountd`'s automount of
 //! removable volumes, whose files belong to the session user.
 //!
-//! `logind` announces sessions on `init`'s broker
-//! (`system/events/login/start`, `.../end`, `.../session/<id>`), but the
+//! `logind` announces sessions on the central broker
+//! (`system/events/login/start`, `.../end`, `.../session/<id>`), read through
+//! one [`Feed`] each (a doorbell asked locally, never the broker, on every
+//! look), but the
 //! broker takes a publish from anyone, so an event is only a **hint**: on
 //! each one (and every [`POLL_TICKS`] in case one was missed) `wlanmd` asks
 //! `logind` itself (`Sessions`, through the registry name only `logind`
@@ -25,32 +27,27 @@ use alloc::vec::Vec;
 
 use libmessenger::client::Deadline;
 
+use crate::central::Feed;
 use crate::messenger::client::Native;
-use crate::messenger::{logind, router, services, DEFAULT_BUFFER, EXPIRED_DEADLINE};
+use crate::messenger::logind;
 use crate::{sys, trace};
 
-/// Ticks (100 Hz) between attempts to subscribe while `init` is unreachable.
-const RETRY_TICKS: u64 = 1_000;
 /// Ticks between questions to `logind` when no hint came.
 const POLL_TICKS: u64 = 3_000;
 /// How long `logind` may take to answer (a console `logind` at its prompt
 /// does not answer at all).
 const ANSWER_TICKS: u64 = 10;
-/// The broker subscriptions a follower holds.
-const SUBSCRIPTIONS: usize = 3;
-/// Events read per look.
-const MAX_PER_LOOK: usize = 32;
 /// The session states of a live session (`elevpolicy::sessions`).
 const LIVE: [&str; 2] = ["starting", "active"];
 
 pub struct Logins {
     channel: trace::Channel,
-    /// Start, end and session subscriptions; a slot the broker refused (it
-    /// was full, or briefly unreachable) stays empty and is tried again.
-    subs: [Option<router::Subscriber>; SUBSCRIPTIONS],
-    next_connect: u64,
+    /// The start, end and session feeds; one the broker refused (it was full,
+    /// or briefly unreachable) is made again.
+    start: Feed<logind::wire::LoginStart>,
+    end: Feed<logind::wire::LoginEnd>,
+    session: Feed<logind::wire::LoginSession>,
     next_poll: u64,
-    buffer: Vec<u8>,
     /// The users last believed logged in.
     users: Vec<u32>,
 }
@@ -60,10 +57,10 @@ impl Logins {
     pub fn new(channel: trace::Channel) -> Logins {
         Logins {
             channel,
-            subs: [None, None, None],
-            next_connect: 0,
+            start: Feed::new(logind::wire::subscribe_system_events_login_start),
+            end: Feed::new(logind::wire::subscribe_system_events_login_end),
+            session: Feed::new(|bus| logind::wire::subscribe_system_events_login_session(bus, "+")),
             next_poll: 0,
-            buffer: alloc::vec![0u8; DEFAULT_BUFFER],
             users: Vec::new(),
         }
     }
@@ -76,7 +73,9 @@ impl Logins {
     /// The logged-in users, when they changed since the last look.
     pub fn changed(&mut self) -> Option<Vec<u32>> {
         let now = sys::clock();
-        self.subscribe(now);
+        self.start.ensure();
+        self.end.ensure();
+        self.session.ensure();
         let (hinted, ended) = self.hints();
         if !hinted && now < self.next_poll {
             return None;
@@ -99,66 +98,23 @@ impl Logins {
         Some(users)
     }
 
-    fn subscribe(&mut self, now: u64) {
-        if self.subs.iter().all(Option::is_some) || now < self.next_connect {
-            return;
-        }
-        self.next_connect = now + RETRY_TICKS;
-        let Ok(mut bus) = router::Bus::connect(services::INIT_NAME) else {
-            return;
-        };
-        // Only the slots still empty: a broker that refused one (a full
-        // table) must not leave the follower deaf to that event for good.
-        if self.subs[0].is_none() {
-            self.subs[0] = logind::wire::subscribe_system_events_login_start(&mut bus).ok();
-        }
-        if self.subs[1].is_none() {
-            self.subs[1] = logind::wire::subscribe_system_events_login_end(&mut bus).ok();
-        }
-        if self.subs[2].is_none() {
-            self.subs[2] = logind::wire::subscribe_system_events_login_session(&mut bus, "+").ok();
-        }
-    }
-
     /// Drain the hints: whether any came, and the uids an `end` (or a
     /// session record that is not live) named.
     fn hints(&mut self) -> (bool, Vec<u32>) {
         let (mut hinted, mut ended) = (false, Vec::new());
-        let mut broken = false;
-        for sub in self.subs.iter().flatten() {
-            for _ in 0..MAX_PER_LOOK {
-                match sub.recv_with(&mut self.buffer, Some(EXPIRED_DEADLINE)) {
-                    Ok(Some(event)) => {
-                        hinted = true;
-                        if let Some(uid) = ended_uid(&event) {
-                            ended.push(uid);
-                        }
-                    }
-                    Ok(None) => break,
-                    Err(_) => {
-                        broken = true;
-                        break;
-                    }
-                }
+        self.start.drain_rung(|_| hinted = true);
+        self.end.drain_rung(|event| {
+            hinted = true;
+            ended.push(event.value.uid);
+        });
+        self.session.drain_rung(|event| {
+            hinted = true;
+            if !LIVE.contains(&event.value.state.as_str()) {
+                ended.push(event.value.uid);
             }
-        }
-        if broken {
-            // The broker went away: subscribe again later (and replay).
-            self.subs = [None, None, None];
-        }
+        });
         (hinted, ended)
     }
-}
-
-/// The uid an event says left, if it says one did.
-fn ended_uid(event: &router::Event) -> Option<u32> {
-    if event.topic == logind::wire::TOPIC_SYSTEM_EVENTS_LOGIN_END {
-        return logind::wire::decode_login_end(&event.payload)
-            .ok()
-            .map(|end| end.uid);
-    }
-    let record = logind::wire::decode_login_session(&event.payload).ok()?;
-    (!LIVE.contains(&record.state.as_str())).then_some(record.uid)
 }
 
 /// `logind`'s own answer: the uids of the live sessions, or `None` when it

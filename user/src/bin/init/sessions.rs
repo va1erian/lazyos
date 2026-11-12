@@ -29,7 +29,7 @@ use libmessenger::client::Deadline;
 use spin::Mutex;
 use user::messenger::accounts::{self, Directory};
 use user::messenger::client::Native;
-use user::messenger::{logind, router, Message};
+use user::messenger::logind;
 
 use super::service::{Phase, Service};
 
@@ -113,25 +113,25 @@ fn by_uid(uid: u32) -> Option<Owner> {
     owner
 }
 
-/// Learn from one inbound message, if it is a login event `logind` published.
-/// Returns the session that just ended (a logout, issue #623), whose tasks
-/// the caller must end.
-pub(super) fn observe(services: &[Service], message: &Message) -> Option<u64> {
-    let (topic, payload) = router::published(message)?;
-    if !from_logind(services, message.sender) {
-        return None;
-    }
-    if topic == logind::wire::TOPIC_SYSTEM_EVENTS_LOGIN_END {
-        let end = logind::wire::decode_login_end(&payload).ok()?;
-        forget(end.session);
-        return (end.session != 0).then_some(end.session);
+/// Learn from one `system/events/login/session/<id>` record, if `publisher`
+/// is `logind`: a live session's owner is remembered, anything else forgets it.
+pub(super) fn observe_session(
+    services: &[Service],
+    publisher: u64,
+    topic: &str,
+    record: &logind::wire::LoginSession,
+) {
+    if !from_logind(services, publisher) {
+        return;
     }
     // `system/events/login/session/<id>`: the id is the last segment.
     let prefix = logind::wire::TOPIC_SYSTEM_EVENTS_LOGIN_SESSION.trim_end_matches('+');
-    let id = topic
+    let Some(id) = topic
         .strip_prefix(prefix)
-        .and_then(|id| id.parse::<u64>().ok())?;
-    let record = logind::wire::decode_login_session(&payload).ok()?;
+        .and_then(|id| id.parse::<u64>().ok())
+    else {
+        return;
+    };
     // Only a live session has an owner; any other state (exited, or one this
     // table does not know) forgets it, so no stale owner outlives its session.
     if matches!(record.state.as_str(), "starting" | "active") {
@@ -139,14 +139,28 @@ pub(super) fn observe(services: &[Service], message: &Message) -> Option<u64> {
             id,
             Owner {
                 uid: record.uid,
-                user: record.user,
-                home: record.home,
+                user: record.user.clone(),
+                home: record.home.clone(),
             },
         );
     } else {
         forget(id);
     }
-    None
+}
+
+/// Learn from one `system/events/login/end` record, if `publisher` is
+/// `logind`. Returns the session that just ended (a logout, issue #623),
+/// whose tasks the caller must end.
+pub(super) fn observe_end(
+    services: &[Service],
+    publisher: u64,
+    end: &logind::wire::LoginEnd,
+) -> Option<u64> {
+    if !from_logind(services, publisher) {
+        return None;
+    }
+    forget(end.session);
+    (end.session != 0).then_some(end.session)
 }
 
 /// Whether `sender` is the task of the running `logind` manifest row.
