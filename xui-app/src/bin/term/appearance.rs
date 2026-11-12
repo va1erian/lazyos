@@ -2,6 +2,7 @@
 //! decide about how the Terminal looks: the font and its cell, the colours,
 //! the cursor, and so the grid's rows (the engine and the pty follow).
 
+use xui_app::trace::{self, Channel};
 use lazyterm::palette::scheme_by_name;
 use lazyterm::settings::{MAX_GRID_COLS, MAX_GRID_ROWS, MIN_COLS, MIN_ROWS};
 use xui_app::sys::monotonic_ns;
@@ -136,12 +137,12 @@ impl Terminal {
         };
         let marker = format!("{family}:{}:{cols}x{rows}", size as u32);
         if self.marker.as_deref() != Some(marker.as_str()) {
-            println!("TERM:FONT:{marker}");
+            trace::line!(Channel::Term, "FONT:{marker}");
             self.marker = Some(marker);
         }
         if !self.sized {
             self.sized = true;
-            println!("TERM:RESIZE:{cols}x{rows}");
+            trace::line!(Channel::Term, "RESIZE:{cols}x{rows}");
         }
     }
 
@@ -163,7 +164,7 @@ impl Terminal {
         // The cursor is solid while the size changes.
         self.blink.activity(now_ms());
         self.sync_cursor_phase();
-        println!("TERM:RESIZE:{cols}x{rows}");
+        trace::line!(Channel::Term, "RESIZE:{cols}x{rows}");
         if self.sized {
             self.show_badge(ui, cols, rows);
             self.shown = Shown::default();
@@ -267,7 +268,7 @@ impl Terminal {
 
     pub(super) fn focus_changed(&mut self, ui: &mut Ui<Msg>, focused: bool) {
         self.blink.set_focused(focused, now_ms());
-        println!("TERM:FOCUS:{}", u8::from(focused));
+        trace::line!(Channel::Term, "FOCUS:{}", u8::from(focused));
         // Name the grid again for session scripts: the newest line wins, and with
         // several Terminals it should be the one that has the keyboard.
         if let (true, Some(laid)) = (focused, self.layout.get()) {

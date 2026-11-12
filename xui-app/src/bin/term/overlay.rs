@@ -4,6 +4,7 @@
 //! `prefs.rs`, `findbar.rs`, `prompt.rs`); this routes events into them and
 //! carries out what they decide.
 
+use xui_app::trace::{self, Channel};
 use xui_app::probe;
 use xui_core::app::Ui;
 use xui_core::{Key, Modifiers, MouseButton, Rect};
@@ -144,10 +145,10 @@ impl Terminal {
                 self.chrome.borrow_mut().prompt = None;
                 self.redraw(ui);
                 if accept {
-                    println!("TERM:CLOSE:FORCE");
+                    trace::line!(Channel::Term, "CLOSE:FORCE");
                     self.finish(ui);
                 } else {
-                    println!("TERM:CLOSE:CANCEL");
+                    trace::line!(Channel::Term, "CLOSE:CANCEL");
                 }
             }
             None => {}
@@ -254,7 +255,7 @@ impl Terminal {
     pub(super) fn choose(&mut self, ui: &mut Ui<Msg>, item: Item) {
         let link = self.chrome.borrow().menu.as_ref().and_then(|m| m.link.clone());
         self.chrome.borrow_mut().menu = None;
-        println!("TERM:MENU:{}", item.evidence());
+        trace::line!(Channel::Term, "MENU:{}", item.evidence());
         match item {
             Item::Copy => self.copy(ui),
             Item::Paste => self.paste(ui),
@@ -303,7 +304,7 @@ impl Terminal {
         for change in &out.changes {
             self.follower.write(change.key, &change.value);
             settings.apply(change.key, &change.value);
-            println!("TERM:PREFS:SET:{}", change.key);
+            trace::line!(Channel::Term, "PREFS:SET:{}", change.key);
         }
         if !out.changes.is_empty() {
             let motion_none = self.conf.motion_none;

@@ -1,6 +1,7 @@
 //! Keys to bytes, and the Terminal's own shortcuts. Plain `Ctrl+C` stays
 //! `^C`: the copy and paste chords all involve Shift or Insert.
 
+use xui_app::trace::{self, Channel};
 use xui_core::app::Ui;
 use xui_core::{Key, Modifiers};
 
@@ -75,7 +76,7 @@ impl Terminal {
         self.typed.clear();
         if !line.is_empty() {
             self.perf.submitted(&self.paint_clock);
-            println!("TERM:CMD:{line}");
+            trace::line!(Channel::Term, "CMD:{line}");
             self.evidence.submitted(line);
         }
     }

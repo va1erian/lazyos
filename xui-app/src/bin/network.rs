@@ -183,7 +183,7 @@ impl App for Network {
             }
             Msg::NextCard => self.next_card(),
             Msg::Close => {
-                println!("NETAPP:CLOSE:PASS");
+                trace::pass!(Channel::Netapp, "CLOSE");
                 ui.quit();
             }
         }
@@ -243,8 +243,9 @@ impl Network {
                     let gw = status
                         .gateway
                         .map_or_else(|| String::from("none"), model::dotted);
-                    println!(
-                        "NETAPP:STATUS:PASS addr={} gw={gw}",
+                    trace::line!(
+                        Channel::Netapp,
+                        "STATUS:PASS addr={} gw={gw}",
                         cidr.as_deref().unwrap_or("")
                     );
                     self.reported = cidr;
@@ -253,7 +254,7 @@ impl Network {
             }
             Err(error) => {
                 if self.status.is_some() || self.form_card.is_none() {
-                    println!("NETAPP:STATUS:NOSTACK {}", error.describe());
+                    trace::line!(Channel::Netapp, "STATUS:NOSTACK {}", error.describe());
                 }
                 self.w.values[0].get().set_text(&error.describe());
                 for label in &self.w.values[1..] {
@@ -301,7 +302,7 @@ impl Network {
         self.refresh();
         self.fill();
         let name = self.shown_card().unwrap_or_default();
-        println!("NETAPP:CARD:PASS if={name}");
+        trace::line!(Channel::Netapp, "CARD:PASS if={name}");
         self.w
             .message
             .get()
@@ -349,7 +350,7 @@ impl Network {
         let ifname = match (self.form_card.clone(), self.shown_card()) {
             (Some(filled), Some(shown)) if filled == shown => filled,
             _ => {
-                println!("NETAPP:APPLY:REFUSED");
+                trace::line!(Channel::Netapp, "APPLY:REFUSED");
                 self.w.message.get().set_text(
                     "The card this form edits cannot be confirmed (the network service did not answer, or the card changed). Nothing was saved.",
                 );
@@ -359,14 +360,14 @@ impl Network {
         let args = match apply::elevd_args(&ifname, &form) {
             Ok(args) => args,
             Err(why) => {
-                println!("NETAPP:APPLY:REFUSED");
+                trace::line!(Channel::Netapp, "APPLY:REFUSED");
                 self.w.message.get().set_text(&why);
                 return;
             }
         };
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         if let Err(error) = elevd::request("net.config", &args) {
-            println!("NETAPP:APPLY:FAIL");
+            trace::line!(Channel::Netapp, "APPLY:FAIL");
             self.w
                 .message
                 .get()
@@ -374,7 +375,7 @@ impl Network {
             return;
         }
         let mode = if form.manual { "static" } else { "dhcp" };
-        println!("NETAPP:APPLY:PASS mode={mode} if={ifname}");
+        trace::line!(Channel::Netapp, "APPLY:PASS mode={mode} if={ifname}");
         self.w.message.get().set_text(if form.manual {
             "Saved. This card restarts with the manual address within a few seconds."
         } else {
@@ -385,14 +386,14 @@ impl Network {
     fn renew(&self) {
         match stack::renew() {
             Ok(()) => {
-                println!("NETAPP:RENEW:PASS");
+                trace::pass!(Channel::Netapp, "RENEW");
                 self.w
                     .message
                     .get()
                     .set_text("Asked the DHCP server for a fresh lease.");
             }
             Err(error) => {
-                println!("NETAPP:RENEW:FAIL");
+                trace::line!(Channel::Netapp, "RENEW:FAIL");
                 self.w
                     .message
                     .get()

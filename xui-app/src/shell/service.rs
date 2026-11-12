@@ -8,6 +8,7 @@
 //! capability to identify callers. When its own uid is unknown it refuses
 //! every call with `EACCES` (fail closed).
 
+use crate::trace::{self, Channel};
 use std::rc::Rc;
 
 use libmessenger::Parcel;
@@ -43,7 +44,7 @@ impl ShellService {
             match Server::register(NAME, &[wire::INTERFACE_ID], &[wire::INTERFACE_NAME]) {
                 Ok(server) => {
                     self.server = Some(server);
-                    println!("SHELL:SERVICE:PASS");
+                    trace::pass!(Channel::Shell, "SERVICE");
                 }
                 Err(code) => ctx.note("register", || format!("SHELL:SERVICE:RETRY err={}", -code)),
             }

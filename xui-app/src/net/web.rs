@@ -8,6 +8,7 @@
 //! these shared values, never the UI's Messenger endpoints (on LazyOS a thread
 //! has its own descriptor table). Every read is bounded in size and time.
 
+use crate::trace::{self, Channel};
 use std::io::{ErrorKind, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -178,7 +179,10 @@ fn serve(port: u16, stop: &AtomicBool, state: &Mutex<ServerState>, page: &Mutex<
     // a stop request at the next visitor.
     let polling = listener.set_nonblocking(true).is_ok();
     lock(state).listening = Some(Ok(port));
-    println!("NETTOOLS:SERVER:LISTENING port={port} polling={polling}");
+    trace::line!(
+        Channel::Nettools,
+        "SERVER:LISTENING port={port} polling={polling}"
+    );
     while !stop.load(Ordering::Relaxed) {
         match listener.accept() {
             Ok((stream, peer)) => answer(stream, peer, state, page),
@@ -240,7 +244,7 @@ fn answer(
     match sent {
         Ok(()) => {
             lock(state).hits = hits;
-            println!("NETTOOLS:SERVER:HIT n={hits} from={peer}");
+            trace::line!(Channel::Nettools, "SERVER:HIT n={hits} from={peer}");
             push_log(state, format!("{peer}  {line}"));
         }
         Err(e) => push_log(state, format!("{peer}  {line}  (send failed: {e})")),

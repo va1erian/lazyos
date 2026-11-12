@@ -18,6 +18,7 @@
 //! `SHELL:DESKTOP:SEED:FAIL <why>`, `SHELL:DESKTOP:ICONS n=<n>`,
 //! `SHELL:DESKTOP:DROP:<copied>:<moved>:<failed>`.
 
+use crate::trace::{self, Channel};
 use std::path::PathBuf;
 
 use lazyshell::desktop::folder::{Item, Kind};
@@ -223,7 +224,7 @@ impl Ctx {
         if *self.icons.borrow() == items && *self.icon_images.borrow() == images {
             return false;
         }
-        println!("SHELL:DESKTOP:ICONS n={}", items.len());
+        trace::line!(Channel::Shell, "DESKTOP:ICONS n={}", items.len());
         *self.icons.borrow_mut() = items;
         *self.icon_images.borrow_mut() = images;
         self.icons_changed.set(true);
@@ -249,10 +250,15 @@ impl Ctx {
         };
         let report = drop_into(paths, &dir, intent);
         for (path, error) in &report.failed {
-            println!("SHELL:DESKTOP:DROP:FAIL {}: {error}", path.display());
+            trace::line!(
+                Channel::Shell,
+                "DESKTOP:DROP:FAIL {}: {error}",
+                path.display()
+            );
         }
-        println!(
-            "SHELL:DESKTOP:DROP:{}:{}:{}",
+        trace::line!(
+            Channel::Shell,
+            "DESKTOP:DROP:{}:{}:{}",
             report.copied,
             report.moved,
             report.failed.len()

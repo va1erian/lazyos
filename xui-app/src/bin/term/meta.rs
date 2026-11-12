@@ -2,6 +2,7 @@
 //! working directory its shell reports (OSC 7), and the synchronized updates
 //! (`?2026`) it asks the repaint to wait for.
 
+use xui_app::trace::{self, Channel};
 use xui_core::app::Ui;
 
 use super::appearance::now_ms;
@@ -41,12 +42,12 @@ impl Terminal {
             let shown = title.as_deref().unwrap_or(DEFAULT_TITLE);
             ui.set_window_title(shown);
             self.title = shown.to_string();
-            println!("TERM:TITLE:{shown}");
+            trace::line!(Channel::Term, "TITLE:{shown}");
         }
         if cwd != self.cwd {
             if let Some(cwd) = &cwd {
                 if let Some(path) = resolve_cwd(&cwd.host, &cwd.path, home_text().as_deref()) {
-                    println!("TERM:CWD:{path}");
+                    trace::line!(Channel::Term, "CWD:{path}");
                 }
             }
             self.cwd = cwd;

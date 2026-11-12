@@ -8,6 +8,7 @@
 //! to its manifest by the kernel before the request gets here. A refused call
 //! prints `SHELL:TRAY:DENY` and closes any channel it carried.
 
+use crate::trace::{self, Channel};
 use std::rc::Rc;
 
 use lazyshell::tray::item::{Item, Patch};
@@ -107,7 +108,7 @@ impl TrayService {
         ) {
             Ok(server) => {
                 self.server = Some(server);
-                println!("SHELL:TRAY:SERVICE:PASS");
+                trace::line!(Channel::Shell, "TRAY:SERVICE:PASS");
                 // Now that `Set` is answered, tell clients to set again.
                 ctx.tray.generation.borrow_mut().serving(ctx);
                 true
@@ -168,8 +169,9 @@ fn identify(ctx: &Ctx, request: &Request, rows: &mut Rows) -> Result<String, Fai
         session: ctx.tray.generation.borrow().session(),
     };
     let deny = |why: Deny| {
-        println!(
-            "SHELL:TRAY:DENY uid={} label={} why={}",
+        trace::line!(
+            Channel::Shell,
+            "TRAY:DENY uid={} label={} why={}",
             origin.uid,
             origin.label_id,
             why.as_str()
@@ -208,8 +210,9 @@ fn same_app(ctx: &Ctx, app: &str, request: &Request) -> Result<bool, Failure> {
     match ctx.tray.pinned_label(app) {
         Some(pinned) if pinned != label => {
             if liveness::alive(ctx, app) {
-                println!(
-                    "SHELL:TRAY:DENY uid={} label={label} why=label",
+                trace::line!(
+                    Channel::Shell,
+                    "TRAY:DENY uid={} label={label} why=label",
                     request.origin.uid
                 );
                 return Err((errno::EACCES, "not the app that set the item"));
@@ -251,7 +254,7 @@ fn dispatch(
             }
             tray.keep_channel(app, channel, label);
             let count = tray.model.borrow().len();
-            println!("SHELL:TRAY:SET app={app} n={count}");
+            trace::line!(Channel::Shell, "TRAY:SET app={app} n={count}");
             tray.generation.borrow().restored(tray);
             Ok(true)
         }
@@ -262,13 +265,13 @@ fn dispatch(
                 .borrow_mut()
                 .update(app, patch)
                 .map_err(|why| refused(app, why))?;
-            println!("SHELL:TRAY:UPDATE app={app}");
+            trace::line!(Channel::Shell, "TRAY:UPDATE app={app}");
             Ok(true)
         }
         wire::METHOD_CLEAR => {
             let change = tray.model.borrow_mut().clear(app);
             tray.drop_channel(app);
-            println!("SHELL:TRAY:CLEAR app={app} why=clear");
+            trace::line!(Channel::Shell, "TRAY:CLEAR app={app} why=clear");
             Ok(change != Change::Unchanged)
         }
         _ => Err((ENOTSUP, "unknown method")),
@@ -276,7 +279,7 @@ fn dispatch(
 }
 
 fn invalid(app: &str, what: &str) -> Failure {
-    println!("SHELL:TRAY:INVALID app={app} field={what}");
+    trace::line!(Channel::Shell, "TRAY:INVALID app={app} field={what}");
     (errno::EINVAL, "invalid tray item")
 }
 

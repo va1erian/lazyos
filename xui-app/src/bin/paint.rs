@@ -25,7 +25,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use xui_app::trace::Channel;
+use xui_app::trace::{self, Channel};
 
 use xui_app::font;
 use xui_app::platform::argv;
@@ -85,7 +85,7 @@ fn text_rasterizer() -> Rc<dyn TextRasterizer> {
         // an unknown name) does not depend on the directory's.
         files.sort();
         // Evidence that the text tool has the system fonts, not only Droid.
-        println!("PAINT:FONTS:{}", files.len());
+        trace::line!(Channel::Paint, "FONTS:{}", files.len());
         for path in files {
             if let Ok(bytes) = std::fs::read(&path) {
                 rasterizer.register_font(bytes);
@@ -114,7 +114,7 @@ impl Storage for ReportingStorage {
             // The app reports a success, with the format it wrote.
             Ok(()) => Ok(()),
             Err(error) => {
-                println!("PAINT:SAVE:FAIL:{}", self.inner.path().display());
+                trace::fail!(Channel::Paint, "SAVE", "{}", self.inner.path().display());
                 Err(error)
             }
         }
@@ -131,7 +131,7 @@ impl Storage for ReportingStorage {
     fn save_to(&self, path: &Path, bytes: &[u8]) -> Result<(), String> {
         let result = self.inner.save_to(path, bytes);
         if result.is_err() {
-            println!("PAINT:SAVE:FAIL:{}", path.display());
+            trace::fail!(Channel::Paint, "SAVE", "{}", path.display());
         }
         result
     }
@@ -155,8 +155,10 @@ fn announce(report: &Report, default: &Path) {
     match report {
         Report::Opened { path, size, layers } => {
             let path = path.as_deref().unwrap_or(default);
-            println!(
-                "PAINT:OPEN:PASS:{}:{}x{}:{layers}",
+            trace::pass!(
+                Channel::Paint,
+                "OPEN",
+                "{}:{}x{}:{layers}",
                 path.display(),
                 size.0,
                 size.1
@@ -164,7 +166,13 @@ fn announce(report: &Report, default: &Path) {
         }
         Report::Saved { path, format } => {
             let path = path.as_deref().unwrap_or(default);
-            println!("PAINT:SAVE:PASS:{}:{}", path.display(), format.extension());
+            trace::pass!(
+                Channel::Paint,
+                "SAVE",
+                "{}:{}",
+                path.display(),
+                format.extension()
+            );
         }
     }
 }

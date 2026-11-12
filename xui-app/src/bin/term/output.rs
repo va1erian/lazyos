@@ -3,6 +3,7 @@
 //! what it has no room for) and output coming in (drained, scrolled to, kept
 //! on screen).
 
+use xui_app::trace::{self, Channel};
 use std::io::{Read, Write};
 
 use xui_core::app::Ui;
@@ -97,7 +98,7 @@ impl Terminal {
         let offset = apply(mv, self.offset.get(), max);
         if offset != self.offset.get() {
             self.offset.set(offset);
-            println!("TERM:SCROLL:{offset}");
+            trace::line!(Channel::Term, "SCROLL:{offset}");
             self.refresh(ui);
         }
     }
@@ -150,7 +151,7 @@ impl Terminal {
         }
         for line in &completed {
             if let Some(marker) = self.evidence.line(line) {
-                println!("TERM:OUT:{marker}");
+                trace::line!(Channel::Term, "OUT:{marker}");
             }
         }
         self.touch(ui);

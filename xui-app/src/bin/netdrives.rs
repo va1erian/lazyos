@@ -240,14 +240,14 @@ impl App for Netdrives {
                 }
             }
             Msg::Kind(index) => {
-                println!("NETDRIVES:KIND {}", KINDS[index.min(1)].name());
+                trace::line!(Channel::Netdrives, "KIND {}", KINDS[index.min(1)].name());
             }
             Msg::Mount => self.mount(),
             Msg::Open => self.open(),
             Msg::Unmount => self.unmount(),
             Msg::Sort => self.w.mounts_sort.resort(&self.w.mounts.get()),
             Msg::Close => {
-                println!("NETDRIVES:CLOSE:PASS");
+                trace::pass!(Channel::Netdrives, "CLOSE");
                 ui.quit();
             }
         }
@@ -262,7 +262,7 @@ impl Netdrives {
             Ok(mounts) => mounts,
             Err(error) => {
                 if self.reachable != Some(false) {
-                    println!("NETDRIVES:LIST:NOSERVICE {}", error.describe());
+                    trace::line!(Channel::Netdrives, "LIST:NOSERVICE {}", error.describe());
                     self.w.say(&error.describe());
                 }
                 self.reachable = Some(false);
@@ -293,14 +293,21 @@ impl Netdrives {
         }
         match info.state.as_str() {
             "mounted" => {
-                println!("NETDRIVES:MOUNT:PASS name={} path={}", info.name, info.path);
+                trace::line!(
+                    Channel::Netdrives,
+                    "MOUNT:PASS name={} path={}",
+                    info.name,
+                    info.path
+                );
                 self.w
                     .say(&format!("{} is mounted at {}.", info.name, info.path));
             }
             "failed" => {
-                println!(
-                    "NETDRIVES:MOUNT:FAIL name={} reason={}",
-                    info.name, info.detail
+                trace::line!(
+                    Channel::Netdrives,
+                    "MOUNT:FAIL name={} reason={}",
+                    info.name,
+                    info.detail
                 );
                 self.w
                     .say(&format!("{} failed: {}.", info.name, info.detail));
@@ -323,15 +330,16 @@ impl Netdrives {
         let request = match drives::check(&self.w.form()) {
             Ok(request) => request,
             Err(why) => {
-                println!("NETDRIVES:MOUNT:REFUSED {why}");
+                trace::line!(Channel::Netdrives, "MOUNT:REFUSED {why}");
                 self.w.say(&why);
                 return;
             }
         };
         match mounts::mount(&request) {
             Ok(path) => {
-                println!(
-                    "NETDRIVES:MOUNT:REQUESTED name={} path={path}",
+                trace::line!(
+                    Channel::Netdrives,
+                    "MOUNT:REQUESTED name={} path={path}",
                     request.name
                 );
                 // The password lives on only in the daemon `mountd` started.
@@ -344,7 +352,7 @@ impl Netdrives {
                 self.refresh();
             }
             Err(error) => {
-                println!("NETDRIVES:MOUNT:REFUSED {}", error.describe());
+                trace::line!(Channel::Netdrives, "MOUNT:REFUSED {}", error.describe());
                 self.w.say(&error.describe());
             }
         }
@@ -366,9 +374,9 @@ impl Netdrives {
         }
         let path = info.path.clone();
         match mounts::open_in_files(&path) {
-            Ok(()) => println!("NETDRIVES:OPEN:PASS path={path}"),
+            Ok(()) => trace::line!(Channel::Netdrives, "OPEN:PASS path={path}"),
             Err(error) => {
-                println!("NETDRIVES:OPEN:FAIL path={path}");
+                trace::line!(Channel::Netdrives, "OPEN:FAIL path={path}");
                 self.w
                     .say(&format!("Could not open Files: {}", error.describe()));
             }
@@ -382,13 +390,13 @@ impl Netdrives {
         };
         match mounts::unmount(&name) {
             Ok(()) => {
-                println!("NETDRIVES:UNMOUNT:PASS name={name}");
+                trace::line!(Channel::Netdrives, "UNMOUNT:PASS name={name}");
                 self.reported.remove(&name);
                 self.w.say(&format!("{name} is unmounted."));
                 self.refresh();
             }
             Err(error) => {
-                println!("NETDRIVES:UNMOUNT:FAIL name={name}");
+                trace::line!(Channel::Netdrives, "UNMOUNT:FAIL name={name}");
                 self.w.say(&error.describe());
             }
         }

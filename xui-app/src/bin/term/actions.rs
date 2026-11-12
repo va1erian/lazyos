@@ -1,6 +1,7 @@
 //! The conveniences' actions: clear and reset, Save output, New Window, closing
 //! over a running program, opening a link, and the bell.
 
+use xui_app::trace::{self, Channel};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -46,13 +47,13 @@ impl Terminal {
     pub(super) fn save_output(&mut self, ui: &mut Ui<Msg>, path: PathBuf) {
         self.root.focus();
         if !savable(&path) {
-            println!("TERM:SAVE:FAIL:path");
+            trace::fail!(Channel::Term, "SAVE", "path");
             return;
         }
         let text = self.term.borrow().dump_text();
         match std::fs::write(&path, text.as_bytes()) {
-            Ok(()) => println!("TERM:SAVE:{}", text.len()),
-            Err(error) => println!("TERM:SAVE:FAIL:{}", error.kind()),
+            Ok(()) => trace::line!(Channel::Term, "SAVE:{}", text.len()),
+            Err(error) => trace::fail!(Channel::Term, "SAVE", "{}", error.kind()),
         }
         self.redraw(ui);
     }
@@ -61,9 +62,9 @@ impl Terminal {
     /// directory the shell last reported, if it still exists.
     pub(super) fn new_window(&mut self) {
         let cwd = self.cwd_path().filter(|p| Path::new(p).is_absolute() && Path::new(p).is_dir()).unwrap_or_default();
-        println!("TERM:NEWWIN:{cwd}");
+        trace::line!(Channel::Term, "NEWWIN:{cwd}");
         if let Err(code) = xui_app::shell::launch("terminal", &cwd) {
-            println!("TERM:NEWWIN:FAIL:{}", -code);
+            trace::fail!(Channel::Term, "NEWWIN", "{}", -code);
         }
     }
 
@@ -73,14 +74,14 @@ impl Terminal {
         let shell = self.child.id() as i32;
         let foreground = jobs::foreground_group(self.master.fd());
         let state = jobs::shell_state(shell as u64);
-        println!("TERM:CLOSE:CHECK:fg={foreground:?} shell={shell} state={state:?}");
+        trace::line!(Channel::Term, "CLOSE:CHECK:fg={foreground:?} shell={shell} state={state:?}");
         let busy = !self.hung_up && jobs::busy(foreground, shell, state);
         if !busy {
             self.finish(ui);
             return;
         }
         if self.chrome.borrow().prompt.is_none() {
-            println!("TERM:CLOSE:CONFIRM");
+            trace::line!(Channel::Term, "CLOSE:CONFIRM");
             self.show_prompt(ui, Prompt::close());
         }
     }
@@ -101,22 +102,22 @@ impl Terminal {
     pub(super) fn ask_open(&mut self, ui: &mut Ui<Msg>, url: &str) {
         match sanitize_url(url) {
             Some(url) => {
-                println!("TERM:LINK:CONFIRM:{url}");
+                trace::line!(Channel::Term, "LINK:CONFIRM:{url}");
                 self.show_prompt(ui, Prompt::link(&url));
             }
-            None => println!("TERM:LINK:REFUSED"),
+            None => trace::line!(Channel::Term, "LINK:REFUSED"),
         }
     }
 
     /// Open `url` in the app registered for its scheme, through `mimed`.
     pub(super) fn open_url(&mut self, url: &str) {
         let Some(url) = sanitize_url(url) else {
-            println!("TERM:LINK:REFUSED");
+            trace::line!(Channel::Term, "LINK:REFUSED");
             return;
         };
-        println!("TERM:LINK:OPEN:{url}");
+        trace::line!(Channel::Term, "LINK:OPEN:{url}");
         if let Err(error) = launcher::open_url(&url) {
-            println!("TERM:LINK:FAIL:{:?}", error.kind());
+            trace::fail!(Channel::Term, "LINK", "{:?}", error.kind());
         }
     }
 
@@ -127,20 +128,20 @@ impl Terminal {
         };
         match kind {
             Bell::Visual => {
-                println!("TERM:BELL:visual");
+                trace::line!(Channel::Term, "BELL:visual");
                 self.chrome.borrow_mut().flash = true;
                 Timers::stop(&self.timers.flash, ui);
                 Timers::start(&self.timers.flash, ui, FLASH_MS);
                 self.redraw(ui);
             }
             Bell::Sound => {
-                println!("TERM:BELL:sound");
+                trace::line!(Channel::Term, "BELL:sound");
                 bell::play();
             }
             Bell::Notify => {
                 // A toast for a window nobody is looking at.
                 if !self.blink.focused() {
-                    println!("TERM:BELL:notify");
+                    trace::line!(Channel::Term, "BELL:notify");
                     bell::notify();
                 }
             }

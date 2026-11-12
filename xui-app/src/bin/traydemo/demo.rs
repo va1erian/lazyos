@@ -3,6 +3,7 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use xui_app::trace::{self, Channel};
 
 use trayclient::{item, lucide, menu_row, pixels, wire, Event};
 use xui_app::resident::{Resident, Wake};
@@ -95,8 +96,8 @@ impl Demo {
         let mut item = item(self.picture().0, &self.tooltip());
         item.menu = self.menu();
         match self.res.tray.borrow_mut().set(item) {
-            Ok(()) => println!("TRAYDEMO:TRAY:SET:PASS"),
-            Err(code) => println!("TRAYDEMO:TRAY:SET:FAIL err={}", -code),
+            Ok(()) => trace::line!(Channel::Traydemo, "TRAY:SET:PASS"),
+            Err(code) => trace::line!(Channel::Traydemo, "TRAY:SET:FAIL err={}", -code),
         }
     }
 
@@ -107,14 +108,14 @@ impl Demo {
             menu: Some(wire::Menu { rows: self.menu() }),
             ..wire::UpdateArgs::default()
         });
-        println!("TRAYDEMO:MENU:BARE:{}", self.bare);
+        trace::line!(Channel::Traydemo, "MENU:BARE:{}", self.bare);
     }
 
     /// Take the item off: a resident app then shows its default item.
     pub fn clear_item(&mut self) {
         match self.res.tray.borrow_mut().clear() {
-            Ok(()) => println!("TRAYDEMO:CLEAR:PASS"),
-            Err(code) => println!("TRAYDEMO:CLEAR:FAIL err={}", -code),
+            Ok(()) => trace::pass!(Channel::Traydemo, "CLEAR"),
+            Err(code) => trace::line!(Channel::Traydemo, "CLEAR:FAIL err={}", -code),
         }
         self.status = String::from("Item cleared: the tray shows the default item");
     }
@@ -140,8 +141,8 @@ impl Demo {
             ..wire::UpdateArgs::default()
         };
         match self.update(patch) {
-            Ok(()) => println!("TRAYDEMO:ICON:{name}"),
-            Err(code) => println!("TRAYDEMO:ICON:FAIL err={}", -code),
+            Ok(()) => trace::line!(Channel::Traydemo, "ICON:{name}"),
+            Err(code) => trace::line!(Channel::Traydemo, "ICON:FAIL err={}", -code),
         }
         self.status = format!("Icon: {name}");
     }
@@ -157,14 +158,14 @@ impl Demo {
             status: Some(status),
             ..wire::UpdateArgs::default()
         });
-        println!("TRAYDEMO:ATTENTION:{}", self.attention);
+        trace::line!(Channel::Traydemo, "ATTENTION:{}", self.attention);
     }
 
     /// Handle one wake-up; `windowed` says whether a window is open.
     pub fn wake(&mut self, wake: Wake, windowed: bool) -> Flow {
         match wake {
             Wake::Reopen(args) => {
-                println!("TRAYDEMO:REOPEN:PASS via=reopen args={args}");
+                trace::line!(Channel::Traydemo, "REOPEN:PASS via=reopen args={args}");
                 self.status = String::from("Opened again");
                 // A cleared item comes back with the window.
                 if self.res.tray.borrow().channel().is_none() {
@@ -173,11 +174,11 @@ impl Demo {
                 Flow::Show
             }
             Wake::Quit(grace_ms) if self.ignore_quit => {
-                println!("TRAYDEMO:QUIT:IGNORED grace_ms={grace_ms}");
+                trace::line!(Channel::Traydemo, "QUIT:IGNORED grace_ms={grace_ms}");
                 Flow::Stay
             }
             Wake::Quit(grace_ms) => {
-                println!("TRAYDEMO:QUIT:REQUESTED grace_ms={grace_ms}");
+                trace::line!(Channel::Traydemo, "QUIT:REQUESTED grace_ms={grace_ms}");
                 Flow::Quit
             }
             Wake::Tray(event) => self.tray_event(event, windowed),
@@ -188,7 +189,7 @@ impl Demo {
         match event {
             Event::Activate { .. } => {
                 self.clicks += 1;
-                println!("TRAYDEMO:ACTIVATE:PASS n={}", self.clicks);
+                trace::line!(Channel::Traydemo, "ACTIVATE:PASS n={}", self.clicks);
                 let patch = wire::UpdateArgs {
                     tooltip: Some(self.tooltip()),
                     badge: Some(self.clicks.min(99).to_string()),
@@ -199,16 +200,16 @@ impl Demo {
                 if windowed {
                     Flow::Stay
                 } else {
-                    println!("TRAYDEMO:REOPEN:PASS via=activate");
+                    trace::line!(Channel::Traydemo, "REOPEN:PASS via=activate");
                     Flow::Show
                 }
             }
             Event::SecondaryActivate { .. } => {
-                println!("TRAYDEMO:SECONDARY:PASS");
+                trace::pass!(Channel::Traydemo, "SECONDARY");
                 Flow::Stay
             }
             Event::Scroll { delta } => {
-                println!("TRAYDEMO:SCROLL:{delta}");
+                trace::line!(Channel::Traydemo, "SCROLL:{delta}");
                 Flow::Stay
             }
             Event::MenuItem { id, checked } => self.menu_item(id, checked),
@@ -217,7 +218,7 @@ impl Demo {
     }
 
     fn menu_item(&mut self, id: u32, checked: bool) -> Flow {
-        println!("TRAYDEMO:MENU:{id}:{checked}");
+        trace::line!(Channel::Traydemo, "MENU:{id}:{checked}");
         match id {
             ROW_SHOW => return Flow::Show,
             ROW_NOTIFY => {

@@ -3,6 +3,7 @@
 //! ([`super::menu`]). Flyout tokens come with stage T4: `Activate` carries
 //! none yet.
 
+use crate::trace::{self, Channel};
 use std::rc::Rc;
 
 use lazyshell::tray::item::Activation;
@@ -132,9 +133,13 @@ pub fn deliver(ctx: &Ctx, app: &str, input: Input) {
         return;
     };
     match liveness::send(channel, method, body) {
-        Ok(()) => println!("SHELL:TRAY:EVENT app={app} kind={kind}"),
+        Ok(()) => trace::line!(Channel::Shell, "TRAY:EVENT app={app} kind={kind}"),
         Err(code) => {
-            println!("SHELL:TRAY:EVENT:FAIL app={app} kind={kind} err={}", -code);
+            trace::line!(
+                Channel::Shell,
+                "TRAY:EVENT:FAIL app={app} kind={kind} err={}",
+                -code
+            );
             // A full queue is a busy app; anything else is a dead channel.
             if code != -crate::sys::errno::EAGAIN {
                 liveness::gone(ctx, app);

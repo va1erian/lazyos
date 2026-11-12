@@ -98,7 +98,7 @@ impl App for Window {
             Msg::Bare => self.demo.borrow_mut().toggle_bare(),
             Msg::Clear => self.demo.borrow_mut().clear_item(),
             Msg::Close => {
-                println!("TRAYDEMO:CLOSED:TRAY");
+                trace::line!(Channel::Traydemo, "CLOSED:TRAY");
                 ui.quit();
                 return;
             }
@@ -170,7 +170,7 @@ fn show_window(demo: &Shared) -> bool {
 fn main() {
     let delay = start_delay();
     if delay > 0 {
-        println!("TRAYDEMO:DELAY ms={delay}");
+        trace::line!(Channel::Traydemo, "DELAY ms={delay}");
         std::thread::sleep(std::time::Duration::from_millis(delay));
     }
     xui_app::app(Channel::Traydemo, "Tray Demo")

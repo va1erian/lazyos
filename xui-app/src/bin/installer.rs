@@ -107,7 +107,7 @@ impl Installer {
         install_hooks(ui, picker.gate());
         let view = build_view(ui, &model)?;
         let shown = model.screen;
-        println!("INSTALLER:STEP:{}", shown.marker());
+        trace::line!(Channel::Installer, "STEP:{}", shown.marker());
         Ok(Installer {
             model,
             _view: view,
@@ -129,12 +129,12 @@ impl Installer {
             Ok(view) => {
                 self._view = view;
                 if self.shown != self.model.screen {
-                    println!("INSTALLER:STEP:{}", self.model.screen.marker());
+                    trace::line!(Channel::Installer, "STEP:{}", self.model.screen.marker());
                 }
                 self.shown = self.model.screen;
             }
             Err(error) => {
-                println!("INSTALLER:VIEW:FAIL:{}", clean(&error));
+                trace::fail!(Channel::Installer, "VIEW", "{}", clean(&error));
                 ui.quit();
             }
         }
@@ -178,7 +178,7 @@ impl App for Installer {
                     if argv::is_acceptable(Path::new(&path)) {
                         inspect(&mut self.model, &path);
                     } else {
-                        println!("INSTALLER:INSPECT:FAIL not an absolute path");
+                        trace::line!(Channel::Installer, "INSPECT:FAIL not an absolute path");
                         self.model
                             .inspect_failed("Enter an absolute path to a .lzp package.");
                     }
@@ -237,11 +237,15 @@ impl App for Installer {
             Msg::InstallDone(result) => {
                 match result {
                     Ok(app) => {
-                        println!("INSTALLER:INSTALL:PASS {}", clean(&app.system_name));
+                        trace::line!(
+                            Channel::Installer,
+                            "INSTALL:PASS {}",
+                            clean(&app.system_name)
+                        );
                         self.model.install_ok(app);
                     }
                     Err(reason) => {
-                        println!("INSTALLER:INSTALL:FAIL {}", clean(&reason));
+                        trace::line!(Channel::Installer, "INSTALL:FAIL {}", clean(&reason));
                         self.model.install_failed(reason);
                     }
                 }
@@ -256,7 +260,7 @@ impl App for Installer {
                     .cloned();
                 if let Some(app) = target {
                     if !self.model.remove_asked(app) {
-                        println!("INSTALLER:REMOVE:REFUSED {}", clean(&system_name));
+                        trace::line!(Channel::Installer, "REMOVE:REFUSED {}", clean(&system_name));
                     }
                     dirty = true;
                 }
@@ -265,11 +269,11 @@ impl App for Installer {
                 if let Some(system_name) = self.model.pending_remove_name() {
                     match pkg::remove(&system_name) {
                         Ok(()) => {
-                            println!("INSTALLER:REMOVE:PASS {}", clean(&system_name));
+                            trace::line!(Channel::Installer, "REMOVE:PASS {}", clean(&system_name));
                             self.model.remove_ok(&system_name);
                         }
                         Err(reason) => {
-                            println!("INSTALLER:REMOVE:FAIL {}", clean(&reason));
+                            trace::line!(Channel::Installer, "REMOVE:FAIL {}", clean(&reason));
                             self.model.remove_failed(reason);
                         }
                     }
@@ -324,11 +328,11 @@ fn install_hooks(ui: &Ui<Msg>, picker_open: Rc<Cell<bool>>) {
 fn reload(model: &mut Model) {
     match pkg::list() {
         Ok(apps) => {
-            println!("INSTALLER:LIST:PASS count={}", apps.len());
+            trace::line!(Channel::Installer, "LIST:PASS count={}", apps.len());
             model.list_loaded(apps);
         }
         Err(reason) => {
-            println!("INSTALLER:LIST:FAIL {}", clean(&reason));
+            trace::line!(Channel::Installer, "LIST:FAIL {}", clean(&reason));
             model.list_failed(reason);
         }
     }
@@ -339,10 +343,10 @@ fn reload(model: &mut Model) {
 fn picked(model: &mut Model, path: &Path) {
     let text = path.to_string_lossy();
     if argv::is_acceptable(path) {
-        println!("INSTALLER:PICK:PASS {}", clean(&text));
+        trace::line!(Channel::Installer, "PICK:PASS {}", clean(&text));
         model.path_picked(&text);
     } else {
-        println!("INSTALLER:PICK:FAIL not an absolute path");
+        trace::line!(Channel::Installer, "PICK:FAIL not an absolute path");
         model.inspect_failed("The picker returned a path that cannot be used.");
     }
 }
@@ -351,9 +355,14 @@ fn picked(model: &mut Model, path: &Path) {
 fn inspect(model: &mut Model, path: &str) {
     match pkg::inspect(path) {
         Ok(package) => {
-            println!("INSTALLER:INSPECT:PASS {}", clean(&package.system_name));
-            println!(
-                "INSTALLER:CONSENT:SHOWN perms={} problems={}",
+            trace::line!(
+                Channel::Installer,
+                "INSPECT:PASS {}",
+                clean(&package.system_name)
+            );
+            trace::line!(
+                Channel::Installer,
+                "CONSENT:SHOWN perms={} problems={}",
                 package.permissions.len(),
                 package.problems.len()
             );
@@ -367,7 +376,7 @@ fn inspect(model: &mut Model, path: &str) {
             model.inspect_ok(path.to_owned(), package);
         }
         Err(reason) => {
-            println!("INSTALLER:INSPECT:FAIL {}", clean(&reason));
+            trace::line!(Channel::Installer, "INSPECT:FAIL {}", clean(&reason));
             model.inspect_failed(reason);
         }
     }
