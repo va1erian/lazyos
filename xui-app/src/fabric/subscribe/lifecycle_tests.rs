@@ -1,5 +1,6 @@
 //! The doorbell and the subscription lifecycle against the scripted broker.
 
+use libmessenger::client::Deadline;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -9,7 +10,7 @@ use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 
 use super::test_fake::{ready, Fake, Shared};
 use super::tests::{client, subscribed};
-use super::{Qos, Subscriber, Wait, MAX_BELL_MESSAGES};
+use super::{Qos, Subscriber, MAX_BELL_MESSAGES};
 
 // -- The doorbell ------------------------------------------------------------
 
@@ -246,7 +247,7 @@ fn dropping_the_subscriber_unsubscribes_without_blocking() {
     assert!(fake.closed.contains(&bell_handle));
     assert_eq!(
         fake.log.last(),
-        Some(&(topics::METHOD_UNSUBSCRIBE, Wait::Poll))
+        Some(&(topics::METHOD_UNSUBSCRIBE, Deadline::Poll))
     );
 }
 
@@ -273,6 +274,6 @@ fn dropping_a_subscriber_never_waits_on_the_broker_even_when_it_fails() {
         .filter(|(method, _)| *method == topics::METHOD_UNSUBSCRIBE)
         .collect();
     assert_eq!(unsubscribes.len(), 3, "one attempt per subscription");
-    assert!(unsubscribes.iter().all(|(_, wait)| *wait == Wait::Poll));
+    assert!(unsubscribes.iter().all(|(_, wait)| *wait == Deadline::Poll));
     assert_eq!(fake.closed.len(), 3, "every doorbell is closed");
 }

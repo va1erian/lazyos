@@ -1,28 +1,22 @@
 //! The byte-level seam under [`super::Subscriber`]: the real syscall-5
 //! transport and the trait a test double implements.
 
+use libmessenger::client::Deadline;
+
 use crate::sys;
 
-use super::super::error::{ENOENT, EPIPE};
+use super::super::error::{EINVAL, ENOENT, EPIPE};
 use super::super::registry::{release, resolve};
 use super::{Errno, ETIMEDOUT};
-
-/// How long a call may wait for the broker.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Wait {
-    /// Up to the transport's own bound (2 s for the real one), so a stalled
-    /// broker cannot freeze a window for good.
-    Bounded,
-    /// An expired deadline: the broker answers in its service turn or the
-    /// call ends at once with `-ETIMEDOUT` ("nothing ready").
-    Poll,
-}
 
 /// What the subscriber needs from the kernel. Errors are negative errno.
 pub trait Transport {
     /// Send the encoded `request` to the broker and read its reply into
-    /// `reply`; returns the reply length.
-    fn call(&mut self, request: &[u8], reply: &mut [u8], wait: Wait) -> Result<usize, Errno>;
+    /// `reply`; returns the reply length. `until` is the method's own bound
+    /// (`topics::METHOD_*_DEADLINE`, from `idl/topics.midl`), or
+    /// [`Deadline::Poll`]: the broker answers in its service turn or the call
+    /// ends at once with `-ETIMEDOUT` ("nothing ready").
+    fn call(&mut self, request: &[u8], reply: &mut [u8], until: Deadline) -> Result<usize, Errno>;
 
     /// A fresh channel pair, both ends open in this task.
     fn create_pair(&mut self) -> Result<(u64, u64), Errno>;
@@ -37,8 +31,6 @@ pub trait Transport {
 
 /// The topics-broker well-known name (same as [`super::super::TOPICS_NAME`]).
 const BROKER_NAME: &str = super::super::TOPICS_NAME;
-/// Ticks a bounded broker call waits (`2 s` at 100 Hz), as `Broker` does.
-const BROKER_CALL_TICKS: u64 = 200;
 /// The poll deadline: never blocks, see `docs/architecture/ipc-core.md`.
 const POLL_DEADLINE: u64 = sys::EXPIRED_DEADLINE;
 
@@ -70,11 +62,14 @@ impl SysTransport {
 }
 
 impl Transport for SysTransport {
-    fn call(&mut self, request: &[u8], reply: &mut [u8], wait: Wait) -> Result<usize, Errno> {
+    fn call(&mut self, request: &[u8], reply: &mut [u8], until: Deadline) -> Result<usize, Errno> {
         let handle = self.endpoint()?;
-        let deadline = match wait {
-            Wait::Poll => POLL_DEADLINE,
-            Wait::Bounded => sys::clock_ticks().saturating_add(BROKER_CALL_TICKS),
+        // Never unbounded on a UI thread. `check_call_bounds.py` names this
+        // file as the one raw caller: its bound is the method's generated
+        // deadline.
+        let deadline = match until {
+            Deadline::Never => return Err(-EINVAL),
+            until => until.absolute_ticks(sys::clock_ticks()),
         };
         let result = lazyos_sys::msg::call(handle, request, reply, deadline);
         if let Err(code) = result {

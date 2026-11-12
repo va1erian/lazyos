@@ -6,14 +6,19 @@
 //! (woken by a doorbell, never driven by a timer):
 //!
 //! * a follow subscribes and attaches its doorbell when it is made (and again,
-//!   at most once a second, while the broker refuses or is away);
+//!   every two seconds, while the broker is away; a refusal for good, such as
+//!   a missing permission, is not asked again);
 //! * [`Follow::take`] looks at the doorbells, which are local message queues
 //!   (never a call to the broker, so looking is cheap at any rate), and only
 //!   when one rang drains the subscription: the broker answers a drain in its
 //!   own service turn, so the UI thread never waits on it;
-//! * a loop that wants to be woken parks on [`Follow::bell`] beside its other
-//!   endpoints (`Resident::idle_with`); one that has a tick of its own (a
-//!   window's heartbeat) just takes.
+//! * a loop that wants to be woken parks on [`park`]'s bells beside its other
+//!   endpoints (`Resident::idle`), which names every follow of the thread, so
+//!   a loop never holds a bell that a broker restart made stale; one that has
+//!   a tick of its own (a window's heartbeat) just takes.
+//!
+//! [`Follow::take`] and the typed [`Feed`]/[`pull`] read the same queue: mix
+//! them freely.
 //!
 //! The hub is per thread because Messenger handles and the label that lets an
 //! app subscribe belong to the thread that made them: a follow is used from
@@ -76,6 +81,10 @@ impl Queue {
     fn take(&self) -> Vec<TopicEvent> {
         self.events.borrow_mut().drain(..).collect()
     }
+
+    fn pop(&self) -> Option<TopicEvent> {
+        self.events.borrow_mut().pop_front()
+    }
 }
 
 thread_local! {
@@ -88,9 +97,6 @@ thread_local! {
 pub struct Follow {
     key: u64,
     queue: Rc<Queue>,
-    /// Events [`topics::Events::next_event`] took off the queue and not yet
-    /// handed out.
-    pending: VecDeque<TopicEvent>,
 }
 
 impl Follow {
@@ -109,25 +115,14 @@ impl Follow {
             core.add(key, filter, qos, depth, Rc::clone(&queue));
             core.connect(sys::clock_ticks());
         });
-        Follow {
-            key,
-            queue,
-            pending: VecDeque::new(),
-        }
+        Follow { key, queue }
     }
 
     /// The events queued since the last call, oldest first. Looks at the
     /// doorbells (local) and, for one that rang, drains its subscription;
     /// never waits.
     pub fn take(&self) -> Vec<TopicEvent> {
-        HUB.with(|hub| {
-            // Not reentrant: a take from inside a take sees what is queued.
-            if let Ok(mut core) = hub.try_borrow_mut() {
-                let now = sys::clock_ticks();
-                core.connect(now);
-                core.service(now);
-            }
-        });
+        look();
         self.queue.take()
     }
 
@@ -137,20 +132,53 @@ impl Follow {
         self.queue.subscribed.get()
     }
 
-    /// The doorbell to park on (`sys::msg_wait_any`) beside other endpoints:
-    /// ready when events were queued. [`Follow::take`] reads and re-arms it.
-    pub fn bell(&self) -> Option<u64> {
-        HUB.with(|hub| hub.try_borrow().ok()?.bell_of(self.key))
-    }
-
-    /// The next queued event in the shape the generated typed stream reads,
-    /// kept apart from [`Follow::take`]'s: use one or the other.
-    fn next_raw(&mut self) -> Option<TopicEvent> {
-        if self.pending.is_empty() {
-            self.pending.extend(self.take());
+    /// The next queued event, in the shape the generated typed stream reads.
+    fn next_raw(&self) -> Option<TopicEvent> {
+        if let Some(event) = self.queue.pop() {
+            return Some(event);
         }
-        self.pending.pop_front()
+        look();
+        self.queue.pop()
     }
+}
+
+/// Looks at the thread's doorbells (and makes the subscriptions that are
+/// missing): what every read of a follow starts with.
+fn look() {
+    HUB.with(|hub| {
+        // Not reentrant: a read from inside a read sees what is queued.
+        if let Ok(mut core) = hub.try_borrow_mut() {
+            let now = sys::clock_ticks();
+            core.connect(now);
+            core.service(now);
+        }
+    });
+}
+
+/// What a loop parks on to hear its follows (`Resident::idle` does).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Park {
+    /// The doorbell of every subscribed follow of this thread, read fresh:
+    /// ready when events were queued.
+    pub bells: Vec<u64>,
+    /// The hub owes reads no bell announces (a replay, a drain that stopped
+    /// at its batch): look again at once, do not park.
+    pub look_again: bool,
+    /// The tick a follow the broker lost or has not yet answered is asked
+    /// for again: park no longer than this.
+    pub retry_at: Option<u64>,
+}
+
+/// The thread's [`Park`].
+pub fn park() -> Park {
+    HUB.with(|hub| match hub.try_borrow() {
+        Ok(core) => Park {
+            bells: core.bells(),
+            look_again: core.owes(),
+            retry_at: core.retry_at(),
+        },
+        Err(_) => Park::default(),
+    })
 }
 
 impl Drop for Follow {

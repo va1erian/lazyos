@@ -2,7 +2,9 @@
 //! per subscription, one end handed to the broker in `Bell`, the other parked
 //! on by the caller.
 
-use super::{wire, Errno, SubId, Subscriber, Transport, Wait, ENOENT, MAX_BELL_MESSAGES};
+use messenger_generated::os_lazy_messenger_topics_v1 as topics;
+
+use super::{wire, Errno, SubId, Subscriber, Transport, ENOENT, MAX_BELL_MESSAGES};
 
 /// What [`Subscriber::consume_ready`] found.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
@@ -31,7 +33,7 @@ impl<T: Transport> Subscriber<T> {
         }
         let (mine, theirs) = self.transport.create_pair()?;
         let installed = wire::bell_request(id, theirs)
-            .and_then(|request| self.exchange(&request, Wait::Bounded));
+            .and_then(|request| self.exchange(&request, topics::METHOD_BELL_DEADLINE));
         if let Err(code) = installed {
             // The transfer may not have happened. Closing a handle that did
             // move is a harmless `EBADF`.

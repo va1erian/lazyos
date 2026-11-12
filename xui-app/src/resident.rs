@@ -195,30 +195,34 @@ impl Resident {
     }
 
     /// The windowless wait: park on the tray and lifecycle channels and the
-    /// tray generation's doorbell for at most `timeout_ms` (capped at
-    /// [`IDLE_MILLIS`]), then return what woke the app.
+    /// doorbell of every [`crate::fabric::Follow`] of the thread (the tray
+    /// generation's included) for at most `timeout_ms` (capped at
+    /// [`IDLE_MILLIS`]), then return what woke the app. The caller reads its
+    /// follows after the wait, whatever woke it. A hub that owes a read
+    /// ([`crate::fabric::Park::look_again`]) does not park, and one that waits
+    /// to ask a lost broker again wakes for it.
     pub fn idle(&self, timeout_ms: u64) -> Vec<Wake> {
-        self.idle_with(&[], timeout_ms)
-    }
-
-    /// [`Resident::idle`] that also parks on `bells` (an app's own
-    /// [`crate::fabric::Follow::bell`]s): the caller takes from its follows
-    /// after the wait, whatever woke it.
-    pub fn idle_with(&self, bells: &[u64], timeout_ms: u64) -> Vec<Wake> {
-        let mut handles = Vec::with_capacity(3 + bells.len());
+        let follows = crate::fabric::park();
+        let mut handles = Vec::with_capacity(2 + follows.bells.len());
         if let Some(life) = self.life.borrow().as_ref() {
             handles.push(life.channel);
         }
         if let Some(channel) = self.tray.borrow().channel() {
             handles.push(channel);
         }
-        handles.extend(self.tray.borrow().generation_bell());
-        handles.extend_from_slice(bells);
+        handles.extend_from_slice(&follows.bells);
         let ms = timeout_ms.clamp(1, IDLE_MILLIS);
+        let now = sys::clock_ticks();
+        let mut deadline = now.saturating_add(ms.div_ceil(10));
+        if let Some(retry) = follows.retry_at {
+            deadline = deadline.min(retry.max(now.saturating_add(1)));
+        }
+        if follows.look_again {
+            return self.poll();
+        }
         if handles.is_empty() {
-            sys::sleep_millis(ms);
+            sys::sleep_millis(deadline.saturating_sub(now) * 10);
         } else {
-            let deadline = sys::clock_ticks().saturating_add(ms.div_ceil(10));
             let _ = sys::msg_wait_any(&handles, deadline);
         }
         self.poll()
