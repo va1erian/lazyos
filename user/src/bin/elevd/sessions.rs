@@ -6,8 +6,8 @@
 //! prompt holds go.
 //!
 //! The feed is read before each request is decided, so an approval is never
-//! looked at with a record still unread: it asks the feed's doorbell (a local
-//! queue, never the broker) and reads only when it rang. The records are
+//! looked at with a record still unread: it reads the feed to its end (the
+//! broker rings its bell after it answers the publisher, so the bell alone can be late). The records are
 //! retained: a (re)subscription replays every session's last state.
 //!
 //! Serial: `ELEVD:SESSION:END session=<id>`.
@@ -39,7 +39,7 @@ impl SessionFeed {
         let mut ended = Vec::new();
         self.feed.ensure();
         let sessions = &mut self.sessions;
-        self.feed.drain_rung(|event| {
+        self.feed.drain_now(|event| {
             // `system/events/login/session/<id>`: the id is the last segment.
             let Some(id) = event
                 .topic

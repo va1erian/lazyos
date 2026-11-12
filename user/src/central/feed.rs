@@ -140,6 +140,15 @@ impl<T> Feed<T> {
         self.read(rang, apply);
     }
 
+    /// Read what is queued now, ring or no ring, to the end (which re-arms the
+    /// doorbell). For a reader that must not act before a record it knows was
+    /// published: the broker rings its bell *after* it answers the publisher,
+    /// so a request the publisher sent next can arrive first. Costs one broker
+    /// call when nothing is queued; use it on a request, not on a timer.
+    pub fn drain_now(&mut self, apply: impl FnMut(Event<T>)) {
+        self.read(true, apply);
+    }
+
     /// Read to the end when `rang` or the stream is fresh (the ring, if any,
     /// is already consumed).
     fn read(&mut self, rang: bool, mut apply: impl FnMut(Event<T>)) {

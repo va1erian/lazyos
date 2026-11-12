@@ -82,20 +82,31 @@ impl Feeds {
     }
 
     /// Read what rang (`ready` is the wait's mask; `0` reads only the feeds
-    /// just made) and let each record's reader act on it. Returns the
+    /// just made; `now` reads the login feeds whatever rang, for a pass that
+    /// is about to serve a request, see [`Feed::drain_now`]) and let each record's reader act on it. Returns the
     /// sessions that ended (a logout), whose tasks the caller must end.
-    pub(super) fn drain(&mut self, services: &[Service], ready: u64) -> Vec<u64> {
+    pub(super) fn drain(&mut self, services: &[Service], ready: u64, now: bool) -> Vec<u64> {
         let mut ended = Vec::new();
-        self.session.drain(ready & self.bits[0] != 0, |event| {
+        let on_session = |event: messenger_generated::topics::Event<logind::wire::LoginSession>| {
             super::sessions::observe_session(services, event.publisher, &event.topic, &event.value);
-        });
-        self.end.drain(ready & self.bits[1] != 0, |event| {
+        };
+        if now {
+            self.session.drain_now(on_session);
+        } else {
+            self.session.drain(ready & self.bits[0] != 0, on_session);
+        }
+        let mut on_end = |event: messenger_generated::topics::Event<logind::wire::LoginEnd>| {
             if let Some(session) =
                 super::sessions::observe_end(services, event.publisher, &event.value)
             {
                 ended.push(session);
             }
-        });
+        };
+        if now {
+            self.end.drain_now(&mut on_end);
+        } else {
+            self.end.drain(ready & self.bits[1] != 0, &mut on_end);
+        }
         self.provision.drain(ready & self.bits[2] != 0, |event| {
             super::provisioning::observe(services, event.publisher, &event.value);
         });
