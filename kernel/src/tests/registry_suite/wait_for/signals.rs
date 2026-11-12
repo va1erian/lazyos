@@ -42,6 +42,26 @@ pub fn killed_waiter_is_canceled() -> Result<(), String> {
     nothing_waits()
 }
 
+/// Give `slot` a caught, pending `SIGUSR1`: what a deferred handler frame
+/// stands for (`frame_deferred` is only true while something is deliverable).
+pub(super) fn deliverable_signal(slot: usize) -> Result<(), String> {
+    use crate::task::signal::{self, Disposition, SigInfo};
+    let handler = Disposition::Handler {
+        handler: 0x0040_1000,
+        flags: 0,
+        restorer: 0x0040_2000,
+        mask: 0,
+    };
+    signal::set_action(slot, signal::SIGUSR1, handler).map_err(|e| format!("sigaction {e:?}"))?;
+    signal::send_to_slot(
+        task::KERNEL_TASK,
+        slot,
+        signal::SIGUSR1,
+        SigInfo::user(task::KERNEL_TASK, signal::SI_USER),
+    )
+    .map_err(|e| format!("send {e:?}"))
+}
+
 /// A thread whose handler frame the sweep deferred is not parked by `wait`
 /// (`signal::frame_deferred`); `WaitFor` must end with `EINTR` at once and
 /// not loop looking for a park that never comes (interrupts are off in a
@@ -49,6 +69,7 @@ pub fn killed_waiter_is_canceled() -> Result<(), String> {
 pub fn deferred_frame_returns_eintr() -> Result<(), String> {
     fresh()?;
     let child = task::spawn_fork().map_err(to_string)?;
+    deliverable_signal(child)?;
     task::harness::switch_current(child);
     task::signal::harness::set_frame_deferred(child, true);
     let start = task::ticks();

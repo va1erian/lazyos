@@ -137,7 +137,10 @@ pub(super) fn wait_process_cap_survives_leader_exit() -> Result<(), String> {
         Ticket::take(more, "os.example.q").err() == Some(RegistryError::TooManyWaiters),
         "the cap went with the leader"
     );
-    // An unrelated process is not charged.
+    // An unrelated process is not charged. (The leader's slot cannot be
+    // freed while its threads live: the kernel keeps the zombie leader, so
+    // the thread-group id is stable until the last thread goes. The address
+    // space is the key that is right whatever the slot bookkeeping does.)
     let other = task::spawn_fork().map_err(to_string)?;
     let theirs = Ticket::take(other, "os.example.q").map_err(reason)?;
     drop((again, theirs, tickets));

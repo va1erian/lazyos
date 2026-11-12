@@ -42,6 +42,7 @@ pub fn gate_errnos() -> Result<(), String> {
         check!(code == failed(errno::EINVAL), "another target -> {code:#x}");
         nothing_waits()?;
         // A signal frame the sweep deferred: EINTR, no park.
+        super::signals::deliverable_signal(child)?;
         task::harness::switch_current(child);
         task::signal::harness::set_frame_deferred(child, true);
         let (code, _) = gate("os.example.none", 0, None)?;

@@ -108,7 +108,7 @@ fn deliverable_slots(tasks: &[Option<Task>; MAX_TASKS]) -> SlotList {
 
 /// Whether thread `slot` of process `pml4` has a signal its mask lets through
 /// (a lookup: it never creates the registry entry `with_signals` would).
-fn has_deliverable(pml4: u64, slot: usize) -> bool {
+pub(super) fn has_deliverable(pml4: u64, slot: usize) -> bool {
     peek(|procs, threads| {
         let thread = &threads[slot];
         let shared = procs

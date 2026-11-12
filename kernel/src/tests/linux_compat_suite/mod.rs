@@ -366,6 +366,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("compat_terminal_signal_soak", terminal_signal_soak),
     (
+        "compat_threadsig_stale_deferred_mark_is_cleared",
+        threadsig_stale_deferred_mark_is_cleared,
+    ),
+    (
+        "compat_threadsig_deferred_frame_is_delivered_on_resume",
+        threadsig_deferred_frame_is_delivered_on_resume,
+    ),
+    (
         "compat_threadsig_masks_belong_to_threads",
         threadsig_masks_belong_to_threads,
     ),

@@ -205,8 +205,26 @@ pub fn killed(slot: usize) -> bool {
 /// The thread must not go to sleep before the syscall return delivers it: a
 /// wait that sees this returns `Interrupted`, the syscall ends `EINTR`, and
 /// `deliver_linux` lays the frame out in task context.
+///
+/// The mark is only as good as the signal behind it: a sibling thread may have
+/// taken the process-directed signal, or the thread may have blocked it, and
+/// then nothing is left to deliver and nothing would ever clear the mark (the
+/// sweep skips a thread with nothing deliverable, and a yield with no other
+/// task to run skips `deliver_on_resume`). A mark with nothing deliverable
+/// behind it is cleared here, so a wait parks instead of returning `EINTR`
+/// for ever.
 pub fn frame_deferred(slot: usize) -> bool {
-    slot != KERNEL_TASK && with_thread(slot, |thread| thread.frame_deferred_at != 0)
+    if slot == KERNEL_TASK || !with_thread(slot, |thread| thread.frame_deferred_at != 0) {
+        return false;
+    }
+    let Some((pml4, _)) = slot_info(slot) else {
+        return false;
+    };
+    if super::sweep::has_deliverable(pml4, slot) {
+        return true;
+    }
+    with_thread(slot, |thread| thread.frame_deferred_at = 0);
+    false
 }
 
 /// `execve` replaced address space `old` with `new`: a kill that was pending
