@@ -15,9 +15,12 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use user::trace;
 
-use user::messenger::{self, errno, services, Endpoint, Error, Message, Parcel};
+use libmessenger::client::Errno;
+use libmessenger::server::{fault_reply, Caller, Fault};
+use user::messenger::{self, errno, services, Endpoint, Error};
 use user::sys::{self, Cred as SysCred};
 
+use super::serve::cred_of;
 use super::service::{Phase, Service};
 
 /// What one home operation does. The arguments are `$1` op, `$2` home, `$3`
@@ -83,15 +86,18 @@ fn is_service(caller: &SysCred, uid: u32) -> bool {
 }
 
 impl HomeJobs {
-    /// Start `Home` for `message`. `Ok(())`: the reply is deferred to
+    /// Start `Home` for the caller `cx`. `Ok(())`: the reply is deferred to
     /// [`HomeJobs::finished`]; `Err`: answer it now.
-    pub(super) fn start(&mut self, message: &Message) -> messenger::Result<()> {
-        if !is_service(&message.caller(), accountdb::ACCOUNTS_UID) {
+    pub(super) fn start(
+        &mut self,
+        cx: &Caller,
+        txn: Option<u64>,
+        args: services::init::wire::HomeArgs,
+    ) -> messenger::Result<()> {
+        if !is_service(&cred_of(cx), accountdb::ACCOUNTS_UID) {
             return Err(Error::Errno(-errno::EPERM));
         }
-        let txn = message.txn.ok_or(Error::Errno(-errno::EINVAL))?;
-        let args =
-            services::init::wire::decode_home_args(&message.parcel.body).map_err(Error::Parcel)?;
+        let txn = txn.ok_or(Error::Errno(-errno::EINVAL))?;
         let human = accountdb::FIRST_UID..=accountdb::LAST_UID;
         if !matches!(args.op.as_str(), "create" | "archive" | "remove")
             || !accountdb::valid_account_name(&args.name)
@@ -147,10 +153,7 @@ impl HomeJobs {
                 job.op,
                 job.name
             );
-            Parcel {
-                header: services::header(services::init::INTERFACE, method),
-                ..Parcel::default()
-            }
+            libmessenger::server::reply(services::init::INTERFACE, method, Vec::new())
         } else {
             trace::line!(
                 trace::Channel::Init,
@@ -158,7 +161,11 @@ impl HomeJobs {
                 job.op,
                 job.name
             );
-            services::init_error_reply(method, Error::Errno(-errno::EIO))
+            fault_reply(
+                services::init::INTERFACE,
+                method,
+                &Fault::from_syscall(errno::EIO),
+            )
         };
         let _ = server.reply_or_drop(job.txn, &reply);
         true
@@ -173,53 +180,36 @@ const RESTART_DENIED: &str = "only elevd may restart a service, once an administ
 /// `name`; the supervisor restarts it as after a crash. Returns that pid.
 pub(super) fn restart_service(
     services: &mut [Service],
-    message: &Message,
-) -> messenger::Result<Parcel> {
-    if !is_service(&message.caller(), accountdb::ELEVD_UID) {
-        return Ok(services::refusal(
-            services::init::INTERFACE,
-            services::init::wire::METHOD_RESTARTSERVICE,
-            errno::EPERM,
-            RESTART_DENIED,
-        ));
+    cx: &Caller,
+    name: &str,
+) -> Result<u64, Fault> {
+    if !is_service(&cred_of(cx), accountdb::ELEVD_UID) {
+        // The refusal keeps its own sentence: the attack harness matches it.
+        return Err(Fault::refuse(Errno::PERM, RESTART_DENIED));
     }
-    let args = services::init::wire::decode_restart_service_args(&message.parcel.body)
-        .map_err(Error::Parcel)?;
     // `elevd` checks the same list before it prompts; this is the second
     // lock (review of #659): never the services identity, approvals, the
     // audit trail or the prompt depend on.
-    if !elevpolicy::restartable(&args.name) {
+    if !elevpolicy::restartable(name) {
         trace::line!(
             trace::Channel::Init,
             "RESTART:DENIED service={} by=elevd",
-            elevpolicy::audit::token(&args.name)
+            elevpolicy::audit::token(name)
         );
-        return Err(Error::Errno(-errno::EPERM));
+        return Err(Fault::errno(Errno::PERM));
     }
     let row = services
         .iter()
-        .find(|row| !row.launched && row.name == args.name)
-        .ok_or(Error::Errno(-errno::ENOENT))?;
+        .find(|row| !row.launched && row.name == name)
+        .ok_or_else(|| Fault::errno(Errno::NOENT))?;
     if row.phase != Phase::Running || row.pid == 0 {
-        return Err(Error::Errno(-errno::EAGAIN));
+        return Err(Fault::errno(Errno::AGAIN));
     }
     let pid = row.pid;
-    sys::kill(pid, sys::SIG_KILL).map_err(Error::Errno)?;
+    sys::kill(pid, sys::SIG_KILL).map_err(Fault::from_syscall)?;
     trace::line!(
         trace::Channel::Init,
-        "RESTART:PASS service={} pid={pid} by=elevd",
-        args.name
+        "RESTART:PASS service={name} pid={pid} by=elevd"
     );
-    let body = services::init::wire::encode_restart_service_reply(
-        &services::init::wire::RestartServiceReply { pid },
-    )
-    .map_err(Error::Parcel)?;
-    Ok(Parcel {
-        header: services::header(
-            services::init::INTERFACE,
-            services::init::wire::METHOD_RESTARTSERVICE,
-        ),
-        body,
-        ..Parcel::default()
-    })
+    Ok(pid)
 }

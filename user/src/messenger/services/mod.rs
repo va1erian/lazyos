@@ -20,10 +20,8 @@ pub mod sysmond;
 
 pub use health::HealthRecord;
 pub use init::{
-    decode_launch_request, decode_stop_request, error_field, init_error_reply, launch_reply,
-    list_apps_reply, service_event_name, services_reply, shutdown_reply, stop_reply, AppInfo,
-    LaunchRequest, LaunchResult, PowerState, ServiceEvent, ServiceStatus, POWER_MODE_POWER_OFF,
-    POWER_MODE_REBOOT,
+    service_event_name, stop_reply, AppInfo, LaunchRequest, LaunchResult, PowerState, ServiceEvent,
+    ServiceStatus, POWER_MODE_POWER_OFF, POWER_MODE_REBOOT,
 };
 pub use logd::LogRecord;
 

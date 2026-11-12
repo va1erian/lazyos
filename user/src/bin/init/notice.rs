@@ -19,7 +19,7 @@ use user::trace;
 
 use svcpolicy::{clean_reason, describe_status, Cause, Outcome};
 use user::central;
-use user::messenger::{registry, services, topics_client, Message};
+use user::messenger::{registry, services, topics_client};
 use user::sys;
 
 use super::state::{Phase, Service};
@@ -127,17 +127,14 @@ impl Notices {
 
 /// `ReportFailure`: remember why the sender's run is failing, when the sender
 /// is the running task of a launched row. Anything else is ignored.
-pub(super) fn report(services: &mut [Service], message: &Message) {
-    let Ok(args) = services::init::wire::decode_report_failure_args(&message.parcel.body) else {
-        return;
-    };
+pub(super) fn report(services: &mut [Service], sender: u64, reason: &str) {
     let Some(row) = services
         .iter_mut()
-        .find(|row| row.launched && row.phase == Phase::Running && row.pid == message.sender)
+        .find(|row| row.launched && row.phase == Phase::Running && row.pid == sender)
     else {
         return;
     };
-    let reason = clean_reason(&args.reason);
+    let reason = clean_reason(reason);
     trace::line!(
         trace::Channel::Init,
         "APP:REASON app={} pid={} reason={reason}",

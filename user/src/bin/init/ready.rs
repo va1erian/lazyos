@@ -14,7 +14,6 @@
 
 use user::trace;
 
-use user::messenger::Message;
 use user::sys;
 
 use super::service::{Phase, Service};
@@ -53,11 +52,11 @@ pub(super) fn is_ready(row: &Service) -> bool {
     row.phase == Phase::Running && (row.ready || !announces(row))
 }
 
-/// A `Ready` from `message.sender`: mark the running manifest row whose task
+/// A `Ready` from `sender`: mark the running manifest row whose task
 /// sent it. Returns whether a row became ready (its dependents may start).
-pub(super) fn observe(services: &mut [Service], message: &Message) -> bool {
+pub(super) fn observe(services: &mut [Service], sender: u64) -> bool {
     let Some(row) = services.iter_mut().find(|row| {
-        !row.launched && row.phase == Phase::Running && row.pid != 0 && row.pid == message.sender
+        !row.launched && row.phase == Phase::Running && row.pid != 0 && row.pid == sender
     }) else {
         return false;
     };

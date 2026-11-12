@@ -23,7 +23,8 @@ use user::trace;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use dbgwire::control;
-use user::messenger::{self, errno, services, Error, Message, Parcel};
+use libmessenger::server::Caller;
+use user::messenger::{self, errno, services, Error};
 use user::sys;
 
 use super::service::{Phase, Service};
@@ -74,17 +75,16 @@ pub(super) fn program(service: &Service) -> &str {
     service.hot.binary.as_deref().unwrap_or(service.path)
 }
 
-/// Whether `message` comes from `dbgd` on a box that allows control.
+/// Whether the caller is `dbgd` on a box that allows control.
 #[cfg(lazyos_dbgd)]
-pub(super) fn authorized(message: &Message) -> bool {
-    let caller = message.caller();
+pub(super) fn authorized(caller: &Caller) -> bool {
     let dbgd =
         caller.uid == dbgwire::config::DBGD_UID && caller.label_id == 0 && caller.session == 0;
     dbgd && control_allowed()
 }
 
 #[cfg(not(lazyos_dbgd))]
-pub(super) fn authorized(_message: &Message) -> bool {
+pub(super) fn authorized(_: &Caller) -> bool {
     false
 }
 
@@ -118,8 +118,8 @@ fn denied(name: &str, why: &str) -> Error {
 }
 
 /// The manifest row `name` may be reloaded now: its index.
-fn target(services: &[Service], message: &Message, name: &str) -> messenger::Result<usize> {
-    if !authorized(message) {
+fn target(services: &[Service], cx: &Caller, name: &str) -> messenger::Result<usize> {
+    if !authorized(cx) {
         return Err(denied(name, "only dbgd, with diag.dbg.control=1"));
     }
     if let Err(why) = control::reloadable(name) {
@@ -186,19 +186,13 @@ fn restart_now(row: &mut Service) -> messenger::Result<u64> {
     Ok(0)
 }
 
-fn reply(method: u32, body: Vec<u8>) -> Parcel {
-    Parcel {
-        header: services::header(services::init::INTERFACE, method),
-        body,
-        ..Parcel::default()
-    }
-}
-
-/// `ReloadService`.
-pub(super) fn reload(services: &mut [Service], message: &Message) -> messenger::Result<Parcel> {
-    let args = services::init::wire::decode_reload_service_args(&message.parcel.body)
-        .map_err(Error::Parcel)?;
-    let index = target(services, message, &args.name)?;
+/// `ReloadService`: the pid of the restarted task, or `0`.
+pub(super) fn reload(
+    services: &mut [Service],
+    cx: &Caller,
+    args: &services::init::wire::ReloadServiceArgs,
+) -> messenger::Result<u64> {
+    let index = target(services, cx, &args.name)?;
     let row = &mut services[index];
     if args.binary.is_empty() {
         trace::line!(trace::Channel::Init, "RELOAD:RESTART service={}", row.name);
@@ -212,35 +206,23 @@ pub(super) fn reload(services: &mut [Service], message: &Message) -> messenger::
         row.hot.state = Some("trial");
         row.hot.detail.clear();
     }
-    let pid = restart_now(row)?;
-    let body = services::init::wire::encode_reload_service_reply(
-        &services::init::wire::ReloadServiceReply { pid },
-    )
-    .map_err(Error::Parcel)?;
-    Ok(reply(services::init::wire::METHOD_RELOADSERVICE, body))
+    restart_now(row)
 }
 
 /// `RevertService`.
-pub(super) fn revert(services: &mut [Service], message: &Message) -> messenger::Result<Parcel> {
-    let args = services::init::wire::decode_revert_service_args(&message.parcel.body)
-        .map_err(Error::Parcel)?;
-    let index = target(services, message, &args.name)?;
+pub(super) fn revert(services: &mut [Service], cx: &Caller, name: &str) -> messenger::Result<u64> {
+    let index = target(services, cx, name)?;
     let row = &mut services[index];
     if row.hot.binary.is_some() {
         drop_binary(row, "reverted", "");
         trace::line!(trace::Channel::Init, "RELOAD:REVERT service={}", row.name);
     }
-    let pid = restart_now(row)?;
-    let body = services::init::wire::encode_revert_service_reply(
-        &services::init::wire::RevertServiceReply { pid },
-    )
-    .map_err(Error::Parcel)?;
-    Ok(reply(services::init::wire::METHOD_REVERTSERVICE, body))
+    restart_now(row)
 }
 
 /// `Reloads`.
-pub(super) fn list(services: &[Service]) -> messenger::Result<Parcel> {
-    let reloads = services
+pub(super) fn list(services: &[Service]) -> Vec<services::init::wire::ReloadState> {
+    services
         .iter()
         .filter_map(|row| {
             Some(services::init::wire::ReloadState {
@@ -251,11 +233,7 @@ pub(super) fn list(services: &[Service]) -> messenger::Result<Parcel> {
                 detail: row.hot.detail.clone(),
             })
         })
-        .collect();
-    let body =
-        services::init::wire::encode_reloads_reply(&services::init::wire::ReloadsReply { reloads })
-            .map_err(Error::Parcel)?;
-    Ok(reply(services::init::wire::METHOD_RELOADS, body))
+        .collect()
 }
 
 /// Back to the image's binary.

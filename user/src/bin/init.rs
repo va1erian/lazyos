@@ -113,6 +113,8 @@ mod reload;
 mod residents;
 #[path = "init/selftest.rs"]
 mod selftest;
+#[path = "init/serve.rs"]
+mod serve;
 #[path = "init/service.rs"]
 mod service;
 #[path = "init/service_creds.rs"]

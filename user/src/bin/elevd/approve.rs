@@ -233,9 +233,8 @@ fn ask(
 /// The code of `xuid`'s structured refusal (busy, not allowed, keyboard
 /// not secured), if the reply is one.
 fn refused(reply: &Parcel) -> Option<i64> {
-    match services::error_field(reply) {
-        Ok(Some(code)) => Some(code),
-        Ok(None) => None,
-        Err(_) => Some(errno::EIO),
+    match libmessenger::client::remote_error(reply) {
+        Some(libmessenger::client::CallError::Remote { code, .. }) => Some(i64::from(code)),
+        _ => None,
     }
 }

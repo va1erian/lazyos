@@ -14,7 +14,7 @@ use alloc::vec::Vec;
 use user::central;
 use user::trace;
 
-use user::messenger::{self, errno, services, Message, Parcel};
+use user::messenger::{self, errno, services};
 
 use super::service::{Phase, Service};
 use super::shutdown;
@@ -81,22 +81,18 @@ fn errno_error(code: i64) -> messenger::Error {
 pub(super) fn start(
     services: &mut Vec<Service>,
     broker: &mut central::Publisher,
-    message: &Message,
-) -> messenger::Result<Parcel> {
-    let request = services::init::wire::decode_start_driver_args(&message.parcel.body)
-        .map_err(messenger::Error::Parcel)?;
+    sender: u64,
+    request: &services::init::wire::StartDriverArgs,
+) -> messenger::Result<services::init::wire::StartDriverReply> {
     let from_devd = services.iter().any(|row| {
-        !row.launched
-            && row.name == "devd"
-            && row.phase == Phase::Running
-            && row.pid == message.sender
+        !row.launched && row.name == "devd" && row.phase == Phase::Running && row.pid == sender
     });
     if !from_devd {
         trace::line!(
             trace::Channel::Init,
             "DRIVER:DENIED driver={} caller={}",
             request.driver,
-            message.sender
+            sender
         );
         return Err(errno_error(errno::EPERM));
     }
@@ -153,6 +149,6 @@ pub(super) fn start(
     reply(true, services[index].pid)
 }
 
-fn reply(started: bool, pid: u64) -> messenger::Result<Parcel> {
-    services::drivers::start_driver_reply(started, pid)
+fn reply(started: bool, pid: u64) -> messenger::Result<services::init::wire::StartDriverReply> {
+    Ok(services::init::wire::StartDriverReply { started, pid })
 }

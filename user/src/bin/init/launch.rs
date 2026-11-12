@@ -11,7 +11,7 @@ use user::central;
 use user::trace;
 
 use user::messenger::client::Native;
-use user::messenger::{self, logind, services, Message};
+use user::messenger::{self, logind, services};
 use user::sys::{self, Cred as SysCred};
 
 use super::apps::{find_app, is_available, SHELL_APP_ID};
@@ -19,12 +19,6 @@ use super::installed::{report_label, InstalledApp, InstalledApps};
 use super::sessions;
 use super::state::{Phase, Service, CAP_SETUID, LAUNCH_CAP_PER_SESSION, SESSION_CAPS};
 use super::supervise::{publish_state, spawn_row};
-
-/// The kernel-stamped actor for a message: the credentials its sender had
-/// when it was queued (issue #446).
-pub(super) fn actor(message: &Message) -> messenger::Result<SysCred> {
-    Ok(message.caller())
-}
 
 /// The session-owner policy: a caller may launch into its own session; a
 /// holder of `CAP_SETUID` (`logind`, the supervisor) may launch anywhere;
