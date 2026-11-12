@@ -87,6 +87,40 @@ fn the_first_resolve_waits_the_runtimes_bound_and_try_connect_does_not() {
 }
 
 #[test]
+fn a_calls_first_connect_never_waits_longer_than_its_deadline() {
+    let conn = Connection::new(Mock::new(), NAME);
+    // call_as asks for 500 ms, under the mock's 10 s connect bound.
+    assert!(call(&conn).is_err());
+    // A poll (a topic pull) resolves once without waiting.
+    assert!(conn
+        .call(
+            IFACE,
+            7,
+            Vec::new(),
+            Vec::new(),
+            Deadline::Poll,
+            Retry::Safe
+        )
+        .is_err());
+    // A call that waits for ever keeps the runtime's bound.
+    assert!(conn
+        .call(
+            IFACE,
+            7,
+            Vec::new(),
+            Vec::new(),
+            Deadline::Never,
+            Retry::Safe
+        )
+        .is_err());
+    let bounds: Vec<Deadline> = conn.transport().resolves().iter().map(|r| r.1).collect();
+    assert_eq!(
+        bounds,
+        [Deadline::millis(500), Deadline::Poll, Deadline::secs(10)]
+    );
+}
+
+#[test]
 fn a_service_that_registers_while_connect_waits_is_connected_in_one_resolve() {
     let mock = Mock::new();
     mock.registers_when_waited_for(NAME);

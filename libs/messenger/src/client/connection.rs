@@ -229,7 +229,8 @@ impl<T: Transport> Connection<T> {
         until: Deadline,
         retry: Retry,
     ) -> Result<Parcel, Errno> {
-        let handle = self.connect()?;
+        // Waiting for the name must not outlast the call's own deadline.
+        let handle = self.resolve_within(self.transport.connect_bound().min(until))?;
         match self.transport.call(handle, request, until, retry) {
             Err(failure) if is_peer_gone(failure.errno) => {
                 self.evict();

@@ -57,6 +57,16 @@ impl Deadline {
         }
     }
 
+    /// The tighter of two bounds: `Poll` beats any time, a time beats
+    /// `Never`.
+    pub fn min(self, other: Deadline) -> Deadline {
+        match (self, other) {
+            (Deadline::Poll, _) | (_, Deadline::Poll) => Deadline::Poll,
+            (Deadline::Never, bound) | (bound, Deadline::Never) => bound,
+            (Deadline::Within(a), Deadline::Within(b)) => Deadline::Within(a.min(b)),
+        }
+    }
+
     /// The bound as a [`Duration`] (`None` for [`Deadline::Never`], zero for
     /// [`Deadline::Poll`]).
     pub fn limit(self) -> Option<Duration> {
