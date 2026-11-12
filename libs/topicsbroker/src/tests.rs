@@ -320,10 +320,12 @@ fn a_queue_over_its_owners_allowance_sheds_its_oldest() {
 #[test]
 fn apps_together_cannot_take_the_system_reserve() {
     let mut broker = B::new();
-    // Many apps each fill their own allowance with retained values.
-    let apps = MAX_BYTES / TENANT_BYTES + 4;
+    // Many apps each publish as many 8 KiB retained values as they may keep,
+    // until together they have offered more than the whole byte pool.
+    let per_app = TENANT_RETAINED * 8192;
+    let apps = MAX_BYTES / per_app + 4;
     for tenant in 0..apps as u64 {
-        for n in 0..64 {
+        for n in 0..TENANT_RETAINED {
             let topic = alloc::format!("app{tenant}/{n}");
             let _ = broker.publish(&topic, app(100 + tenant), vec![1u8; 8192], true);
         }

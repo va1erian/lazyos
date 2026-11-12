@@ -73,6 +73,12 @@ impl Bus {
         Ok(Bus::new(topics_client::connect()?))
     }
 
+    /// [`Bus::connect`] for a one-shot program that needs the broker and
+    /// never tries again: waits the runtime's connect bound (10 s).
+    pub fn connect_waiting() -> Result<Bus> {
+        Ok(Bus::new(topics_client::connect_waiting()?))
+    }
+
     /// One registry lookup of the broker, never a wait: for a caller that
     /// tries again later (a service that may start before `messengerd`).
     pub fn lookup() -> Result<Bus> {

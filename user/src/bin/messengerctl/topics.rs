@@ -61,10 +61,15 @@ pub(crate) fn tail(rest: &str) {
         Ok(bus) => bus,
         Err(error) => return report(error.message()),
     };
-    let subscription = match bus.subscribe(filter) {
+    let mut subscription = match bus.subscribe(filter) {
         Ok(subscription) => subscription,
         Err(error) => return report(error.message()),
     };
+    // A doorbell, though `recv` does not need one: a `tail` stopped with
+    // Ctrl-C never unsubscribes, and the broker reaps a subscription only
+    // when its bell's other end is gone. Without it every stopped `tail`
+    // would hold one of its app's subscriptions until logout.
+    let _ = subscription.bell();
     sys::write_str(&format!("tail {filter}: {count} event(s)\n"));
     for _ in 0..count {
         match subscription.recv(Deadline::Never) {

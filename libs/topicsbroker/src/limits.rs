@@ -34,4 +34,4 @@ pub const TENANT_BYTES: usize = 1024 * 1024;
 pub const SYSTEM_TENANT_BYTES: usize = 2 * 1024 * 1024;
 /// Retained values one app (tenant) may keep (they cannot be removed, and they
 /// outlive the task that published them).
-pub const TENANT_RETAINED: usize = 64;
+pub const TENANT_RETAINED: usize = 32;

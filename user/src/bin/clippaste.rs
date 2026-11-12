@@ -54,7 +54,7 @@ fn run() -> messenger::Result<()> {
     let client = connect()?;
     // Watch the session's retained changed topic on the central broker first
     // (issue #169); a late subscriber is handed the offer.
-    let mut changes_bus = central::Bus::connect()?;
+    let mut changes_bus = central::Bus::connect_waiting()?;
     let session_text = format!("{}", clipboard::session().map_err(lower)?);
     let mut changes =
         clipboard::subscribe_session_clipboard_changed(&mut changes_bus, &session_text)?;
@@ -88,6 +88,11 @@ fn run() -> messenger::Result<()> {
         bytes.len()
     );
 
+    // Release the broker-side subscription before the credential change
+    // below: the broker lets only the client that subscribed (its slot and
+    // tenant) unsubscribe, and this demo is about to become another session.
+    let _ = changes.into_handle().unsubscribe();
+
     // Cross-session policy probe: move to another session, then ask for the
     // same token. The service's `clipboard.read` scope must refuse it and log
     // the attempt (the credential transition itself is kernel-audited).
@@ -105,11 +110,6 @@ fn run() -> messenger::Result<()> {
     // The large-offer probes run last: the session keeps one offer, so they
     // would evict the one the denial probe above names.
     big_offer_probes(&client)?;
-    // Release the broker-side subscription slot now that the paste and
-    // denial probe are done: this demo client is about to exit, but a leaked
-    // subscription would still fill the broker's bounded table on repeated
-    // runs.
-    let _ = changes.into_handle().unsubscribe();
     Ok(())
 }
 

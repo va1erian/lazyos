@@ -12,7 +12,7 @@ use libmessenger::client::{CallError, Connection, Deadline};
 use messenger_generated::os_lazy_messenger_topics_publish_v1 as publish_scope;
 use messenger_generated::os_lazy_messenger_topics_v1 as wire;
 
-use super::client::{resolve_within, Held};
+use super::client::{resolve_waiting, resolve_within, Held};
 use super::endpoint::{encode, syscall};
 use super::{op, Endpoint, Error, MsgArgs, MsgResult, Result};
 
@@ -56,6 +56,12 @@ const CONNECT_BRIEF: Deadline = Deadline::ticks(8);
 /// [`CONNECT_BRIEF`] for the name to register.
 pub fn connect() -> Result<Client> {
     Ok(client_of(resolve_within(NAME, CONNECT_BRIEF)?))
+}
+
+/// [`connect`] for a one-shot program that cannot do without the broker and
+/// will not try again: waits the runtime's connect bound for it to register.
+pub fn connect_waiting() -> Result<Client> {
+    Ok(client_of(resolve_waiting(NAME)?))
 }
 
 /// A failed broker call as the Messenger error callers match on: the

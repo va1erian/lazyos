@@ -1021,7 +1021,10 @@ A fresh-context review of the runtime, the generator and `messengerd` found:
   **Follow-up:** the kernel offers `messengerd` no task-exit notification
   (a cred lookup by slot cannot tell a dead slot from a reused one), so a
   bell-less subscription of an exited task is not reaped; the per-tenant cap
-  (32) is what bounds it. A peer-death notice for a sender slot, or a
+  (32) bounds it, at the price of locking that app out of subscribing until
+  its session ends once 32 have leaked (`messengerctl tail` attaches a bell
+  so a Ctrl-C does not leak; a bell on every subscription would cost
+  `messengerd` a handle each, more than its table holds). A peer-death notice for a sender slot, or a
   per-session sweep at logout, would close it and needs kernel work.
 * The xui `Subscriber` stamps `POLL_HINT_NS` on its polling `NextEvent`s too; a
   reply it cannot parse is `-EPROTO` (a broker refusal `-EINVAL` is the only

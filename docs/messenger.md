@@ -303,10 +303,13 @@ over its tenant's budget is refused (`ENOMEM`). Retained values cannot be
 removed and outlive the task that published them, and so does their charge.
 Who may pull, ack or unsubscribe a subscription is a separate rule: only the
 task (slot and tenant) that created it. The kernel does not tell `messengerd`
-when a task exits, so a bell-less subscription of a dead task lives on until
-its tenant's cap bounds it; one with a bell is reaped when the bell's far end
-closes. Apps of different labels or sessions are different tenants and can
-still fill the apps' shared part between them.
+when a task exits, so a bell-less subscription of a dead task lives on, and
+because a tenant outlives its processes, enough such leaks (32) lock that app
+out of subscribing until its session ends; one with a bell is reaped when the
+bell's far end closes, so a program that can be killed mid-subscription (a
+`tail`) should attach one. Apps of different labels or sessions are different
+tenants and can still fill the apps' shared part between them, which platform
+rows in use shrink further.
 
 **Backpressure and scope:** a full bounded queue drops (counted in stats);
 system topics default to `conflate` so a slow subscriber cannot stall

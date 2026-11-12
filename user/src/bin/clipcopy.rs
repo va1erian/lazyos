@@ -56,7 +56,7 @@ fn run() -> messenger::Result<()> {
     registry::register(SINK, &published, &[clipboard::OWNER_INTERFACE], 0)?;
     // The changed topic lives on `messengerd`'s central broker (issue #169);
     // the broker replays the retained offer to a late subscriber.
-    let mut changes_bus = central::Bus::connect()?;
+    let mut changes_bus = central::Bus::connect_waiting()?;
     let session_text = format!("{}", clipboard::session().map_err(lower)?);
     let changes = clipboard::subscribe_session_clipboard_changed(&mut changes_bus, &session_text)?
         .into_handle();
