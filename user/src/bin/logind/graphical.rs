@@ -403,7 +403,16 @@ impl Desktop {
         let Some((id, _, account)) = self.active_account() else {
             return false;
         };
-        publish_end(&mut self.bus, &account, id, 0)
+        if publish_end(&mut self.bus, &account, id, 0) {
+            return true;
+        }
+        // `Logout` refuses and keeps the session, so the held end must not
+        // be replayed by a later publish (a session that really exited keeps
+        // its replay).
+        if let Some(bus) = self.bus.as_mut() {
+            bus.forget(logind::wire::TOPIC_SYSTEM_EVENTS_LOGIN_END);
+        }
+        false
     }
 
     /// Finish the logout `Logout` announced: the next loop pass brings the

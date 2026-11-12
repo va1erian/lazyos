@@ -54,6 +54,13 @@ impl Publisher {
         }
     }
 
+    /// Drop the value held back for `topic`: for an announcement whose
+    /// caller acts on the failure (refuses and keeps its state), so a late
+    /// replay cannot contradict the answer it gave.
+    pub fn forget(&mut self, topic: &str) {
+        self.backlog.retain(|(held, _)| held != topic);
+    }
+
     /// One publish with a deadline, reconnecting once to a restarted broker.
     fn send(&mut self, topic: &str, payload: &[u8], retained: bool) -> Result<u64> {
         if crate::sys::clock() < self.quiet_until {
