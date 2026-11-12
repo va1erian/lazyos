@@ -3,7 +3,7 @@
 //! [`libmessenger::client::Connection`] on, and the one bounded wait for a
 //! service that has not registered yet.
 
-use libmessenger::client::{CallFailure, Deadline, Errno, Handle, Transport};
+use libmessenger::client::{CallFailure, Deadline, Errno, Handle, Retry, Transport};
 use libmessenger::Parcel;
 
 use super::{park_tick, registry, Endpoint, Error, Result};
@@ -65,17 +65,24 @@ impl Transport for Native {
             .map_err(errno_of)
     }
 
-    /// The two halves of the kernel call (`begin_call`, `await_reply`), so
-    /// a request the kernel refused before queuing is told from one the peer
-    /// had when it died.
+    /// A `retry=never` method issues the two halves of the kernel call
+    /// (`begin_call`, `await_reply`), so a request the kernel refused before
+    /// queuing is told from one the peer had when it died; a `retry=safe`
+    /// one is resent either way and takes the single call.
     fn call(
         &self,
         handle: Handle,
         request: &Parcel,
         until: Deadline,
+        retry: Retry,
     ) -> core::result::Result<Parcel, CallFailure> {
         let deadline = until.absolute_ticks(sys::clock());
         let endpoint = Endpoint::from_raw(handle);
+        if retry == Retry::Safe {
+            return endpoint
+                .call(request, Some(deadline))
+                .map_err(|error| CallFailure::delivered(errno_of(error)));
+        }
         let txn = endpoint
             .begin_call(request, Some(deadline))
             .map_err(|error| CallFailure::undelivered(errno_of(error)))?;

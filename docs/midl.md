@@ -453,9 +453,10 @@ handle, resolve again once and ask whether to resend". The kernel reports the
 same `EPIPE` for two different failures: `begin_call` refuses a request whose
 peer endpoint is closed (never queued: nothing ran), and an `await_reply`
 whose peer closed after it took the request ends `PeerDied` (it may have run).
-A single `OP_CALL` cannot tell them apart, so the transports
-(`user::messenger::client::Native`, `lazyos_sys::client::Std`) issue the two
-halves (`OP_CALL_BEGIN`, `OP_CALL_AWAIT`) and report `CallFailure { errno,
+A single `OP_CALL` cannot tell them apart, so for a `retry=never` method the
+transports (`user::messenger::client::Native`, `lazyos_sys::client::Std`) issue
+the two halves (`OP_CALL_BEGIN`, `OP_CALL_AWAIT`); a `retry=safe` method is
+resent either way and keeps the single `OP_CALL`. They report `CallFailure { errno,
 delivered }`. The rule in `Connection::call`:
 
 | Failure | `retry=never` | `retry=safe` |

@@ -103,6 +103,18 @@ fn a_dead_peer_is_resolved_again_once_and_the_call_retried_once() {
 }
 
 #[test]
+fn the_transport_is_told_the_methods_policy() {
+    let conn = connection();
+    call_as(&conn, Retry::Safe).unwrap();
+    call_as(&conn, Retry::Never).unwrap();
+    conn.send(IFACE, 9, vec![3], Vec::new()).unwrap();
+    let calls = conn.transport().calls();
+    assert_eq!(calls[0].retry, Some(Retry::Safe));
+    assert_eq!(calls[1].retry, Some(Retry::Never));
+    assert_eq!(calls[2].retry, None);
+}
+
+#[test]
 fn a_safe_call_is_resent_after_the_peer_died_handling_it() {
     let conn = connection();
     call(&conn).unwrap();

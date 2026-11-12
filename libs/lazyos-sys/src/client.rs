@@ -6,7 +6,7 @@
 use std::time::Duration;
 use std::vec;
 
-use libmessenger::client::{CallFailure, Deadline, Errno, Handle, Transport};
+use libmessenger::client::{CallFailure, Deadline, Errno, Handle, Retry, Transport};
 use libmessenger::Parcel;
 
 use crate::msg::parcel;
@@ -60,22 +60,29 @@ impl Transport for Std {
         }
     }
 
-    /// The two halves of the kernel call, so a request the kernel refused
-    /// before queuing (the cached handle's peer is gone) is told from one the
-    /// peer had when it died, and the connection resends only what is safe.
+    /// A `retry=never` method issues the two halves of the kernel call, so a
+    /// request the kernel refused before queuing (the cached handle's peer is
+    /// gone) is told from one the peer had when it died. A `retry=safe` one
+    /// is resent either way and takes the single `OP_CALL`.
     fn call(
         &self,
         handle: Handle,
         request: &Parcel,
         until: Deadline,
+        retry: Retry,
     ) -> Result<Parcel, CallFailure> {
         let mut buf = vec![0u8; REPLY_BUF];
-        parcel::call_tracked(handle, request, &mut buf, until.absolute_ticks(clock())).map_err(
-            |(code, delivered)| CallFailure {
+        let deadline = until.absolute_ticks(clock());
+        if retry == Retry::Safe {
+            return parcel::call(handle, request, &mut buf, deadline)
+                .map_err(|code| CallFailure::delivered(Errno::from_syscall(code)));
+        }
+        parcel::call_tracked(handle, request, &mut buf, deadline).map_err(|(code, delivered)| {
+            CallFailure {
                 errno: Errno::from_syscall(code),
                 delivered,
-            },
-        )
+            }
+        })
     }
 
     fn send(&self, handle: Handle, request: &Parcel) -> Result<(), Errno> {

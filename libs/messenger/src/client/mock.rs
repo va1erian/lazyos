@@ -11,7 +11,7 @@ use core::cell::RefCell;
 use super::connection::{Handle, Transport};
 use super::deadline::Deadline;
 use super::errno::Errno;
-use super::policy::CallFailure;
+use super::policy::{CallFailure, Retry};
 use crate::{Header, Object, Parcel};
 
 /// A call or send the mock saw.
@@ -27,6 +27,8 @@ pub struct Recorded {
     pub objects: Vec<Object>,
     /// The deadline the caller gave (`None` for a one-way send).
     pub until: Option<Deadline>,
+    /// The retry policy the caller gave (`None` for a one-way send).
+    pub retry: Option<Retry>,
 }
 
 struct Service {
@@ -198,6 +200,7 @@ impl Transport for Mock {
         handle: Handle,
         request: &Parcel,
         until: Deadline,
+        retry: Retry,
     ) -> Result<Parcel, CallFailure> {
         let mut state = self.state.borrow_mut();
         state.calls.push(Recorded {
@@ -206,10 +209,15 @@ impl Transport for Mock {
             body: request.body.clone(),
             objects: request.objects.clone(),
             until: Some(until),
+            retry: Some(retry),
         });
         // A dead peer refuses the request before queuing it, as the kernel's
-        // `begin_call` does: never delivered.
-        Mock::peer_alive(&state, handle).map_err(CallFailure::undelivered)?;
+        // `begin_call` does. Only the split call (`Retry::Never`) can tell;
+        // the single call a safe method uses reports `delivered`.
+        Mock::peer_alive(&state, handle).map_err(|errno| CallFailure {
+            errno,
+            delivered: retry == Retry::Safe,
+        })?;
         state
             .script
             .pop_front()
@@ -224,6 +232,7 @@ impl Transport for Mock {
             body: request.body.clone(),
             objects: request.objects.clone(),
             until: None,
+            retry: None,
         });
         Mock::peer_alive(&state, handle)
     }

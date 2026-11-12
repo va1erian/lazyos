@@ -5,7 +5,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use libmessenger::client::{CallError, CallFailure, Deadline, Errno, Handle, Transport};
+use libmessenger::client::{CallError, CallFailure, Deadline, Errno, Handle, Retry, Transport};
 use libmessenger::{flags, Buffer, Parcel};
 
 use super::{wire, MAX_BUFFER, MAX_DATA};
@@ -40,8 +40,9 @@ impl Transport for Nested {
         handle: Handle,
         request: &Parcel,
         until: Deadline,
+        retry: Retry,
     ) -> Result<Parcel, CallFailure> {
-        Native.call(handle, request, until)
+        Native.call(handle, request, until, retry)
     }
 
     fn send(&self, handle: Handle, request: &Parcel) -> Result<(), Errno> {

@@ -38,12 +38,15 @@ pub trait Transport {
     /// One synchronous call: `request` out, the reply back, no later than
     /// `until`. A failure says whether the peer may have received the
     /// request ([`CallFailure::delivered`]); a transport that cannot tell
-    /// answers `true`.
+    /// answers `true`. `retry` is the method's policy: for [`Retry::Safe`]
+    /// the connection resends either way, so a transport may skip the work
+    /// of telling the two apart (one syscall instead of two).
     fn call(
         &self,
         handle: Handle,
         request: &Parcel,
         until: Deadline,
+        retry: Retry,
     ) -> Result<Parcel, CallFailure>;
 
     /// Send `request` one way; it does not wait for the peer.
@@ -221,14 +224,14 @@ impl<T: Transport> Connection<T> {
         retry: Retry,
     ) -> Result<Parcel, Errno> {
         let handle = self.connect()?;
-        match self.transport.call(handle, request, until) {
+        match self.transport.call(handle, request, until, retry) {
             Err(failure) if is_peer_gone(failure.errno) => {
                 self.evict();
                 if retry == Retry::Never && failure.delivered {
                     return Err(failure.errno);
                 }
                 self.transport
-                    .call(self.try_connect()?, request, until)
+                    .call(self.try_connect()?, request, until, retry)
                     .map_err(|failure| {
                         if is_peer_gone(failure.errno) {
                             self.evict();

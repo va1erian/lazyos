@@ -297,8 +297,9 @@ As built (resend and deadline policy, after C3): the policy lives in the IDL.
   `ENOENT` for a stale handle before it queues anything; `await_reply` ends
   `PeerDied` (also `EPIPE`) for a peer that took the request and died. One
   `OP_CALL` reports both as `EPIPE`. The native and std transports therefore
-  call `OP_CALL_BEGIN` then `OP_CALL_AWAIT` (one extra syscall per call, no
-  kernel change) and fail with `CallFailure { errno, delivered }`;
+  call `OP_CALL_BEGIN` then `OP_CALL_AWAIT` for a `retry=never` method (one
+  extra syscall, no kernel change; `Transport::call` takes the policy, and a
+  `retry=safe` call keeps the single `OP_CALL`) and fail with `CallFailure { errno, delivered }`;
   `Connection::call` resends whatever the policy when `delivered` is false.
   A transport that cannot tell says `delivered`.
 * `retry=never` is the default; it returns the error, drops the handle and the
