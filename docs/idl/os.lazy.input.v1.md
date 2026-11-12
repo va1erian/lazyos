@@ -52,16 +52,18 @@ errno-style code plus friendly text) instead of the declared reply fields.
 
 - Served under the registry name `os.lazy.input.v1`; registered once.
 
-## Scopes and deadlines
+## Scopes, deadlines and retries
 
-| Method | Scope interface | Scope id | Deadline |
-|---|---|---|---|
-| Open | this interface | - | 1000 ms |
-| Close | this interface | - | 1000 ms |
-| RequestGrant | this interface | - | 1000 ms |
-| ReleaseGrant | this interface | - | 1000 ms |
-| Ping | this interface | - | 1000 ms |
-| AttachKeyState | this interface | - | 1000 ms |
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Open | this interface | - | 1000 ms | never |
+| Close | this interface | - | 1000 ms | never |
+| GetState | this interface | - | 5000 ms | safe |
+| RequestGrant | this interface | - | 1000 ms | never |
+| ReleaseGrant | this interface | - | 1000 ms | never |
+| Ping | this interface | - | 1000 ms | safe |
+| AttachKeyState | this interface | - | 1000 ms | never |
+| AttachGamepadState | this interface | - | 5000 ms | never |
 
 ## Objects
 

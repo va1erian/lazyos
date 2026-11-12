@@ -35,6 +35,13 @@ asking the compositor. Method ordinals are append-only.
 
 - Served under the registry name `os.lazy.gpu`; registered once.
 
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| GetState | this interface | - | 5000 ms | safe |
+| GetBeam | this interface | - | 5000 ms | safe |
+
 ## struct `Axis`
 
 - `active: U32`

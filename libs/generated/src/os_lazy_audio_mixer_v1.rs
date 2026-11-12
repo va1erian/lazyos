@@ -224,16 +224,46 @@ pub fn decode_output(body: &[u8]) -> Result<Output, Error> {
 
 /// `ListStreams` method id.
 pub const METHOD_LISTSTREAMS: u32 = 711680798;
+/// How long a client waits for `ListStreams`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_LISTSTREAMS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `ListStreams` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LISTSTREAMS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `SetStreamVolume` method id.
 pub const METHOD_SETSTREAMVOLUME: u32 = 953940373;
+/// How long a client waits for `SetStreamVolume`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SETSTREAMVOLUME_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `SetStreamVolume` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SETSTREAMVOLUME_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `GetMaster` method id.
 pub const METHOD_GETMASTER: u32 = 1362695053;
+/// How long a client waits for `GetMaster`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_GETMASTER_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `GetMaster` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_GETMASTER_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `SetMaster` method id.
 pub const METHOD_SETMASTER: u32 = 301176513;
+/// How long a client waits for `SetMaster`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SETMASTER_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `SetMaster` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SETMASTER_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `ListOutputs` method id.
 pub const METHOD_LISTOUTPUTS: u32 = 124559009;
+/// How long a client waits for `ListOutputs`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_LISTOUTPUTS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `ListOutputs` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LISTOUTPUTS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `SelectOutput` method id.
 pub const METHOD_SELECTOUTPUT: u32 = 234575836;
+/// How long a client waits for `SelectOutput`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SELECTOUTPUT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `SelectOutput` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SELECTOUTPUT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 
 /// Every open stream, in opening order.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -461,9 +491,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Every open stream, in opening order.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn list_streams(&self) -> Result<alloc::vec::Vec<StreamStatus>, ClientError> {
-        self.list_streams_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.list_streams_within(METHOD_LISTSTREAMS_DEADLINE)
     }
 
     /// [`Self::list_streams`] with the caller's deadline instead of the IDL's.
@@ -472,7 +502,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_LISTSTREAMS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LISTSTREAMS, wire_body, wire_objects, within, METHOD_LISTSTREAMS_RETRY)
             ?;
         let reply = decode_list_streams_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.streams)
@@ -480,9 +510,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Set one stream's gain and mute flag, whoever owns it.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn set_stream_volume(&self, stream: u32, gain_q16: u32, mute: bool) -> Result<(), ClientError> {
-        self.set_stream_volume_within(stream, gain_q16, mute, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_stream_volume_within(stream, gain_q16, mute, METHOD_SETSTREAMVOLUME_DEADLINE)
     }
 
     /// [`Self::set_stream_volume`] with the caller's deadline instead of the IDL's.
@@ -491,16 +521,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SETSTREAMVOLUME, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SETSTREAMVOLUME, wire_body, wire_objects, within, METHOD_SETSTREAMVOLUME_RETRY)
             ?;
         Ok(())
     }
 
     /// The master gain, the mute flag and what the card runs at.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn get_master(&self) -> Result<Master, ClientError> {
-        self.get_master_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.get_master_within(METHOD_GETMASTER_DEADLINE)
     }
 
     /// [`Self::get_master`] with the caller's deadline instead of the IDL's.
@@ -509,7 +539,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_GETMASTER, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_GETMASTER, wire_body, wire_objects, within, METHOD_GETMASTER_RETRY)
             ?;
         let reply = decode_get_master_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.master)
@@ -517,9 +547,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Set the master gain and mute flag, applied after mixing.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn set_master(&self, gain_q16: u32, mute: bool) -> Result<(), ClientError> {
-        self.set_master_within(gain_q16, mute, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_master_within(gain_q16, mute, METHOD_SETMASTER_DEADLINE)
     }
 
     /// [`Self::set_master`] with the caller's deadline instead of the IDL's.
@@ -528,7 +558,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SETMASTER, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SETMASTER, wire_body, wire_objects, within, METHOD_SETMASTER_RETRY)
             ?;
         Ok(())
     }
@@ -536,9 +566,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Every sound output a driver serves now (a built-in codec, a USB
     /// headset, an HDMI display), the one playing first.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn list_outputs(&self) -> Result<alloc::vec::Vec<Output>, ClientError> {
-        self.list_outputs_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.list_outputs_within(METHOD_LISTOUTPUTS_DEADLINE)
     }
 
     /// [`Self::list_outputs`] with the caller's deadline instead of the IDL's.
@@ -547,7 +577,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_LISTOUTPUTS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LISTOUTPUTS, wire_body, wire_objects, within, METHOD_LISTOUTPUTS_RETRY)
             ?;
         let reply = decode_list_outputs_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.outputs)
@@ -557,9 +587,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// present. Streams keep playing across the switch. `ENOENT` for an
     /// output that is not present.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn select_output(&self, id: &str) -> Result<(), ClientError> {
-        self.select_output_within(id, libmessenger::client::DEFAULT_DEADLINE)
+        self.select_output_within(id, METHOD_SELECTOUTPUT_DEADLINE)
     }
 
     /// [`Self::select_output`] with the caller's deadline instead of the IDL's.
@@ -568,7 +598,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SELECTOUTPUT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SELECTOUTPUT, wire_body, wire_objects, within, METHOD_SELECTOUTPUT_RETRY)
             ?;
         Ok(())
     }

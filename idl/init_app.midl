@@ -10,6 +10,7 @@ service "os.lazy.init.app" implements os.lazy.init.app.v1;
 /// `ESRCH`. Failures reply with the standard error field (id 15,
 /// `docs/midl.md`).
 interface os.lazy.init.app.v1 {
+    default deadline=1s;
     /// Ask for this instance's lifecycle events; replaces an earlier channel.
     /// `Reopen`s queued before the first `Watch` (at most 16, the oldest
     /// dropped first) are sent on it at once, in order; a `Stop` pending at

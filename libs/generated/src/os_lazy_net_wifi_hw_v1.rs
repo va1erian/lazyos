@@ -383,32 +383,102 @@ pub fn decode_hw_stats(body: &[u8]) -> Result<HwStats, Error> {
 
 /// `Info` method id.
 pub const METHOD_INFO: u32 = 266462757;
+/// How long a client waits for `Info`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_INFO_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Info` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_INFO_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Attach` method id.
 pub const METHOD_ATTACH: u32 = 145305188;
+/// How long a client waits for `Attach`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_ATTACH_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Attach` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_ATTACH_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Detach` method id.
 pub const METHOD_DETACH: u32 = 475812562;
+/// How long a client waits for `Detach`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_DETACH_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Detach` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_DETACH_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `SetCountry` method id.
 pub const METHOD_SETCOUNTRY: u32 = 820455787;
+/// How long a client waits for `SetCountry`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SETCOUNTRY_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `SetCountry` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SETCOUNTRY_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Scan` method id.
 pub const METHOD_SCAN: u32 = 1830061320;
+/// How long a client waits for `Scan`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SCAN_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Scan` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SCAN_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `AbortScan` method id.
 pub const METHOD_ABORTSCAN: u32 = 1659626708;
+/// How long a client waits for `AbortScan`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_ABORTSCAN_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `AbortScan` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_ABORTSCAN_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `ScanResults` method id.
 pub const METHOD_SCANRESULTS: u32 = 536623814;
+/// How long a client waits for `ScanResults`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SCANRESULTS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `ScanResults` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SCANRESULTS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Join` method id.
 pub const METHOD_JOIN: u32 = 805458841;
+/// How long a client waits for `Join`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_JOIN_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Join` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_JOIN_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `TxMgmt` method id.
 pub const METHOD_TXMGMT: u32 = 583187128;
+/// How long a client waits for `TxMgmt`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_TXMGMT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `TxMgmt` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_TXMGMT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `SetState` method id.
 pub const METHOD_SETSTATE: u32 = 1345327380;
+/// How long a client waits for `SetState`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SETSTATE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `SetState` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SETSTATE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `SetKey` method id.
 pub const METHOD_SETKEY: u32 = 1206977594;
+/// How long a client waits for `SetKey`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SETKEY_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `SetKey` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SETKEY_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `DelKey` method id.
 pub const METHOD_DELKEY: u32 = 36584897;
+/// How long a client waits for `DelKey`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_DELKEY_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `DelKey` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_DELKEY_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Leave` method id.
 pub const METHOD_LEAVE: u32 = 2049913440;
+/// How long a client waits for `Leave`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_LEAVE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Leave` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LEAVE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Stats` method id.
 pub const METHOD_STATS: u32 = 267161228;
+/// How long a client waits for `Stats`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_STATS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Stats` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_STATS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `ScanDone` method id.
 pub const METHOD_SCANDONE: u32 = 2037373080;
 /// `RxMgmt` method id.
@@ -1059,9 +1129,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// label policy lets reach the driver may ask, attached or not: it reveals
     /// only hardware facts.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn info(&self) -> Result<HwInfo, ClientError> {
-        self.info_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.info_within(METHOD_INFO_DEADLINE)
     }
 
     /// [`Self::info`] with the caller's deadline instead of the IDL's.
@@ -1070,7 +1140,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_INFO, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_INFO, wire_body, wire_objects, within, METHOD_INFO_RETRY)
             ?;
         let reply = decode_info_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.info)
@@ -1079,9 +1149,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Become the radio's one client. `events` is the channel the driver
     /// sends events on. `EBUSY` when attached.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn attach(&self, events: u64) -> Result<(), ClientError> {
-        self.attach_within(events, libmessenger::client::DEFAULT_DEADLINE)
+        self.attach_within(events, METHOD_ATTACH_DEADLINE)
     }
 
     /// [`Self::attach`] with the caller's deadline instead of the IDL's.
@@ -1089,7 +1159,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_attach_args(&AttachArgs { events }).map_err(ClientError::bad_request)?;
         self
             .conn
-            .call(INTERFACE_ID, METHOD_ATTACH, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_ATTACH, wire_body, wire_objects, within, METHOD_ATTACH_RETRY)
             ?;
         Ok(())
     }
@@ -1097,9 +1167,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Release the radio (also implied when the owner exits). Leaves the BSS,
     /// aborts a scan and deletes every key.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn detach(&self) -> Result<(), ClientError> {
-        self.detach_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.detach_within(METHOD_DETACH_DEADLINE)
     }
 
     /// [`Self::detach`] with the caller's deadline instead of the IDL's.
@@ -1108,7 +1178,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_DETACH, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_DETACH, wire_body, wire_objects, within, METHOD_DETACH_RETRY)
             ?;
         Ok(())
     }
@@ -1126,9 +1196,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `wlanmd`, which reads `sys/net/wifi/country`; the driver trusts nobody
     /// else for it.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_country(&self, alpha2: &str) -> Result<(), ClientError> {
-        self.set_country_within(alpha2, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_country_within(alpha2, METHOD_SETCOUNTRY_DEADLINE)
     }
 
     /// [`Self::set_country`] with the caller's deadline instead of the IDL's.
@@ -1137,7 +1207,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SETCOUNTRY, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SETCOUNTRY, wire_body, wire_objects, within, METHOD_SETCOUNTRY_RETRY)
             ?;
         Ok(())
     }
@@ -1150,9 +1220,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// is allowed and pauses traffic while the radio is on other channels:
     /// nothing is sent to the BSS from another channel (see `TxMgmt`).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn scan(&self, request: &ScanRequest) -> Result<u32, ClientError> {
-        self.scan_within(request, libmessenger::client::DEFAULT_DEADLINE)
+        self.scan_within(request, METHOD_SCAN_DEADLINE)
     }
 
     /// [`Self::scan`] with the caller's deadline instead of the IDL's.
@@ -1161,7 +1231,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_SCAN, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SCAN, wire_body, wire_objects, within, METHOD_SCAN_RETRY)
             ?;
         let reply = decode_scan_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.scan_id)
@@ -1170,9 +1240,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Stop the running scan early; `ScanDone` follows with `aborted` set.
     /// Not an error when none runs.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn abort_scan(&self, scan_id: u32) -> Result<(), ClientError> {
-        self.abort_scan_within(scan_id, libmessenger::client::DEFAULT_DEADLINE)
+        self.abort_scan_within(scan_id, METHOD_ABORTSCAN_DEADLINE)
     }
 
     /// [`Self::abort_scan`] with the caller's deadline instead of the IDL's.
@@ -1181,7 +1251,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_ABORTSCAN, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_ABORTSCAN, wire_body, wire_objects, within, METHOD_ABORTSCAN_RETRY)
             ?;
         Ok(())
     }
@@ -1192,9 +1262,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// raw management frame, **unparsed**: parsing it is `wlanmd`'s job.
     /// An unknown `scan_id` is `ENOENT`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn scan_results(&self, scan_id: u32, first: u32, max: u32) -> Result<ScanResultsReply, ClientError> {
-        self.scan_results_within(scan_id, first, max, libmessenger::client::DEFAULT_DEADLINE)
+        self.scan_results_within(scan_id, first, max, METHOD_SCANRESULTS_DEADLINE)
     }
 
     /// [`Self::scan_results`] with the caller's deadline instead of the IDL's.
@@ -1203,7 +1273,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_SCANRESULTS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SCANRESULTS, wire_body, wire_objects, within, METHOD_SCANRESULTS_RETRY)
             ?;
         decode_scan_results_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
@@ -1213,9 +1283,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// previous BSS first. The reply means the radio is on the channel, not
     /// that anything was heard.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn join(&self, request: &JoinRequest) -> Result<(), ClientError> {
-        self.join_within(request, libmessenger::client::DEFAULT_DEADLINE)
+        self.join_within(request, METHOD_JOIN_DEADLINE)
     }
 
     /// [`Self::join`] with the caller's deadline instead of the IDL's.
@@ -1224,7 +1294,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_JOIN, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_JOIN, wire_body, wire_objects, within, METHOD_JOIN_RETRY)
             ?;
         Ok(())
     }
@@ -1245,9 +1315,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// force when it was queued: message 4 of the 4-way handshake is queued
     /// just before the pairwise key is installed and must leave unencrypted.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn tx_mgmt(&self, kind: u32, frame: &[u8]) -> Result<(), ClientError> {
-        self.tx_mgmt_within(kind, frame, libmessenger::client::DEFAULT_DEADLINE)
+        self.tx_mgmt_within(kind, frame, METHOD_TXMGMT_DEADLINE)
     }
 
     /// [`Self::tx_mgmt`] with the caller's deadline instead of the IDL's.
@@ -1256,7 +1326,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_TXMGMT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_TXMGMT, wire_body, wire_objects, within, METHOD_TXMGMT_RETRY)
             ?;
         Ok(())
     }
@@ -1271,9 +1341,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// allowed and takes the link down; below `Associated` it deletes every
     /// key.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_state(&self, state: u32, aid: u32) -> Result<(), ClientError> {
-        self.set_state_within(state, aid, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_state_within(state, aid, METHOD_SETSTATE_DEADLINE)
     }
 
     /// [`Self::set_state`] with the caller's deadline instead of the IDL's.
@@ -1282,7 +1352,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SETSTATE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SETSTATE, wire_body, wire_objects, within, METHOD_SETSTATE_RETRY)
             ?;
         Ok(())
     }
@@ -1299,9 +1369,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// for no free slot; when the radio refuses a key, the slot is left
     /// empty.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_key(&self, kind: u32, index: u32, cipher: u32, key: &[u8], rsc: &[u8], addr: &[u8]) -> Result<(), ClientError> {
-        self.set_key_within(kind, index, cipher, key, rsc, addr, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_key_within(kind, index, cipher, key, rsc, addr, METHOD_SETKEY_DEADLINE)
     }
 
     /// [`Self::set_key`] with the caller's deadline instead of the IDL's.
@@ -1310,16 +1380,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SETKEY, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SETKEY, wire_body, wire_objects, within, METHOD_SETKEY_RETRY)
             ?;
         Ok(())
     }
 
     /// Remove a key; not an error when the slot is empty.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn del_key(&self, kind: u32, index: u32) -> Result<(), ClientError> {
-        self.del_key_within(kind, index, libmessenger::client::DEFAULT_DEADLINE)
+        self.del_key_within(kind, index, METHOD_DELKEY_DEADLINE)
     }
 
     /// [`Self::del_key`] with the caller's deadline instead of the IDL's.
@@ -1328,7 +1398,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_DELKEY, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_DELKEY, wire_body, wire_objects, within, METHOD_DELKEY_RETRY)
             ?;
         Ok(())
     }
@@ -1337,9 +1407,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// is sent if the radio can, every key is deleted, the NIC's link goes
     /// down and the radio returns to idle. Not an error when not joined.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn leave(&self, reason: u32) -> Result<(), ClientError> {
-        self.leave_within(reason, libmessenger::client::DEFAULT_DEADLINE)
+        self.leave_within(reason, METHOD_LEAVE_DEADLINE)
     }
 
     /// [`Self::leave`] with the caller's deadline instead of the IDL's.
@@ -1348,16 +1418,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_LEAVE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LEAVE, wire_body, wire_objects, within, METHOD_LEAVE_RETRY)
             ?;
         Ok(())
     }
 
     /// Counters since the driver started.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn stats(&self) -> Result<HwStats, ClientError> {
-        self.stats_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.stats_within(METHOD_STATS_DEADLINE)
     }
 
     /// [`Self::stats`] with the caller's deadline instead of the IDL's.
@@ -1366,7 +1436,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_STATS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_STATS, wire_body, wire_objects, within, METHOD_STATS_RETRY)
             ?;
         let reply = decode_stats_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.stats)

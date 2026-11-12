@@ -13,13 +13,14 @@ service "os.lazy.accountsd" implements os.lazy.accounts.v1;
 /// the first-boot setup. Failures are a structured error field (errno-style
 /// code, friendly text).
 interface os.lazy.accounts.v1 {
+    default deadline=5s;
     /// Find a user by `name` or, when `name` is absent, by `uid`.
     /// `found` is false (and `user` empty) when no account matches.
-    method Lookup(name: Option<String> = 1, uid: Option<U32> = 2) -> (found: Bool = 1, user: Option<User> = 2);
+    method Lookup(name: Option<String> = 1, uid: Option<U32> = 2) -> (found: Bool = 1, user: Option<User> = 2) retry=safe;
     /// Verify `secret` against the stored verifier of `name`. After three
     /// failures in a row for a name or from a caller, further attempts are
     /// refused with `EAGAIN` for a delay that doubles from 1 s to 60 s.
-    method Authenticate(name: String = 1, secret: String = 2) -> (ok: Bool = 1);
+    method Authenticate(name: String = 1, secret: String = 2) -> (ok: Bool = 1) deadline=never;
     /// Create the account `name` with the password `secret` (an
     /// administrator when `admin`): the next free uid, a 0700 home made from
     /// the skeleton. From `elevd`, or from the login screen while the machine
@@ -39,7 +40,7 @@ interface os.lazy.accounts.v1 {
     method SetAdmin(name: String = 1, admin: Bool = 2) -> ();
     /// Every account, in database order. `setup` is true while the machine
     /// has no account (the login screen then asks for its owner).
-    method ListUsers() -> (users: Array<User> = 1, setup: Bool = 2) deadline=3s;
+    method ListUsers() -> (users: Array<User> = 1, setup: Bool = 2) deadline=3s retry=safe;
 
     /// One account record as a lookup returns it (never the secret).
     struct User {

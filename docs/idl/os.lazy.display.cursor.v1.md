@@ -28,11 +28,11 @@ error field (id 15) like the display interface's.
 
 - Served under the registry name `os.lazy.display.v1` (together with `os.lazy.display.v1`); registered once.
 
-## Scopes and deadlines
+## Scopes, deadlines and retries
 
-| Method | Scope interface | Scope id | Deadline |
-|---|---|---|---|
-| SetCursor | this interface | - | 1000 ms |
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| SetCursor | this interface | - | 1000 ms | safe |
 
 ## enum `CursorShape`
 

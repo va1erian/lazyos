@@ -42,15 +42,15 @@ refusal says who holds it.
 
 - Served under the registry name `os.lazy.mount`; registered once.
 
-## Scopes and deadlines
+## Scopes, deadlines and retries
 
-| Method | Scope interface | Scope id | Deadline |
-|---|---|---|---|
-| Mount | this interface | - | 2000 ms |
-| Unmount | this interface | - | 2000 ms |
-| List | this interface | - | 2000 ms |
-| Volumes | this interface | - | 5000 ms |
-| Eject | this interface | - | 5000 ms |
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Mount | this interface | - | 2000 ms | never |
+| Unmount | this interface | - | 2000 ms | never |
+| List | this interface | - | 2000 ms | safe |
+| Volumes | this interface | - | 5000 ms | safe |
+| Eject | this interface | - | 5000 ms | never |
 
 ## struct `MountInfo`
 

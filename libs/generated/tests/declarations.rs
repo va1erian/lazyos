@@ -2,6 +2,7 @@
 //! `deadline`) and the constants `midlc` generates from them, checked against
 //! the values the system relies on.
 
+use libmessenger::client::Deadline;
 use messenger_generated::{
     declared_service, os_lazy_audio_v1 as audio, os_lazy_clipboard_v1 as clipboard,
     os_lazy_confd_v1 as confd, os_lazy_display_cursor_v1 as cursor, os_lazy_input_v1 as input,
@@ -74,10 +75,13 @@ fn clipboard_scopes_are_the_name_hashes_the_kernel_checks() {
 
 #[test]
 fn clipboard_deadlines_are_the_bounds_clients_use() {
-    assert_eq!(clipboard::METHOD_OFFER_DEADLINE_MS, 500);
-    assert_eq!(clipboard::METHOD_REQUEST_DEADLINE_MS, 500);
-    assert_eq!(clipboard::METHOD_OFFERBUFFER_DEADLINE_MS, 5_000);
-    assert_eq!(clipboard::METHOD_FETCH_DEADLINE_MS, 5_000);
+    assert_eq!(clipboard::METHOD_OFFER_DEADLINE, Deadline::millis(500));
+    assert_eq!(clipboard::METHOD_REQUEST_DEADLINE, Deadline::millis(500));
+    assert_eq!(
+        clipboard::METHOD_OFFERBUFFER_DEADLINE,
+        Deadline::millis(5_000)
+    );
+    assert_eq!(clipboard::METHOD_FETCH_DEADLINE, Deadline::millis(5_000));
 }
 
 #[test]

@@ -22,11 +22,11 @@ in `init`'s table, and only for its own instance; anyone else gets
 
 - Served under the registry name `os.lazy.init.app`; registered once.
 
-## Scopes and deadlines
+## Scopes, deadlines and retries
 
-| Method | Scope interface | Scope id | Deadline |
-|---|---|---|---|
-| Watch | this interface | - | 1000 ms |
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Watch | this interface | - | 1000 ms | never |
 
 ## Objects
 

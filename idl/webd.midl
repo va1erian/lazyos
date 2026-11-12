@@ -63,6 +63,7 @@ service "app.os.lazy.webd.view" implements os.lazy.webd.view.v1, os.lazy.webd.ne
 /// downloads per profile in a session, a rule list at most 32 MiB. Failures
 /// reply with the standard error field (id 15).
 interface os.lazy.webd.view.v1 {
+    default deadline=5s;
     /// Make a view (see `os.lazy.webd.light.v1.CreateView`). Through this
     /// interface the view has no network: `config.scheme_policy` must be
     /// `DataOnly`, `config.profile` `""`, `config.handoff` not `Browser`,
@@ -326,6 +327,7 @@ interface os.lazy.webd.view.v1 {
 /// scheme policies. Same arguments as `os.lazy.webd.view.v1.CreateView`; the
 /// view is then used through that interface.
 interface os.lazy.webd.net.v1 {
+    default deadline=5s;
     method CreateView(config: ViewConfig = 1, width: U32 = 2, height: U32 = 3, events: Channel<os.lazy.webd.view.v1> = 5) -> (view: U64 = 1) = 1;
 
     /// `os.lazy.webd.view.v1.ViewConfig`, field for field.
@@ -353,6 +355,7 @@ interface os.lazy.webd.net.v1 {
 /// the shared `browser` profile kept on disk, downloads into the person's
 /// Downloads folder, content blocking and `Handoff.Browser`.
 interface os.lazy.webd.browser.v1 {
+    default deadline=5s;
     method CreateView(config: ViewConfig = 1, width: U32 = 2, height: U32 = 3, events: Channel<os.lazy.webd.view.v1> = 5) -> (view: U64 = 1) = 1;
 
     /// `os.lazy.webd.view.v1.ViewConfig`, field for field.

@@ -400,8 +400,18 @@ pub fn decode_state(body: &[u8]) -> Result<State, Error> {
 
 /// `GetState` method id.
 pub const METHOD_GETSTATE: u32 = 746022616;
+/// How long a client waits for `GetState`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_GETSTATE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `GetState` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_GETSTATE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `GetBeam` method id.
 pub const METHOD_GETBEAM: u32 = 400769696;
+/// How long a client waits for `GetBeam`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_GETBEAM_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `GetBeam` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_GETBEAM_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 
 /// A running pipe was found and decoded; the pipe fields below
 /// mean nothing otherwise.
@@ -532,9 +542,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// mode set.
     /// The state `gpud` adopted when it started.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn get_state(&self) -> Result<State, ClientError> {
-        self.get_state_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.get_state_within(METHOD_GETSTATE_DEADLINE)
     }
 
     /// [`Self::get_state`] with the caller's deadline instead of the IDL's.
@@ -543,7 +553,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_GETSTATE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_GETSTATE, wire_body, wire_objects, within, METHOD_GETSTATE_RETRY)
             ?;
         let reply = decode_get_state_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.state)
@@ -552,9 +562,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// The adopted pipe's beam, read now. `ENODEV` when no pipe was
     /// adopted.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn get_beam(&self) -> Result<Beam, ClientError> {
-        self.get_beam_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.get_beam_within(METHOD_GETBEAM_DEADLINE)
     }
 
     /// [`Self::get_beam`] with the caller's deadline instead of the IDL's.
@@ -563,7 +573,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_GETBEAM, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_GETBEAM, wire_body, wire_objects, within, METHOD_GETBEAM_RETRY)
             ?;
         let reply = decode_get_beam_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.beam)

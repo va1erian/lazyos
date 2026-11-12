@@ -267,16 +267,25 @@ pub fn decode_login_end(body: &[u8]) -> Result<LoginEnd, Error> {
 
 /// `Sessions` method id.
 pub const METHOD_SESSIONS: u32 = 916097772;
-/// How long a client waits for `Sessions`'s reply, in milliseconds.
-pub const METHOD_SESSIONS_DEADLINE_MS: u32 = 1000;
+/// How long a client waits for `Sessions`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_SESSIONS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
+/// Whether a client resends `Sessions` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SESSIONS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Login` method id.
 pub const METHOD_LOGIN: u32 = 1441655762;
-/// How long a client waits for `Login`'s reply, in milliseconds.
-pub const METHOD_LOGIN_DEADLINE_MS: u32 = 30000;
+/// How long a client waits for `Login`'s reply: at most 30000 ms (`deadline` in the `.midl`).
+pub const METHOD_LOGIN_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(30000);
+/// Whether a client resends `Login` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LOGIN_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Logout` method id.
 pub const METHOD_LOGOUT: u32 = 125463051;
-/// How long a client waits for `Logout`'s reply, in milliseconds.
-pub const METHOD_LOGOUT_DEADLINE_MS: u32 = 3000;
+/// How long a client waits for `Logout`'s reply: at most 3000 ms (`deadline` in the `.midl`).
+pub const METHOD_LOGOUT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(3000);
+/// Whether a client resends `Logout` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LOGOUT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 
 /// Snapshot the session table, oldest session first.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -640,9 +649,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Snapshot the session table, oldest session first.
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn sessions(&self) -> Result<SessionsReply, ClientError> {
-        self.sessions_within(libmessenger::client::Deadline::millis(METHOD_SESSIONS_DEADLINE_MS as u64))
+        self.sessions_within(METHOD_SESSIONS_DEADLINE)
     }
 
     /// [`Self::sessions`] with the caller's deadline instead of the IDL's.
@@ -651,7 +660,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_SESSIONS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SESSIONS, wire_body, wire_objects, within, METHOD_SESSIONS_RETRY)
             ?;
         decode_sessions_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
@@ -662,9 +671,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `_greeter` system uid, unlabelled) may call it; a refused password is
     /// `EACCES` after the failed-login delay, a session already open `EBUSY`.
     ///
-    /// Waits for the reply at most 30000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 30000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn login(&self, user: &str, secret: &str) -> Result<u64, ClientError> {
-        self.login_within(user, secret, libmessenger::client::Deadline::millis(METHOD_LOGIN_DEADLINE_MS as u64))
+        self.login_within(user, secret, METHOD_LOGIN_DEADLINE)
     }
 
     /// [`Self::login`] with the caller's deadline instead of the IDL's.
@@ -673,7 +682,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_LOGIN, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LOGIN, wire_body, wire_objects, within, METHOD_LOGIN_RETRY)
             ?;
         let reply = decode_login_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.session)
@@ -684,9 +693,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// a task of the active graphical session may call it (`EPERM`
     /// otherwise).
     ///
-    /// Waits for the reply at most 3000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 3000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn logout(&self) -> Result<u64, ClientError> {
-        self.logout_within(libmessenger::client::Deadline::millis(METHOD_LOGOUT_DEADLINE_MS as u64))
+        self.logout_within(METHOD_LOGOUT_DEADLINE)
     }
 
     /// [`Self::logout`] with the caller's deadline instead of the IDL's.
@@ -695,7 +704,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_LOGOUT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LOGOUT, wire_body, wire_objects, within, METHOD_LOGOUT_RETRY)
             ?;
         let reply = decode_logout_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.session)

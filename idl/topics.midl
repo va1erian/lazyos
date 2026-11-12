@@ -13,6 +13,7 @@ service "os.lazy.messenger.topics" implements os.lazy.messenger.topics.v1;
 /// friendly text) instead of the declared reply fields, which never use that
 /// id.
 interface os.lazy.messenger.topics.v1 {
+    default deadline=5s;
     /// Publish `payload` under the literal `topic`; `retained` also remembers
     /// it as the topic's retained value. Returns how many subscriptions the
     /// event reached.
@@ -29,11 +30,11 @@ interface os.lazy.messenger.topics.v1 {
     /// Retire every event up to `sequence` on a `Reliable` subscription.
     method Ack(subscription: U64 = 1, sequence: U64 = 2) -> ();
     /// Topics the broker has seen, with live subscriber counts.
-    method ListTopics() -> (topics: Array<TopicInfo> = 1);
+    method ListTopics() -> (topics: Array<TopicInfo> = 1) retry=safe;
     /// Queue and drop counters of one subscription.
-    method Stats(subscription: U64 = 1) -> (stats: Stats = 1);
+    method Stats(subscription: U64 = 1) -> (stats: Stats = 1) retry=safe;
     /// Round-trip probe used to detect a live broker.
-    method Ping() -> ();
+    method Ping() -> () retry=safe;
     /// Give a subscription a doorbell (docs/performance-plan.md P7.2): the
     /// broker sends one `os.lazy.messenger.topics.bell.v1` `Ready` on `bell`
     /// when the subscription has an event nobody is pulling, and no more

@@ -23,6 +23,12 @@ credentials and its arguments. Failures are a structured error field
 
 - Served under the registry name `os.lazy.devd`; registered once.
 
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Devices | this interface | - | 5000 ms | safe |
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

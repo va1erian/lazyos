@@ -156,24 +156,39 @@ pub fn decode_volume_info(body: &[u8]) -> Result<VolumeInfo, Error> {
 
 /// `Mount` method id.
 pub const METHOD_MOUNT: u32 = 1041399898;
-/// How long a client waits for `Mount`'s reply, in milliseconds.
-pub const METHOD_MOUNT_DEADLINE_MS: u32 = 2000;
+/// How long a client waits for `Mount`'s reply: at most 2000 ms (`deadline` in the `.midl`).
+pub const METHOD_MOUNT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(2000);
+/// Whether a client resends `Mount` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_MOUNT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Unmount` method id.
 pub const METHOD_UNMOUNT: u32 = 2047171115;
-/// How long a client waits for `Unmount`'s reply, in milliseconds.
-pub const METHOD_UNMOUNT_DEADLINE_MS: u32 = 2000;
+/// How long a client waits for `Unmount`'s reply: at most 2000 ms (`deadline` in the `.midl`).
+pub const METHOD_UNMOUNT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(2000);
+/// Whether a client resends `Unmount` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_UNMOUNT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `List` method id.
 pub const METHOD_LIST: u32 = 220805025;
-/// How long a client waits for `List`'s reply, in milliseconds.
-pub const METHOD_LIST_DEADLINE_MS: u32 = 2000;
+/// How long a client waits for `List`'s reply: at most 2000 ms (`deadline` in the `.midl`).
+pub const METHOD_LIST_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(2000);
+/// Whether a client resends `List` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LIST_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Volumes` method id.
 pub const METHOD_VOLUMES: u32 = 2053774420;
-/// How long a client waits for `Volumes`'s reply, in milliseconds.
-pub const METHOD_VOLUMES_DEADLINE_MS: u32 = 5000;
+/// How long a client waits for `Volumes`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_VOLUMES_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Volumes` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_VOLUMES_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Eject` method id.
 pub const METHOD_EJECT: u32 = 819391126;
-/// How long a client waits for `Eject`'s reply, in milliseconds.
-pub const METHOD_EJECT_DEADLINE_MS: u32 = 5000;
+/// How long a client waits for `Eject`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_EJECT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Eject` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_EJECT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 
 /// The mount's name: it is served at `path`, `/mnt/<name>`.
 /// The filesystem daemon's protocol (`ftp` or `smb`).
@@ -512,9 +527,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// password reaches `smbfuse` through its environment, never its
     /// arguments. `path` is the mount point the daemon will serve.
     ///
-    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn mount(&self, name: &str, host: &str, port: u32, user: &str, password: &str, kind: &str, share: &str) -> Result<alloc::string::String, ClientError> {
-        self.mount_within(name, host, port, user, password, kind, share, libmessenger::client::Deadline::millis(METHOD_MOUNT_DEADLINE_MS as u64))
+        self.mount_within(name, host, port, user, password, kind, share, METHOD_MOUNT_DEADLINE)
     }
 
     /// [`Self::mount`] with the caller's deadline instead of the IDL's.
@@ -523,7 +538,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_MOUNT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_MOUNT, wire_body, wire_objects, within, METHOD_MOUNT_RETRY)
             ?;
         let reply = decode_mount_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.path)
@@ -533,9 +548,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// The daemon is stopped at once; the kernel takes the dead mount out of
     /// `/mnt` within a few seconds, and until then it fails every call.
     ///
-    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn unmount(&self, name: &str) -> Result<(), ClientError> {
-        self.unmount_within(name, libmessenger::client::Deadline::millis(METHOD_UNMOUNT_DEADLINE_MS as u64))
+        self.unmount_within(name, METHOD_UNMOUNT_DEADLINE)
     }
 
     /// [`Self::unmount`] with the caller's deadline instead of the IDL's.
@@ -544,16 +559,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_UNMOUNT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_UNMOUNT, wire_body, wire_objects, within, METHOD_UNMOUNT_RETRY)
             ?;
         Ok(())
     }
 
     /// Every mount the service knows about, in the order they were asked for.
     ///
-    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn list(&self) -> Result<alloc::vec::Vec<MountInfo>, ClientError> {
-        self.list_within(libmessenger::client::Deadline::millis(METHOD_LIST_DEADLINE_MS as u64))
+        self.list_within(METHOD_LIST_DEADLINE)
     }
 
     /// [`Self::list`] with the caller's deadline instead of the IDL's.
@@ -562,7 +577,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_LIST, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LIST, wire_body, wire_objects, within, METHOD_LIST_RETRY)
             ?;
         let reply = decode_list_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.mounts)
@@ -583,9 +598,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// plug first. An ended volume stays listed until its stick is pulled,
     /// so its outcome can be read.
     ///
-    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn volumes(&self) -> Result<alloc::vec::Vec<VolumeInfo>, ClientError> {
-        self.volumes_within(libmessenger::client::Deadline::millis(METHOD_VOLUMES_DEADLINE_MS as u64))
+        self.volumes_within(METHOD_VOLUMES_DEADLINE)
     }
 
     /// [`Self::volumes`] with the caller's deadline instead of the IDL's.
@@ -594,7 +609,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_VOLUMES, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_VOLUMES, wire_body, wire_objects, within, METHOD_VOLUMES_RETRY)
             ?;
         let reply = decode_volumes_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.volumes)
@@ -610,9 +625,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// volume), `EINVAL` (not a disk name) and `EAGAIN` (still starting:
     /// ask again in a moment).
     ///
-    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn eject(&self, disk: &str, force: bool) -> Result<EjectReply, ClientError> {
-        self.eject_within(disk, force, libmessenger::client::Deadline::millis(METHOD_EJECT_DEADLINE_MS as u64))
+        self.eject_within(disk, force, METHOD_EJECT_DEADLINE)
     }
 
     /// [`Self::eject`] with the caller's deadline instead of the IDL's.
@@ -621,7 +636,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_EJECT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_EJECT, wire_body, wire_objects, within, METHOD_EJECT_RETRY)
             ?;
         decode_eject_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }

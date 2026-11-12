@@ -10,6 +10,7 @@ service "os.lazy.print" implements os.lazy.print.v1;
 /// the shared structured error field, `EINVAL` with one line for the user
 /// (`There is no such print job`, `The print queue is full; ...`).
 interface os.lazy.print.v1 {
+    default deadline=5s;
     /// Open a job for the printer at `printer` (`192.168.1.89`,
     /// `host:port` or an `ipp://` URI). `user` is the `requesting-user-name`
     /// the printer shows, a label only.
@@ -21,9 +22,9 @@ interface os.lazy.print.v1 {
     /// Stop a job wherever it is; one the printer has is canceled there.
     method Cancel(job: U32 = 1) -> () deadline=10s;
     /// What a job is doing.
-    method Status(job: U32 = 1) -> (info: JobInfo = 1) deadline=10s;
+    method Status(job: U32 = 1) -> (info: JobInfo = 1) deadline=10s retry=safe;
     /// The caller's jobs (every job for root), oldest first.
-    method Jobs() -> (jobs: Array<JobInfo> = 1);
+    method Jobs() -> (jobs: Array<JobInfo> = 1) retry=safe;
 
     /// The print dialog's choices, as IPP job attributes.
     struct Ticket {

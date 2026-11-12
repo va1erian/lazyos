@@ -38,6 +38,14 @@ standard error field (id 15, `docs/midl.md`).
 
 - Served under the registry name `os.lazy.shell.tray`; registered once.
 
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Set | this interface | - | 5000 ms | never |
+| Update | this interface | - | 5000 ms | never |
+| Clear | this interface | - | 5000 ms | never |
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

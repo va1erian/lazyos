@@ -31,6 +31,16 @@ of the declared reply fields.
 
 - Served under the registry name `os.lazy.shell`; registered once.
 
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Status | this interface | - | 5000 ms | safe |
+| ShowStartMenu | this interface | - | 5000 ms | never |
+| Launch | this interface | - | 5000 ms | never |
+| Refresh | this interface | - | 5000 ms | never |
+| Activate | this interface | - | 5000 ms | never |
+
 ## struct `TaskbarEntry`
 
 - `surface: U64`

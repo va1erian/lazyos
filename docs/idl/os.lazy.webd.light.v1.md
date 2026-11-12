@@ -76,6 +76,16 @@ standard error field (id 15, `docs/midl.md`).
 
 - Served under the registry name `app.os.lazy.webd.light`; registered once.
 
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| CreateView | this interface | - | 5000 ms | never |
+| DestroyView | this interface | - | 5000 ms | never |
+| AttachSlot | this interface | - | 5000 ms | never |
+| Resize | this interface | - | 5000 ms | never |
+| LoadHtml | this interface | - | 5000 ms | never |
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

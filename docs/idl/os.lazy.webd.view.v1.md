@@ -133,6 +133,36 @@ reply with the standard error field (id 15).
 
 - Served under the registry name `app.os.lazy.webd.view` (together with `os.lazy.webd.net.v1`, `os.lazy.webd.browser.v1`); registered once.
 
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| CreateView | this interface | - | 5000 ms | never |
+| DestroyView | this interface | - | 5000 ms | never |
+| AttachSlot | this interface | - | 5000 ms | never |
+| Resize | this interface | - | 5000 ms | never |
+| Load | this interface | - | 5000 ms | never |
+| LoadHtml | this interface | - | 5000 ms | never |
+| Reload | this interface | - | 5000 ms | never |
+| Stop | this interface | - | 5000 ms | never |
+| Back | this interface | - | 5000 ms | never |
+| Forward | this interface | - | 5000 ms | never |
+| Download | this interface | - | 5000 ms | never |
+| Recover | this interface | - | 5000 ms | never |
+| DialogReply | this interface | - | 5000 ms | never |
+| NavigationAnswer | this interface | - | 5000 ms | never |
+| NotifyPermission | this interface | - | 5000 ms | never |
+| DownloadCancel | this interface | - | 5000 ms | never |
+| SetBlocking | this interface | - | 5000 ms | never |
+| BlockingCompile | this interface | - | 5000 ms | never |
+| BlockingLoad | this interface | - | 5000 ms | never |
+| BlockingForget | this interface | - | 5000 ms | never |
+| NotifyForget | this interface | - | 5000 ms | never |
+| NotifyState | this interface | - | 5000 ms | never |
+| RecoverGroup | this interface | - | 5000 ms | never |
+| DetachSlots | this interface | - | 5000 ms | never |
+| SetUserAgent | this interface | - | 5000 ms | never |
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

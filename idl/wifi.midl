@@ -65,10 +65,11 @@ service "os.lazy.net.wifi.hw/{ifname}" implements os.lazy.net.wifi.hw.v1;
 /// Failures of calls are returned as the shared structured error field
 /// (`services::error_field`) instead of the declared reply fields.
 interface os.lazy.net.wifi.hw.v1 {
+    default deadline=5s;
     /// Describe the radio: addresses, bands, ciphers, limits. Any caller the
     /// label policy lets reach the driver may ask, attached or not: it reveals
     /// only hardware facts.
-    method Info() -> (info: HwInfo = 1);
+    method Info() -> (info: HwInfo = 1) retry=safe;
     /// Become the radio's one client. `events` is the channel the driver
     /// sends events on. `EBUSY` when attached.
     method Attach(events: Channel<os.lazy.net.wifi.hw.v1> = 1) -> ();
@@ -104,7 +105,7 @@ interface os.lazy.net.wifi.hw.v1 {
     /// 64). `more` says whether a later page holds entries. Each entry is the
     /// raw management frame, **unparsed**: parsing it is `wlanmd`'s job.
     /// An unknown `scan_id` is `ENOENT`.
-    method ScanResults(scan_id: U32 = 1, first: U32 = 2, max: U32 = 3) -> (results: Array<ScanEntry> = 1, more: Bool = 2);
+    method ScanResults(scan_id: U32 = 1, first: U32 = 2, max: U32 = 3) -> (results: Array<ScanEntry> = 1, more: Bool = 2) retry=safe;
     /// Tune to the BSS's channel and filter to its address so `TxMgmt` and
     /// `RxMgmt` carry the authentication and association exchange. Leaves any
     /// previous BSS first. The reply means the radio is on the channel, not
@@ -155,7 +156,7 @@ interface os.lazy.net.wifi.hw.v1 {
     /// down and the radio returns to idle. Not an error when not joined.
     method Leave(reason: U32 = 1) -> ();
     /// Counters since the driver started.
-    method Stats() -> (stats: HwStats = 1);
+    method Stats() -> (stats: HwStats = 1) retry=safe;
 
     /// Event, driver to client: the scan finished (`aborted` false) or was
     /// stopped (`aborted` true, or the radio could not finish); its results
@@ -332,8 +333,9 @@ interface os.lazy.net.wifi.hw.v1 {
 /// radio; a name `wlanmd` does not manage is `ENODEV`. Failures reply with the
 /// shared structured error field (`services::error_field`).
 interface os.lazy.net.wifi.v1 {
+    default deadline=1s;
     /// The wireless interfaces `wlanmd` manages, by name (`wlan0`).
-    method Interfaces() -> (names: Array<String> = 1) deadline=1s;
+    method Interfaces() -> (names: Array<String> = 1) deadline=1s retry=safe;
     /// Ask for a fresh scan; returns at once, the results arrive on
     /// `system/net/{ifname}/wifi/scan`. `ssids` are hidden networks to probe
     /// for (at most 4); empty is a wildcard scan. A scan is refused while one
@@ -344,7 +346,7 @@ interface os.lazy.net.wifi.v1 {
     /// network (SSID and security), strongest BSS first, with the profile id
     /// when the caller may use a known network. Profiles of other users are
     /// not shown. At most 128 entries.
-    method Networks(ifname: String = 1) -> (list: Array<Network> = 1) deadline=1s;
+    method Networks(ifname: String = 1) -> (list: Array<Network> = 1) deadline=1s retry=safe;
     /// Remember a network; `scope` is a `Scope` ordinal. Scope `User`: the
     /// caller's network and its secret; `profile.id` must be empty (the
     /// service picks one and returns it), and the passphrase is required for
@@ -375,7 +377,7 @@ interface os.lazy.net.wifi.v1 {
     method Forget(id: String = 1) -> () deadline=1s;
     /// The interface's state now: the same value the retained `state` topic
     /// carries, for a client that does not subscribe.
-    method Status(ifname: String = 1) -> (status: WifiState = 1) deadline=1s;
+    method Status(ifname: String = 1) -> (status: WifiState = 1) deadline=1s retry=safe;
 
     /// A heard network, merged with what is known about it.
     struct Network {

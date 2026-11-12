@@ -67,8 +67,18 @@ pub fn decode_event(body: &[u8]) -> Result<Event, Error> {
 
 /// `Echo` method id.
 pub const METHOD_ECHO: u32 = 998075300;
+/// How long a client waits for `Echo`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_ECHO_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Echo` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_ECHO_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Ping` method id.
 pub const METHOD_PING: u32 = 2142761129;
+/// How long a client waits for `Ping`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_PING_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Ping` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_PING_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Notify` method id.
 pub const METHOD_NOTIFY: u32 = 314575196;
 
@@ -221,9 +231,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Reply with `text` and the number of bytes received.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn echo(&self, text: &str, count: u32) -> Result<alloc::string::String, ClientError> {
-        self.echo_within(text, count, libmessenger::client::DEFAULT_DEADLINE)
+        self.echo_within(text, count, METHOD_ECHO_DEADLINE)
     }
 
     /// [`Self::echo`] with the caller's deadline instead of the IDL's.
@@ -232,7 +242,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_ECHO, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_ECHO, wire_body, wire_objects, within, METHOD_ECHO_RETRY)
             ?;
         let reply = decode_echo_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.reply)
@@ -240,9 +250,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Health probe.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn ping(&self) -> Result<bool, ClientError> {
-        self.ping_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.ping_within(METHOD_PING_DEADLINE)
     }
 
     /// [`Self::ping`] with the caller's deadline instead of the IDL's.
@@ -251,7 +261,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_PING, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_PING, wire_body, wire_objects, within, METHOD_PING_RETRY)
             ?;
         let reply = decode_ping_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.alive)

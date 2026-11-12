@@ -23,6 +23,7 @@ service "os.lazy.elevd" implements os.lazy.elevd.v1;
 /// `EAGAIN` also when the compositor could not take the keyboard from the
 /// apps for the prompt, or the performing service's own error.
 interface os.lazy.elevd.v1 {
+    default deadline=400s;
     /// Perform `operation` (a row of the operation table, e.g.
     /// `account.create`, `conf.set`, `time.set`) with its `args`, after an
     /// administrator approved it on the prompt. Every change asks every time;

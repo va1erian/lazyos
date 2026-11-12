@@ -18,7 +18,6 @@
 
 use accountdb::policy::Who;
 use accountdb::ratelimit::Attempt;
-use libmessenger::client::Deadline;
 use user::messenger::client::Native;
 use user::messenger::{errno, keyd};
 use user::sys::{self, Cred};
@@ -107,7 +106,5 @@ fn verify(state: &mut State, name: &str, secret: &str) -> bool {
     };
     state.keyd_warned = false;
     // Argon2id: as long as it takes, as before the generated client.
-    client
-        .verify_within(name, secret, Deadline::Never)
-        .unwrap_or(false)
+    client.verify(name, secret).unwrap_or(false)
 }

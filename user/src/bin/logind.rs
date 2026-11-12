@@ -45,7 +45,6 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
-use libmessenger::client::Deadline;
 use user::messenger::accounts::{self, Directory};
 use user::messenger::client::Native;
 use user::messenger::{self, logind, registry, router, services, wait, Endpoint, Parcel};
@@ -197,9 +196,7 @@ fn prompt_login(
             return None;
         }
     };
-    let matched = accounts
-        .authenticate_within(&name, &secret, Deadline::Never)
-        .unwrap_or(false);
+    let matched = accounts.authenticate(&name, &secret).unwrap_or(false);
     if !matched {
         deny(bus, &name, "bad-secret");
         return None;

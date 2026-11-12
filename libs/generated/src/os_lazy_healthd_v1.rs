@@ -70,10 +70,18 @@ pub fn decode_health_record(body: &[u8]) -> Result<HealthRecord, Error> {
 
 /// `Report` method id.
 pub const METHOD_REPORT: u32 = 1182923275;
+/// How long a client waits for `Report`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_REPORT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Report` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_REPORT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Status` method id.
 pub const METHOD_STATUS: u32 = 6222351;
-/// How long a client waits for `Status`'s reply, in milliseconds.
-pub const METHOD_STATUS_DEADLINE_MS: u32 = 500;
+/// How long a client waits for `Status`'s reply: at most 500 ms (`deadline` in the `.midl`).
+pub const METHOD_STATUS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(500);
+/// Whether a client resends `Status` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_STATUS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 
 /// Publish `health/<name>` with `status`/`detail`.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -338,9 +346,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Publish `health/<name>` with `status`/`detail`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn report(&self, name: &str, status: &str, detail: &str) -> Result<ReportReply, ClientError> {
-        self.report_within(name, status, detail, libmessenger::client::DEFAULT_DEADLINE)
+        self.report_within(name, status, detail, METHOD_REPORT_DEADLINE)
     }
 
     /// [`Self::report`] with the caller's deadline instead of the IDL's.
@@ -349,16 +357,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_REPORT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_REPORT, wire_body, wire_objects, within, METHOD_REPORT_RETRY)
             ?;
         decode_report_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
 
     /// Snapshot retained health rows plus the aggregate.
     ///
-    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn status(&self) -> Result<StatusReply, ClientError> {
-        self.status_within(libmessenger::client::Deadline::millis(METHOD_STATUS_DEADLINE_MS as u64))
+        self.status_within(METHOD_STATUS_DEADLINE)
     }
 
     /// [`Self::status`] with the caller's deadline instead of the IDL's.
@@ -367,7 +375,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_STATUS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_STATUS, wire_body, wire_objects, within, METHOD_STATUS_RETRY)
             ?;
         decode_status_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }

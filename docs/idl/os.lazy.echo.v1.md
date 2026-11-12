@@ -16,6 +16,13 @@ A tiny demo service: echo whatever you send (issue #90 sample IDL).
 
 - Served under the registry name `os.lazy.echo`; registered once.
 
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Echo | this interface | - | 5000 ms | safe |
+| Ping | this interface | - | 5000 ms | safe |
+
 ## struct `Event`
 
 - `topic: String`

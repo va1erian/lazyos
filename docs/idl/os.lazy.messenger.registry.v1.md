@@ -31,6 +31,16 @@ kernel gate reports failures as negative errno values.
 
 - Served under the registry name `os.lazy.messenger.registry`; registered once.
 
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Register | this interface | - | 5000 ms | never |
+| Resolve | this interface | - | 5000 ms | never |
+| Connect | this interface | - | 5000 ms | never |
+| Unregister | this interface | - | 5000 ms | never |
+| List | this interface | - | 5000 ms | never |
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

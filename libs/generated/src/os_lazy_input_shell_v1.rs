@@ -29,22 +29,67 @@ pub const SERVICE_NAME: &str = "os.lazy.input.shell.v1";
 
 /// `Attach` method id.
 pub const METHOD_ATTACH: u32 = 1;
+/// How long a client waits for `Attach`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_ATTACH_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Attach` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_ATTACH_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `SetFocus` method id.
 pub const METHOD_SETFOCUS: u32 = 2;
+/// How long a client waits for `SetFocus`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SETFOCUS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `SetFocus` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SETFOCUS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `RegisterSurface` method id.
 pub const METHOD_REGISTERSURFACE: u32 = 3;
+/// How long a client waits for `RegisterSurface`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_REGISTERSURFACE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `RegisterSurface` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_REGISTERSURFACE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `UnregisterSurface` method id.
 pub const METHOD_UNREGISTERSURFACE: u32 = 4;
+/// How long a client waits for `UnregisterSurface`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_UNREGISTERSURFACE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `UnregisterSurface` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_UNREGISTERSURFACE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `RegisterHotkey` method id.
 pub const METHOD_REGISTERHOTKEY: u32 = 5;
+/// How long a client waits for `RegisterHotkey`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_REGISTERHOTKEY_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `RegisterHotkey` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_REGISTERHOTKEY_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `UnregisterHotkey` method id.
 pub const METHOD_UNREGISTERHOTKEY: u32 = 6;
+/// How long a client waits for `UnregisterHotkey`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_UNREGISTERHOTKEY_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `UnregisterHotkey` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_UNREGISTERHOTKEY_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `ApproveGrant` method id.
 pub const METHOD_APPROVEGRANT: u32 = 7;
+/// How long a client waits for `ApproveGrant`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_APPROVEGRANT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `ApproveGrant` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_APPROVEGRANT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `SetBounds` method id.
 pub const METHOD_SETBOUNDS: u32 = 8;
+/// How long a client waits for `SetBounds`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SETBOUNDS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `SetBounds` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SETBOUNDS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `GetPointer` method id.
 pub const METHOD_GETPOINTER: u32 = 9;
+/// How long a client waits for `GetPointer`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_GETPOINTER_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `GetPointer` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_GETPOINTER_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `NoteFocus` method id.
 pub const METHOD_NOTEFOCUS: u32 = 10;
 /// `NoteSurface` method id.
@@ -859,9 +904,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// shell events below, and on which the compositor makes every later
     /// call. Attaching again replaces it.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn attach(&self, events: u64) -> Result<(), ClientError> {
-        self.attach_within(events, libmessenger::client::DEFAULT_DEADLINE)
+        self.attach_within(events, METHOD_ATTACH_DEADLINE)
     }
 
     /// [`Self::attach`] with the caller's deadline instead of the IDL's.
@@ -869,7 +914,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_attach_args(&AttachArgs { events }).map_err(ClientError::bad_request)?;
         self
             .conn
-            .call(INTERFACE_ID, METHOD_ATTACH, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_ATTACH, wire_body, wire_objects, within, METHOD_ATTACH_RETRY)
             ?;
         Ok(())
     }
@@ -878,9 +923,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// content is delivered). The previous holder gets `KeyboardLeave`, the new
     /// one `KeyboardEnter`; repeat is cancelled.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_focus(&self, surface: core::option::Option<u64>) -> Result<(), ClientError> {
-        self.set_focus_within(surface, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_focus_within(surface, METHOD_SETFOCUS_DEADLINE)
     }
 
     /// [`Self::set_focus`] with the caller's deadline instead of the IDL's.
@@ -889,7 +934,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SETFOCUS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SETFOCUS, wire_body, wire_objects, within, METHOD_SETFOCUS_RETRY)
             ?;
         Ok(())
     }
@@ -900,9 +945,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// compositor itself: a surface of its own, such as the trusted prompt's
     /// (docs/accounts-plan.md U2), whose session only the compositor opens.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn register_surface(&self, surface: u64, owner: u64) -> Result<(), ClientError> {
-        self.register_surface_within(surface, owner, libmessenger::client::DEFAULT_DEADLINE)
+        self.register_surface_within(surface, owner, METHOD_REGISTERSURFACE_DEADLINE)
     }
 
     /// [`Self::register_surface`] with the caller's deadline instead of the IDL's.
@@ -911,16 +956,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_REGISTERSURFACE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_REGISTERSURFACE, wire_body, wire_objects, within, METHOD_REGISTERSURFACE_RETRY)
             ?;
         Ok(())
     }
 
     /// Forget a destroyed surface; its sessions are closed.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn unregister_surface(&self, surface: u64) -> Result<(), ClientError> {
-        self.unregister_surface_within(surface, libmessenger::client::DEFAULT_DEADLINE)
+        self.unregister_surface_within(surface, METHOD_UNREGISTERSURFACE_DEADLINE)
     }
 
     /// [`Self::unregister_surface`] with the caller's deadline instead of the IDL's.
@@ -929,7 +974,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_UNREGISTERSURFACE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_UNREGISTERSURFACE, wire_body, wire_objects, within, METHOD_UNREGISTERSURFACE_RETRY)
             ?;
         Ok(())
     }
@@ -940,9 +985,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// while a session holds a keyboard grab. The reserved escape chord
     /// (Escape with Ctrl+Alt) is refused with `EACCES`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn register_hotkey(&self, code: u32, mods: u32) -> Result<u64, ClientError> {
-        self.register_hotkey_within(code, mods, libmessenger::client::DEFAULT_DEADLINE)
+        self.register_hotkey_within(code, mods, METHOD_REGISTERHOTKEY_DEADLINE)
     }
 
     /// [`Self::register_hotkey`] with the caller's deadline instead of the IDL's.
@@ -951,7 +996,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_REGISTERHOTKEY, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_REGISTERHOTKEY, wire_body, wire_objects, within, METHOD_REGISTERHOTKEY_RETRY)
             ?;
         let reply = decode_register_hotkey_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.id)
@@ -959,9 +1004,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Drop a chord.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn unregister_hotkey(&self, id: u64) -> Result<(), ClientError> {
-        self.unregister_hotkey_within(id, libmessenger::client::DEFAULT_DEADLINE)
+        self.unregister_hotkey_within(id, METHOD_UNREGISTERHOTKEY_DEADLINE)
     }
 
     /// [`Self::unregister_hotkey`] with the caller's deadline instead of the IDL's.
@@ -970,7 +1015,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_UNREGISTERHOTKEY, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_UNREGISTERHOTKEY, wire_body, wire_objects, within, METHOD_UNREGISTERHOTKEY_RETRY)
             ?;
         Ok(())
     }
@@ -980,9 +1025,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// the client gets `GrantChanged`. `ENOENT` when no request of that
     /// session is pending.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn approve_grant(&self, session: u64, allow: bool) -> Result<(), ClientError> {
-        self.approve_grant_within(session, allow, libmessenger::client::DEFAULT_DEADLINE)
+        self.approve_grant_within(session, allow, METHOD_APPROVEGRANT_DEADLINE)
     }
 
     /// [`Self::approve_grant`] with the caller's deadline instead of the IDL's.
@@ -991,7 +1036,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_APPROVEGRANT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_APPROVEGRANT, wire_body, wire_objects, within, METHOD_APPROVEGRANT_RETRY)
             ?;
         Ok(())
     }
@@ -1000,9 +1045,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `EINVAL`). `inputd` re-clamps the cursor at once and, if that moved it,
     /// sends a `PointerEvent`. It replaces the kernel's own cursor bounds.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_bounds(&self, width: u32, height: u32) -> Result<(), ClientError> {
-        self.set_bounds_within(width, height, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_bounds_within(width, height, METHOD_SETBOUNDS_DEADLINE)
     }
 
     /// [`Self::set_bounds`] with the caller's deadline instead of the IDL's.
@@ -1011,7 +1056,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SETBOUNDS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SETBOUNDS, wire_body, wire_objects, within, METHOD_SETBOUNDS_RETRY)
             ?;
         Ok(())
     }
@@ -1019,9 +1064,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// The cursor position and held `buttons` (as in `PointerEvent`), to seed
     /// the compositor's cursor after `Attach`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn get_pointer(&self) -> Result<GetPointerReply, ClientError> {
-        self.get_pointer_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.get_pointer_within(METHOD_GETPOINTER_DEADLINE)
     }
 
     /// [`Self::get_pointer`] with the caller's deadline instead of the IDL's.
@@ -1030,7 +1075,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_GETPOINTER, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_GETPOINTER, wire_body, wire_objects, within, METHOD_GETPOINTER_RETRY)
             ?;
         decode_get_pointer_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }

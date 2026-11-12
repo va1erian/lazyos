@@ -12,7 +12,7 @@ generated constants and the per-interface crate layout, sections 3.1 and
 and the xui `platform/notify.rs` already use it) and X1 (`xui_app::app(..)`,
 section 4.1: `.opens` takes a path-to-message function and `.drops` a
 paths-to-message one, since the MIME types an app opens live in its
-manifest; `lrplay` still starts lazily on its own). The rest is not.
+manifest; `lrplay` still starts lazily on its own) and the resend and deadline policy (`retry=`, `deadline=never`, `default`, section 3.2). The rest is not.
 
 Related: [messenger.md](messenger.md) (sections 11 and 15),
 [midl.md](midl.md), [lazyrad-messenger-plan.md](lazyrad-messenger-plan.md)
@@ -232,9 +232,10 @@ forced a change to the sketch above:
 
 * **Deadlines.** `with_deadline(&self, ..) -> Self` cannot exist (a
   `Connection` is not `Clone`: it owns the cached handle), so the one override
-  is per call, `<method>_within(.., Deadline)`. A method without a `deadline`
-  waits `libmessenger::client::DEFAULT_DEADLINE`, 5 s: `CALL_TICKS = 500` is
-  the most common hand-written bound and the clipboard's longer bound.
+  is per call, `<method>_within(.., Deadline)`. There is no implicit bound: a
+  method states `deadline=` (or `never`) or its interface a `default`, and
+  `midlc` refuses a client method that resolves none (the 5 s
+  `DEFAULT_DEADLINE` of C2b is deleted; see the policy note below).
 * **`_begin` is not built.** `Transport` has no asynchronous call; the xui
   lane (`platform::messenger::call_async` over `backend::calls::begin`) is
   outside it.
@@ -281,9 +282,43 @@ hand-framed, and why:
   identity)` until it can be built and migrated onto `Mock`.
 
 `tools/xui/check_call_bounds.py` polices the new form: a file that builds a
-generated client of an interface may not call a method the `.midl` gives no
-`deadline=` (it would wait the 5 s default unseen); use `<method>_within`
-where one caller needs another bound.
+generated client of an interface may not call a method the `.midl` resolves
+to `deadline=never` (it would park the UI thread); use `<method>_within` with
+a bound.
+
+As built (resend and deadline policy, after C3): the policy lives in the IDL.
+`deadline=<n>ms|<n>s|never`, `retry=safe|never` and an interface-level
+`default deadline=.. retry=..;` line are in [midl.md](midl.md) ("`deadline`,
+`retry` and `default`"); generated as `METHOD_<X>_DEADLINE: Deadline` (replacing
+`_DEADLINE_MS`) and `METHOD_<X>_RETRY: Retry`. Findings that shaped it:
+
+* **The kernel can tell never-queued from queued-then-died, the syscall
+  cannot.** `begin_call` fails `EPIPE` for a closed peer endpoint and
+  `ENOENT` for a stale handle before it queues anything; `await_reply` ends
+  `PeerDied` (also `EPIPE`) for a peer that took the request and died. One
+  `OP_CALL` reports both as `EPIPE`. The native and std transports therefore
+  call `OP_CALL_BEGIN` then `OP_CALL_AWAIT` (one extra syscall per call, no
+  kernel change) and fail with `CallFailure { errno, delivered }`;
+  `Connection::call` resends whatever the policy when `delivered` is false.
+  A transport that cannot tell says `delivered`.
+* `retry=never` is the default; it returns the error, drops the handle and the
+  next call reconnects. `retry=safe` is marked on reads (`Get`, `List`,
+  `Status`, `Info`, `Ping`, `Now`, `Lookup`, `Resolve`, ...) and set-to-a-value
+  writes (confd `Set`/`Delete`, `SetZone`, display `Set*`). Everything that
+  launches, mounts, installs, creates, connects, logs in, offers, requests or
+  notifies stays `never`.
+* `deadline=never` is on the methods all of whose callers waited for ever
+  (accounts `Authenticate`, keyd `Verify`/`Provision`/`WifiPmk`, pkgd
+  `InstallApproved`/`InstallDebug`); the `_within(.., Deadline::Never)` at
+  those call sites is gone. Methods with a bounded caller (pkgd `Inspect`,
+  `Install`, `Remove`, `Installed`, init `Launch`, mimed `Open`, elevd `Request`,
+  accounts `Lookup`) keep their IDL bound and the `_within(.., Never)` at the
+  slow caller (`pkgctl`, `elevd`, `mimed`, a worker thread).
+* The three raw seams (`platform::audio`, `platform::webd`, `tray`) pass
+  `Retry::Never`: they frame methods the IDL policy cannot reach, so only a
+  never-queued request is resent.
+* Every interface with a client has a `default deadline=` (the bound its
+  undeclared methods already waited: 5 s, or the interface's commonest).
 
 ### 3.3 Generated server
 
@@ -323,7 +358,7 @@ Two implementations: `user::messenger` (native) and one std implementation in
 deletes the seven test-seam traits.
 
 `Connection` (generic, in `libmessenger`) owns resolve, the name cache,
-eviction on `EPIPE`/`ENOENT` and one reconnect. **Built in C1** (module
+eviction on `EPIPE`/`ENOENT` and one reconnect (a resend only as the method's `retry` allows, section 3.2). **Built in C1** (module
 `libmessenger::client`; transports `user::messenger::client::Native` and
 `lazyos_sys::client::Std`; `Mock` behind the `mock` feature). Each transport
 states the flags its calls carry: native calls send none, so the kernel still

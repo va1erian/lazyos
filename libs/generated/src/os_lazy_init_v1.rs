@@ -478,42 +478,92 @@ pub fn decode_resident_apps(body: &[u8]) -> Result<ResidentApps, Error> {
 
 /// `Services` method id.
 pub const METHOD_SERVICES: u32 = 1672675413;
-/// How long a client waits for `Services`'s reply, in milliseconds.
-pub const METHOD_SERVICES_DEADLINE_MS: u32 = 500;
+/// How long a client waits for `Services`'s reply: at most 500 ms (`deadline` in the `.midl`).
+pub const METHOD_SERVICES_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(500);
+/// Whether a client resends `Services` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SERVICES_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Launch` method id.
 pub const METHOD_LAUNCH: u32 = 936096390;
-/// How long a client waits for `Launch`'s reply, in milliseconds.
-pub const METHOD_LAUNCH_DEADLINE_MS: u32 = 10000;
+/// How long a client waits for `Launch`'s reply: at most 10000 ms (`deadline` in the `.midl`).
+pub const METHOD_LAUNCH_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(10000);
+/// Whether a client resends `Launch` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LAUNCH_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `ListApps` method id.
 pub const METHOD_LISTAPPS: u32 = 1009359625;
-/// How long a client waits for `ListApps`'s reply, in milliseconds.
-pub const METHOD_LISTAPPS_DEADLINE_MS: u32 = 2000;
+/// How long a client waits for `ListApps`'s reply: at most 2000 ms (`deadline` in the `.midl`).
+pub const METHOD_LISTAPPS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(2000);
+/// Whether a client resends `ListApps` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LISTAPPS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Stop` method id.
 pub const METHOD_STOP: u32 = 1266644741;
-/// How long a client waits for `Stop`'s reply, in milliseconds.
-pub const METHOD_STOP_DEADLINE_MS: u32 = 5000;
+/// How long a client waits for `Stop`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_STOP_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Stop` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_STOP_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Shutdown` method id.
 pub const METHOD_SHUTDOWN: u32 = 1911669355;
-/// How long a client waits for `Shutdown`'s reply, in milliseconds.
-pub const METHOD_SHUTDOWN_DEADLINE_MS: u32 = 3000;
+/// How long a client waits for `Shutdown`'s reply: at most 3000 ms (`deadline` in the `.midl`).
+pub const METHOD_SHUTDOWN_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(3000);
+/// Whether a client resends `Shutdown` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SHUTDOWN_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `StartDriver` method id.
 pub const METHOD_STARTDRIVER: u32 = 1713728693;
+/// How long a client waits for `StartDriver`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_STARTDRIVER_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `StartDriver` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_STARTDRIVER_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Ready` method id.
 pub const METHOD_READY: u32 = 197800596;
 /// `ReportFailure` method id.
 pub const METHOD_REPORTFAILURE: u32 = 425853579;
 /// `Home` method id.
 pub const METHOD_HOME: u32 = 1391791790;
+/// How long a client waits for `Home`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_HOME_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Home` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_HOME_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `RestartService` method id.
 pub const METHOD_RESTARTSERVICE: u32 = 726211199;
+/// How long a client waits for `RestartService`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_RESTARTSERVICE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `RestartService` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_RESTARTSERVICE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `ReloadService` method id.
 pub const METHOD_RELOADSERVICE: u32 = 1203429087;
+/// How long a client waits for `ReloadService`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_RELOADSERVICE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `ReloadService` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_RELOADSERVICE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `RevertService` method id.
 pub const METHOD_REVERTSERVICE: u32 = 1005742662;
+/// How long a client waits for `RevertService`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_REVERTSERVICE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `RevertService` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_REVERTSERVICE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `RelaunchApp` method id.
 pub const METHOD_RELAUNCHAPP: u32 = 734382134;
+/// How long a client waits for `RelaunchApp`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_RELAUNCHAPP_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `RelaunchApp` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_RELAUNCHAPP_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Reloads` method id.
 pub const METHOD_RELOADS: u32 = 930702605;
+/// How long a client waits for `Reloads`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_RELOADS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Reloads` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_RELOADS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 
 /// Snapshot the supervision table.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1474,9 +1524,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Snapshot the supervision table.
     ///
-    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn services(&self) -> Result<alloc::vec::Vec<ServiceStatus>, ClientError> {
-        self.services_within(libmessenger::client::Deadline::millis(METHOD_SERVICES_DEADLINE_MS as u64))
+        self.services_within(METHOD_SERVICES_DEADLINE)
     }
 
     /// [`Self::services`] with the caller's deadline instead of the IDL's.
@@ -1485,7 +1535,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_SERVICES, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SERVICES, wire_body, wire_objects, within, METHOD_SERVICES_RETRY)
             ?;
         let reply = decode_services_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.services)
@@ -1500,9 +1550,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `init` sends its instance `Reopen(args)` (`os.lazy.init.app.events.v1`)
     /// and answers `existing` true with that instance's pid.
     ///
-    /// Waits for the reply at most 10000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 10000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn launch(&self, app: &str, args: &str, session: u64) -> Result<LaunchReply, ClientError> {
-        self.launch_within(app, args, session, libmessenger::client::Deadline::millis(METHOD_LAUNCH_DEADLINE_MS as u64))
+        self.launch_within(app, args, session, METHOD_LAUNCH_DEADLINE)
     }
 
     /// [`Self::launch`] with the caller's deadline instead of the IDL's.
@@ -1511,7 +1561,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_LAUNCH, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LAUNCH, wire_body, wire_objects, within, METHOD_LAUNCH_RETRY)
             ?;
         decode_launch_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
@@ -1521,9 +1571,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// first, then the others by `system_name`), read afresh from the
     /// configuration registry on every call. `hidden` is the caller's own.
     ///
-    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn list_apps(&self) -> Result<alloc::vec::Vec<AppInfo>, ClientError> {
-        self.list_apps_within(libmessenger::client::Deadline::millis(METHOD_LISTAPPS_DEADLINE_MS as u64))
+        self.list_apps_within(METHOD_LISTAPPS_DEADLINE)
     }
 
     /// [`Self::list_apps`] with the caller's deadline instead of the IDL's.
@@ -1532,7 +1582,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_LISTAPPS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LISTAPPS, wire_body, wire_objects, within, METHOD_LISTAPPS_RETRY)
             ?;
         let reply = decode_list_apps_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.apps)
@@ -1549,9 +1599,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// owner reaches only instances in their own session. Unknown or idle apps
     /// are not an error, `stopped` is just 0.
     ///
-    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn stop(&self, app: &str) -> Result<u64, ClientError> {
-        self.stop_within(app, libmessenger::client::Deadline::millis(METHOD_STOP_DEADLINE_MS as u64))
+        self.stop_within(app, METHOD_STOP_DEADLINE)
     }
 
     /// [`Self::stop`] with the caller's deadline instead of the IDL's.
@@ -1560,7 +1610,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_STOP, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_STOP, wire_body, wire_objects, within, METHOD_STOP_RETRY)
             ?;
         let reply = decode_stop_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.stopped)
@@ -1576,9 +1626,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// and `phase` is the current phase. `force` skips the graceful stop: every
     /// remaining child is killed at once and the machine stops.
     ///
-    /// Waits for the reply at most 3000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 3000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn shutdown(&self, mode: u32, reason: &str, force: bool) -> Result<ShutdownReply, ClientError> {
-        self.shutdown_within(mode, reason, force, libmessenger::client::Deadline::millis(METHOD_SHUTDOWN_DEADLINE_MS as u64))
+        self.shutdown_within(mode, reason, force, METHOD_SHUTDOWN_DEADLINE)
     }
 
     /// [`Self::shutdown`] with the caller's deadline instead of the IDL's.
@@ -1587,7 +1637,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_SHUTDOWN, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SHUTDOWN, wire_body, wire_objects, within, METHOD_SHUTDOWN_RETRY)
             ?;
         decode_shutdown_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
@@ -1608,9 +1658,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `ENOENT`, any other caller `EPERM`, and a request during a shutdown
     /// `EBUSY`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn start_driver(&self, driver: &str, device: u64, ifname: &str) -> Result<StartDriverReply, ClientError> {
-        self.start_driver_within(driver, device, ifname, libmessenger::client::DEFAULT_DEADLINE)
+        self.start_driver_within(driver, device, ifname, METHOD_STARTDRIVER_DEADLINE)
     }
 
     /// [`Self::start_driver`] with the caller's deadline instead of the IDL's.
@@ -1619,7 +1669,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_STARTDRIVER, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_STARTDRIVER, wire_body, wire_objects, within, METHOD_STARTDRIVER_RETRY)
             ?;
         decode_start_driver_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
@@ -1660,9 +1710,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// human account's (1000 or more) and `name` a login name. The reply
     /// comes once the change is done; a failed change is `EIO`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn home(&self, op: &str, name: &str, uid: u32, gid: u32) -> Result<(), ClientError> {
-        self.home_within(op, name, uid, gid, libmessenger::client::DEFAULT_DEADLINE)
+        self.home_within(op, name, uid, gid, METHOD_HOME_DEADLINE)
     }
 
     /// [`Self::home`] with the caller's deadline instead of the IDL's.
@@ -1671,7 +1721,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_HOME, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_HOME, wire_body, wire_objects, within, METHOD_HOME_RETRY)
             ?;
         Ok(())
     }
@@ -1684,9 +1734,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// own fabric): any other name is `EPERM`, an app or an unknown row
     /// `ENOENT`, a row not running `EAGAIN`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn restart_service(&self, name: &str) -> Result<u64, ClientError> {
-        self.restart_service_within(name, libmessenger::client::DEFAULT_DEADLINE)
+        self.restart_service_within(name, METHOD_RESTARTSERVICE_DEADLINE)
     }
 
     /// [`Self::restart_service`] with the caller's deadline instead of the IDL's.
@@ -1695,7 +1745,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_RESTARTSERVICE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_RESTARTSERVICE, wire_body, wire_objects, within, METHOD_RESTARTSERVICE_RETRY)
             ?;
         let reply = decode_restart_service_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.pid)
@@ -1715,9 +1765,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// manifest row, `EAGAIN` for a row still waiting for its dependencies or
     /// a shutdown, `EINVAL` for a bad file or a digest that does not match.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn reload_service(&self, name: &str, binary: &str, sha256: &str, trial_ms: u32) -> Result<u64, ClientError> {
-        self.reload_service_within(name, binary, sha256, trial_ms, libmessenger::client::DEFAULT_DEADLINE)
+        self.reload_service_within(name, binary, sha256, trial_ms, METHOD_RELOADSERVICE_DEADLINE)
     }
 
     /// [`Self::reload_service`] with the caller's deadline instead of the IDL's.
@@ -1726,7 +1776,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_RELOADSERVICE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_RELOADSERVICE, wire_body, wire_objects, within, METHOD_RELOADSERVICE_RETRY)
             ?;
         let reply = decode_reload_service_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.pid)
@@ -1736,9 +1786,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// it. Same callers and refusals as `ReloadService`; a service that was
     /// never reloaded is just restarted.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn revert_service(&self, name: &str) -> Result<u64, ClientError> {
-        self.revert_service_within(name, libmessenger::client::DEFAULT_DEADLINE)
+        self.revert_service_within(name, METHOD_REVERTSERVICE_DEADLINE)
     }
 
     /// [`Self::revert_service`] with the caller's deadline instead of the IDL's.
@@ -1747,7 +1797,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_REVERTSERVICE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_REVERTSERVICE, wire_body, wire_objects, within, METHOD_REVERTSERVICE_RETRY)
             ?;
         let reply = decode_revert_service_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.pid)
@@ -1761,9 +1811,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// instances killed, `started` the ones launched again; an app that is
     /// not running is not an error (both 0).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn relaunch_app(&self, app: &str) -> Result<RelaunchAppReply, ClientError> {
-        self.relaunch_app_within(app, libmessenger::client::DEFAULT_DEADLINE)
+        self.relaunch_app_within(app, METHOD_RELAUNCHAPP_DEADLINE)
     }
 
     /// [`Self::relaunch_app`] with the caller's deadline instead of the IDL's.
@@ -1772,7 +1822,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_RELAUNCHAPP, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_RELAUNCHAPP, wire_body, wire_objects, within, METHOD_RELAUNCHAPP_RETRY)
             ?;
         decode_relaunch_app_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
@@ -1780,9 +1830,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// The hot reloads since boot, one row per service that had one.
     /// Read-only: any caller.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn reloads(&self) -> Result<alloc::vec::Vec<ReloadState>, ClientError> {
-        self.reloads_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.reloads_within(METHOD_RELOADS_DEADLINE)
     }
 
     /// [`Self::reloads`] with the caller's deadline instead of the IDL's.
@@ -1791,7 +1841,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_RELOADS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_RELOADS, wire_body, wire_objects, within, METHOD_RELOADS_RETRY)
             ?;
         let reply = decode_reloads_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.reloads)

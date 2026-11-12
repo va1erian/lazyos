@@ -189,6 +189,11 @@ pub fn decode_tasks_stats(body: &[u8]) -> Result<TasksStats, Error> {
 
 /// `Snapshot` method id.
 pub const METHOD_SNAPSHOT: u32 = 1312231341;
+/// How long a client waits for `Snapshot`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SNAPSHOT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Snapshot` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SNAPSHOT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 
 /// Return one live system-stats snapshot.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -357,9 +362,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Return one live system-stats snapshot.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn snapshot(&self) -> Result<alloc::vec::Vec<u8>, ClientError> {
-        self.snapshot_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.snapshot_within(METHOD_SNAPSHOT_DEADLINE)
     }
 
     /// [`Self::snapshot`] with the caller's deadline instead of the IDL's.
@@ -368,7 +373,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_SNAPSHOT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SNAPSHOT, wire_body, wire_objects, within, METHOD_SNAPSHOT_RETRY)
             ?;
         let reply = decode_snapshot_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.data)

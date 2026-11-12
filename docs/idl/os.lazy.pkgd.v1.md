@@ -35,17 +35,21 @@ typed reply; a package that fails validation reports every problem in
 
 - Served under the registry name `os.lazy.pkgd`; registered once.
 
-## Scopes and deadlines
+## Scopes, deadlines and retries
 
-| Method | Scope interface | Scope id | Deadline |
-|---|---|---|---|
-| Inspect | this interface | - | 12000 ms |
-| Install | this interface | - | 120000 ms |
-| Remove | this interface | - | 12000 ms |
-| List | this interface | - | 12000 ms |
-| Installed | this interface | - | 12000 ms |
-| Develop | this interface | - | 12000 ms |
-| DevelopDeclined | this interface | - | 12000 ms |
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Inspect | this interface | - | 12000 ms | safe |
+| Install | this interface | - | 120000 ms | never |
+| Remove | this interface | - | 12000 ms | never |
+| List | this interface | - | 12000 ms | safe |
+| Installed | this interface | - | 12000 ms | safe |
+| LabelName | this interface | - | 5000 ms | safe |
+| Provisioned | this interface | - | 5000 ms | safe |
+| Develop | this interface | - | 12000 ms | never |
+| DevelopDeclined | this interface | - | 12000 ms | never |
+| InstallApproved | this interface | - | never | never |
+| InstallDebug | this interface | - | never | never |
 
 ## Topics
 

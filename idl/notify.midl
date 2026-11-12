@@ -31,6 +31,7 @@ service "os.lazy.notify" implements os.lazy.notify.v1;
 /// the rate limit gets `EBUSY` (nothing is shown). Failures reply with the
 /// standard error field (id 15, `docs/midl.md`).
 interface os.lazy.notify.v1 {
+    default deadline=300ms;
     /// Show a toast and return its id. With `replaces_id` naming a live
     /// toast of this sender, that toast is updated in place (a copy that
     /// goes from "Copying..." to "Done" is one toast, not two) and the same

@@ -86,6 +86,16 @@ Failures of calls are returned as the shared structured error field
 
 - Served under the registry name `os.lazy.net.nic/{ifname}`; a family, one name per instance.
 
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Info | this interface | - | 5000 ms | safe |
+| SetRxMode | this interface | - | 5000 ms | never |
+| AttachRing | this interface | - | 5000 ms | never |
+| DetachRing | this interface | - | 5000 ms | never |
+| Stats | this interface | - | 5000 ms | safe |
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

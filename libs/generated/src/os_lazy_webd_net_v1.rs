@@ -137,6 +137,11 @@ pub fn decode_view_config(body: &[u8]) -> Result<ViewConfig, Error> {
 
 /// `CreateView` method id.
 pub const METHOD_CREATEVIEW: u32 = 1;
+/// How long a client waits for `CreateView`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_CREATEVIEW_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `CreateView` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_CREATEVIEW_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CreateViewArgs {
@@ -265,9 +270,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     }
 
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn create_view(&self, config: &ViewConfig, width: u32, height: u32, events: u64) -> Result<u64, ClientError> {
-        self.create_view_within(config, width, height, events, libmessenger::client::DEFAULT_DEADLINE)
+        self.create_view_within(config, width, height, events, METHOD_CREATEVIEW_DEADLINE)
     }
 
     /// [`Self::create_view`] with the caller's deadline instead of the IDL's.
@@ -275,7 +280,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_create_view_args(&CreateViewArgs { config: config.clone(), width, height, events }).map_err(ClientError::bad_request)?;
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_CREATEVIEW, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_CREATEVIEW, wire_body, wire_objects, within, METHOD_CREATEVIEW_RETRY)
             ?;
         let reply = decode_create_view_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.view)

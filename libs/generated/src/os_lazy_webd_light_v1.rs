@@ -94,20 +94,45 @@ pub fn decode_light_config(body: &[u8]) -> Result<LightConfig, Error> {
 
 /// `CreateView` method id.
 pub const METHOD_CREATEVIEW: u32 = 1;
+/// How long a client waits for `CreateView`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_CREATEVIEW_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `CreateView` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_CREATEVIEW_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `DestroyView` method id.
 pub const METHOD_DESTROYVIEW: u32 = 2;
+/// How long a client waits for `DestroyView`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_DESTROYVIEW_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `DestroyView` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_DESTROYVIEW_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `AttachSlot` method id.
 pub const METHOD_ATTACHSLOT: u32 = 3;
+/// How long a client waits for `AttachSlot`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_ATTACHSLOT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `AttachSlot` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_ATTACHSLOT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `ReleaseSlot` method id.
 pub const METHOD_RELEASESLOT: u32 = 4;
 /// `Resize` method id.
 pub const METHOD_RESIZE: u32 = 5;
+/// How long a client waits for `Resize`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_RESIZE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Resize` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_RESIZE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `SetVisible` method id.
 pub const METHOD_SETVISIBLE: u32 = 6;
 /// `Refresh` method id.
 pub const METHOD_REFRESH: u32 = 7;
 /// `LoadHtml` method id.
 pub const METHOD_LOADHTML: u32 = 11;
+/// How long a client waits for `LoadHtml`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_LOADHTML_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `LoadHtml` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LOADHTML_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Mouse` method id.
 pub const METHOD_MOUSE: u32 = 20;
 /// `Wheel` method id.
@@ -950,9 +975,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// the caller's kernel-stamped label: the views of one app share a web
     /// process, the views of two apps never do.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn create_view(&self, config: &LightConfig, width: u32, height: u32, events: u64) -> Result<u64, ClientError> {
-        self.create_view_within(config, width, height, events, libmessenger::client::DEFAULT_DEADLINE)
+        self.create_view_within(config, width, height, events, METHOD_CREATEVIEW_DEADLINE)
     }
 
     /// [`Self::create_view`] with the caller's deadline instead of the IDL's.
@@ -960,7 +985,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_create_view_args(&CreateViewArgs { config: config.clone(), width, height, events }).map_err(ClientError::bad_request)?;
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_CREATEVIEW, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_CREATEVIEW, wire_body, wire_objects, within, METHOD_CREATEVIEW_RETRY)
             ?;
         let reply = decode_create_view_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.view)
@@ -969,9 +994,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// End the view, its page and its event endpoint. Slots the app still
     /// holds stay its own memory. Not an error for a view that is already gone.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn destroy_view(&self, view: u64) -> Result<(), ClientError> {
-        self.destroy_view_within(view, libmessenger::client::DEFAULT_DEADLINE)
+        self.destroy_view_within(view, METHOD_DESTROYVIEW_DEADLINE)
     }
 
     /// [`Self::destroy_view`] with the caller's deadline instead of the IDL's.
@@ -980,7 +1005,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_DESTROYVIEW, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_DESTROYVIEW, wire_body, wire_objects, within, METHOD_DESTROYVIEW_RETRY)
             ?;
         Ok(())
     }
@@ -991,9 +1016,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// (`EBUSY` while webd has handed it out), so a slot is re-attached only
     /// after `ReleaseSlot`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn attach_slot(&self, view: u64, slot: u32, pixels: libmessenger::Buffer) -> Result<(), ClientError> {
-        self.attach_slot_within(view, slot, pixels, libmessenger::client::DEFAULT_DEADLINE)
+        self.attach_slot_within(view, slot, pixels, METHOD_ATTACHSLOT_DEADLINE)
     }
 
     /// [`Self::attach_slot`] with the caller's deadline instead of the IDL's.
@@ -1001,7 +1026,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_attach_slot_args(&AttachSlotArgs { view, slot, pixels }).map_err(ClientError::bad_request)?;
         self
             .conn
-            .call(INTERFACE_ID, METHOD_ATTACHSLOT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_ATTACHSLOT, wire_body, wire_objects, within, METHOD_ATTACHSLOT_RETRY)
             ?;
         Ok(())
     }
@@ -1019,9 +1044,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Change the view's size. Every slot is detached (attach new ones of the
     /// new size); the next frame has the new size.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn resize(&self, view: u64, width: u32, height: u32) -> Result<(), ClientError> {
-        self.resize_within(view, width, height, libmessenger::client::DEFAULT_DEADLINE)
+        self.resize_within(view, width, height, METHOD_RESIZE_DEADLINE)
     }
 
     /// [`Self::resize`] with the caller's deadline instead of the IDL's.
@@ -1030,7 +1055,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_RESIZE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_RESIZE, wire_body, wire_objects, within, METHOD_RESIZE_RETRY)
             ?;
         Ok(())
     }
@@ -1058,9 +1083,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// network or `file:` base is `EINVAL`. webd copies the bytes before it
     /// replies, so the app may reuse the buffer.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn load_html(&self, view: u64, html: libmessenger::Buffer, base_url: &str) -> Result<(), ClientError> {
-        self.load_html_within(view, html, base_url, libmessenger::client::DEFAULT_DEADLINE)
+        self.load_html_within(view, html, base_url, METHOD_LOADHTML_DEADLINE)
     }
 
     /// [`Self::load_html`] with the caller's deadline instead of the IDL's.
@@ -1068,7 +1093,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_load_html_args(&LoadHtmlArgs { view, html, base_url: base_url.into() }).map_err(ClientError::bad_request)?;
         self
             .conn
-            .call(INTERFACE_ID, METHOD_LOADHTML, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LOADHTML, wire_body, wire_objects, within, METHOD_LOADHTML_RETRY)
             ?;
         Ok(())
     }

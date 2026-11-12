@@ -100,6 +100,11 @@ pub fn decode_device_state(body: &[u8]) -> Result<DeviceState, Error> {
 
 /// `Devices` method id.
 pub const METHOD_DEVICES: u32 = 665645856;
+/// How long a client waits for `Devices`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_DEVICES_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Devices` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_DEVICES_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 
 /// Every device the kernel enumerated, with its match and state.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -245,9 +250,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Every device the kernel enumerated, with its match and state.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn devices(&self) -> Result<alloc::vec::Vec<DeviceState>, ClientError> {
-        self.devices_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.devices_within(METHOD_DEVICES_DEADLINE)
     }
 
     /// [`Self::devices`] with the caller's deadline instead of the IDL's.
@@ -256,7 +261,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_DEVICES, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_DEVICES, wire_body, wire_objects, within, METHOD_DEVICES_RETRY)
             ?;
         let reply = decode_devices_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.devices)

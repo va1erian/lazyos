@@ -153,26 +153,46 @@ pub fn decode_job_info(body: &[u8]) -> Result<JobInfo, Error> {
 
 /// `Open` method id.
 pub const METHOD_OPEN: u32 = 1401622761;
-/// How long a client waits for `Open`'s reply, in milliseconds.
-pub const METHOD_OPEN_DEADLINE_MS: u32 = 10000;
+/// How long a client waits for `Open`'s reply: at most 10000 ms (`deadline` in the `.midl`).
+pub const METHOD_OPEN_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(10000);
+/// Whether a client resends `Open` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_OPEN_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Write` method id.
 pub const METHOD_WRITE: u32 = 1717336572;
-/// How long a client waits for `Write`'s reply, in milliseconds.
-pub const METHOD_WRITE_DEADLINE_MS: u32 = 10000;
+/// How long a client waits for `Write`'s reply: at most 10000 ms (`deadline` in the `.midl`).
+pub const METHOD_WRITE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(10000);
+/// Whether a client resends `Write` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_WRITE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Close` method id.
 pub const METHOD_CLOSE: u32 = 1300671683;
-/// How long a client waits for `Close`'s reply, in milliseconds.
-pub const METHOD_CLOSE_DEADLINE_MS: u32 = 10000;
+/// How long a client waits for `Close`'s reply: at most 10000 ms (`deadline` in the `.midl`).
+pub const METHOD_CLOSE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(10000);
+/// Whether a client resends `Close` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_CLOSE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Cancel` method id.
 pub const METHOD_CANCEL: u32 = 900713019;
-/// How long a client waits for `Cancel`'s reply, in milliseconds.
-pub const METHOD_CANCEL_DEADLINE_MS: u32 = 10000;
+/// How long a client waits for `Cancel`'s reply: at most 10000 ms (`deadline` in the `.midl`).
+pub const METHOD_CANCEL_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(10000);
+/// Whether a client resends `Cancel` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_CANCEL_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Status` method id.
 pub const METHOD_STATUS: u32 = 6222351;
-/// How long a client waits for `Status`'s reply, in milliseconds.
-pub const METHOD_STATUS_DEADLINE_MS: u32 = 10000;
+/// How long a client waits for `Status`'s reply: at most 10000 ms (`deadline` in the `.midl`).
+pub const METHOD_STATUS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(10000);
+/// Whether a client resends `Status` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_STATUS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Jobs` method id.
 pub const METHOD_JOBS: u32 = 1256630173;
+/// How long a client waits for `Jobs`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_JOBS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Jobs` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_JOBS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 
 /// Open a job for the printer at `printer` (`192.168.1.89`,
 /// `host:port` or an `ipp://` URI). `user` is the `requesting-user-name`
@@ -438,9 +458,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `host:port` or an `ipp://` URI). `user` is the `requesting-user-name`
     /// the printer shows, a label only.
     ///
-    /// Waits for the reply at most 10000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 10000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn open(&self, printer: &str, user: &str, ticket: &Ticket) -> Result<u32, ClientError> {
-        self.open_within(printer, user, ticket, libmessenger::client::Deadline::millis(METHOD_OPEN_DEADLINE_MS as u64))
+        self.open_within(printer, user, ticket, METHOD_OPEN_DEADLINE)
     }
 
     /// [`Self::open`] with the caller's deadline instead of the IDL's.
@@ -449,7 +469,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_OPEN, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_OPEN, wire_body, wire_objects, within, METHOD_OPEN_RETRY)
             ?;
         let reply = decode_open_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.job)
@@ -457,9 +477,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Append `bytes` to an open job's document (at most 256 KiB a call).
     ///
-    /// Waits for the reply at most 10000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 10000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn write(&self, job: u32, bytes: &[u8]) -> Result<(), ClientError> {
-        self.write_within(job, bytes, libmessenger::client::Deadline::millis(METHOD_WRITE_DEADLINE_MS as u64))
+        self.write_within(job, bytes, METHOD_WRITE_DEADLINE)
     }
 
     /// [`Self::write`] with the caller's deadline instead of the IDL's.
@@ -468,16 +488,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_WRITE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_WRITE, wire_body, wire_objects, within, METHOD_WRITE_RETRY)
             ?;
         Ok(())
     }
 
     /// The document is complete: queue the job for its printer.
     ///
-    /// Waits for the reply at most 10000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 10000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn close(&self, job: u32) -> Result<(), ClientError> {
-        self.close_within(job, libmessenger::client::Deadline::millis(METHOD_CLOSE_DEADLINE_MS as u64))
+        self.close_within(job, METHOD_CLOSE_DEADLINE)
     }
 
     /// [`Self::close`] with the caller's deadline instead of the IDL's.
@@ -486,16 +506,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_CLOSE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_CLOSE, wire_body, wire_objects, within, METHOD_CLOSE_RETRY)
             ?;
         Ok(())
     }
 
     /// Stop a job wherever it is; one the printer has is canceled there.
     ///
-    /// Waits for the reply at most 10000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 10000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn cancel(&self, job: u32) -> Result<(), ClientError> {
-        self.cancel_within(job, libmessenger::client::Deadline::millis(METHOD_CANCEL_DEADLINE_MS as u64))
+        self.cancel_within(job, METHOD_CANCEL_DEADLINE)
     }
 
     /// [`Self::cancel`] with the caller's deadline instead of the IDL's.
@@ -504,16 +524,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_CANCEL, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_CANCEL, wire_body, wire_objects, within, METHOD_CANCEL_RETRY)
             ?;
         Ok(())
     }
 
     /// What a job is doing.
     ///
-    /// Waits for the reply at most 10000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 10000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn status(&self, job: u32) -> Result<JobInfo, ClientError> {
-        self.status_within(job, libmessenger::client::Deadline::millis(METHOD_STATUS_DEADLINE_MS as u64))
+        self.status_within(job, METHOD_STATUS_DEADLINE)
     }
 
     /// [`Self::status`] with the caller's deadline instead of the IDL's.
@@ -522,7 +542,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_STATUS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_STATUS, wire_body, wire_objects, within, METHOD_STATUS_RETRY)
             ?;
         let reply = decode_status_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.info)
@@ -530,9 +550,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// The caller's jobs (every job for root), oldest first.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn jobs(&self) -> Result<alloc::vec::Vec<JobInfo>, ClientError> {
-        self.jobs_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.jobs_within(METHOD_JOBS_DEADLINE)
     }
 
     /// [`Self::jobs`] with the caller's deadline instead of the IDL's.
@@ -541,7 +561,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_JOBS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_JOBS, wire_body, wire_objects, within, METHOD_JOBS_RETRY)
             ?;
         let reply = decode_jobs_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.jobs)

@@ -54,32 +54,60 @@ pub const GRANT_REASON_CLOSED: u32 = 5;
 
 /// `Open` method id.
 pub const METHOD_OPEN: u32 = 1;
-/// How long a client waits for `Open`'s reply, in milliseconds.
-pub const METHOD_OPEN_DEADLINE_MS: u32 = 1000;
+/// How long a client waits for `Open`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_OPEN_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
+/// Whether a client resends `Open` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_OPEN_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Close` method id.
 pub const METHOD_CLOSE: u32 = 2;
-/// How long a client waits for `Close`'s reply, in milliseconds.
-pub const METHOD_CLOSE_DEADLINE_MS: u32 = 1000;
+/// How long a client waits for `Close`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_CLOSE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
+/// Whether a client resends `Close` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_CLOSE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `GetState` method id.
 pub const METHOD_GETSTATE: u32 = 3;
+/// How long a client waits for `GetState`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_GETSTATE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `GetState` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_GETSTATE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `RequestGrant` method id.
 pub const METHOD_REQUESTGRANT: u32 = 4;
-/// How long a client waits for `RequestGrant`'s reply, in milliseconds.
-pub const METHOD_REQUESTGRANT_DEADLINE_MS: u32 = 1000;
+/// How long a client waits for `RequestGrant`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_REQUESTGRANT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
+/// Whether a client resends `RequestGrant` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_REQUESTGRANT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `ReleaseGrant` method id.
 pub const METHOD_RELEASEGRANT: u32 = 5;
-/// How long a client waits for `ReleaseGrant`'s reply, in milliseconds.
-pub const METHOD_RELEASEGRANT_DEADLINE_MS: u32 = 1000;
+/// How long a client waits for `ReleaseGrant`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_RELEASEGRANT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
+/// Whether a client resends `ReleaseGrant` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_RELEASEGRANT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Ping` method id.
 pub const METHOD_PING: u32 = 6;
-/// How long a client waits for `Ping`'s reply, in milliseconds.
-pub const METHOD_PING_DEADLINE_MS: u32 = 1000;
+/// How long a client waits for `Ping`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_PING_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
+/// Whether a client resends `Ping` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_PING_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `AttachKeyState` method id.
 pub const METHOD_ATTACHKEYSTATE: u32 = 7;
-/// How long a client waits for `AttachKeyState`'s reply, in milliseconds.
-pub const METHOD_ATTACHKEYSTATE_DEADLINE_MS: u32 = 1000;
+/// How long a client waits for `AttachKeyState`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_ATTACHKEYSTATE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
+/// Whether a client resends `AttachKeyState` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_ATTACHKEYSTATE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `AttachGamepadState` method id.
 pub const METHOD_ATTACHGAMEPADSTATE: u32 = 8;
+/// How long a client waits for `AttachGamepadState`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_ATTACHGAMEPADSTATE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `AttachGamepadState` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_ATTACHGAMEPADSTATE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `KeyEvent` method id.
 pub const METHOD_KEYEVENT: u32 = 10;
 /// `TextInput` method id.
@@ -837,9 +865,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// is attached. `events` is the event endpoint that receives every
     /// event below. A task may hold several sessions, one per surface.
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn open(&self, surface: core::option::Option<u64>, events: u64) -> Result<u64, ClientError> {
-        self.open_within(surface, events, libmessenger::client::Deadline::millis(METHOD_OPEN_DEADLINE_MS as u64))
+        self.open_within(surface, events, METHOD_OPEN_DEADLINE)
     }
 
     /// [`Self::open`] with the caller's deadline instead of the IDL's.
@@ -847,7 +875,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_open_args(&OpenArgs { surface, events }).map_err(ClientError::bad_request)?;
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_OPEN, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_OPEN, wire_body, wire_objects, within, METHOD_OPEN_RETRY)
             ?;
         let reply = decode_open_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.session)
@@ -855,9 +883,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// End a session. Only the task that opened it may.
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn close(&self, session: u64) -> Result<(), ClientError> {
-        self.close_within(session, libmessenger::client::Deadline::millis(METHOD_CLOSE_DEADLINE_MS as u64))
+        self.close_within(session, METHOD_CLOSE_DEADLINE)
     }
 
     /// [`Self::close`] with the caller's deadline instead of the IDL's.
@@ -866,7 +894,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_CLOSE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_CLOSE, wire_body, wire_objects, within, METHOD_CLOSE_RETRY)
             ?;
         Ok(())
     }
@@ -874,9 +902,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// The current layout name, modifier and lock bits (`mods` as in
     /// `KeyEvent`) and the key-repeat timing in milliseconds.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn get_state(&self) -> Result<GetStateReply, ClientError> {
-        self.get_state_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.get_state_within(METHOD_GETSTATE_DEADLINE)
     }
 
     /// [`Self::get_state`] with the caller's deadline instead of the IDL's.
@@ -885,7 +913,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_GETSTATE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_GETSTATE, wire_body, wire_objects, within, METHOD_GETSTATE_RETRY)
             ?;
         decode_get_state_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
@@ -899,9 +927,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// presses the reserved escape chord (Ctrl+Alt+Esc), which nobody can
     /// grab or register and which always reverts the grab.
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn request_grant(&self, session: u64, kind: u32) -> Result<(), ClientError> {
-        self.request_grant_within(session, kind, libmessenger::client::Deadline::millis(METHOD_REQUESTGRANT_DEADLINE_MS as u64))
+        self.request_grant_within(session, kind, METHOD_REQUESTGRANT_DEADLINE)
     }
 
     /// [`Self::request_grant`] with the caller's deadline instead of the IDL's.
@@ -910,7 +938,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_REQUESTGRANT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_REQUESTGRANT, wire_body, wire_objects, within, METHOD_REQUESTGRANT_RETRY)
             ?;
         Ok(())
     }
@@ -918,9 +946,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Give up the grab (or a pending request) `session` holds. Only its
     /// owner may; releasing nothing is not an error.
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn release_grant(&self, session: u64) -> Result<(), ClientError> {
-        self.release_grant_within(session, libmessenger::client::Deadline::millis(METHOD_RELEASEGRANT_DEADLINE_MS as u64))
+        self.release_grant_within(session, METHOD_RELEASEGRANT_DEADLINE)
     }
 
     /// [`Self::release_grant`] with the caller's deadline instead of the IDL's.
@@ -929,7 +957,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_RELEASEGRANT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_RELEASEGRANT, wire_body, wire_objects, within, METHOD_RELEASEGRANT_RETRY)
             ?;
         Ok(())
     }
@@ -941,9 +969,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// so a client polling its key-state page can tell the page is current
     /// (`KeyStateSeq >= seq`). `EACCES` for another task's session.
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn ping(&self, session: u64, token: u64) -> Result<PingReply, ClientError> {
-        self.ping_within(session, token, libmessenger::client::Deadline::millis(METHOD_PING_DEADLINE_MS as u64))
+        self.ping_within(session, token, METHOD_PING_DEADLINE)
     }
 
     /// [`Self::ping`] with the caller's deadline instead of the IDL's.
@@ -952,7 +980,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_PING, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_PING, wire_body, wire_objects, within, METHOD_PING_RETRY)
             ?;
         decode_ping_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
@@ -966,9 +994,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `KeyboardLeave` is sent. `inputd` only ever writes the page. Attaching
     /// again replaces the previous page.
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn attach_key_state(&self, session: u64, state: libmessenger::Buffer) -> Result<(), ClientError> {
-        self.attach_key_state_within(session, state, libmessenger::client::Deadline::millis(METHOD_ATTACHKEYSTATE_DEADLINE_MS as u64))
+        self.attach_key_state_within(session, state, METHOD_ATTACHKEYSTATE_DEADLINE)
     }
 
     /// [`Self::attach_key_state`] with the caller's deadline instead of the IDL's.
@@ -976,7 +1004,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_attach_key_state_args(&AttachKeyStateArgs { session, state }).map_err(ClientError::bad_request)?;
         self
             .conn
-            .call(INTERFACE_ID, METHOD_ATTACHKEYSTATE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_ATTACHKEYSTATE, wire_body, wire_objects, within, METHOD_ATTACHKEYSTATE_RETRY)
             ?;
         Ok(())
     }
@@ -998,9 +1026,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// overflow it). The opt-in lasts until the session closes; a session that
     /// attaches while it holds the keyboard is sent `GamepadEnter` once.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn attach_gamepad_state(&self, session: u64, state: libmessenger::Buffer) -> Result<(), ClientError> {
-        self.attach_gamepad_state_within(session, state, libmessenger::client::DEFAULT_DEADLINE)
+        self.attach_gamepad_state_within(session, state, METHOD_ATTACHGAMEPADSTATE_DEADLINE)
     }
 
     /// [`Self::attach_gamepad_state`] with the caller's deadline instead of the IDL's.
@@ -1008,7 +1036,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_attach_gamepad_state_args(&AttachGamepadStateArgs { session, state }).map_err(ClientError::bad_request)?;
         self
             .conn
-            .call(INTERFACE_ID, METHOD_ATTACHGAMEPADSTATE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_ATTACHGAMEPADSTATE, wire_body, wire_objects, within, METHOD_ATTACHGAMEPADSTATE_RETRY)
             ?;
         Ok(())
     }

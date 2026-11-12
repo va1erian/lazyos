@@ -40,14 +40,17 @@ declared reply fields, which never use that id.
 
 - Served under the registry name `os.lazy.clipboard`; registered once.
 
-## Scopes and deadlines
+## Scopes, deadlines and retries
 
-| Method | Scope interface | Scope id | Deadline |
-|---|---|---|---|
-| Offer | `os.lazy.clipboard.write.v1` | `0x828647c8d352e8f3` | 500 ms |
-| OfferBuffer | this interface | - | 5000 ms |
-| Request | `os.lazy.clipboard.read.v1` | `0x8c863642df2825cc` | 500 ms |
-| Fetch | this interface | - | 5000 ms |
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Offer | `os.lazy.clipboard.write.v1` | `0x828647c8d352e8f3` | 500 ms | never |
+| OfferBuffer | this interface | - | 5000 ms | never |
+| Request | `os.lazy.clipboard.read.v1` | `0x8c863642df2825cc` | 500 ms | never |
+| Fetch | this interface | - | 5000 ms | never |
+| Serialize | this interface | - | 5000 ms | never |
+| Ping | this interface | - | 5000 ms | safe |
+| Current | this interface | - | 5000 ms | safe |
 
 ## Objects
 

@@ -26,16 +26,16 @@ reply.
 
 - Served under the registry name `os.lazy.timed`; registered once.
 
-## Scopes and deadlines
+## Scopes, deadlines and retries
 
-| Method | Scope interface | Scope id | Deadline |
-|---|---|---|---|
-| Now | this interface | - | 2000 ms |
-| GetZone | this interface | - | 250 ms |
-| SetZone | this interface | - | 15000 ms |
-| SetTime | this interface | - | 15000 ms |
-| NtpStatus | this interface | - | 2000 ms |
-| SyncNow | this interface | - | 2000 ms |
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Now | this interface | - | 2000 ms | safe |
+| GetZone | this interface | - | 250 ms | safe |
+| SetZone | this interface | - | 15000 ms | safe |
+| SetTime | this interface | - | 15000 ms | never |
+| NtpStatus | this interface | - | 2000 ms | safe |
+| SyncNow | this interface | - | 2000 ms | never |
 
 ## Topics
 

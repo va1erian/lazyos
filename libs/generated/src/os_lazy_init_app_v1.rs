@@ -29,8 +29,11 @@ pub const SERVICE_NAME: &str = "os.lazy.init.app";
 
 /// `Watch` method id.
 pub const METHOD_WATCH: u32 = 1;
-/// How long a client waits for `Watch`'s reply, in milliseconds.
-pub const METHOD_WATCH_DEADLINE_MS: u32 = 1000;
+/// How long a client waits for `Watch`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_WATCH_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
+/// Whether a client resends `Watch` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_WATCH_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 
 /// Ask for this instance's lifecycle events; replaces an earlier channel.
 /// `Reopen`s queued before the first `Watch` (at most 16, the oldest
@@ -127,9 +130,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// dropped first) are sent on it at once, in order; a `Stop` pending at
     /// that moment sends `Quit` with the grace remaining.
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn watch(&self, events: u64) -> Result<(), ClientError> {
-        self.watch_within(events, libmessenger::client::Deadline::millis(METHOD_WATCH_DEADLINE_MS as u64))
+        self.watch_within(events, METHOD_WATCH_DEADLINE)
     }
 
     /// [`Self::watch`] with the caller's deadline instead of the IDL's.
@@ -137,7 +140,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_watch_args(&WatchArgs { events }).map_err(ClientError::bad_request)?;
         self
             .conn
-            .call(INTERFACE_ID, METHOD_WATCH, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_WATCH, wire_body, wire_objects, within, METHOD_WATCH_RETRY)
             ?;
         Ok(())
     }

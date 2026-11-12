@@ -2,10 +2,11 @@ service "os.lazy.echo" implements os.lazy.echo.v1;
 
 /// A tiny demo service: echo whatever you send (issue #90 sample IDL).
 interface os.lazy.echo.v1 {
+    default deadline=5s;
     /// Reply with `text` and the number of bytes received.
-    method Echo(text: String = 1, count: U32 = 2) -> (reply: String = 1);
+    method Echo(text: String = 1, count: U32 = 2) -> (reply: String = 1) retry=safe;
     /// Health probe.
-    method Ping() -> (alive: Bool = 1);
+    method Ping() -> (alive: Bool = 1) retry=safe;
     /// Broadcast an event; no reply is expected.
     method Notify(event: Event = 1) -> () oneway;
 

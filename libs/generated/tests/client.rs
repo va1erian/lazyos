@@ -4,11 +4,13 @@
 //! errors back. Every request is decoded again with the generated
 //! `decode_*_args`, so the client and the codec cannot drift apart.
 
-use libmessenger::client::{CallError, Connection, Deadline, Errno, Mock, Recorded, ERROR_FIELD};
+use libmessenger::client::{
+    CallError, Connection, Deadline, Errno, Mock, Recorded, Retry, ERROR_FIELD,
+};
 use libmessenger::{flags, Buffer, Encoder, Object, Parcel};
 use messenger_generated::{
-    os_lazy_clipboard_v1 as clipboard, os_lazy_confd_v1 as confd, os_lazy_net_nic_v1 as nic,
-    os_lazy_notify_v1 as notify, os_lazy_timed_v1 as timed,
+    os_lazy_clipboard_v1 as clipboard, os_lazy_confd_v1 as confd, os_lazy_keyd_v1 as keyd,
+    os_lazy_net_nic_v1 as nic, os_lazy_notify_v1 as notify, os_lazy_timed_v1 as timed,
 };
 
 fn reply(body: Vec<u8>) -> Parcel {
@@ -83,10 +85,7 @@ fn a_one_field_reply_returns_the_field() {
     let request = only_call(client.connection().transport());
     assert_eq!(request.header.interface_id, confd::INTERFACE_ID);
     assert_eq!(request.header.method, confd::METHOD_GET);
-    assert_eq!(
-        request.until,
-        Some(Deadline::millis(u64::from(confd::METHOD_GET_DEADLINE_MS)))
-    );
+    assert_eq!(request.until, Some(confd::METHOD_GET_DEADLINE));
     let args = confd::decode_get_args(&request.body).unwrap();
     assert_eq!(args.path, "sys/ui/theme");
 }
@@ -159,10 +158,7 @@ fn the_deadline_override_replaces_the_declared_deadline() {
     let _ = client.get("a");
     let calls = client.connection().transport().calls();
     assert_eq!(calls[0].until, Some(Deadline::millis(50)));
-    assert_eq!(
-        calls[1].until,
-        Some(Deadline::millis(u64::from(confd::METHOD_GET_DEADLINE_MS)))
-    );
+    assert_eq!(calls[1].until, Some(confd::METHOD_GET_DEADLINE));
 }
 
 #[test]
@@ -175,12 +171,7 @@ fn clipboard_methods_travel_on_their_scope_with_their_deadline() {
     assert_eq!(calls[0].header.interface_id, clipboard::METHOD_OFFER_SCOPE);
     assert_ne!(calls[0].header.interface_id, clipboard::INTERFACE_ID);
     assert_eq!(calls[0].until, Some(Deadline::millis(500)));
-    assert_eq!(
-        calls[0].until,
-        Some(Deadline::millis(u64::from(
-            clipboard::METHOD_OFFER_DEADLINE_MS
-        )))
-    );
+    assert_eq!(calls[0].until, Some(clipboard::METHOD_OFFER_DEADLINE));
     let offer = clipboard::decode_offer_args(&calls[0].body).unwrap();
     assert_eq!(offer.owner, "editor");
     assert_eq!(offer.sink, None);
@@ -224,12 +215,7 @@ fn a_channel_argument_moves_and_a_multi_field_reply_is_a_struct() {
     client.listen(55).unwrap();
     let sent = only_call(client.connection().transport());
     assert_eq!(sent.objects, vec![Object::Channel(55)]);
-    assert_eq!(
-        sent.until,
-        Some(Deadline::millis(u64::from(
-            notify::METHOD_LISTEN_DEADLINE_MS
-        )))
-    );
+    assert_eq!(sent.until, Some(notify::METHOD_LISTEN_DEADLINE));
     let args = notify::decode_listen_args(&sent.body, &sent.objects).unwrap();
     assert_eq!(args.events, 55);
 
@@ -297,4 +283,43 @@ fn a_restarted_service_is_found_again_through_the_client() {
         .register(confd::SERVICE_NAME);
     client.get("a").unwrap();
     assert_eq!(client.connection().transport().calls().len(), 3);
+}
+
+#[test]
+fn the_idl_policy_is_a_constant_and_the_client_obeys_it() {
+    assert_eq!(confd::METHOD_GET_RETRY, Retry::Safe);
+    assert_eq!(timed::METHOD_SYNCNOW_RETRY, Retry::Never);
+    assert_eq!(keyd::METHOD_VERIFY_DEADLINE, Deadline::Never);
+    assert_eq!(confd::METHOD_GET_DEADLINE, Deadline::millis(2000));
+
+    // A method that waits for ever says so to the transport.
+    let client = keyd::Client::connect(mock(keyd::SERVICE_NAME)).unwrap();
+    let _ = client.verify("user", "secret");
+    assert_eq!(
+        only_call(client.connection().transport()).until,
+        Some(Deadline::Never)
+    );
+}
+
+#[test]
+fn a_safe_method_is_resent_after_the_service_died_handling_it() {
+    let transport = mock(confd::SERVICE_NAME);
+    let client = confd::Client::connect(transport).unwrap();
+    client.connection().transport().fail(Errno::PIPE);
+    client.get("a").unwrap();
+    assert_eq!(client.connection().transport().calls().len(), 2);
+}
+
+#[test]
+fn a_method_that_is_not_safe_is_not_resent_and_the_next_call_reconnects() {
+    let client = timed::Client::connect(mock(timed::SERVICE_NAME)).unwrap();
+    client.connection().transport().fail(Errno::PIPE);
+    assert_eq!(
+        client.sync_now(),
+        Err(CallError::Transport(Errno::PIPE)),
+        "the service may have run it"
+    );
+    assert_eq!(client.connection().transport().calls().len(), 1);
+    client.sync_now().unwrap();
+    assert_eq!(client.connection().transport().resolves().len(), 2);
 }

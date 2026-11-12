@@ -91,33 +91,36 @@ fields, which never use that id.
 
 - Served under the registry name `os.lazy.display.v1` (together with `os.lazy.display.cursor.v1`); registered once.
 
-## Scopes and deadlines
+## Scopes, deadlines and retries
 
-| Method | Scope interface | Scope id | Deadline |
-|---|---|---|---|
-| CreateSurface | this interface | - | 1000 ms |
-| DestroySurface | this interface | - | 1000 ms |
-| DragStart | this interface | - | 1000 ms |
-| DragCancel | this interface | - | 1000 ms |
-| ListSurfaces | this interface | - | 2000 ms |
-| GetWorkArea | this interface | - | 2000 ms |
-| Subscribe | this interface | - | 2000 ms |
-| GetTheme | this interface | - | 5000 ms |
-| AttachBufferSlot | this interface | - | 1000 ms |
-| SetTitle | this interface | - | 1000 ms |
-| HintOpenOrigin | this interface | - | 500 ms |
-| SetSizeHints | this interface | - | 1000 ms |
-| RequestSize | this interface | - | 1000 ms |
-| PlaceSurface | this interface | - | 2000 ms |
-| ActivateSurface | this interface | - | 2000 ms |
-| MinimizeSurface | this interface | - | 2000 ms |
-| SetWorkArea | this interface | - | 2000 ms |
-| SetIconGeometry | this interface | - | 2000 ms |
-| HintLaunchOrigin | this interface | - | 2000 ms |
-| GetOutput | this interface | - | 500 ms |
-| GrabPanelKeys | this interface | - | 2000 ms |
-| SetCloseMode | this interface | - | 1000 ms |
-| ActivateApp | this interface | - | 2000 ms |
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| CreateSurface | this interface | - | 1000 ms | never |
+| AttachBuffer | this interface | - | 5000 ms | never |
+| Commit | this interface | - | 5000 ms | never |
+| DestroySurface | this interface | - | 1000 ms | never |
+| DragStart | this interface | - | 1000 ms | never |
+| DragCancel | this interface | - | 1000 ms | never |
+| ListSurfaces | this interface | - | 2000 ms | safe |
+| GetWorkArea | this interface | - | 2000 ms | safe |
+| Subscribe | this interface | - | 2000 ms | never |
+| GetTheme | this interface | - | 5000 ms | safe |
+| AttachBufferSlot | this interface | - | 1000 ms | never |
+| SetTitle | this interface | - | 1000 ms | safe |
+| HintOpenOrigin | this interface | - | 500 ms | never |
+| SetSizeHints | this interface | - | 1000 ms | safe |
+| RequestSize | this interface | - | 1000 ms | never |
+| PlaceSurface | this interface | - | 2000 ms | never |
+| ActivateSurface | this interface | - | 2000 ms | never |
+| MinimizeSurface | this interface | - | 2000 ms | never |
+| SetWorkArea | this interface | - | 2000 ms | safe |
+| SetIconGeometry | this interface | - | 2000 ms | safe |
+| HintLaunchOrigin | this interface | - | 2000 ms | never |
+| GetOutput | this interface | - | 500 ms | safe |
+| AllowPopup | this interface | - | 5000 ms | never |
+| GrabPanelKeys | this interface | - | 2000 ms | never |
+| SetCloseMode | this interface | - | 1000 ms | safe |
+| ActivateApp | this interface | - | 2000 ms | never |
 
 ## Objects
 

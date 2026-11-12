@@ -206,26 +206,81 @@ pub fn decode_audio_event(body: &[u8]) -> Result<AudioEvent, Error> {
 
 /// `Info` method id.
 pub const METHOD_INFO: u32 = 266462757;
+/// How long a client waits for `Info`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_INFO_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Info` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_INFO_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `OpenStream` method id.
 pub const METHOD_OPENSTREAM: u32 = 410137073;
+/// How long a client waits for `OpenStream`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_OPENSTREAM_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `OpenStream` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_OPENSTREAM_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `AttachRing` method id.
 pub const METHOD_ATTACHRING: u32 = 62355614;
+/// How long a client waits for `AttachRing`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_ATTACHRING_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `AttachRing` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_ATTACHRING_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Commit` method id.
 pub const METHOD_COMMIT: u32 = 2036391452;
+/// How long a client waits for `Commit`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_COMMIT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Commit` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_COMMIT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Start` method id.
 pub const METHOD_START: u32 = 182978943;
+/// How long a client waits for `Start`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_START_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Start` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_START_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Stop` method id.
 pub const METHOD_STOP: u32 = 1266644741;
+/// How long a client waits for `Stop`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_STOP_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Stop` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_STOP_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Drain` method id.
 pub const METHOD_DRAIN: u32 = 101727161;
+/// How long a client waits for `Drain`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_DRAIN_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Drain` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_DRAIN_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Position` method id.
 pub const METHOD_POSITION: u32 = 1652503594;
+/// How long a client waits for `Position`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_POSITION_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Position` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_POSITION_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `CloseStream` method id.
 pub const METHOD_CLOSESTREAM: u32 = 973774059;
+/// How long a client waits for `CloseStream`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_CLOSESTREAM_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `CloseStream` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_CLOSESTREAM_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `SetVolume` method id.
 pub const METHOD_SETVOLUME: u32 = 1919741053;
+/// How long a client waits for `SetVolume`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SETVOLUME_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `SetVolume` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SETVOLUME_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `SetMute` method id.
 pub const METHOD_SETMUTE: u32 = 1285443642;
+/// How long a client waits for `SetMute`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SETMUTE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `SetMute` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SETMUTE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 
 /// Describe the card: stream count and the formats, rates and channel
 /// counts it accepts.
@@ -827,9 +882,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Describe the card: stream count and the formats, rates and channel
     /// counts it accepts.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn info(&self) -> Result<AudioInfo, ClientError> {
-        self.info_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.info_within(METHOD_INFO_DEADLINE)
     }
 
     /// [`Self::info`] with the caller's deadline instead of the IDL's.
@@ -838,7 +893,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_INFO, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_INFO, wire_body, wire_objects, within, METHOD_INFO_RETRY)
             ?;
         let reply = decode_info_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.info)
@@ -849,9 +904,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// the granted parameters. The stream is idle until a ring is attached and
     /// it is started.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn open_stream(&self, dir: u32, format: u32, rate: u32, channels: u32, period_bytes: u32) -> Result<StreamGrant, ClientError> {
-        self.open_stream_within(dir, format, rate, channels, period_bytes, libmessenger::client::DEFAULT_DEADLINE)
+        self.open_stream_within(dir, format, rate, channels, period_bytes, METHOD_OPENSTREAM_DEADLINE)
     }
 
     /// [`Self::open_stream`] with the caller's deadline instead of the IDL's.
@@ -860,7 +915,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_OPENSTREAM, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_OPENSTREAM, wire_body, wire_objects, within, METHOD_OPENSTREAM_RETRY)
             ?;
         let reply = decode_open_stream_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.grant)
@@ -870,9 +925,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `periods * period_bytes` bytes long. Fails with `EINVAL` when it is
     /// shorter and `EBUSY` when a ring is already attached.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn attach_ring(&self, stream: u32, ring: libmessenger::Buffer) -> Result<(), ClientError> {
-        self.attach_ring_within(stream, ring, libmessenger::client::DEFAULT_DEADLINE)
+        self.attach_ring_within(stream, ring, METHOD_ATTACHRING_DEADLINE)
     }
 
     /// [`Self::attach_ring`] with the caller's deadline instead of the IDL's.
@@ -880,7 +935,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_attach_ring_args(&AttachRingArgs { stream, ring }).map_err(ClientError::bad_request)?;
         self
             .conn
-            .call(INTERFACE_ID, METHOD_ATTACHRING, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_ATTACHRING, wire_body, wire_objects, within, METHOD_ATTACHRING_RETRY)
             ?;
         Ok(())
     }
@@ -889,9 +944,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// see the interface notes). Replies with the frames the driver has
     /// consumed so far.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn commit(&self, stream: u32, written_frames: u64) -> Result<u64, ClientError> {
-        self.commit_within(stream, written_frames, libmessenger::client::DEFAULT_DEADLINE)
+        self.commit_within(stream, written_frames, METHOD_COMMIT_DEADLINE)
     }
 
     /// [`Self::commit`] with the caller's deadline instead of the IDL's.
@@ -900,7 +955,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_COMMIT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_COMMIT, wire_body, wire_objects, within, METHOD_COMMIT_RETRY)
             ?;
         let reply = decode_commit_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.consumed)
@@ -908,9 +963,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Start (or restart) transfer on a stream with an attached ring.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn start(&self, stream: u32) -> Result<bool, ClientError> {
-        self.start_within(stream, libmessenger::client::DEFAULT_DEADLINE)
+        self.start_within(stream, METHOD_START_DEADLINE)
     }
 
     /// [`Self::start`] with the caller's deadline instead of the IDL's.
@@ -919,7 +974,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_START, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_START, wire_body, wire_objects, within, METHOD_START_RETRY)
             ?;
         let reply = decode_start_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.ok)
@@ -928,9 +983,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Stop transfer; committed periods not yet queued to the device are
     /// discarded. The stream can be started again.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn stop(&self, stream: u32) -> Result<bool, ClientError> {
-        self.stop_within(stream, libmessenger::client::DEFAULT_DEADLINE)
+        self.stop_within(stream, METHOD_STOP_DEADLINE)
     }
 
     /// [`Self::stop`] with the caller's deadline instead of the IDL's.
@@ -939,7 +994,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_STOP, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_STOP, wire_body, wire_objects, within, METHOD_STOP_RETRY)
             ?;
         let reply = decode_stop_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.ok)
@@ -947,9 +1002,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Play everything committed, then stop. Replies once drained.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn drain(&self, stream: u32) -> Result<bool, ClientError> {
-        self.drain_within(stream, libmessenger::client::DEFAULT_DEADLINE)
+        self.drain_within(stream, METHOD_DRAIN_DEADLINE)
     }
 
     /// [`Self::drain`] with the caller's deadline instead of the IDL's.
@@ -958,7 +1013,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_DRAIN, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_DRAIN, wire_body, wire_objects, within, METHOD_DRAIN_RETRY)
             ?;
         let reply = decode_drain_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.ok)
@@ -966,9 +1021,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Frames the device has played since the last `Start`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn position(&self, stream: u32) -> Result<u64, ClientError> {
-        self.position_within(stream, libmessenger::client::DEFAULT_DEADLINE)
+        self.position_within(stream, METHOD_POSITION_DEADLINE)
     }
 
     /// [`Self::position`] with the caller's deadline instead of the IDL's.
@@ -977,7 +1032,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_POSITION, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_POSITION, wire_body, wire_objects, within, METHOD_POSITION_RETRY)
             ?;
         let reply = decode_position_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.frames)
@@ -985,9 +1040,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Close a stream and release its ring. Also implied when the owner exits.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn close_stream(&self, stream: u32) -> Result<(), ClientError> {
-        self.close_stream_within(stream, libmessenger::client::DEFAULT_DEADLINE)
+        self.close_stream_within(stream, METHOD_CLOSESTREAM_DEADLINE)
     }
 
     /// [`Self::close_stream`] with the caller's deadline instead of the IDL's.
@@ -996,7 +1051,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_CLOSESTREAM, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_CLOSESTREAM, wire_body, wire_objects, within, METHOD_CLOSESTREAM_RETRY)
             ?;
         Ok(())
     }
@@ -1007,9 +1062,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// saturate instead of wrapping. A driver that cannot scale the granted
     /// format fails with `ENOTSUP`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn set_volume(&self, stream: u32, gain_q16: u32) -> Result<(), ClientError> {
-        self.set_volume_within(stream, gain_q16, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_volume_within(stream, gain_q16, METHOD_SETVOLUME_DEADLINE)
     }
 
     /// [`Self::set_volume`] with the caller's deadline instead of the IDL's.
@@ -1018,7 +1073,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SETVOLUME, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SETVOLUME, wire_body, wire_objects, within, METHOD_SETVOLUME_RETRY)
             ?;
         Ok(())
     }
@@ -1026,9 +1081,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Silence the stream (`mute`) or restore its volume, without losing it.
     /// A muted stream keeps consuming and its position keeps moving.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn set_mute(&self, stream: u32, mute: bool) -> Result<(), ClientError> {
-        self.set_mute_within(stream, mute, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_mute_within(stream, mute, METHOD_SETMUTE_DEADLINE)
     }
 
     /// [`Self::set_mute`] with the caller's deadline instead of the IDL's.
@@ -1037,7 +1092,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SETMUTE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SETMUTE, wire_body, wire_objects, within, METHOD_SETMUTE_RETRY)
             ?;
         Ok(())
     }

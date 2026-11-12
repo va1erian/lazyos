@@ -14,6 +14,7 @@ service "os.lazy.messenger.registry" implements os.lazy.messenger.registry.v1;
 /// (id 15, which no reply field may take) instead of a typed reply; the
 /// kernel gate reports failures as negative errno values.
 interface os.lazy.messenger.registry.v1 {
+    default deadline=5s;
     /// Publish `endpoint` (a handle in the owner's table) under `name`. The
     /// owner becomes the registering task. A `lease_ticks` of `0` registers a
     /// permanent name; otherwise the name expires after that many ticks.

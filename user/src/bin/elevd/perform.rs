@@ -53,13 +53,7 @@ pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done
             let devtool = matches!(op, Operation::PkgInstallDevtool { .. });
             let client = pkgd::Client::connect(Native).map_err(Refusal::of_call)?;
             let app = client
-                .install_approved_within(
-                    &approved.path,
-                    &approved.digest,
-                    approved.core,
-                    devtool,
-                    Deadline::Never,
-                )
+                .install_approved(&approved.path, &approved.digest, approved.core, devtool)
                 .map_err(Refusal::of_call)?;
             done(format!("Installed {} {}", app.system_name, app.version))
         }

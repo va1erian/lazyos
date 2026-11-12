@@ -86,12 +86,18 @@ pub fn decode_record(body: &[u8]) -> Result<Record, Error> {
 
 /// `Request` method id.
 pub const METHOD_REQUEST: u32 = 38093138;
-/// How long a client waits for `Request`'s reply, in milliseconds.
-pub const METHOD_REQUEST_DEADLINE_MS: u32 = 400000;
+/// How long a client waits for `Request`'s reply: at most 400000 ms (`deadline` in the `.midl`).
+pub const METHOD_REQUEST_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(400000);
+/// Whether a client resends `Request` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_REQUEST_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Release` method id.
 pub const METHOD_RELEASE: u32 = 1830722334;
-/// How long a client waits for `Release`'s reply, in milliseconds.
-pub const METHOD_RELEASE_DEADLINE_MS: u32 = 1000;
+/// How long a client waits for `Release`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_RELEASE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
+/// Whether a client resends `Release` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_RELEASE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 
 /// Perform `operation` (a row of the operation table, e.g.
 /// `account.create`, `conf.set`, `time.set`) with its `args`, after an
@@ -292,9 +298,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `values` carries the operation's results (`conf.list`'s paths,
     /// `conf.get`'s kind and value).
     ///
-    /// Waits for the reply at most 400000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 400000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn request(&self, operation: &str, args: &[alloc::string::String]) -> Result<RequestReply, ClientError> {
-        self.request_within(operation, args, libmessenger::client::Deadline::millis(METHOD_REQUEST_DEADLINE_MS as u64))
+        self.request_within(operation, args, METHOD_REQUEST_DEADLINE)
     }
 
     /// [`Self::request`] with the caller's deadline instead of the IDL's.
@@ -303,16 +309,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_REQUEST, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_REQUEST, wire_body, wire_objects, within, METHOD_REQUEST_RETRY)
             ?;
         decode_request_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
 
     /// End the caller's standing approvals now (an elevated editor closing).
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn release(&self) -> Result<(), ClientError> {
-        self.release_within(libmessenger::client::Deadline::millis(METHOD_RELEASE_DEADLINE_MS as u64))
+        self.release_within(METHOD_RELEASE_DEADLINE)
     }
 
     /// [`Self::release`] with the caller's deadline instead of the IDL's.
@@ -321,7 +327,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_RELEASE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_RELEASE, wire_body, wire_objects, within, METHOD_RELEASE_RETRY)
             ?;
         Ok(())
     }

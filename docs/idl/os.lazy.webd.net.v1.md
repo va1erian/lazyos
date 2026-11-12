@@ -17,6 +17,12 @@ view is then used through that interface.
 
 - Served under the registry name `app.os.lazy.webd.view` (together with `os.lazy.webd.view.v1`, `os.lazy.webd.browser.v1`); registered once.
 
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| CreateView | this interface | - | 5000 ms | never |
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

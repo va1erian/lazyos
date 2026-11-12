@@ -33,15 +33,22 @@ reply, so the error field is hand-written next to these stubs.
 
 - Served under the registry name `os.lazy.init`; registered once.
 
-## Scopes and deadlines
+## Scopes, deadlines and retries
 
-| Method | Scope interface | Scope id | Deadline |
-|---|---|---|---|
-| Services | this interface | - | 500 ms |
-| Launch | this interface | - | 10000 ms |
-| ListApps | this interface | - | 2000 ms |
-| Stop | this interface | - | 5000 ms |
-| Shutdown | this interface | - | 3000 ms |
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Services | this interface | - | 500 ms | safe |
+| Launch | this interface | - | 10000 ms | never |
+| ListApps | this interface | - | 2000 ms | safe |
+| Stop | this interface | - | 5000 ms | never |
+| Shutdown | this interface | - | 3000 ms | never |
+| StartDriver | this interface | - | 5000 ms | never |
+| Home | this interface | - | 5000 ms | safe |
+| RestartService | this interface | - | 5000 ms | never |
+| ReloadService | this interface | - | 5000 ms | never |
+| RevertService | this interface | - | 5000 ms | never |
+| RelaunchApp | this interface | - | 5000 ms | never |
+| Reloads | this interface | - | 5000 ms | safe |
 
 ## Topics
 
