@@ -1041,3 +1041,52 @@ reusable task slot. The kernel Caller block carries no pid or generation, so
 a task reusing a dead owner's slot could touch (and a dead owner's
 subscriptions linger until unsubscribed). Keying on a stable task identity
 needs a kernel change (a generation in the stamp) and is not done here.
+
+### Result at the end of the plan (measured)
+
+`main` (`9ca7681e6`) against the integration branch after every stage and
+five review rounds, counted by `git grep` per revision (tests and generated
+code excluded unless named):
+
+| Measure | main | branch | Change |
+|---|---|---|---|
+| Hand-written production Rust | 543,393 | 542,104 | -1,289 |
+| `user/src/messenger` (the old hand-framed clients) | 11,762 | 7,757 | -4,005 |
+| `xui-app/src` library | 32,932 | 32,179 | -753 |
+| `libs` (new: `topicsbroker` moved out of `messengerd`, with the per-app budgets; `libmessenger` client/server runtime) | 131,552 | 133,728 | +2,176 |
+| `kernel` (registry `WaitFor`) | 102,333 | 102,717 | +384 |
+| Generated Rust (`libs/generated/src`) | 27,592 | 42,808 | +15,216 |
+| Hand dispatch arms (`METHOD_X =>`) | 469 | 241 | -228 |
+| `Header {` literals / error-field scans | 135 / 32 | 99 / 16 | -36 / -16 |
+| Service-name literals / connect-retry constants | 100 / 21 | 41 / 0 | -59 / -21 |
+| `println!` evidence markers | 221 | 2 | -219 |
+| `check_handrolled.py` hits (C6 lint, from its first baseline) | 355 | 232 | -123 |
+
+Latency (`tools/perf/run.py`, WHPX, the same host back to back): input to
+present p50/p99 77/131 us on main, 78/118 us on the branch; Messenger round
+trip p50 9.1 against 9.9 us, 286k against 374k messages/s; in-kernel IPC
+round trip 1.1 us on both.
+
+Runtime evidence on the branch: the desktop core-apps, live theme and
+terminal copy sessions, login/logout, the services evidence (every
+`TOPIC:*`, `CLIP:*`, `MSGRD:SOAK`), `tools/net/run.py` with and without
+`--netd`, `tools/sound/run.py`, the USB audio and elevation-prompt
+harnesses, the dbgd harness and the kernel suite (same timer flakes as main).
+
+Follow-ups this plan leaves open:
+
+* A task-exit notice for `messengerd` (a peer-death message, or a generation
+  in the caller stamp) so subscriptions of dead tasks are reaped without a
+  bell, and ownership is not keyed on a reusable slot.
+* Migrate the servers still hand-written: `audiod`/`libs/audiomix` and webd
+  (quota and slot checks sit between decode and act), and the event decoders
+  in `display/events.rs` and `webd-client`.
+* Paint/Writer saves still run on the UI thread (their save flow is a
+  synchronous state machine); `Settings` does not follow confd's change topic
+  (the last writer of a field wins); Terminal keeps its own confd follower.
+* The pre-existing kernel signal-wait issues found during C1b (`recv`/waitset
+  spin on a deferred frame, the SMP lost wake between check and park,
+  `has_deliverable` counting ignored signals) and `user/src/heap.rs:124`'s
+  missing `SAFETY` comment.
+* lazyrad-os does not build on main either (a `lazyrad-ide` pin mismatch with
+  xui `832c61f`); its `transport.rs` edits are compiled only once that is fixed.
