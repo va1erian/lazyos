@@ -523,6 +523,49 @@ let quick = conf.get_within("sys/ui/theme", Deadline::millis(50))?;
   asynchronous call, so a UI that must not block keeps using the runtime's own
   lane until one exists.
 
+## Generated server
+
+Every interface with methods gets a server behind the cargo feature
+`<interface>_server` (`confd_v1_server`; it implies the interface's own): a
+`Server` trait with one function per method and `dispatch`, over
+`libmessenger::server` (`docs/client-api-plan.md` 3.3). A daemon implements the
+trait for its state and calls `dispatch(&mut state, &message)`; the result is
+the reply parcel.
+
+```rust
+use messenger_generated::os_lazy_timed_v1 as timed;
+use libmessenger::server::{Caller, Fault};
+
+impl timed::Server for Handler<'_> {
+    fn get_zone(&mut self, _: &Caller) -> Result<String, Fault> { /* ... */ }
+    fn set_zone(&mut self, cx: &Caller, name: String) -> Result<(), Fault> {
+        if cx.caps & CAP_SYS_TIME == 0 {
+            return Err(Fault::refuse(Errno::PERM, "only an administrator may do that"));
+        }
+        /* ... */
+    }
+}
+let reply: Parcel = timed::dispatch(&mut handler, &message);
+```
+
+* Arguments arrive decoded and by value; kernel objects (`Buffer`, `Channel`)
+  were claimed by the decode, so the handler owns them and closes them on a
+  refusal.
+* The result is `()` for no reply field, the field itself for one, the
+  `XxxReply` struct for several. A `oneway` method returns nothing.
+* `Caller` is the kernel's stamp (`uid`, `gid`, `caps`, `label_id`, `session`,
+  and the sender's task slot for addressing only). Authorize from it, never
+  from the body.
+* A `Fault` is an errno (`Fault::errno(Errno::PERM)`, `Fault::refuse(errno,
+  sentence)`) or, through `From<ServiceError>`, one of the interface's declared
+  codes, with an optional `hint`, `domain` and `docs` detail record.
+* A method the handler does not implement answers `ENOSYS`; a request for
+  another interface (or a scoped method on the wrong scope id) answers
+  `EINVAL`, an undeclared method `ENOSYS`, a body that does not decode
+  `EINVAL`.
+* No server exists for the kernel ACL scopes (`KERNEL_SCOPES`) or the
+  kernel-served registry.
+
 ## Errors
 
 A failed call is answered with **one `Error` field at id 15** instead of the

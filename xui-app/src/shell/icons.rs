@@ -9,6 +9,7 @@
 //! missing or bad icon is simply `None`, and the launcher draws the built-in
 //! picture instead.
 
+use crate::trace::{self, Channel};
 use std::io::Read;
 use std::rc::Rc;
 
@@ -54,7 +55,7 @@ impl IconCache {
     pub fn get(&mut self, path: &str) -> Option<Rc<Image>> {
         let image = self.get_quiet(path);
         if image.is_none() && !path.is_empty() {
-            println!("SHELL:ICON:MISSING {path}");
+            trace::line!(Channel::Shell, "ICON:MISSING {path}");
         }
         image
     }

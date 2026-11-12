@@ -52,6 +52,7 @@ messenger 23 BUFFER_MAP since 1
 messenger 24 BUFFER_CLOSE since 1
 messenger 25 CALL_CHECK since 1
 messenger 26 CALL_DRAIN since 1
+messenger 27 WAIT_FOR since 2
 native 0 EXIT since 1
 native 1 WRITE since 1
 native 2 READ_CHAR since 1

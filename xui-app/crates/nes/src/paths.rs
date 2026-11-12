@@ -1,23 +1,13 @@
-//! Where the NES Player keeps its files: `$HOME/.apps/os.lazy.nes`.
+//! Where the NES Player keeps its files, under its `fhs::app_data_dir`.
 //!
 //! Nothing here trusts a ROM's filename: save files are named from a
 //! sanitised stem, so a ROM called `../../etc/passwd` cannot make the app
 //! write outside its own directory (docs/security-model.md).
 
-use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Most ROMs a recent list keeps.
-pub const MAX_RECENT: usize = 8;
 /// Longest file stem a save file is named from.
 const MAX_STEM: usize = 64;
-/// Longest path the recent list keeps (a longer line is dropped).
-const MAX_PATH: usize = 512;
-
-/// The app's directory under `home`: `<home>/.apps/os.lazy.nes`.
-pub fn app_dir(home: &Path) -> PathBuf {
-    home.join(".apps").join("os.lazy.nes")
-}
 
 /// A ROM's file stem as a save-file name: ASCII letters, digits, `-`, `_`
 /// and `.` are kept, anything else becomes `_`, the result is capped, and
@@ -57,49 +47,6 @@ pub fn state_path(dir: &Path, rom: &Path, slot: usize) -> PathBuf {
         .join(format!("slot-{slot}.state"))
 }
 
-/// The recent-ROM list.
-pub fn recent_path(dir: &Path) -> PathBuf {
-    dir.join("recent.txt")
-}
-
-/// The recent ROMs, most recent first: absolute, existing, de-duplicated
-/// paths, at most [`MAX_RECENT`] of them (a cartridge the user has since
-/// deleted drops off the welcome screen).
-pub fn read_recent(dir: &Path) -> Vec<PathBuf> {
-    let Ok(text) = fs::read_to_string(recent_path(dir)) else {
-        return Vec::new();
-    };
-    let mut out: Vec<PathBuf> = Vec::new();
-    for line in text.lines() {
-        if line.len() > MAX_PATH || line.len() < 2 {
-            continue;
-        }
-        let path = PathBuf::from(line);
-        if !path.is_absolute() || !path.is_file() || out.contains(&path) {
-            continue;
-        }
-        out.push(path);
-        if out.len() == MAX_RECENT {
-            break;
-        }
-    }
-    out
-}
-
-/// Records `rom` as the most recent ROM. A failure is the caller's to report
-/// (a read-only home still plays the game).
-pub fn push_recent(dir: &Path, rom: &Path) -> std::io::Result<()> {
-    let mut list = vec![rom.to_path_buf()];
-    list.extend(read_recent(dir).into_iter().filter(|path| path != rom));
-    list.truncate(MAX_RECENT);
-    fs::create_dir_all(dir)?;
-    let text: String = list
-        .iter()
-        .map(|path| format!("{}\n", path.display()))
-        .collect();
-    fs::write(recent_path(dir), text)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,32 +76,5 @@ mod tests {
         let state = state_path(dir, Path::new("/roms/zelda.nes"), 2);
         assert!(state.starts_with(dir), "{state:?}");
         assert!(state.ends_with("states/zelda/slot-2.state"), "{state:?}");
-    }
-
-    #[test]
-    fn the_recent_list_is_bounded_and_deduplicated() {
-        let dir = std::env::temp_dir().join("xui-nes-recent-test");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        for name in ["a", "b", "a"] {
-            fs::write(dir.join(name), b"rom").unwrap();
-            push_recent(&dir, &dir.join(name)).unwrap();
-        }
-        let list = read_recent(&dir);
-        assert_eq!(list, vec![dir.join("a"), dir.join("b")]);
-        // A relative line, or one whose cartridge is gone, is ignored.
-        let absolute = dir.join("x");
-        fs::write(&absolute, b"rom").unwrap();
-        fs::write(
-            recent_path(&dir),
-            format!(
-                "relative\n{}\n{}\n",
-                absolute.display(),
-                dir.join("gone").display()
-            ),
-        )
-        .unwrap();
-        assert_eq!(read_recent(&dir), vec![absolute]);
-        let _ = fs::remove_dir_all(&dir);
     }
 }

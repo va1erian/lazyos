@@ -25,7 +25,7 @@ use xui_core::app::{App, Ui};
 use xui_core::arrange::{build, button, column, label, row, Align, Handle, LayoutExt};
 use xui_core::backend::Result;
 use xui_core::layout::Insets;
-use xui_core::widget::{FileDialog, HasText, Label, StdFileSystem};
+use xui_core::widget::{FileDialog, HasText, Label};
 use xui_core::{Dip, Key, Rect};
 use xui_docs::error_page;
 use xui_docs::history::{History, Place};
@@ -91,7 +91,7 @@ pub struct Docs {
 
 impl Docs {
     /// Builds the toolbar and the page view showing `welcome`.
-    pub fn build(ui: &mut Ui<Msg>, welcome: &str) -> Result<Docs> {
+    pub fn build(ui: &mut Ui<Msg>, cx: &xui_app::AppContext, welcome: &str) -> Result<Docs> {
         let path_label = Handle::new();
         let view: Handle<MarkdownView<Msg>> = Handle::new();
         ui.root(
@@ -124,17 +124,18 @@ impl Docs {
 
         let dialog_open = Rc::new(Cell::new(false));
         let closed = Rc::clone(&dialog_open);
-        let open_dialog = FileDialog::open_file(ui, "Open")?
-            .file_system(Rc::new(StdFileSystem))
+        let open_dialog = cx
+            .open_dialog(
+                ui,
+                "Open",
+                &[("Markdown", &["md", "markdown"])],
+                move || {
+                    closed.set(false);
+                    Some(Msg::DialogClosed)
+                },
+            )?
             .initial_dir(START_DIR)
-            .filter("Markdown", &["md", "markdown"])
-            .filter("All files", &[])
-            .require_existing(true)
-            .on_accept(|path| Some(Msg::OpenChosen(path)))
-            .on_cancel(move || {
-                closed.set(false);
-                Some(Msg::DialogClosed)
-            });
+            .on_accept(|path| Some(Msg::OpenChosen(path)));
 
         let hotkey_gate = Rc::clone(&dialog_open);
         ui.on_key(move |key, modifiers| {

@@ -698,3 +698,121 @@ impl<T: libmessenger::client::Transport> Client<T> {
         decode_list_users_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
 }
+
+#[cfg(feature = "accounts_v1_server")]
+/// What a program answering `os.lazy.accounts.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Find a user by `name` or, when `name` is absent, by `uid`.
+    /// `found` is false (and `user` empty) when no account matches.
+    fn lookup(&mut self, cx: &libmessenger::server::Caller, name: core::option::Option<alloc::string::String>, uid: core::option::Option<u32>) -> Result<LookupReply, libmessenger::server::Fault> {
+        let _ = (cx, name, uid,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Verify `secret` against the stored verifier of `name`. After three
+    /// failures in a row for a name or from a caller, further attempts are
+    /// refused with `EAGAIN` for a delay that doubles from 1 s to 60 s.
+    fn authenticate(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, secret: alloc::string::String) -> Result<bool, libmessenger::server::Fault> {
+        let _ = (cx, name, secret,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Create the account `name` with the password `secret` (an
+    /// administrator when `admin`): the next free uid, a 0700 home made from
+    /// the skeleton. From `elevd`, or from the login screen while the machine
+    /// has no account (the owner, who must be an admin). `EEXIST` for a taken
+    /// name, `EINVAL` for a bad one, `EPERM` for any other caller.
+    fn create(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, secret: alloc::string::String, admin: bool) -> Result<User, libmessenger::server::Fault> {
+        let _ = (cx, name, secret, admin,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Delete the account `name` (from `elevd` only). `home` says what
+    /// happens to its home: `keep`, `archive` (moved aside, root-only) or
+    /// `remove`. The last administrator cannot be deleted (`EBUSY`).
+    fn delete(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, home: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, name, home,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Set `name`'s password to `secret`. A user may change their own with
+    /// the current one in `old` (checked and slowed like `Authenticate`,
+    /// `EACCES` when wrong); `elevd` may set anyone's without it.
+    fn set_password(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, old: core::option::Option<alloc::string::String>, secret: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, name, old, secret,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Make `name` an administrator or not (from `elevd` only). Taking it
+    /// from the last administrator is `EBUSY`.
+    fn set_admin(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, admin: bool) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, name, admin,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Every account, in database order. `setup` is true while the machine
+    /// has no account (the login screen then asks for its owner).
+    fn list_users(&mut self, cx: &libmessenger::server::Caller) -> Result<ListUsersReply, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "accounts_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_LOOKUP if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_lookup_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.lookup(&cx, args.name, args.uid), |value| encode_lookup_reply(&value))
+        }
+        METHOD_AUTHENTICATE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_authenticate_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.authenticate(&cx, args.name, args.secret), |value| encode_authenticate_reply(&AuthenticateReply { ok: value }))
+        }
+        METHOD_CREATE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_create_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.create(&cx, args.name, args.secret, args.admin), |value| encode_create_reply(&CreateReply { user: value }))
+        }
+        METHOD_DELETE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_delete_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.delete(&cx, args.name, args.home), |()| Ok(Vec::new()))
+        }
+        METHOD_SETPASSWORD if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_password_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set_password(&cx, args.name, args.old, args.secret), |()| Ok(Vec::new()))
+        }
+        METHOD_SETADMIN if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_admin_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set_admin(&cx, args.name, args.admin), |()| Ok(Vec::new()))
+        }
+        METHOD_LISTUSERS if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.list_users(&cx), |value| encode_list_users_reply(&value))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

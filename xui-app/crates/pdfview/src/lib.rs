@@ -3,7 +3,7 @@
 //! threads and painted as they arrive over a small preview of each page.
 //!
 //! [`PdfApp`] is the window; the LazyOS binary (`xui-app/src/bin/pdf.rs`)
-//! hands it a [`Host`] and a file from the command line. Evidence lines:
+//! hands it an [`AppHost`] and a file from the command line. Evidence lines:
 //! `PDF:OPEN:PASS:<path>:<pages>`, `PDF:OPEN:FAIL:<path>:<reason>`,
 //! `PDF:OPEN:PASSWORD:<path>`, `PDF:PAGE:DRAWN:<page>:<ms>:<render ms>`,
 //! `PDF:PAGE:FAIL:<page>`, and `PDF:ZOOM:<percent>`; `PDF:QUIT:PASS` is
@@ -13,7 +13,6 @@
 
 mod app;
 mod cache;
-mod host;
 pub mod layout;
 mod ui;
 mod view;
@@ -22,5 +21,5 @@ mod worker;
 
 pub use app::{shortcut, Msg, PdfApp, WINDOW};
 pub use cache::Key;
-pub use host::{Host, LogFn};
 pub use viewer::Viewer;
+pub use xui_host::{AppHost, SharedHost};

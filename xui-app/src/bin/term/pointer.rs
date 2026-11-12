@@ -5,6 +5,7 @@
 use lazyterm::input::{mouse_report, Action, Button, Mods, MouseMode};
 use lazyterm::SelectMode;
 use xui_app::sys::monotonic_ns;
+use xui_app::trace::{self, Channel};
 use xui_core::app::Ui;
 use xui_core::{Modifiers, MouseButton};
 
@@ -234,7 +235,7 @@ impl Terminal {
         ui.release_capture();
         let selected = self.term.borrow().selection_text();
         if let Some(text) = &selected {
-            println!("TERM:SELECT:{}", text.len());
+            trace::line!(Channel::Term, "SELECT:{}", text.len());
             if self.conf.settings.copy_on_select {
                 self.copy(ui);
             }

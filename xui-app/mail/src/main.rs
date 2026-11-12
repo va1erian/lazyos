@@ -28,7 +28,7 @@ fn main() {
     // Before anything else starts a thread: `set_var` is only sound while the
     // process has one.
     place_files(&xui_app::platform::dirs::default_dir());
-    if rustls::crypto::CryptoProvider::install_default(nettls_crypto::provider()).is_err() {
+    if !lazyhttps::install_tls_provider() {
         trace::fail!(
             Channel::Mail,
             "RUN",

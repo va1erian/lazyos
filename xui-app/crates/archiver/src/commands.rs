@@ -13,6 +13,7 @@ use crate::app::{ArchiverApp, Msg};
 use crate::folder::{self, RowKind};
 use crate::job::{Job, Task};
 use crate::ui::{self, MENU_DELETE, MENU_EXTRACT, MENU_OPEN, MENU_TEST};
+use xui_host::report;
 use xui_work::Sink;
 
 mod finish;
@@ -91,7 +92,7 @@ pub fn dispatch(app: &mut ArchiverApp, msg: Msg, ui: &mut Ui<Msg>) {
         Msg::DragLeave => app.hover = false,
         Msg::Dropped(paths) => dropped(app, ui, paths),
         Msg::DragStarted(rows) => {
-            (app.host.log)(&format!("ARCHIVER:DRAG:PASS:{}", rows.len()));
+            report!(app.host, "DRAG:PASS:{}", rows.len());
             app.selection = rows;
             app.say("Drop the items on a Files window to copy them out");
         }
@@ -100,7 +101,7 @@ pub fn dispatch(app: &mut ArchiverApp, msg: Msg, ui: &mut Ui<Msg>) {
             if let Some(job) = &app.job {
                 job.cancel();
             }
-            (app.host.log)("ARCHIVER:CLOSE:PASS");
+            app.host.report("CLOSE:PASS");
             ui.quit();
         }
     }
@@ -147,7 +148,7 @@ fn activate(app: &mut ArchiverApp, ui: &mut Ui<Msg>, index: usize) {
             app.refresh_rows();
         }
         RowKind::File | RowKind::Link => {
-            let scratch = app.host.temp_dir.join(format!("open-{}", unique()));
+            let scratch = app.host.temp_dir().join(format!("open-{}", unique()));
             start(
                 app,
                 ui,
@@ -209,7 +210,7 @@ fn extract(app: &mut ArchiverApp, ui: &mut Ui<Msg>) {
         .parent()
         .filter(|dir| app.host.suggests(dir))
         .map(Path::to_path_buf)
-        .unwrap_or_else(|| app.host.start_dir.clone());
+        .unwrap_or_else(|| app.host.start_dir());
     let dest = base.join(stem);
     let what = describe(app, &paths);
     match ui::extract_dialog(ui, &what, &dest.to_string_lossy()) {
@@ -287,7 +288,7 @@ fn picker_dir(app: &ArchiverApp) -> PathBuf {
         .and_then(|archive| archive.path.parent())
         .filter(|dir| app.host.suggests(dir))
         .map(Path::to_path_buf)
-        .unwrap_or_else(|| app.host.start_dir.clone())
+        .unwrap_or_else(|| app.host.start_dir())
 }
 
 /// Add `paths` to the open archive, or start a new one with them.
@@ -315,7 +316,7 @@ fn new_archive(app: &mut ArchiverApp, sources: Vec<PathBuf>) {
         .and_then(|path| path.parent())
         .filter(|dir| !dir.as_os_str().is_empty() && app.host.suggests(dir))
         .map(Path::to_path_buf)
-        .unwrap_or_else(|| app.host.start_dir.clone());
+        .unwrap_or_else(|| app.host.start_dir());
     app.dialogs.new.set_initial_dir(dir);
     app.dialogs
         .new
@@ -370,7 +371,7 @@ pub fn looks_like_archive(path: &Path) -> bool {
 
 fn dropped(app: &mut ArchiverApp, ui: &mut Ui<Msg>, paths: Vec<PathBuf>) {
     app.hover = false;
-    (app.host.log)(&format!("ARCHIVER:DROP:{}", paths.len()));
+    report!(app.host, "DROP:{}", paths.len());
     if paths.is_empty() {
         return;
     }

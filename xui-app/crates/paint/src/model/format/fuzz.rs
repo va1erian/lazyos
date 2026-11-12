@@ -118,7 +118,7 @@ fn run(data: &[u8]) {
         }
     }
     let _ = xml::tags(&String::from_utf8_lossy(data), 1000);
-    let _ = inflate::inflate(data, 1 << 16);
+    let _ = zip::inflate(data, 1 << 16);
 }
 
 #[test]

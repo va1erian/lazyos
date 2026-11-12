@@ -141,9 +141,7 @@ fn run() -> messenger::Result<()> {
 /// Answer every request waiting on the service endpoint.
 fn serve_pending(daemon: &mut Daemon, server: Endpoint, buffer: &mut [u8]) {
     while let Ok(Some(mut message)) = server.poll_recv_with(buffer) {
-        let reply = service::dispatch(daemon, &message).unwrap_or_else(|error| {
-            messenger::services::error_reply(message.interface_id(), message.method(), error)
-        });
+        let reply = api::dispatch(daemon, &message);
         if message.method() == api::METHOD_ADDNETWORK {
             // The request carried a passphrase: wipe both copies of it (the
             // receive buffer and the decoded body) now, not when reused.

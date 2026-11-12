@@ -552,3 +552,89 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(())
     }
 }
+
+#[cfg(feature = "shell_v1_server")]
+/// What a program answering `os.lazy.shell.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// What the shell shows right now: the taskbar's window entries (in
+    /// taskbar order), the focused window, whether the start menu is open, the
+    /// start-menu rows, the desktop icons and the tray items (in bar order,
+    /// docs/tray-plan.md).
+    fn status(&mut self, cx: &libmessenger::server::Caller) -> Result<StatusReply, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Open (`open` true) or close the start menu.
+    fn show_start_menu(&mut self, cx: &libmessenger::server::Caller, open: bool) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, open,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Launch the registry app `app` through `init.Launch` in the shell's
+    /// session, exactly as clicking its start-menu row would (including the
+    /// launch-origin zoom). `ENOENT` when the app is unknown or not shipped.
+    fn launch(&mut self, cx: &libmessenger::server::Caller, app: alloc::string::String) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, app,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Re-read the start menu (`sys/ui/menu` plus installed apps) and the
+    /// desktop icons (the desktop folder, `$HOME/Desktop`, or `sys/ui/desktop`
+    /// without one); returns how many rows each has.
+    fn refresh(&mut self, cx: &libmessenger::server::Caller) -> Result<RefreshReply, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Activate (restore, raise, focus) the window `surface` as a click on its
+    /// taskbar entry would. `ENOENT` when the taskbar has no such entry.
+    fn activate(&mut self, cx: &libmessenger::server::Caller, surface: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, surface,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "shell_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_STATUS if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.status(&cx), |value| encode_status_reply(&value))
+        }
+        METHOD_SHOWSTARTMENU if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_show_start_menu_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.show_start_menu(&cx, args.open), |()| Ok(Vec::new()))
+        }
+        METHOD_LAUNCH if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_launch_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.launch(&cx, args.app), |value| encode_launch_reply(&LaunchReply { pid: value }))
+        }
+        METHOD_REFRESH if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.refresh(&cx), |value| encode_refresh_reply(&value))
+        }
+        METHOD_ACTIVATE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_activate_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.activate(&cx, args.surface), |()| Ok(Vec::new()))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

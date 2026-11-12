@@ -11,6 +11,7 @@
 //! picture's own size), `SHELL:WALLPAPER:FAIL path=<path> <why>`, and
 //! `SHELL:WALLPAPER:NONE` when the setting is cleared.
 
+use crate::trace::{self, Channel};
 use std::io::Read;
 use std::rc::Rc;
 
@@ -48,14 +49,16 @@ impl Wallpaper {
         self.image = None;
         self.dark = None;
         if path.is_empty() {
-            println!("SHELL:WALLPAPER:NONE");
+            trace::line!(Channel::Shell, "WALLPAPER:NONE");
             return had;
         }
         match load(path, screen) {
             Ok((image, size)) => {
-                println!(
-                    "SHELL:WALLPAPER:PASS path={path} size={}x{}",
-                    size.0, size.1
+                trace::line!(
+                    Channel::Shell,
+                    "WALLPAPER:PASS path={path} size={}x{}",
+                    size.0,
+                    size.1
                 );
                 self.dark = mean_rgb(image.pixels(), image.width() as usize, labels, SAMPLE_STEP)
                     .map(|mean| uitheme::text_on(mean) == uitheme::LIGHT_TEXT);
@@ -63,7 +66,7 @@ impl Wallpaper {
                 true
             }
             Err(why) => {
-                println!("SHELL:WALLPAPER:FAIL path={path} {why}");
+                trace::line!(Channel::Shell, "WALLPAPER:FAIL path={path} {why}");
                 had
             }
         }

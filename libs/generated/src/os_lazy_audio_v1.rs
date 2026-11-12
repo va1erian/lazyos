@@ -1097,3 +1097,170 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(())
     }
 }
+
+#[cfg(feature = "audio_v1_server")]
+/// What a program answering `os.lazy.audio.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Describe the card: stream count and the formats, rates and channel
+    /// counts it accepts.
+    fn info(&mut self, cx: &libmessenger::server::Caller) -> Result<AudioInfo, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Open a stream. `dir` and `format` are `Direction` and `Format`
+    /// ordinals (enums travel as `U32`). The reply carries the stream index and
+    /// the granted parameters. The stream is idle until a ring is attached and
+    /// it is started.
+    fn open_stream(&mut self, cx: &libmessenger::server::Caller, dir: u32, format: u32, rate: u32, channels: u32, period_bytes: u32) -> Result<StreamGrant, libmessenger::server::Fault> {
+        let _ = (cx, dir, format, rate, channels, period_bytes,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Attach the stream's sample ring: `ring`, a shared buffer at least
+    /// `periods * period_bytes` bytes long. Fails with `EINVAL` when it is
+    /// shorter and `EBUSY` when a ring is already attached.
+    fn attach_ring(&mut self, cx: &libmessenger::server::Caller, stream: u32, ring: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, stream, ring,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Announce that the client has written up to `written_frames` (a total,
+    /// see the interface notes). Replies with the frames the driver has
+    /// consumed so far.
+    fn commit(&mut self, cx: &libmessenger::server::Caller, stream: u32, written_frames: u64) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, stream, written_frames,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Start (or restart) transfer on a stream with an attached ring.
+    fn start(&mut self, cx: &libmessenger::server::Caller, stream: u32) -> Result<bool, libmessenger::server::Fault> {
+        let _ = (cx, stream,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Stop transfer; committed periods not yet queued to the device are
+    /// discarded. The stream can be started again.
+    fn stop(&mut self, cx: &libmessenger::server::Caller, stream: u32) -> Result<bool, libmessenger::server::Fault> {
+        let _ = (cx, stream,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Play everything committed, then stop. Replies once drained.
+    fn drain(&mut self, cx: &libmessenger::server::Caller, stream: u32) -> Result<bool, libmessenger::server::Fault> {
+        let _ = (cx, stream,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Frames the device has played since the last `Start`.
+    fn position(&mut self, cx: &libmessenger::server::Caller, stream: u32) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, stream,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Close a stream and release its ring. Also implied when the owner exits.
+    fn close_stream(&mut self, cx: &libmessenger::server::Caller, stream: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, stream,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Scale the stream by `gain_q16` (16.16 fixed point: 65536 is unity, 0
+    /// silent, at most 262144, four times unity); larger values fail with
+    /// `EINVAL`. Samples are scaled as they are copied out of the ring and
+    /// saturate instead of wrapping. A driver that cannot scale the granted
+    /// format fails with `ENOTSUP`.
+    fn set_volume(&mut self, cx: &libmessenger::server::Caller, stream: u32, gain_q16: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, stream, gain_q16,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Silence the stream (`mute`) or restore its volume, without losing it.
+    /// A muted stream keeps consuming and its position keeps moving.
+    fn set_mute(&mut self, cx: &libmessenger::server::Caller, stream: u32, mute: bool) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, stream, mute,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "audio_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_INFO if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.info(&cx), |value| encode_info_reply(&InfoReply { info: value }))
+        }
+        METHOD_OPENSTREAM if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_open_stream_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.open_stream(&cx, args.dir, args.format, args.rate, args.channels, args.period_bytes), |value| encode_open_stream_reply(&OpenStreamReply { grant: value }))
+        }
+        METHOD_ATTACHRING if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_attach_ring_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.attach_ring(&cx, args.stream, args.ring), |()| Ok(Vec::new()))
+        }
+        METHOD_COMMIT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_commit_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.commit(&cx, args.stream, args.written_frames), |value| encode_commit_reply(&CommitReply { consumed: value }))
+        }
+        METHOD_START if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_start_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.start(&cx, args.stream), |value| encode_start_reply(&StartReply { ok: value }))
+        }
+        METHOD_STOP if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_stop_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.stop(&cx, args.stream), |value| encode_stop_reply(&StopReply { ok: value }))
+        }
+        METHOD_DRAIN if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_drain_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.drain(&cx, args.stream), |value| encode_drain_reply(&DrainReply { ok: value }))
+        }
+        METHOD_POSITION if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_position_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.position(&cx, args.stream), |value| encode_position_reply(&PositionReply { frames: value }))
+        }
+        METHOD_CLOSESTREAM if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_close_stream_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.close_stream(&cx, args.stream), |()| Ok(Vec::new()))
+        }
+        METHOD_SETVOLUME if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_volume_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set_volume(&cx, args.stream, args.gain_q16), |()| Ok(Vec::new()))
+        }
+        METHOD_SETMUTE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_mute_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set_mute(&cx, args.stream, args.mute), |()| Ok(Vec::new()))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

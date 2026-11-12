@@ -165,10 +165,10 @@ impl App for Fabricmon {
                 self.widgets.show(&self.state, self.refreshes);
                 if !manual && !self.ticked {
                     self.ticked = true;
-                    println!("FABMON:READY:PASS");
+                    trace::pass!(Channel::Fabmon, "READY");
                 }
                 if manual {
-                    println!("FABMON:REFRESH:PASS");
+                    trace::pass!(Channel::Fabmon, "REFRESH");
                 }
             }
             Msg::Show(index) => self.widgets.tabs.get().select(index),
@@ -191,7 +191,7 @@ impl App for Fabricmon {
                 }
                 self.widgets.set_compact(ui, small);
                 let rect = ui.client_rect();
-                println!("FABMON:SIZE:{}x{}", rect.width(), rect.height());
+                trace::line!(Channel::Fabmon, "SIZE:{}x{}", rect.width(), rect.height());
             }
         }
         // Longer values change the labels' natural sizes.
@@ -216,7 +216,8 @@ fn main() {
     xui_app::app(Channel::Fabmon, "fabricmon")
         .size(WINDOW.0, WINDOW.1)
         .min_size(compact::MIN_SIZE.0, compact::MIN_SIZE.1)
-        .run(|ui, backend| {
+        .run(|ui, cx| {
+            let backend = cx.backend();
             let state = State::load();
             let first = state.evidence();
             // The first-frame line carries what was read, so it is the app's.

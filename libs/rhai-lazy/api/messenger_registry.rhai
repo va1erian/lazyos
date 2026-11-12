@@ -54,6 +54,27 @@ fn resolve(name) {
     msg::connect("os.lazy.messenger.registry.v1").invoke("Resolve", [name])
 }
 
+/// `WaitFor(name: String) -> (handle: U64)`
+///
+/// `Resolve`, but a name that is not registered yet is waited for
+/// instead of refused: the call returns when `name` is registered or the
+/// request's deadline passes (`ETIMEDOUT`), and the reply is a `Resolve`
+/// reply, the handle open in the caller's table. Nothing polls: the
+/// kernel parks the caller on the registry and a `Register` of that name
+/// (and no other) wakes it. The name policy that gates `Resolve` is
+/// applied before the wait starts and again when the name appears, so a
+/// waiter learns nothing a `Resolve` would not tell it. A task waits for
+/// one name at a time; the kernel bounds waiters per process and in all
+/// (`EAGAIN`, after which a client degrades to plain `Resolve`s); a
+/// signal ends the wait with `EINTR` (issue it again with the same
+/// deadline) and a killed caller is released at once (`ECANCELED`).
+/// Kernel gate only, for the caller's own table (`EINVAL` for another
+/// target): `messengerd` does not proxy it, since it would park the
+/// daemon.
+fn wait_for(name) {
+    msg::connect("os.lazy.messenger.registry.v1").invoke("WaitFor", [name])
+}
+
 /// `Unregister(name: String) -> ()`
 ///
 /// Withdraw `name`. Only its owner (or an administrator) may.

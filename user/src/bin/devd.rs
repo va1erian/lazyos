@@ -31,12 +31,13 @@ use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use user::trace;
 
+use libmessenger::server::{Caller, Fault};
 use user::central;
 use user::messenger::client::Native;
 use user::messenger::devd::{self as api, wire};
 use user::messenger::services::init::Client as InitClient;
 use user::messenger::services::{self};
-use user::messenger::{self, errno, registry, Endpoint, Error as MsgError, Message, Parcel};
+use user::messenger::{self, errno, registry, Endpoint, Error as MsgError};
 use user::sys;
 
 #[path = "devd/devices.rs"]
@@ -244,9 +245,7 @@ fn serve(server: &Endpoint, bus: &mut Option<central::Bus>, tracked: &mut [Track
     loop {
         match server.recv_with(&mut buffer, Some(next_scan)) {
             Ok(message) => {
-                let reply = dispatch(&message, tracked).unwrap_or_else(|error| {
-                    services::error_reply(message.interface_id(), message.method(), error)
-                });
+                let reply = wire::dispatch(&mut Handler(tracked), &message);
                 if let Some(txn) = message.txn {
                     let _ = server.reply_or_drop(txn, &reply);
                 }
@@ -268,18 +267,12 @@ fn serve(server: &Endpoint, bus: &mut Option<central::Bus>, tracked: &mut [Track
     }
 }
 
-fn dispatch(message: &Message, tracked: &[Tracked]) -> Result<Parcel, MsgError> {
-    if message.interface_id() != api::INTERFACE {
-        return Err(MsgError::Errno(-errno::EINVAL));
-    }
-    match message.method() {
-        wire::METHOD_DEVICES => {
-            let devices = tracked.iter().map(Tracked::record).collect();
-            let body = wire::encode_devices_reply(&wire::DevicesReply { devices })
-                .map_err(MsgError::Parcel)?;
-            Ok(api::parcel(wire::METHOD_DEVICES, body))
-        }
-        _ => Err(MsgError::Errno(-errno::EINVAL)),
+/// The tracked drivers, answering `Devices` (the generated server).
+struct Handler<'a>(&'a [Tracked]);
+
+impl wire::Server for Handler<'_> {
+    fn devices(&mut self, _: &Caller) -> Result<Vec<wire::DeviceState>, Fault> {
+        Ok(self.0.iter().map(Tracked::record).collect())
     }
 }
 

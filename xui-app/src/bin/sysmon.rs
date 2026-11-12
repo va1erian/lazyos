@@ -198,15 +198,17 @@ impl Sysmon {
         if view.complete() {
             if self.reported != Reported::Complete {
                 let (ok, degraded, down) = view.counts();
-                println!(
-                    "SYSMON:SERVICES:PASS services={} ok={ok} degraded={degraded} down={down}",
+                trace::line!(
+                    Channel::Sysmon,
+                    "SERVICES:PASS services={} ok={ok} degraded={degraded} down={down}",
                     view.rows.len()
                 );
                 self.reported = Reported::Complete;
             }
         } else if self.reported == Reported::Nothing {
-            println!(
-                "SYSMON:SERVICES:NONE:init={} healthd={}",
+            trace::line!(
+                Channel::Sysmon,
+                "SERVICES:NONE:init={} healthd={}",
                 view.init_error.unwrap_or(0),
                 view.health_error.unwrap_or(0)
             );
@@ -227,10 +229,10 @@ impl App for Sysmon {
                 }
                 let error = self.reload(ui);
                 if matches!(msg, Msg::Refresh) {
-                    println!("SYSMON:REFRESH:PASS");
+                    trace::pass!(Channel::Sysmon, "REFRESH");
                 }
                 if let Some(code) = error {
-                    println!("SYSMON:SNAPSHOT:FAIL:{code}");
+                    trace::fail!(Channel::Sysmon, "SNAPSHOT", "{code}");
                 }
             }
             Msg::Show(view) => {
@@ -241,13 +243,13 @@ impl App for Sysmon {
                     self.memory = None;
                     self.reload(ui);
                 }
-                println!("SYSMON:VIEW:{}", view.marker());
+                trace::line!(Channel::Sysmon, "VIEW:{}", view.marker());
             }
             Msg::Sort(view) => self.widgets.resort(view),
             Msg::Help => match launcher::open_path(&help_path()) {
-                Ok(()) => println!("SYSMON:HELP:PASS"),
+                Ok(()) => trace::pass!(Channel::Sysmon, "HELP"),
                 Err(error) => {
-                    println!("SYSMON:HELP:FAIL:{error}");
+                    trace::fail!(Channel::Sysmon, "HELP", "{error}");
                     self.widgets
                         .status
                         .get()
@@ -273,7 +275,7 @@ impl App for Sysmon {
                 self.compact = small;
                 self.widgets.set_compact(ui, small);
                 let rect = ui.client_rect();
-                println!("SYSMON:SIZE:{}x{}", rect.width(), rect.height());
+                trace::line!(Channel::Sysmon, "SIZE:{}x{}", rect.width(), rect.height());
             }
         }
         // Longer values change the labels' natural sizes.
@@ -312,7 +314,8 @@ fn main() {
     xui_app::app(Channel::Sysmon, "System Monitor")
         .size(WINDOW.0, WINDOW.1)
         .min_size(compact::MIN_SIZE.0, compact::MIN_SIZE.1)
-        .run(|ui, backend| {
+        .run(|ui, cx| {
+            let backend = cx.backend();
             let first = evidence(&sysinfo::snapshot());
             // The first-frame lines carry what was read, so they are the app's.
             backend.on_first_frame(move || {

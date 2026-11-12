@@ -47,6 +47,8 @@ struct State {
     next_generation: u64,
     script: VecDeque<Result<Parcel, CallFailure>>,
     resolves: Vec<(String, Deadline)>,
+    /// Names that appear while a resolve waits for them.
+    appearing: Vec<String>,
     calls: Vec<Recorded>,
     released: Vec<Handle>,
 }
@@ -103,6 +105,13 @@ impl Mock {
                 service.alive = false;
             }
         }
+    }
+
+    /// `name` registers while a resolve waits for it (a resolve with any
+    /// deadline but [`Deadline::Poll`], as the kernel's `WaitFor` would
+    /// return when the service starts), once.
+    pub fn registers_when_waited_for(&self, name: &str) {
+        self.state.borrow_mut().appearing.push(name.to_string());
     }
 
     /// The registration of `name` is reaped: a resolve fails with `ENOENT`.
@@ -181,14 +190,33 @@ impl Transport for Mock {
     }
 
     fn resolve(&self, name: &str, until: Deadline) -> Result<Handle, Errno> {
+        let waits = until != Deadline::Poll;
+        let appears = {
+            let mut state = self.state.borrow_mut();
+            state.resolves.push((name.to_string(), until));
+            let known = state.services.iter().any(|service| service.name == name);
+            let late = state.appearing.iter().position(|late| late == name);
+            match late {
+                Some(index) if waits && !known => {
+                    state.appearing.remove(index);
+                    true
+                }
+                _ => false,
+            }
+        };
+        if appears {
+            self.register(name);
+        }
         let mut state = self.state.borrow_mut();
-        state.resolves.push((name.to_string(), until));
+        // The kernel's wait ends with the timeout where a plain resolve is
+        // `ENOENT`.
+        let missing = if waits { Errno::TIMEDOUT } else { Errno::NOENT };
         let generation = state
             .services
             .iter()
             .find(|service| service.name == name)
             .map(|service| service.generation)
-            .ok_or(Errno::NOENT)?;
+            .ok_or(missing)?;
         state.next_handle += 1;
         let handle = state.next_handle;
         state.handles.push((handle, name.to_string(), generation));

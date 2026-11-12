@@ -62,6 +62,9 @@ pub mod op {
     /// completion queue (issue #725): up to `buf_cap / 8` words, `value` the
     /// count.
     pub const CALL_DRAIN: u64 = 26;
+    /// `Resolve` that parks until the name registers or `deadline` (absolute
+    /// PIT tick, `0` for ever) passes; `value` is the new handle.
+    pub const WAIT_FOR: u64 = 27;
     /// Create a shared buffer of `parcel_len` bytes, mapped into the caller
     /// (`docs/messenger-core-plan.md` 3.4): `value` is the handle, `aux`
     /// the address, `bytes` the size.

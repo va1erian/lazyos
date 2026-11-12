@@ -3,6 +3,7 @@
 
 use xui_core::app::Ui;
 use xui_core::{Key, Modifiers};
+use xui_app::trace::{self, Channel};
 
 use super::chords::chord_bytes;
 use super::scroll::key_move;
@@ -75,7 +76,7 @@ impl Terminal {
         self.typed.clear();
         if !line.is_empty() {
             self.perf.submitted(&self.paint_clock);
-            println!("TERM:CMD:{line}");
+            trace::line!(Channel::Term, "CMD:{line}");
             self.evidence.submitted(line);
         }
     }

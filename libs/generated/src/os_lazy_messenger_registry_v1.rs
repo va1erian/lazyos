@@ -109,6 +109,13 @@ pub const METHOD_RESOLVE_DEADLINE: libmessenger::client::Deadline = libmessenger
 /// Whether a client resends `Resolve` to a restarted service after the peer died
 /// handling it (`retry` in the `.midl`; `Never` unless stated).
 pub const METHOD_RESOLVE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
+/// `WaitFor` method id.
+pub const METHOD_WAITFOR: u32 = 1225377743;
+/// How long a client waits for `WaitFor`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_WAITFOR_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `WaitFor` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_WAITFOR_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Connect` method id.
 pub const METHOD_CONNECT: u32 = 1535748249;
 /// How long a client waits for `Connect`'s reply: at most 5000 ms (`deadline` in the `.midl`).
@@ -254,6 +261,65 @@ pub fn encode_resolve_reply(value: &ResolveReply) -> Result<Vec<u8>, Error> {
 
 pub fn decode_resolve_reply(body: &[u8]) -> Result<ResolveReply, Error> {
     let mut out = ResolveReply::default();
+    let mut decoder = Decoder::new(body);
+    while let Some(field) = decoder.next()? {
+        if field.id == 1 {
+            out.handle = field.as_u64()?;
+        }
+    }
+    Ok(out)
+}
+
+/// `Resolve`, but a name that is not registered yet is waited for
+/// instead of refused: the call returns when `name` is registered or the
+/// request's deadline passes (`ETIMEDOUT`), and the reply is a `Resolve`
+/// reply, the handle open in the caller's table. Nothing polls: the
+/// kernel parks the caller on the registry and a `Register` of that name
+/// (and no other) wakes it. The name policy that gates `Resolve` is
+/// applied before the wait starts and again when the name appears, so a
+/// waiter learns nothing a `Resolve` would not tell it. A task waits for
+/// one name at a time; the kernel bounds waiters per process and in all
+/// (`EAGAIN`, after which a client degrades to plain `Resolve`s); a
+/// signal ends the wait with `EINTR` (issue it again with the same
+/// deadline) and a killed caller is released at once (`ECANCELED`).
+/// Kernel gate only, for the caller's own table (`EINVAL` for another
+/// target): `messengerd` does not proxy it, since it would park the
+/// daemon.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WaitForArgs {
+    pub name: alloc::string::String,
+}
+
+pub fn encode_wait_for_args(value: &WaitForArgs) -> Result<Vec<u8>, Error> {
+    let mut target = Encoder::new();
+    target.string(1, &value.name)?;
+    Ok(target.finish())
+}
+
+pub fn decode_wait_for_args(body: &[u8]) -> Result<WaitForArgs, Error> {
+    let mut out = WaitForArgs::default();
+    let mut decoder = Decoder::new(body);
+    while let Some(field) = decoder.next()? {
+        if field.id == 1 {
+            out.name = field.as_str()?.into();
+        }
+    }
+    Ok(out)
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WaitForReply {
+    pub handle: u64,
+}
+
+pub fn encode_wait_for_reply(value: &WaitForReply) -> Result<Vec<u8>, Error> {
+    let mut target = Encoder::new();
+    target.u64(1, value.handle)?;
+    Ok(target.finish())
+}
+
+pub fn decode_wait_for_reply(body: &[u8]) -> Result<WaitForReply, Error> {
+    let mut out = WaitForReply::default();
     let mut decoder = Decoder::new(body);
     while let Some(field) = decoder.next()? {
         if field.id == 1 {
@@ -510,6 +576,39 @@ impl<T: libmessenger::client::Transport> Client<T> {
             .call(INTERFACE_ID, METHOD_RESOLVE, wire_body, wire_objects, within, METHOD_RESOLVE_RETRY)
             ?;
         let reply = decode_resolve_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.handle)
+    }
+
+    /// `Resolve`, but a name that is not registered yet is waited for
+    /// instead of refused: the call returns when `name` is registered or the
+    /// request's deadline passes (`ETIMEDOUT`), and the reply is a `Resolve`
+    /// reply, the handle open in the caller's table. Nothing polls: the
+    /// kernel parks the caller on the registry and a `Register` of that name
+    /// (and no other) wakes it. The name policy that gates `Resolve` is
+    /// applied before the wait starts and again when the name appears, so a
+    /// waiter learns nothing a `Resolve` would not tell it. A task waits for
+    /// one name at a time; the kernel bounds waiters per process and in all
+    /// (`EAGAIN`, after which a client degrades to plain `Resolve`s); a
+    /// signal ends the wait with `EINTR` (issue it again with the same
+    /// deadline) and a killed caller is released at once (`ECANCELED`).
+    /// Kernel gate only, for the caller's own table (`EINVAL` for another
+    /// target): `messengerd` does not proxy it, since it would park the
+    /// daemon.
+    ///
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
+    pub fn wait_for(&self, name: &str) -> Result<u64, ClientError> {
+        self.wait_for_within(name, METHOD_WAITFOR_DEADLINE)
+    }
+
+    /// [`Self::wait_for`] with the caller's deadline instead of the IDL's.
+    pub fn wait_for_within(&self, name: &str, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let wire_body = encode_wait_for_args(&WaitForArgs { name: name.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_WAITFOR, wire_body, wire_objects, within, METHOD_WAITFOR_RETRY)
+            ?;
+        let reply = decode_wait_for_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.handle)
     }
 

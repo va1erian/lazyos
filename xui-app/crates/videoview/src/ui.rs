@@ -9,12 +9,14 @@ use xui_core::arrange::{
     build, column, slider, status_bar, toolbar, Build, Handle, LayoutExt, Mounted,
 };
 use xui_core::backend::Result;
-use xui_core::widget::{Dialog, FileDialog, Lucide, Slider, StatusBar, Toolbar};
+use xui_core::widget::{FileDialog, Lucide, Slider, StatusBar, Toolbar};
 use xui_core::Dip;
 
 use crate::app::Msg;
-use crate::host::Host;
 use crate::view::VideoView;
+use xui_host::dialogs::open_dialog;
+use xui_host::error::ErrorDialog;
+use xui_host::AppHost;
 
 const TOOLBAR_HEIGHT: Dip = Dip(36.0);
 const SEEK_HEIGHT: Dip = Dip(28.0);
@@ -35,7 +37,7 @@ pub struct Widgets {
 
 pub struct Dialogs {
     pub open: FileDialog<Msg>,
-    pub message: Dialog<Msg>,
+    pub message: ErrorDialog<Msg>,
 }
 
 impl Dialogs {
@@ -53,21 +55,17 @@ fn commands() -> Build<Toolbar<Msg>, Msg> {
         .then(|bar| bar.on_click(|index| COMMANDS.get(index).map(|msg| msg())))
 }
 
-fn dialogs(ui: &Ui<Msg>, host: &Host) -> Result<Dialogs> {
-    let open = FileDialog::open_file(ui, "Open video")?
-        .file_system(Rc::clone(&host.file_system))
-        .initial_dir(host.start_dir.clone())
-        .require_existing(true)
-        .filter("Video files", &["avi"])
-        .filter("All files", &[])
-        .on_cancel(|| Some(Msg::DialogClosed))
-        .on_accept(|path| Some(Msg::OpenChosen(path)));
-    let message = Dialog::message(ui, "Video Player", "")?.on_action(|_| Some(Msg::DialogClosed));
+fn dialogs(ui: &Ui<Msg>, host: &dyn AppHost) -> Result<Dialogs> {
+    let open = open_dialog(ui, host, "Open video", &[("Video files", &["avi"])], || {
+        Some(Msg::DialogClosed)
+    })?
+    .on_accept(|path| Some(Msg::OpenChosen(path)));
+    let message = ErrorDialog::new(ui, "Video Player", || Some(Msg::DialogClosed))?;
     Ok(Dialogs { open, message })
 }
 
 /// Builds the window and mounts it.
-pub fn build_window(ui: &Ui<Msg>, host: &Host) -> Result<(Widgets, Dialogs)> {
+pub fn build_window(ui: &Ui<Msg>, host: &dyn AppHost) -> Result<(Widgets, Dialogs)> {
     let (view, seek, status) = (Handle::new(), Handle::new(), Handle::new());
     let dialogs = dialogs(ui, host)?;
     let root = column().children((

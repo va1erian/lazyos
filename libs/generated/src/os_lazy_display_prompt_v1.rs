@@ -130,3 +130,45 @@ pub fn decode_prompt_reply(body: &[u8]) -> Result<PromptReply, Error> {
 /// and the declared kinds, in object-list order.
 pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
 ];
+
+#[cfg(feature = "display_prompt_v1_server")]
+/// What a program answering `os.lazy.display.prompt.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Show the prompt for `summary` (what would change), asked by the task
+    /// of `uid` (`user`) under kernel label `label_id`, and wait for the
+    /// person at the screen. `admin` pre-fills the name field (the asker,
+    /// when it is an administrator); `error` is shown above the fields (a
+    /// retry after a refused password). The reply comes when they answer:
+    /// `outcome` is a `PromptOutcome`, with `name` and `secret` when
+    /// approved.
+    fn prompt(&mut self, cx: &libmessenger::server::Caller, summary: alloc::string::String, uid: u32, user: alloc::string::String, label_id: u32, admin: alloc::string::String, error: alloc::string::String) -> Result<PromptReply, libmessenger::server::Fault> {
+        let _ = (cx, summary, uid, user, label_id, admin, error,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "display_prompt_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_PROMPT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_prompt_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.prompt(&cx, args.summary, args.uid, args.user, args.label_id, args.admin, args.error), |value| encode_prompt_reply(&value))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

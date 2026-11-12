@@ -115,7 +115,7 @@ pub fn page_choice(app: &mut Writer, index: usize) {
 
 /// The selection or its formatting changed: update the toolbar.
 pub fn selection(app: &mut Writer, summary: StyleSummary) {
-    app.tools.sync(&summary, &app.host);
+    app.tools.sync(&summary, &app.services);
     app.summary = Some(summary);
     // `StyleSummary` has no wrap: read the selected image's from the document.
     let image = match app.editor.selection() {
@@ -138,7 +138,7 @@ pub fn format(app: &mut Writer, command: Command) {
     app.editor.exec(command);
     app.editor.focus();
     if let Some(summary) = &app.summary {
-        app.tools.sync(summary, &app.host);
+        app.tools.sync(summary, &app.services);
     }
 }
 
@@ -154,8 +154,8 @@ pub fn block(app: &mut Writer, index: usize) {
 
 pub fn family(app: &mut Writer, index: usize) {
     let family = match index {
-        1 => Some(app.host.serif_family.clone()),
-        2 => Some(app.host.mono_family.clone()),
+        1 => Some(app.services.serif_family.clone()),
+        2 => Some(app.services.mono_family.clone()),
         _ => None,
     };
     debug_assert!(index < FAMILIES.len());

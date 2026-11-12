@@ -9,6 +9,8 @@ pub mod errno {
     pub const EPERM: i64 = 1;
     /// No such object (unused or invalid handle/transaction).
     pub const ENOENT: i64 = 2;
+    /// A signal ended a wait that the caller may re-issue.
+    pub const EINTR: i64 = 4;
     /// The argument list is too long (parcel over the wire limit).
     pub const E2BIG: i64 = 7;
     /// Operation would block (queue full, quota exhausted).
@@ -169,6 +171,14 @@ pub const OP_CALL_CHECK: u64 = 25;
 /// [`OP_WAIT`]): oldest first, `value` the count. An empty queue is a
 /// success with `value` 0. A kernel ABI op: words cross, not parcels.
 pub const OP_CALL_DRAIN: u64 = 26;
+
+/// `Resolve` that waits for the name to register (`WaitFor`,
+/// `idl/registry.midl`): the request parcel is a `WaitFor`, `deadline` the
+/// absolute PIT tick it may wait until (`0`: for ever), `value` the caller's
+/// new handle. `ETIMEDOUT` at the deadline, `ECANCELED` for a task being
+/// killed, `EAGAIN` when the kernel's waiter table is full; the name policy
+/// of [`OP_RESOLVE`] applies before the wait and again when the name appears.
+pub const OP_WAIT_FOR: u64 = 27;
 
 /// `MsgArgs::txn_id` marker for registry ops: act on the calling task.
 pub const REGISTRY_TARGET_SELF: u64 = u64::MAX;

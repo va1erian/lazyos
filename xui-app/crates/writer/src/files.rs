@@ -6,7 +6,7 @@
 //! Every input is untrusted. Reads are capped ([`MAX_DOCUMENT_BYTES`],
 //! [`MAX_IMAGE_BYTES`]), a picture's header is checked before it is decoded,
 //! and every failure comes back as an [`OpenError`] or a message, never a
-//! panic. Writes go through the [`Host`]'s writer (atomic on LazyOS).
+//! panic. Writes go through the host's writer (atomic on LazyOS).
 
 use std::cell::{Cell, RefCell};
 use std::path::Path;
@@ -18,11 +18,11 @@ use xui_core::image::Image;
 use xui_rich_text::format::{FormatError, ImageExport, from_json, to_json, to_markdown};
 use xui_rich_text::model::{Document, InlineImage, Wrap};
 
-use crate::host::Host;
 use crate::names::{
     self, MAX_DOCUMENT_BYTES, MAX_IMAGE_BYTES, ReadError, image_entry, images_folder,
 };
 use crate::probe;
+use xui_host::{AppHost, SharedHost};
 
 /// The widest an inserted picture is shown, in design units.
 pub const MAX_IMAGE_WIDTH: f32 = 360.0;
@@ -64,14 +64,14 @@ pub fn open_document(path: &Path) -> Result<Document, OpenError> {
 }
 
 /// Saves `doc` to `path` in the native format.
-pub fn save_document(host: &Host, path: &Path, doc: &Document) -> Result<(), String> {
-    (host.write)(path, to_json(doc).as_bytes())
+pub fn save_document(host: &dyn AppHost, path: &Path, doc: &Document) -> Result<(), String> {
+    host.write(path, to_json(doc).as_bytes())
 }
 
 /// Writes `doc` as Markdown to `path`. Its pictures are saved as PNGs in
 /// `<stem>_images/` beside it (created only when there is one) and linked
 /// relatively.
-pub fn export_markdown(host: &Host, path: &Path, doc: &Document) -> Result<(), String> {
+pub fn export_markdown(host: &SharedHost, path: &Path, doc: &Document) -> Result<(), String> {
     let dir = images_folder(path);
     let count = Rc::new(Cell::new(0usize));
     let failure: Rc<RefCell<Option<String>>> = Rc::default();
@@ -79,7 +79,7 @@ pub fn export_markdown(host: &Host, path: &Path, doc: &Document) -> Result<(), S
     let (counter, error, writer, md) = (
         Rc::clone(&count),
         Rc::clone(&failure),
-        Rc::clone(&host.write),
+        Rc::clone(host),
         path.to_path_buf(),
     );
     let export = ImageExport::Callback(Box::new(move |image, _alt| {
@@ -87,7 +87,7 @@ pub fn export_markdown(host: &Host, path: &Path, doc: &Document) -> Result<(), S
         let (name, link) = image_entry(&md, counter.get());
         let written = images_dir(&dir)
             .and_then(|()| image.encode_png().map_err(|e| e.to_string()))
-            .and_then(|png| writer(&dir.join(&name), &png));
+            .and_then(|png| writer.write(&dir.join(&name), &png));
         if let Err(e) = written {
             error.borrow_mut().get_or_insert(e);
         }
@@ -97,7 +97,7 @@ pub fn export_markdown(host: &Host, path: &Path, doc: &Document) -> Result<(), S
     if let Some(error) = failure.borrow_mut().take() {
         return Err(error);
     }
-    (host.write)(path, markdown.as_bytes())
+    host.write(path, markdown.as_bytes())
 }
 
 /// Creates the export's images folder `dir`, refusing one that is a

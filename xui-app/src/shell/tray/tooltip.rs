@@ -5,6 +5,7 @@
 //!
 //! Serial: `SHELL:TRAY:TOOLTIP app=<id>`.
 
+use crate::trace::{self, Channel};
 use std::rc::Rc;
 
 use lazyshell::taskbar::BAR_H;
@@ -107,7 +108,7 @@ fn open<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>, app: String, cell: lazyshell::Rec
     let built = Rc::clone(ctx);
     match ui.open_window(spec, move |ui| Tip::build(built, text, ui)) {
         Ok(handle) => {
-            println!("SHELL:TRAY:TOOLTIP app={app}");
+            trace::line!(Channel::Shell, "TRAY:TOOLTIP app={app}");
             *ctx.tray.tooltip.borrow_mut() = Some(Open { app, handle });
         }
         Err(error) => ctx.note("tray-tooltip", || {

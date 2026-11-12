@@ -1024,3 +1024,148 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(reply.status)
     }
 }
+
+#[cfg(feature = "net_wifi_v1_server")]
+/// What a program answering `os.lazy.net.wifi.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// The wireless interfaces `wlanmd` manages, by name (`wlan0`).
+    fn interfaces(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Ask for a fresh scan; returns at once, the results arrive on
+    /// `system/net/{ifname}/wifi/scan`. `ssids` are hidden networks to probe
+    /// for (at most 4); empty is a wildcard scan. A scan is refused while one
+    /// is under way (`EBUSY`) and may be skipped while the link is busy with
+    /// the handshake.
+    fn scan(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String, ssids: alloc::vec::Vec<alloc::string::String>) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, ifname, ssids,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The current scan results merged with the known profiles: one entry per
+    /// network (SSID and security), strongest BSS first, with the profile id
+    /// when the caller may use a known network. Profiles of other users are
+    /// not shown. At most 128 entries.
+    fn networks(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String) -> Result<alloc::vec::Vec<Network>, libmessenger::server::Fault> {
+        let _ = (cx, ifname,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Remember a network; `scope` is a `Scope` ordinal. Scope `User`: the
+    /// caller's network and its secret; `profile.id` must be empty (the
+    /// service picks one and returns it), and the passphrase is required for
+    /// `Wpa2Psk` (8 to 63 octets of UTF-8 without control characters, or
+    /// exactly 64 hex digits for a raw PSK) and absent for `Open`. Scope
+    /// `System` (from `elevd` alone): only the profile, under the id
+    /// `profile.id` names (`w` and 12 lowercase hex digits), whose secret
+    /// `elevd` already stored in `keyd` under that id; the passphrase must be
+    /// absent. Does not connect. `EEXIST` for the same SSID and scope (or the
+    /// same id); `EINVAL` for a bad SSID (1 to 32 bytes), id, security or
+    /// passphrase, or a name that matches several heard networks; `EPERM` for
+    /// scope `System` from anyone but `elevd`; `ENOSPC` past 32 networks for
+    /// one owner.
+    fn add_network(&mut self, cx: &libmessenger::server::Caller, profile: Profile, passphrase: core::option::Option<alloc::string::String>) -> Result<alloc::string::String, libmessenger::server::Fault> {
+        let _ = (cx, profile, passphrase,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Join the network `id` on `ifname`: leave the current one, scan if the
+    /// SSID is not in the results, pick the best BSS, authenticate, associate
+    /// and run the handshake. Returns when the attempt is started; the
+    /// outcome is on `system/net/{ifname}/wifi/state` (`Connected` or
+    /// `Failed` with a reason). A user network belongs to its owner: another
+    /// user gets `EPERM`.
+    fn connect(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String, id: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, ifname, id,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Leave the current network and do not reconnect until asked (auto-
+    /// connect is suspended for this interface until the next `Connect`).
+    /// Not an error when not connected.
+    fn disconnect(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, ifname,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Delete a profile and its secret. Disconnects first if it is the
+    /// current network. Not an error for an id that is gone.
+    fn forget(&mut self, cx: &libmessenger::server::Caller, id: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, id,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The interface's state now: the same value the retained `state` topic
+    /// carries, for a client that does not subscribe.
+    fn status(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String) -> Result<WifiState, libmessenger::server::Fault> {
+        let _ = (cx, ifname,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "net_wifi_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_INTERFACES if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.interfaces(&cx), |value| encode_interfaces_reply(&InterfacesReply { names: value }))
+        }
+        METHOD_SCAN if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_scan_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.scan(&cx, args.ifname, args.ssids), |()| Ok(Vec::new()))
+        }
+        METHOD_NETWORKS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_networks_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.networks(&cx, args.ifname), |value| encode_networks_reply(&NetworksReply { list: value }))
+        }
+        METHOD_ADDNETWORK if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_add_network_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.add_network(&cx, args.profile, args.passphrase), |value| encode_add_network_reply(&AddNetworkReply { id: value }))
+        }
+        METHOD_CONNECT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_connect_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.connect(&cx, args.ifname, args.id), |()| Ok(Vec::new()))
+        }
+        METHOD_DISCONNECT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_disconnect_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.disconnect(&cx, args.ifname), |()| Ok(Vec::new()))
+        }
+        METHOD_FORGET if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_forget_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.forget(&cx, args.id), |()| Ok(Vec::new()))
+        }
+        METHOD_STATUS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_status_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.status(&cx, args.ifname), |value| encode_status_reply(&StatusReply { status: value }))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

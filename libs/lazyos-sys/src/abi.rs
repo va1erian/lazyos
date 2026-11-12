@@ -15,7 +15,7 @@
 /// The ABI a kernel built from this tree provides, and the newest one a
 /// program built from it may use. Bumped by one with any change to the frozen
 /// table (a new entry or a removal).
-pub const KERNEL_ABI: u32 = 1;
+pub const KERNEL_ABI: u32 = 2;
 
 /// The oldest ABI a kernel built from this tree still serves: programs built
 /// for `KERNEL_ABI_COMPAT_FROM..=KERNEL_ABI` run on it. It moves up only when

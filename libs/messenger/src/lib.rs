@@ -26,6 +26,7 @@ pub mod errno;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
 mod parcel;
+pub mod server;
 #[cfg(test)]
 mod tests;
 mod tlv;

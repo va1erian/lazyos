@@ -67,6 +67,7 @@ struct Shared {
 /// The threads drawing one document.
 pub struct Pool {
     shared: Arc<Shared>,
+    started: bool,
 }
 
 impl Pool {
@@ -77,18 +78,22 @@ impl Pool {
             queue: Mutex::new(Queue::default()),
             wake: Condvar::new(),
         });
+        let mut started = false;
         for n in 0..threads.max(1) {
             let (doc, shared, tx) = (Arc::clone(&doc), Arc::clone(&shared), results.clone());
             let spawned = std::thread::Builder::new()
                 .name(format!("pdf-render-{n}"))
                 .spawn(move || work(&doc, &shared, epoch, &tx));
-            if spawned.is_err() && n == 0 {
-                // Without a single thread nothing would ever draw; the window
-                // shows blank pages rather than hang, and says why.
-                eprintln!("PDF:WORKER:FAIL");
-            }
+            started |= spawned.is_ok();
         }
-        Pool { shared }
+        Pool { shared, started }
+    }
+
+    /// Whether at least one render thread started. Without one nothing would
+    /// ever draw; the window shows blank pages rather than hang, and the
+    /// viewer says why (`PDF:WORKER:FAIL`).
+    pub fn started(&self) -> bool {
+        self.started
     }
 
     /// How many threads suit this machine: all but one CPU, at most four.

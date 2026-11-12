@@ -264,6 +264,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "atomicfile"
+version = "0.1.0"
+
+[[package]]
 name = "audioclient"
 version = "0.1.0"
 dependencies = [
@@ -2333,6 +2337,7 @@ version = "0.1.0"
 name = "lazyhttps"
 version = "0.1.0"
 dependencies = [
+ "fhs",
  "nettls-crypto",
  "rcgen",
  "rustls",
@@ -2386,6 +2391,7 @@ dependencies = [
 name = "lazysky-core"
 version = "0.1.0"
 dependencies = [
+ "atomicfile",
  "image",
  "lazyhttps",
  "nettls-crypto",
@@ -3554,6 +3560,7 @@ dependencies = [
 name = "printd"
 version = "0.1.0"
 dependencies = [
+ "atomicfile",
  "ipp",
  "printd",
 ]
@@ -5811,6 +5818,7 @@ name = "xui-app"
 version = "0.1.0"
 dependencies = [
  "accountdb",
+ "atomicfile",
  "audioclient",
  "confd",
  "cursorgfx",
@@ -5819,6 +5827,7 @@ dependencies = [
  "devtool",
  "fhs",
  "inputmap",
+ "lazydownloads",
  "lazyicons",
  "lazymotion",
  "lazyos-sys",
@@ -5833,6 +5842,7 @@ dependencies = [
  "netstack",
  "printd",
  "rhai-lazy",
+ "serde",
  "surfbuf",
  "svcpolicy",
  "timezone",
@@ -5849,6 +5859,7 @@ dependencies = [
  "xui-cursored",
  "xui-explorer",
  "xui-golf",
+ "xui-host",
  "xui-icons",
  "xui-markdown",
  "xui-nes",
@@ -5878,6 +5889,7 @@ dependencies = [
  "lazyarc",
  "xui-canvas",
  "xui-core",
+ "xui-host",
  "xui-work",
 ]
 
@@ -5910,6 +5922,7 @@ dependencies = [
 name = "xui-code-editor"
 version = "0.1.0"
 dependencies = [
+ "atomicfile",
  "regex",
  "rhai",
  "ropey",
@@ -5926,6 +5939,7 @@ dependencies = [
  "messenger-generated",
  "xui-canvas",
  "xui-core",
+ "xui-host",
 ]
 
 [[package]]
@@ -5991,6 +6005,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "xui-host"
+version = "0.1.0"
+dependencies = [
+ "confd",
+ "serde",
+ "serde_json",
+ "xui-core",
+ "xui-work",
+]
+
+[[package]]
 name = "xui-icons"
 version = "0.1.0"
 source = "git+https://github.com/va1erian/xui?rev=832c61f29419bf31a0518a47e050b15c97b316e3#832c61f29419bf31a0518a47e050b15c97b316e3"
@@ -6002,6 +6027,7 @@ dependencies = [
 name = "xui-lazyweb"
 version = "0.1.0"
 dependencies = [
+ "atomicfile",
  "fhs",
  "fuzzkit",
  "lazyadblock",
@@ -6027,8 +6053,7 @@ dependencies = [
  "esmail-glue",
  "fhs",
  "keyring",
- "nettls-crypto",
- "rustls",
+ "lazyhttps",
  "secrecy",
  "sha2",
  "xui-app",
@@ -6055,6 +6080,7 @@ dependencies = [
  "tetanes-core",
  "xui-canvas",
  "xui-core",
+ "xui-host",
 ]
 
 [[package]]
@@ -6062,6 +6088,8 @@ name = "xui-paint"
 version = "0.0.0"
 dependencies = [
  "cosmic-text",
+ "crc32fast",
+ "flate2",
  "tiny-skia",
  "xui-app-testkit",
  "xui-canvas",
@@ -6075,6 +6103,7 @@ dependencies = [
  "lazypdf",
  "xui-canvas",
  "xui-core",
+ "xui-host",
  "xui-work",
 ]
 
@@ -6116,6 +6145,7 @@ dependencies = [
  "uitheme",
  "xui-canvas",
  "xui-core",
+ "xui-host",
  "xui-work",
 ]
 
@@ -6126,6 +6156,7 @@ dependencies = [
  "lazyvideo",
  "xui-canvas",
  "xui-core",
+ "xui-host",
 ]
 
 [[package]]
@@ -6200,6 +6231,7 @@ dependencies = [
  "raster",
  "xui-canvas",
  "xui-core",
+ "xui-host",
  "xui-rich-text",
 ]
 

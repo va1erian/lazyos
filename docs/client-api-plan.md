@@ -388,6 +388,55 @@ authorization stays in the handler but never parses anything. This removes
 the 469 dispatch arms, the 16 `error_reply` builders and the per-module
 `fn parcel`; `timed`'s handler shrinks to its six method bodies.
 
+As built (C4): the trait is `Server` in each interface module, behind the
+feature `<iface>_server`, over the runtime seam `libmessenger::server`, so the
+generated crate still depends on `libmessenger` alone and one `dispatch`
+serves both runtimes:
+
+* `Incoming` (what a received message offers: `interface_id`, `method`,
+  `caller`, `decode`) is implemented by `user::messenger::Message` and
+  `xui_app::server::Request`; a host test implements it for a mock.
+* `Caller { uid, gid, caps, label_id, session, sender }` is what the kernel
+  stamped when the message was queued; `sender` is the task slot, for
+  addressing a per-client table only. Authorization stays in the handler; no
+  `requires` attribute was added, because the checks that repeat (`CAP_SETUID`
+  and unlabelled, `elevd` by identity, root only) take different shapes per
+  daemon and a declared form would have hidden what they compare.
+* `Fault { code, message, domain, hint, docs }` carries the errno or declared
+  code, the sentence and the optional detail record. `From<Errno>`; each
+  interface with `errors` gets `From<ServiceError>` (the doc line of the error
+  is its sentence); `user` adds `From<messenger::Error>` so `?` on a Messenger
+  call answers what the hand-written `error_reply` did.
+* A method returns `Result<T, Fault>`: `()` for no reply field, the field's
+  type for one, the `XxxReply` struct for several (the shapes the client
+  returns). A `oneway` method returns `()`. Every method has a default body
+  that answers `ENOSYS`, so a daemon that serves part of an interface
+  implements that part.
+* `dispatch(&mut S, &impl Incoming) -> Parcel` answers `EINVAL` for another
+  interface (or a scoped method on the wrong scope id), `ENOSYS` for an
+  undeclared method, `EINVAL` for a body that does not decode (objects stay
+  with the message and close when it drops; a decoded request's objects are
+  the handler's to close on a refusal) and `EIO` for a reply that does not
+  encode. A runtime sends the parcel only when the message was a call (a
+  `oneway` method yields an empty parcel nobody sends).
+* Interfaces that are kernel ACL scopes or policy loaders, and the
+  kernel-served registry, get no server. Tests:
+  `libs/generated/tests/server.rs` (mock message, faults, objects, scopes,
+  oneway, client to server through `Mock`), `tools/midlc/test_midlc_server.py`.
+
+Migrated (native `user`): `timed`, `mimed`, `pkgd`, `confd`, `mountd`,
+`accountsd`, `logd`, `sysmond`, `devd`, `gpud`, `elevd`, `keyd` (both of its
+interfaces), `clipboardd`, `sndd`, `usbd` (audio function), `netdrv`, `wlanmd`
+(the wifi interface) and the radio runtime (`user::wifi`: hw and nic); std
+(`xui-app`): `printd`, the shell, notify and tray services. Not migrated, and
+why: `init`, `healthd` (they also serve the topics router, stage C5), `netd`
+(replies parked until a socket is ready), `xuid` (compositor requests that
+answer later and carry surface state), `inputd` (two interfaces with one-way
+twins and a hub that owns the compositor link), `audiod` and `libs/audiomix`
+(the pure `Outcome::DrainPending` layer its host tests drive), `logind`
+(`After` actions beyond the reply) and `webd` (the quota and slot checks sit
+between decode and act; a generated dispatch must not move them).
+
 ### 3.4 One transport, one connection, one error type
 
 In `libmessenger` (no_std):
@@ -414,14 +463,21 @@ states the flags its calls carry: native calls send none, so the kernel still
 refuses one that would close a wait cycle, and the std runtime's UI loops send
 `ALLOW_NESTED` as before.
 
-Waiting for a service that has not registered yet should block on the
-registry, not sleep. The kernel-served registry (`idl/registry.midl`) has no
-way to wait for a name, so after C1 each transport still polls inside
-`resolve` for its one runtime bound (10 s; 10 ms sleeps in std, one tick
-natively), the only polling loop per runtime. Stage C1b adds the wait (a
-retained `system/registry/registered/{name}` topic, or a `WaitFor(name)`
-method answered when the name appears), so the "never poll on a timer" rule
-holds here too. `Errno` is a named newtype
+Waiting for a service that has not registered yet blocks on the registry, it
+does not sleep. **Built in C1b:** the registry method `WaitFor(name)`
+(`idl/registry.midl`, op `WAIT_FOR` 27, frozen ABI 2) is a `Resolve` whose
+caller the kernel parks until a `Register` of that name or the call's
+deadline (`ETIMEDOUT`), and both transports' `resolve` call it with the
+10 s connect bound; `Deadline::Poll` stays one plain `Resolve`. The sleep
+and `park_tick` loops are gone, so the "never poll on a timer" rule holds
+here too. A retained topic was not chosen: it would need a subscription, a
+bell and a race-free "already registered" read, where one parked syscall
+re-checks the table itself. The kernel side (`kernel/src/ipc/registry/
+wait.rs`) takes a ticket in the registry's waiter table before the first
+look (no lost wake-up), wakes only the waiters of the registered name after
+the registry lock is released, re-applies the caller's name policy when the
+name appears, and bounds waiters at one per task, 16 per process and 512 in all, 128 of them reserved for platform tasks, i.e. no label and no login session (a user's own programs share the open part; many same-uid processes can still fill it) (`EAGAIN`, on which both transports fall back to plain `Resolve` retries, the only sleep left); a signal ends the wait with `EINTR` and the transports run an interrupt hook (std: `sched_yield`, because an `int 0x80` return never lays out a Linux handler frame) and re-issue it with the same deadline (`libmessenger::client::resolve_waiting`). A name that never registers now ends a connect with `ETIMEDOUT`, where the polling runtimes ended with `ENOENT` (the generic text in `user::messenger::Error` covers both).
+`Errno` is a named newtype
 (`Errno::INVAL`), so `Err(-22)` disappears; `CallError` implements `Display`
 with the friendly text section 12 of `messenger.md` describes.
 
@@ -493,6 +549,60 @@ generated client:
 The portable crates (`archiver`, `pdfview`, `videoview`, `writer`) take
 `&AppContext` (or the trait it implements) instead of their own `Host`.
 
+**As built (X2).** `.run(|ui, cx| ..)` hands the make closure an
+`xui_app::AppContext` (`xui-app/src/context.rs`); `cx.backend()` is the old
+second argument. The portable crates cannot depend on `xui-app`, so the seam
+is a tiny crate, `xui-app/crates/host` (`xui-host`, depends on `xui-core`,
+`xui-work`, `confd`, serde):
+
+* `AppHost` (+ `Report`): `file_system()`, `start_dir()`, `temp_dir()`,
+  `launch(path)`, `read_only_roots()`, `write(path, bytes)` (atomic on
+  LazyOS), `suggests(dir)`, and `report(line)`. `cx.host()` is the LazyOS
+  implementation; `testing::StdHost` (real files, records its evidence with
+  the channel prefix, `on_launch`/`on_write` hooks) and `testing::MemHost`
+  (an in-memory `FileSystem`) are the host tests'. `archiver`, `pdfview`,
+  `videoview` and `writer` take a `SharedHost` (`Rc<dyn AppHost>`); their
+  `Host` structs are gone. Writer keeps a small `Services` (font families,
+  the print queue, the remembered printer) for what is not shared.
+* `dialogs::{open_dialog, save_dialog, preset}` and `ErrorDialog`:
+  `cx.open_dialog(ui, title, filters, on_cancel)` is the file system, the
+  start folder, the filters, "All files" last and `require_existing`;
+  `cx.save_dialog` the same without the forced "All files"; `cx.error(ui,
+  title, on_close)` builds a message dialog whose `show` takes anything that
+  displays, so a `CallError` renders as the service's sentence plus hint.
+* `settings::Settings<T>` (`cx.settings::<T>()`): serde struct to one `confd`
+  key per leaf under `user/<uid>/<settings id>/` (the channel prefix in lower
+  case, or `.settings_id(..)`; `volume` keeps `audio`); read once at open (a
+  missing or mistyped key is the field's default), saved by field diff on a
+  worker thread, `on_saved(Sink<()>)` rings when a save landed. Floats and
+  lists are stored as JSON text in a string key; maps are not supported. With
+  `confd` not registered yet the settings live in memory (no start-up wait).
+  `cx.settings_key(name)` / `user_key(uid, app, name)` build the key for a
+  per-name setting that is not a struct field (term, volume, LazyWeb).
+* `recent::Recent` (`cx.recent()`): at most 10 files, newest first, kept
+  through settings; `cx.open_dialog` opens in the newest one's folder when the
+  app asked for the list. `cx.dirs()`: home, start, documents, downloads,
+  app data (`.system_name(..)`), transient, tmp.
+* **Evidence.** A marker site with a host in reach calls `report!(host,
+  "OPEN:PASS:{path}")`; the line is the text after the channel prefix and the
+  host writes it as `trace::line!(channel, ..)`, so the bytes on the serial
+  port are what `println!` wrote. `settings` and `confd-editor` report from
+  free functions and worker answers, so they use `xui_host::evidence!`, the
+  process's one sink (`AppContext::new` installs it). 26 prints left
+  `tools/trace/adhoc_baseline.json` (writer 12, settings 9, confd-editor 4,
+  pdfview 1); archiver, videoview and pdfview's `host.log` lines (dynamic
+  prefixes the lint could not see) are reports too.
+* NES keeps its `Host` trait (audio and the `Report` enum are its own) but
+  loses `default_dir` and `recent.txt`: the picker comes from the context and
+  the recent list from `cx.recent()` (the old file is not read; no backward
+  compatibility). LazyWeb's `Host` is engines and probes, not files, so it
+  stays; only its confd keys use `user_key`.
+
+Not migrated: LazySky's `settings.toml` (the `tools/lazysky` harness writes
+that file from the Terminal and greps `SKY:SETTINGS:SAVED:<path>`; moving it
+needs the harness reworked first), and the remaining `FileDialog` chains in
+paint, term, lazysky-ui and the Settings picture picker.
+
 ### 4.3 One way off the UI thread
 
 `cx.spawn(work, Msg::Done)` runs `work` on a worker and delivers its result
@@ -554,6 +664,37 @@ send.
 * Every evidence line through `trace`; the `println!` markers move and the
   `check_adhoc.py` baseline drops with them.
 
+**As built (X4).**
+
+* `xui-app/crates/atomicfile` (std only, no dependencies): `write` and
+  `write_with` create the temp file exclusively beside the target, sync it,
+  give it the target's permissions, rename it over the target and sync the
+  directory; a symlink target is refused. Paint's and Writer's storage, the code
+  editor, LazySky (settings and saved pictures), printd and LazyWeb (session,
+  visits, places, notifications, blocker lists) use it. Left on purpose: the
+  Archiver's extract and create (they stream to a path the format writers open
+  themselves, and extract replaces a link rather than following it), downloads'
+  `.part` rename (a finished download, not a rewrite) and the Explorer's moves.
+* Paint's inflate and CRC-32 tables are gone (`flate2` and `crc32fast`, the
+  copies `lazyarc` links). Its small in-memory zip container stays: `lazyarc`'s
+  zip reads and writes `std::fs::File`, and Paint's crate does no I/O.
+* Image decoding needed no change: the PDF crate's `png` is a dev-dependency of
+  an example, `video` and the `image` crate already share one `zune-jpeg`, and
+  Explorer and LazySky enable different `image` features, so merging them would
+  link codecs an app does not use.
+* `lazyhttps::Roots::lazyos()` is the one CA bundle lookup (LazySky's
+  `ca_roots`); Mail installs its TLS provider with `lazyhttps::install_tls_provider`.
+  Net Tools' `net::{http, web}` stay a raw HTTP/1.0 socket probe (resolved
+  address, bytes counted with headers, timing), which is what the app shows.
+* `xui_app::platform::dirs::home()` is the one `$HOME` lookup (no filesystem
+  access, so the UI thread may call it); `default_dir()` adds the existence
+  check and the `/transient` fallback. Paint, NES (now `fhs::app_data_dir`),
+  the Terminal, LazyWeb's profile and the desktop folder use them.
+* 289 `println!` markers moved to `trace::pass!`/`fail!`/`line!` with the same
+  text on the wire; the baseline fell from 319 to 30 prints in `xui-app` and `lazyrad-os`. Left: Settings, Writer,
+  confd-editor and pdfview (portable crates `xui-app` depends on, no seam yet),
+  `shell/failures.rs`, and LazyWeb's host-build fallback print.
+
 ### 4.5 Async: one non-blocking form, no `async fn` API (yet)
 
 Async/await works in LazyOS Rust, but only `user::messenger_async` uses it
@@ -596,17 +737,17 @@ leaves `main` green.
 | Stage | Content | Removes |
 |---|---|---|
 | C1 | `Transport`, `Connection`, `CallError`, `Errno`, `Mock` in `libmessenger`; native and std transports; registry-subscription wait | the four connect/cache implementations, `CONNECT_TICKS` copies |
-| C1b | Kernel registry: wait for a name to register (topic or `WaitFor`), with kernel correctness and stress tests; both transports block on it | the resolve sleep loops |
+| C1b (built) | Kernel registry: `WaitFor` parks a resolve until the name registers, with kernel correctness and stress tests (`ipc_registry_wait_*`); both transports block on it | the resolve sleep loops |
 | C2a | midlc: `service`, `errors`, `scope`, `deadline` syntax and their generated constants; per-interface modules and features | service-name literals, `fnv1a64` copies, confd/clipboard constant copies |
 | C2b | **Built.** Rust client generation over C1's `Transport` (blocking forms; `_begin` waits for an asynchronous transport call); host tests through `Mock` (`libs/generated/tests/client.rs`); `timed` and `notify` migrated as proof | (enables C3) |
 | C3 | Migrate clients interface by interface (confd, init, topics, clipboard first: the most duplicated); `user::messenger::*` and `xui_app::platform::*` keep only domain adapters. **Native half built for** confd, mimed, pkgd, accountsd, keyd, logind, mountd, devd, gpud, usb audio, init, healthd, logd, sysmond and the clipboard (`user/src/messenger/<svc>.rs` is `pub type Client = wire::Client<Native>` plus domain meaning; slow calls keep `Deadline::Never`, `Nested` carries the clipboard's `ALLOW_NESTED`). **Also built:** `net` (NIC), `netstack`, `netsock`/`netstd`, `wifi`, `display`, `input`, `logind`'s console session, and the `audioclient`/`trayclient` seams (see the "as built (C3, the rest)" note). Left: `webd`, `audio_events` (a topic publisher, C5) and the hostile-input probes | per-module `fn header`/`fn parcel`/`error_code`, `Service::call_*` |
-| C4 | Server generation and `dispatch`; migrate daemons, starting with small ones (`timed`, `mimed`, `pkgd`) then `xuid`, `netd`, `inputd` | 469 dispatch arms, 16 `error_reply`, `xui-app/src/server.rs` |
+| C4 | **Generator and 22 servers built** (section 3.3 lists what is migrated and what is not): `Server` and `dispatch` per interface over `libmessenger::server`; `xuid`, `netd`, `inputd`, `init`, `healthd`, `audiod`, `logind` and `webd` still hand-write theirs | dispatch arms 469 to 347 (the rest are event decoders and the unmigrated servers), `error_reply` helpers, `xui-app`'s `reply_parcel`/`error_parcel` |
 | C5 | Typed bell subscriptions; move `init`/`healthd` off the interim router; declare or drop the undeclared topics | `topic_feed`, `router`, three ad hoc pollers |
 | C6 | `check_handrolled.py --ratchet` in CI | (keeps it from coming back) |
 | X1 | `xui_app::app(..)` builder, `.opens`, panic hook, `finish`; new template; migrate every bin | `themed.rs`, outboxes, seven launch paths |
-| X2 | `AppContext`: settings, dirs, recent, dialogs, error, files | four `Host` structs, `format!` confd keys, `$HOME` lookups |
+| X2 | **Built** (section 4.2, "As built"); LazySky's TOML and four more dialog chains wait | four `Host` structs, `format!` confd keys, `$HOME` lookups |
 | X3 | **Built** (`xui_app::work`, section 4.3; `cx.spawn` follows X2) | four worker handoff mechanisms |
-| X4 | Shared plumbing (4.4) and the marker migration | atomic-write, image, zip, HTTP copies; `println!` markers |
+| X4 | **Built** (section 4.4, "As built"); the portable crates' markers moved with X2's evidence seam | atomic-write, image, zip, HTTP copies; `println!` markers |
 
 C1, C2a and X1 are independent and run in parallel; C2b needs C1 and C2a;
 C3 and C4 need C2b; C5 needs C1; X3 follows X1 (they touch the same bins);

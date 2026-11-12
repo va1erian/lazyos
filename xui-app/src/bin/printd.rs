@@ -17,36 +17,49 @@
 
 use std::path::Path;
 use std::process::ExitCode;
+use xui_app::trace::{self, Channel};
 
+use libmessenger::client::Errno;
+use libmessenger::server::{Caller, Fault};
 use messenger_generated::os_lazy_print_v1 as wire;
 use printd::{JobInfo, Request, Spooler};
 use xui_app::platform::print::{self, INTERFACE, MAX_WRITE, NAME};
-use xui_app::server::{self, Server};
+use xui_app::server::Server;
 
 fn main() -> ExitCode {
     let report: printd::Report = Box::new(|info: &JobInfo| {
-        println!("PRINTD:JOB:{}:{}:{}", info.state.word(), info.id, info.line);
+        trace::line!(
+            Channel::Printd,
+            "JOB:{}:{}:{}",
+            info.state.word(),
+            info.id,
+            info.line
+        );
     });
     let spooler = match Spooler::open_reporting(Path::new(fhs::state::PRINT_SPOOL), Some(report)) {
         Ok(spooler) => spooler,
         Err(error) => {
-            println!("PRINTD:FAIL:spool {}: {error}", fhs::state::PRINT_SPOOL);
+            trace::line!(
+                Channel::Printd,
+                "FAIL:spool {}: {error}",
+                fhs::state::PRINT_SPOOL
+            );
             return ExitCode::FAILURE;
         }
     };
     let server = match Server::register(NAME, &[INTERFACE], &[wire::INTERFACE_NAME]) {
         Ok(server) => server,
         Err(code) => {
-            println!("PRINTD:FAIL:register {code}");
+            trace::line!(Channel::Printd, "FAIL:register {code}");
             return ExitCode::FAILURE;
         }
     };
-    println!("PRINTD:UP:PASS");
+    trace::pass!(Channel::Printd, "UP");
     // One receive buffer: a full `Write` and its framing.
     let mut buf = vec![0u8; MAX_WRITE + 64 * 1024];
     loop {
         if let Err(code) = server.wait(0) {
-            println!("PRINTD:FAIL:wait {code}");
+            trace::line!(Channel::Printd, "FAIL:wait {code}");
             return ExitCode::FAILURE;
         }
         loop {
@@ -56,11 +69,7 @@ fn main() -> ExitCode {
                 // A call too large for the buffer was dropped; go on.
                 Err(_) => continue,
             };
-            let method = request.parcel.header.method;
-            let reply = match dispatch(&spooler, request.origin.uid, &request.parcel) {
-                Ok(body) => server::reply_parcel(INTERFACE, method, body),
-                Err(message) => server::error_parcel(INTERFACE, method, 22, &message),
-            };
+            let reply = wire::dispatch(&mut Spool(&spooler), &request);
             if let Some(txn) = request.txn {
                 let _ = server.reply(txn, &reply);
             }
@@ -68,64 +77,57 @@ fn main() -> ExitCode {
     }
 }
 
-/// One call, as `owner`: the reply body, or the line the caller shows.
-fn dispatch(
-    spooler: &Spooler,
-    owner: u32,
-    parcel: &libmessenger::Parcel,
-) -> Result<Vec<u8>, String> {
-    if parcel.header.interface_id != INTERFACE {
-        return Err("Not a print service call".into());
+/// The spooler, answering `os.lazy.print.v1` as the kernel-stamped uid of each
+/// caller (the generated server). A refusal is `EINVAL` with the line the
+/// caller shows.
+struct Spool<'a>(&'a Spooler);
+
+fn refused(message: impl AsRef<str>) -> Fault {
+    Fault::refuse(Errno::INVAL, message.as_ref())
+}
+
+impl wire::Server for Spool<'_> {
+    fn open(
+        &mut self,
+        cx: &Caller,
+        printer: String,
+        user: String,
+        ticket: wire::Ticket,
+    ) -> Result<u32, Fault> {
+        let request = Request {
+            printer,
+            user,
+            ticket: print::ticket_from_wire(ticket),
+        };
+        self.0.open_job(cx.uid, &request).map_err(refused)
     }
-    let bad = |_| "The print request does not read".to_owned();
-    let encoded = |body: Result<Vec<u8>, libmessenger::Error>| {
-        body.map_err(|_| "The reply could not be encoded".to_owned())
-    };
-    let body = &parcel.body;
-    match parcel.header.method {
-        wire::METHOD_OPEN => {
-            let args = wire::decode_open_args(body).map_err(bad)?;
-            let request = Request {
-                printer: args.printer,
-                user: args.user,
-                ticket: print::ticket_from_wire(args.ticket),
-            };
-            let job = spooler.open_job(owner, &request)?;
-            encoded(wire::encode_open_reply(&wire::OpenReply { job }))
+
+    fn write(&mut self, cx: &Caller, job: u32, bytes: Vec<u8>) -> Result<(), Fault> {
+        if bytes.len() > MAX_WRITE {
+            return Err(refused("A print write is too large"));
         }
-        wire::METHOD_WRITE => {
-            let args = wire::decode_write_args(body).map_err(bad)?;
-            if args.bytes.len() > MAX_WRITE {
-                return Err("A print write is too large".into());
-            }
-            spooler.write(owner, args.job, &args.bytes)?;
-            Ok(Vec::new())
-        }
-        wire::METHOD_CLOSE => {
-            let args = wire::decode_close_args(body).map_err(bad)?;
-            spooler.close(owner, args.job)?;
-            Ok(Vec::new())
-        }
-        wire::METHOD_CANCEL => {
-            let args = wire::decode_cancel_args(body).map_err(bad)?;
-            spooler.cancel(owner, args.job)?;
-            Ok(Vec::new())
-        }
-        wire::METHOD_STATUS => {
-            let args = wire::decode_status_args(body).map_err(bad)?;
-            let info = spooler.status(owner, args.job)?;
-            encoded(wire::encode_status_reply(&wire::StatusReply {
-                info: print::info_to_wire(&info),
-            }))
-        }
-        wire::METHOD_JOBS => {
-            let jobs = spooler
-                .jobs(owner)
-                .iter()
-                .map(print::info_to_wire)
-                .collect();
-            encoded(wire::encode_jobs_reply(&wire::JobsReply { jobs }))
-        }
-        _ => Err("Unknown print service call".into()),
+        self.0.write(cx.uid, job, &bytes).map_err(refused)
+    }
+
+    fn close(&mut self, cx: &Caller, job: u32) -> Result<(), Fault> {
+        self.0.close(cx.uid, job).map_err(refused)
+    }
+
+    fn cancel(&mut self, cx: &Caller, job: u32) -> Result<(), Fault> {
+        self.0.cancel(cx.uid, job).map_err(refused)
+    }
+
+    fn status(&mut self, cx: &Caller, job: u32) -> Result<wire::JobInfo, Fault> {
+        let info = self.0.status(cx.uid, job).map_err(refused)?;
+        Ok(print::info_to_wire(&info))
+    }
+
+    fn jobs(&mut self, cx: &Caller) -> Result<Vec<wire::JobInfo>, Fault> {
+        Ok(self
+            .0
+            .jobs(cx.uid)
+            .iter()
+            .map(print::info_to_wire)
+            .collect())
     }
 }

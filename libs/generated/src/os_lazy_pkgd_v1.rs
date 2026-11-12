@@ -1476,3 +1476,210 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(reply.app)
     }
 }
+
+#[cfg(feature = "pkgd_v1_server")]
+/// What a program answering `os.lazy.pkgd.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Open and validate the `.lzp` at `path` without changing anything. Root
+    /// may name any absolute path; anyone else a file under `/transient` or
+    /// their own home folder (the path is normalised first). `problems` is empty for a package that
+    /// could be installed; otherwise it lists every reason it cannot be.
+    fn inspect(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<PackageInfo, libmessenger::server::Fault> {
+        let _ = (cx, path,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Install the package at `path` (the same source rule as `Inspect`):
+    /// extract it to its install directory under `/apps`, copy its
+    /// `docs/*.md` to `/docs/apps/<system_name>/`, record it, register its
+    /// MIME verbs, load its policy, then publish
+    /// `system/events/pkg/install`. Fails if the same `system_name` is already
+    /// installed at this version and digest. Needs the caller to be the
+    /// session owner or root; `pkgd` audits who asked.
+    fn install(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<Installed, libmessenger::server::Fault> {
+        let _ = (cx, path,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Remove `system_name`: stop its running instances, unregister its MIME
+    /// verbs, revoke its policy, delete its install directory and its
+    /// documentation, then publish `system/events/pkg/remove`. User data
+    /// under `/home` is kept.
+    fn remove(&mut self, cx: &libmessenger::server::Caller, system_name: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, system_name,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Every installed app, in install order.
+    fn list(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<Installed>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// One installed app by `system_name`, if present.
+    fn installed(&mut self, cx: &libmessenger::server::Caller, system_name: alloc::string::String) -> Result<core::option::Option<Installed>, libmessenger::server::Fault> {
+        let _ = (cx, system_name,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The name of the policy label with the kernel id `label_id`
+    /// (`app:<system_name>`, `tool:<system_name>`, ...). Reading a label's
+    /// name takes `CAP_SETUID`, which `elevd` deliberately lacks, so it asks
+    /// here to tell a developer tool's shared label from an app's before it
+    /// lets an administrator's approval stand (`libs/elevpolicy`,
+    /// `approvals`). Answered to `elevd` alone; `ENOENT` for an id the
+    /// kernel does not know.
+    fn label_name(&mut self, cx: &libmessenger::server::Caller, label_id: u32) -> Result<alloc::string::String, libmessenger::server::Fault> {
+        let _ = (cx, label_id,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Whether this start's core package provisioning is finished, and what
+    /// it did (`docs/packages.md`, core packages). `pkgd` answers it while it
+    /// provisions, so a client such as `init`'s autostart can wait for it
+    /// without blocking; `Install` and `Remove` are refused with `EAGAIN`
+    /// until `done`.
+    fn provisioned(&mut self, cx: &libmessenger::server::Caller) -> Result<ProvisionState, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Approve a development run of the package at `path` (the same source
+    /// rule as `Inspect`; issue #529): validate it, compile its permissions and
+    /// load them for the label `dev:<system_name>`, which an IDE whose
+    /// manifest says `develop = true` may then give the program it runs. Only
+    /// the session owner or root, unlabelled (the Installer), may call it.
+    /// With `confirm` false nothing is asked: the rules are loaded and
+    /// `approved` is true only if this session already approved the same or a
+    /// wider rule set for that label; otherwise `approved` is false and nothing
+    /// changes, so the Installer shows the consent screen and calls again with
+    /// `confirm` true once the user accepts. Approvals live in `pkgd`'s memory
+    /// only, are dropped (and the label's rules revoked) when the session that
+    /// gave them logs out, and every one is audited as
+    /// `system/events/pkg/develop`.
+    fn develop(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String, confirm: bool) -> Result<DevelopReply, libmessenger::server::Fault> {
+        let _ = (cx, path, confirm,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The user declined the development consent for the package at `path`
+    /// (same caller and source rules as `Develop`). Nothing is loaded; the
+    /// refusal is audited and published as `system/events/pkg/denied` under
+    /// the package's `system_name`, so the IDE waiting for the approval stops.
+    fn develop_declined(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, path,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// `elevd`'s install of a package an administrator approved on the
+    /// trusted prompt (docs/accounts-plan.md U2, review of #659); refused
+    /// with `EPERM` from anyone else. `digest` is the SHA-256 `Inspect`
+    /// reported for the file the prompt described: `pkgd` installs the
+    /// bytes it reads only when they hash to it, so the file cannot be
+    /// swapped between the approval and the install. `core` says what was
+    /// approved: `false` (`pkg.install`) refuses a package that would
+    /// replace a core app, `true` (`pkg.update-core`) refuses one that would
+    /// not. Plain `Install` never replaces a core app for `elevd`. `devtool`
+    /// says the administrator saw the developer-tool warning
+    /// (`pkg.install-devtool`, `docs/devtool-packages-plan.md` section 4): a
+    /// developer-tool package is installed only when it is `true` and any
+    /// other package only when it is `false`, so a tool is never installed
+    /// from a prompt that did not warn about it.
+    fn install_approved(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String, digest: alloc::string::String, core: bool, devtool: bool) -> Result<Installed, libmessenger::server::Fault> {
+        let _ = (cx, path, digest, core, devtool,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// `dbgd`'s install of a package a developer uploaded to a box built for
+    /// remote control (docs/dbgd-plan.md, v2 app swapping): accepted from
+    /// `dbgd` alone and only when `/boot/lazyos.cfg` says
+    /// `diag.dbg.control=1`, refused with `EPERM` otherwise. `path` must be
+    /// `dbgd`'s staging file (`dbgwire::control::staged_package_path`) and
+    /// the bytes must hash to `digest` (SHA-256, hex), as for
+    /// `InstallApproved`. Unlike every other install it may replace a core
+    /// app, which is what a developer iterating on one needs.
+    fn install_debug(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String, digest: alloc::string::String) -> Result<Installed, libmessenger::server::Fault> {
+        let _ = (cx, path, digest,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "pkgd_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_INSPECT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_inspect_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.inspect(&cx, args.path), |value| encode_inspect_reply(&InspectReply { info: value }))
+        }
+        METHOD_INSTALL if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_install_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.install(&cx, args.path), |value| encode_install_reply(&InstallReply { app: value }))
+        }
+        METHOD_REMOVE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_remove_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.remove(&cx, args.system_name), |()| Ok(Vec::new()))
+        }
+        METHOD_LIST if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.list(&cx), |value| encode_list_reply(&ListReply { apps: value }))
+        }
+        METHOD_INSTALLED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_installed_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.installed(&cx, args.system_name), |value| encode_installed_reply(&InstalledReply { app: value }))
+        }
+        METHOD_LABELNAME if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_label_name_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.label_name(&cx, args.label_id), |value| encode_label_name_reply(&LabelNameReply { label: value }))
+        }
+        METHOD_PROVISIONED if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.provisioned(&cx), |value| encode_provisioned_reply(&ProvisionedReply { state: value }))
+        }
+        METHOD_DEVELOP if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_develop_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.develop(&cx, args.path, args.confirm), |value| encode_develop_reply(&value))
+        }
+        METHOD_DEVELOPDECLINED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_develop_declined_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.develop_declined(&cx, args.path), |()| Ok(Vec::new()))
+        }
+        METHOD_INSTALLAPPROVED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_install_approved_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.install_approved(&cx, args.path, args.digest, args.core, args.devtool), |value| encode_install_approved_reply(&InstallApprovedReply { app: value }))
+        }
+        METHOD_INSTALLDEBUG if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_install_debug_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.install_debug(&cx, args.path, args.digest), |value| encode_install_debug_reply(&InstallDebugReply { app: value }))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

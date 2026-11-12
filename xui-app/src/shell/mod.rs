@@ -57,7 +57,7 @@ use xui_core::backend::Backend;
 use crate::backend::LazyOSBackend;
 use crate::client_window::SurfaceRole;
 use crate::sys;
-use crate::trace::Channel;
+use crate::trace::{self, Channel};
 
 pub use service::NAME as SERVICE_NAME;
 
@@ -82,11 +82,11 @@ fn serve(backend: &Rc<LazyOSBackend>) -> Result<(), String> {
     };
     let events = link::subscribe(client);
     let rows = client.list_surfaces().unwrap_or_else(|code| {
-        println!("SHELL:LIST:FAIL err={}", -code);
+        trace::line!(Channel::Shell, "LIST:FAIL err={}", -code);
         Vec::new()
     });
     let area = client.get_work_area().unwrap_or_else(|code| {
-        println!("SHELL:WORKAREA:FAIL err={}", -code);
+        trace::line!(Channel::Shell, "WORKAREA:FAIL err={}", -code);
         (0, 0, 0, 0)
     });
     // The shell lays itself out in design pixels (docs/hidpi-plan.md): the
@@ -95,7 +95,7 @@ fn serve(backend: &Rc<LazyOSBackend>) -> Result<(), String> {
     let physical = link::screen_size(area, &rows);
     let screen = (physical.0 / scale, physical.1 / scale);
     if screen.0 <= 0 || screen.1 <= lazyshell::taskbar::BAR_H {
-        println!("SHELL:UP:FAIL screen={}x{}", screen.0, screen.1);
+        trace::line!(Channel::Shell, "UP:FAIL screen={}x{}", screen.0, screen.1);
         return Err(format!("no usable screen: {}x{}", screen.0, screen.1));
     }
     // The shell's own uid: the service lets root and this user in. Unknown
@@ -117,9 +117,11 @@ fn serve(backend: &Rc<LazyOSBackend>) -> Result<(), String> {
         .borrow_mut()
         .seed(rows.iter().map(link::row_surface));
     for window in ctx.taskbar.borrow().windows() {
-        println!(
-            "SHELL:TASKBAR:ADD id={} title={}",
-            window.surface, window.title
+        trace::line!(
+            Channel::Shell,
+            "TASKBAR:ADD id={} title={}",
+            window.surface,
+            window.title
         );
     }
     ctx.reload_menu();

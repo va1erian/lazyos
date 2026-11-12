@@ -155,9 +155,7 @@ pub fn run<R: Hardware>(radio: R, ifname: &str, own_uid: u32) -> Result<(), Stri
                 }
                 Next::Empty | Next::Later => break,
             };
-            let reply = nic.dispatch(&message).unwrap_or_else(|error| {
-                messenger::services::error_reply(message.interface_id(), message.method(), error)
-            });
+            let reply = nic.dispatch(&message);
             answer(nic_server, &message, &reply);
         }
         if dropped > reported_drops && now >= next_drop_report {

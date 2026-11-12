@@ -206,7 +206,7 @@ impl Greeter {
         self.view = Some(view);
         self.mode = mode;
         if mode == Mode::Setup {
-            println!("GREETER:SETUP:UP");
+            trace::line!(Channel::Greeter, "SETUP:UP");
         }
         self.w.name.get().set_text(name);
         self.w.message.get().set_text(note);
@@ -257,7 +257,7 @@ impl Greeter {
         }
         message.set_text("Creating the account...");
         if let Err(refusal) = accounts::create_owner(&name, &secret) {
-            println!("GREETER:SETUP:FAIL errno={}", -refusal.code());
+            trace::line!(Channel::Greeter, "SETUP:FAIL errno={}", -refusal.code());
             // The machine may have an account after all (created meanwhile):
             // then only the login form leads anywhere.
             if Mode::from_list(list_setup()) == Mode::Login {
@@ -268,7 +268,7 @@ impl Greeter {
             }
             return;
         }
-        println!("GREETER:SETUP:PASS user={name}");
+        trace::line!(Channel::Greeter, "SETUP:PASS user={name}");
         // From here on the setup's Create is refused: the login form is the
         // only way forward, whatever the login below says.
         if self
@@ -290,11 +290,11 @@ impl Greeter {
         self.w.message.get().set_text("Checking...");
         match call_login(&name, &secret) {
             Ok(session) => {
-                println!("GREETER:LOGIN:PASS user={name} session={session}");
+                trace::line!(Channel::Greeter, "LOGIN:PASS user={name} session={session}");
                 self.w.message.get().set_text("Starting your desktop...");
             }
             Err(code) => {
-                println!("GREETER:LOGIN:FAIL user={name} errno={}", -code);
+                trace::line!(Channel::Greeter, "LOGIN:FAIL user={name} errno={}", -code);
                 self.w.password.get().set_text("");
                 self.w.message.get().set_text(refusal(code));
             }
@@ -339,7 +339,7 @@ fn sentence(reason: &str) -> String {
 fn main() {
     xui_app::app(Channel::Greeter, "Log in")
         .size(WINDOW.0, WINDOW.1)
-        .run(|ui, _backend| {
+        .run(|ui, _| {
             let mut greeter = Greeter {
                 w: Widgets::default(),
                 mode: Mode::Waiting,

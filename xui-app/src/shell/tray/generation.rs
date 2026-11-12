@@ -8,6 +8,7 @@
 //! restart, and each item set in the next [`RESTORE_TICKS`] is reported as
 //! `SHELL:TRAY:RESTORED n=<items>`.
 
+use crate::trace::{self, Channel};
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 use messenger_generated::os_lazy_shell_tray_v1 as wire;
 
@@ -71,8 +72,9 @@ impl Generation {
         }
         let value = wire::Generation { generation };
         match wire::publish_session_shell_tray(&mut Broker::new(), &session.to_string(), &value) {
-            Ok(_) => println!(
-                "SHELL:TRAY:GENERATION n={generation} restart={}",
+            Ok(_) => trace::line!(
+                Channel::Shell,
+                "TRAY:GENERATION n={generation} restart={}",
                 previous.is_some()
             ),
             Err(error) => ctx.note("tray-generation", || {
@@ -94,7 +96,7 @@ impl Generation {
                 .iter()
                 .filter(|entry| entry.custom.is_some())
                 .count();
-            println!("SHELL:TRAY:RESTORED n={count}");
+            trace::line!(Channel::Shell, "TRAY:RESTORED n={count}");
         }
     }
 }

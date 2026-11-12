@@ -54,7 +54,7 @@ impl App for Devices {
                 self.refreshes += 1;
                 self.widgets.show(&DevView::read(), self.refreshes);
                 if matches!(msg, Msg::Refresh) {
-                    println!("DEVICES:REFRESH:PASS");
+                    trace::pass!(Channel::Devices, "REFRESH");
                 }
             }
             Msg::Sort(table) => self.widgets.resort(table),
@@ -96,7 +96,8 @@ fn main() {
     xui_app::app(Channel::Devices, "Devices")
         .size(WINDOW.0, WINDOW.1)
         .min_size(560, 360)
-        .run(|ui, backend| {
+        .run(|ui, cx| {
+            let backend = cx.backend();
             let first = DevView::read();
             let evidence = up_line(&first);
             // The first-frame line carries what was read, so it is the app's.

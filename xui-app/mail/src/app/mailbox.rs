@@ -6,6 +6,7 @@ use esmail::render::Attachment;
 use esmail::smtp::SmtpEvent;
 use esmail_glue::mailbox::OpenFolder;
 use esmail_glue::{CacheEvent, FolderRef};
+use xui_app::trace::{self, Channel};
 use xui_core::app::Ui;
 
 use super::models;
@@ -71,7 +72,7 @@ impl Mail {
     fn handle(&mut self, ui: &Ui<Msg>, account: usize, event: ImapEvent) -> bool {
         match event {
             ImapEvent::Connected => {
-                println!("MAIL:CONNECTED:{account}");
+                trace::line!(Channel::Mail, "CONNECTED:{account}");
                 self.set_status("Connected");
                 self.command(account, ImapCommand::FetchMailboxes);
                 if self
@@ -96,7 +97,7 @@ impl Mail {
                 }
             }
             ImapEvent::Mailboxes(mailboxes) => {
-                println!("MAIL:FOLDERS:{account}:{}", mailboxes.len());
+                trace::line!(Channel::Mail, "FOLDERS:{account}:{}", mailboxes.len());
                 self.folders.set_mailboxes(account, &mailboxes);
                 let names = self.folders.mailbox_names(account);
                 self.command(account, ImapCommand::FetchUnreadCounts { mailboxes: names });
@@ -127,7 +128,7 @@ impl Mail {
                 req_id,
                 ..
             } => {
-                println!("MAIL:HEADERS:{mailbox}:{}", headers.len());
+                trace::line!(Channel::Mail, "HEADERS:{mailbox}:{}", headers.len());
                 self.apply_headers(account, &mailbox, req_id, page, total_pages, headers);
             }
             ImapEvent::Body {
@@ -157,12 +158,12 @@ impl Mail {
     fn sent(&mut self, ui: &Ui<Msg>, event: SmtpEvent) {
         match event {
             SmtpEvent::Sent { .. } => {
-                println!("MAIL:SEND:PASS");
+                trace::pass!(Channel::Mail, "SEND");
                 self.set_status("Message sent");
                 self.close_compose(ui);
             }
             SmtpEvent::Error { error, .. } => {
-                println!("MAIL:SEND:FAIL");
+                trace::line!(Channel::Mail, "SEND:FAIL");
                 self.compose_page.set_sending(ui, false);
                 self.error(&format!("Could not send: {error}"));
             }
@@ -352,7 +353,7 @@ impl Mail {
         if finished.show && folder.account == account && header.uid == uid {
             match outcome {
                 Ok((html, attachments)) => {
-                    println!("MAIL:BODY:PASS:{uid}");
+                    trace::pass!(Channel::Mail, "BODY", "{uid}");
                     self.core_cache(|cache| {
                         cache.index_mail(
                             account,

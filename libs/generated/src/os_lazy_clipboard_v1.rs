@@ -1053,3 +1053,127 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(reply.offer)
     }
 }
+
+#[cfg(feature = "clipboard_v1_server")]
+/// What a program answering `os.lazy.clipboard.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Publish typed payloads for the caller's session and return the new
+    /// offer token. An eager offer fills `data` (one bounded copy is kept); a
+    /// lazy offer sets `sink`, the registry name of the endpoint where the
+    /// owner serves `Serialize`, and leaves `data` empty.
+    fn offer(&mut self, cx: &libmessenger::server::Caller, owner: alloc::string::String, sink: core::option::Option<alloc::string::String>, mimes: alloc::vec::Vec<alloc::string::String>, data: alloc::vec::Vec<Payload>) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, owner, sink, mimes, data,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Publish one large payload (more than the inline cap of 8 KiB, at most
+    /// 16 MiB) for the caller's session. The range `data.offset .. + data.len`
+    /// of the shared pages is the payload: the service copies it once into
+    /// pages of its own (not its heap) and closes the received handle before
+    /// replying, so the offer is a snapshot and the caller may reuse or
+    /// close its pages at once. The snapshot counts against the session's
+    /// retained-bytes budget (64 MiB; the oldest offers are evicted past it).
+    /// Travels on this interface's own id, not a scope id: the kernel's
+    /// declared-object gate keys on the header's interface.
+    fn offer_buffer(&mut self, cx: &libmessenger::server::Caller, owner: alloc::string::String, mime: alloc::string::String, data: libmessenger::Buffer) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, owner, mime, data,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Read one MIME of an offer. `token` 0 selects the newest offer in the
+    /// caller's session that lists `mime`; another session's token fails with
+    /// `EACCES` and is audited, an unknown one with `ENOENT`. `size` is the
+    /// payload's length. A payload up to the inline cap rides in `bytes`; a
+    /// larger one leaves `bytes` empty and is read with `Fetch`, using the
+    /// reply's `token`.
+    fn request(&mut self, cx: &libmessenger::server::Caller, token: u64, mime: alloc::string::String) -> Result<RequestReply, libmessenger::server::Fault> {
+        let _ = (cx, token, mime,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Copy a large payload (see `Request`) into the caller's buffer: the
+    /// bytes of `token`'s `mime` go to `into`'s range, which must be at least
+    /// `size` long (`E2BIG` otherwise). `token` must be an exact token (0 is
+    /// `EINVAL`), authorised like `Request` (another session's is `EACCES` and
+    /// audited). Replies with the number of bytes written.
+    fn fetch(&mut self, cx: &libmessenger::server::Caller, token: u64, mime: alloc::string::String, into: libmessenger::Buffer) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, token, mime, into,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Serialize one MIME of a lazy offer on demand. The service calls this on
+    /// the offer owner's `sink` endpoint when a paste happens.
+    fn serialize(&mut self, cx: &libmessenger::server::Caller, token: u64, mime: alloc::string::String) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault> {
+        let _ = (cx, token, mime,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Liveness probe.
+    fn ping(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Metadata of the caller session's newest offer, never content; empty
+    /// when no offer is live.
+    fn current(&mut self, cx: &libmessenger::server::Caller) -> Result<core::option::Option<OfferMeta>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "clipboard_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_OFFER if id == METHOD_OFFER_SCOPE => {
+            let Ok(args) = message.decode(|body, _| decode_offer_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.offer(&cx, args.owner, args.sink, args.mimes, args.data), |value| encode_offer_reply(&OfferReply { token: value }))
+        }
+        METHOD_OFFERBUFFER if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_offer_buffer_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.offer_buffer(&cx, args.owner, args.mime, args.data), |value| encode_offer_buffer_reply(&OfferBufferReply { token: value }))
+        }
+        METHOD_REQUEST if id == METHOD_REQUEST_SCOPE => {
+            let Ok(args) = message.decode(|body, _| decode_request_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.request(&cx, args.token, args.mime), |value| encode_request_reply(&value))
+        }
+        METHOD_FETCH if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_fetch_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.fetch(&cx, args.token, args.mime, args.into), |value| encode_fetch_reply(&FetchReply { written: value }))
+        }
+        METHOD_SERIALIZE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_serialize_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.serialize(&cx, args.token, args.mime), |value| encode_serialize_reply(&SerializeReply { bytes: value }))
+        }
+        METHOD_PING if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.ping(&cx), |()| Ok(Vec::new()))
+        }
+        METHOD_CURRENT if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.current(&cx), |value| encode_current_reply(&CurrentReply { offer: value }))
+        }
+        _ if id == INTERFACE_ID || id == METHOD_OFFER_SCOPE || id == METHOD_REQUEST_SCOPE => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

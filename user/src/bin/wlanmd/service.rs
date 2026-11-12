@@ -9,8 +9,9 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use libmessenger::server::{Caller as Stamped, Fault};
 use user::messenger::wifi::{self, api};
-use user::messenger::{errno, Error, Message, Parcel, Result};
+use user::messenger::{errno, Error, Result as MResult};
 use user::sys;
 use wlansta::policy::{self, Caller, Denied};
 use wlansta::{profile, Owner, Profile, Refused, Security};
@@ -46,99 +47,87 @@ fn refused(refusal: Refused) -> Error {
     })
 }
 
-fn parse(error: libmessenger::Error) -> Error {
-    Error::Parcel(error)
-}
-
-fn caller_of(message: &Message) -> Caller {
-    let cred = message.caller();
+/// The policy's view of the kernel-stamped sender.
+fn caller_of(cx: &Stamped) -> Caller {
     Caller {
-        uid: cred.uid,
-        elevd: elevpolicy::is_elevd(cred.uid, cred.label_id, cred.session),
+        uid: cx.uid,
+        elevd: elevpolicy::is_elevd(cx.uid, cx.label_id, cx.session),
     }
 }
 
-fn slot<'a>(radios: &'a mut [Slot], ifname: &str) -> Result<&'a mut Slot> {
+fn slot<'a>(radios: &'a mut [Slot], ifname: &str) -> MResult<&'a mut Slot> {
     radios
         .iter_mut()
         .find(|slot| slot.ifname == ifname)
         .ok_or(refuse(errno::ENODEV))
 }
 
-/// Route one request; `Err` becomes the structured error reply.
-pub(crate) fn dispatch(daemon: &mut Daemon, message: &Message) -> Result<Parcel> {
-    if message.interface_id() != api::INTERFACE_ID {
-        return Err(refuse(errno::EINVAL));
+/// The generated server of `os.lazy.net.wifi.v1`: each method is decode-free;
+/// policy decides from the kernel-stamped sender.
+impl api::Server for Daemon {
+    fn interfaces(&mut self, _: &Stamped) -> Result<Vec<String>, Fault> {
+        Ok(self.radios.iter().map(|s| s.ifname.clone()).collect())
     }
-    let caller = caller_of(message);
-    let body = &message.parcel.body;
-    let method = message.method();
-    let reply = match method {
-        api::METHOD_INTERFACES => {
-            let names = daemon.radios.iter().map(|s| s.ifname.clone()).collect();
-            api::encode_interfaces_reply(&api::InterfacesReply { names })
+
+    fn scan(&mut self, cx: &Stamped, ifname: String, ssids: Vec<String>) -> Result<(), Fault> {
+        Ok(scan(self, caller_of(cx), &ifname, ssids)?)
+    }
+
+    fn networks(&mut self, cx: &Stamped, ifname: String) -> Result<Vec<api::Network>, Fault> {
+        let caller = caller_of(cx);
+        let list = slot(&mut self.radios, &ifname)?
+            .station
+            .networks(policy::viewer(caller))
+            .into_iter()
+            .map(|n| api::Network {
+                ssid: n.ssid,
+                security: n.security as u32,
+                rssi_dbm: n.rssi_dbm,
+                freq_mhz: n.freq_mhz,
+                bss_count: n.bss_count,
+                id: n.id,
+                connected: n.connected,
+            })
+            .collect();
+        Ok(list)
+    }
+
+    fn add_network(
+        &mut self,
+        cx: &Stamped,
+        profile: api::Profile,
+        passphrase: Option<String>,
+    ) -> Result<String, Fault> {
+        Ok(add_network(self, caller_of(cx), profile, passphrase)?)
+    }
+
+    fn connect(&mut self, cx: &Stamped, ifname: String, id: String) -> Result<(), Fault> {
+        Ok(connect(self, caller_of(cx), &ifname, &id)?)
+    }
+
+    fn disconnect(&mut self, cx: &Stamped, ifname: String) -> Result<(), Fault> {
+        let caller = caller_of(cx);
+        let slot = slot(&mut self.radios, &ifname)?;
+        if !policy::may_disconnect(caller, slot.station.current_owner()) {
+            return Err(refuse(errno::EPERM).into());
         }
-        api::METHOD_SCAN => {
-            let args = api::decode_scan_args(body).map_err(parse)?;
-            scan(daemon, caller, &args.ifname, args.ssids)?;
-            Ok(Vec::new())
-        }
-        api::METHOD_NETWORKS => {
-            let args = api::decode_networks_args(body).map_err(parse)?;
-            let list = slot(&mut daemon.radios, &args.ifname)?
-                .station
-                .networks(policy::viewer(caller))
-                .into_iter()
-                .map(|n| api::Network {
-                    ssid: n.ssid,
-                    security: n.security as u32,
-                    rssi_dbm: n.rssi_dbm,
-                    freq_mhz: n.freq_mhz,
-                    bss_count: n.bss_count,
-                    id: n.id,
-                    connected: n.connected,
-                })
-                .collect();
-            api::encode_networks_reply(&api::NetworksReply { list })
-        }
-        api::METHOD_ADDNETWORK => {
-            let args = api::decode_add_network_args(body).map_err(parse)?;
-            let id = add_network(daemon, caller, args.profile, args.passphrase)?;
-            api::encode_add_network_reply(&api::AddNetworkReply { id })
-        }
-        api::METHOD_CONNECT => {
-            let args = api::decode_connect_args(body).map_err(parse)?;
-            connect(daemon, caller, &args.ifname, &args.id)?;
-            Ok(Vec::new())
-        }
-        api::METHOD_DISCONNECT => {
-            let args = api::decode_disconnect_args(body).map_err(parse)?;
-            let slot = slot(&mut daemon.radios, &args.ifname)?;
-            if !policy::may_disconnect(caller, slot.station.current_owner()) {
-                return Err(refuse(errno::EPERM));
-            }
-            let actions = slot.station.disconnect(now_ms());
-            slot.execute(&mut daemon.store, actions);
-            Ok(Vec::new())
-        }
-        api::METHOD_FORGET => {
-            let args = api::decode_forget_args(body).map_err(parse)?;
-            forget(daemon, caller, &args.id)?;
-            Ok(Vec::new())
-        }
-        api::METHOD_STATUS => {
-            let args = api::decode_status_args(body).map_err(parse)?;
-            let status = slot(&mut daemon.radios, &args.ifname)?.station.status();
-            let status = wire_state(status, policy::viewer(caller));
-            api::encode_status_reply(&api::StatusReply { status })
-        }
-        _ => return Err(refuse(errno::EINVAL)),
-    };
-    Ok(wifi::reply(method, reply.map_err(parse)?))
+        let actions = slot.station.disconnect(now_ms());
+        slot.execute(&mut self.store, actions);
+        Ok(())
+    }
+
+    fn forget(&mut self, cx: &Stamped, id: String) -> Result<(), Fault> {
+        Ok(forget(self, caller_of(cx), &id)?)
+    }
+
+    fn status(&mut self, cx: &Stamped, ifname: String) -> Result<api::WifiState, Fault> {
+        let status = slot(&mut self.radios, &ifname)?.station.status();
+        Ok(wire_state(status, policy::viewer(caller_of(cx))))
+    }
 }
 
 /// `Scan`, at most once per [`SCAN_INTERVAL_TICKS`] per caller (`EAGAIN`).
-fn scan(daemon: &mut Daemon, caller: Caller, ifname: &str, ssids: Vec<String>) -> Result<()> {
+fn scan(daemon: &mut Daemon, caller: Caller, ifname: &str, ssids: Vec<String>) -> MResult<()> {
     let now = sys::clock();
     if let Some((_, at)) = daemon.scans.iter().find(|(uid, _)| *uid == caller.uid) {
         if now.saturating_sub(*at) < SCAN_INTERVAL_TICKS {
@@ -161,7 +150,7 @@ fn scan(daemon: &mut Daemon, caller: Caller, ifname: &str, ssids: Vec<String>) -
 /// raw octets of the heard network the typed text names (`Station::
 /// heard_ssid`: the octets themselves first, then the one SSID that displays
 /// so), so a name shown with invisible characters stripped is still joined.
-fn raw_ssid(daemon: &Daemon, typed: String, hidden: bool) -> Result<Vec<u8>> {
+fn raw_ssid(daemon: &Daemon, typed: String, hidden: bool) -> MResult<Vec<u8>> {
     let typed = typed.into_bytes();
     if hidden {
         return Ok(typed);
@@ -194,7 +183,7 @@ fn add_network(
     caller: Caller,
     wire: api::Profile,
     mut passphrase: Option<String>,
-) -> Result<String> {
+) -> MResult<String> {
     let result = add_checked(daemon, caller, wire, passphrase.as_deref());
     if let Some(text) = passphrase.take() {
         wifi::wipe(text);
@@ -214,7 +203,7 @@ fn add_checked(
     caller: Caller,
     wire: api::Profile,
     passphrase: Option<&str>,
-) -> Result<Profile> {
+) -> MResult<Profile> {
     let owner = policy::add_owner(caller, wire.scope).map_err(denied)?;
     let security = Security::from_wire(wire.security).ok_or(refuse(errno::EINVAL))?;
     policy::check_new(owner, &wire.id, &wire.ssid, security, passphrase).map_err(denied)?;
@@ -259,7 +248,7 @@ fn owner_text(owner: Owner) -> String {
 
 /// `Connect`: the caller's profile of that id (a system network is
 /// anyone's, a user network its owner's).
-fn connect(daemon: &mut Daemon, caller: Caller, ifname: &str, id: &str) -> Result<()> {
+fn connect(daemon: &mut Daemon, caller: Caller, ifname: &str, id: &str) -> MResult<()> {
     let owner = policy::resolve(caller, daemon.store.profiles(), id)
         .map_err(denied)?
         .owner;
@@ -270,7 +259,7 @@ fn connect(daemon: &mut Daemon, caller: Caller, ifname: &str, id: &str) -> Resul
 }
 
 /// `Forget`: the owner (or `elevd` for a system network) deletes it.
-fn forget(daemon: &mut Daemon, caller: Caller, id: &str) -> Result<()> {
+fn forget(daemon: &mut Daemon, caller: Caller, id: &str) -> MResult<()> {
     let found = policy::resolve_forget(caller, daemon.store.profiles(), id).map_err(denied)?;
     let Some(profile) = found.cloned() else {
         return Ok(());

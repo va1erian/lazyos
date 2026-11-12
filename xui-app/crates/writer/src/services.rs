@@ -1,33 +1,22 @@
 #![forbid(unsafe_code)]
 
-//! The platform seam: what LazyWriter needs from the system it runs on.
+//! What LazyWriter needs beyond the shared [`AppHost`](xui_host::AppHost)
+//! (file system, start folder, atomic write, evidence): the font families
+//! it registered, the printer it remembers and the print spooler.
 //!
-//! The LazyOS binary fills it with the atomic writer from `xui_app`'s
-//! platform layer, `$HOME` (or `/transient`) as the start folder and the
-//! families it registered with the shaper and the `printd` client; tests
-//! fill it with plain `std::fs`, a temp folder and a spooler in process.
+//! The LazyOS binary fills it with the families `register_writer` registered,
+//! the printer kept in its settings and the `printd` client; tests fill it
+//! with a spooler in process.
 
 use std::cell::OnceCell;
-use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use printd::{JobId, JobInfo, Local, Queue, Request, Spooler};
-use xui_core::widget::{FileSystem, StdFileSystem};
 
-/// Writes a whole file, replacing what was there.
-pub type WriteFn = dyn Fn(&Path, &[u8]) -> Result<(), String>;
-
-/// What the app takes from its platform.
+/// What the app takes from its platform besides the host.
 #[derive(Clone)]
-pub struct Host {
-    /// Writes saved documents, exported Markdown and exported pictures. On
-    /// LazyOS it writes a temp file and renames it, refusing symlinks.
-    pub write: Rc<WriteFn>,
-    /// Where the pickers open for an untitled document.
-    pub start_dir: PathBuf,
-    /// What the pickers browse.
-    pub file_system: Rc<dyn FileSystem>,
+pub struct Services {
     /// The family the Serif choice names, as the font file declares it.
     pub serif_family: String,
     /// The family the Mono choice names.
@@ -40,15 +29,12 @@ pub struct Host {
     pub print_queue: Rc<dyn Queue>,
 }
 
-impl Host {
-    /// A host over `std::fs` with plain (non-atomic) writes, no memory of
-    /// printers and a print spooler of its own in this process (spooling in
-    /// the temp folder), for tests and host runs.
-    pub fn std(start_dir: impl Into<PathBuf>) -> Host {
-        Host {
-            write: Rc::new(|path, bytes| std::fs::write(path, bytes).map_err(|e| e.to_string())),
-            start_dir: start_dir.into(),
-            file_system: Rc::new(StdFileSystem),
+impl Services {
+    /// Generic family names, no memory of printers and a print spooler of
+    /// its own in this process (spooling in the temp folder), for tests and
+    /// host runs.
+    pub fn std() -> Services {
+        Services {
             serif_family: "serif".to_owned(),
             mono_family: "monospace".to_owned(),
             last_printer: Rc::new(|| None),

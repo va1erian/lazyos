@@ -95,7 +95,7 @@ impl App for Widget {
             Msg::Tick => {
                 let mut state = self.state.borrow_mut();
                 state.reload();
-                println!("WIDGET:TICK:cpu={} mem={}", state.cpu, state.mem);
+                trace::line!(Channel::Widget, "TICK:cpu={} mem={}", state.cpu, state.mem);
                 drop(state);
                 ui.invalidate(self.root.id());
             }
@@ -163,7 +163,8 @@ fn paint(canvas: &mut dyn Canvas, theme: Theme, state: &State) {
 fn main() {
     xui_app::app(Channel::Widget, "widget")
         .size(WINDOW.0, WINDOW.1)
-        .run(|ui, backend| {
+        .run(|ui, cx| {
+            let backend = cx.backend();
             let state = Rc::new(RefCell::new(State::load()));
             {
                 let state = Rc::clone(&state);

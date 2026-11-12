@@ -30,7 +30,7 @@ mod schedattr_target;
 mod scmrights;
 mod select;
 mod termios;
-mod threadsig;
+pub(crate) mod threadsig;
 mod wait;
 
 use ctty::*;

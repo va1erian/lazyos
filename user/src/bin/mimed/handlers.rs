@@ -7,12 +7,13 @@
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use libmessenger::client::{CallError, Deadline};
+use libmessenger::client::{CallError, Deadline, Errno};
+use libmessenger::server::{Caller, Fault};
 use user::central;
 use user::messenger::client::Native;
 use user::messenger::mime::wire;
 use user::messenger::services::init::Client as InitClient;
-use user::messenger::{self, errno, mime, services, Error, Message, Parcel};
+use user::messenger::{self, errno, mime, services, Error};
 use user::sys;
 
 use super::apps::{choose, AppRegistry};
@@ -20,99 +21,91 @@ use super::db::MimeDb;
 use super::prefs::Prefs;
 use super::validate::{valid_app_id, valid_mime, valid_token};
 
-/// Dispatch one inbound message on the MIME interface.
-pub(crate) fn dispatch(
-    db: &MimeDb,
-    apps: &mut AppRegistry,
-    bus: &mut Option<central::Bus>,
-    prefs: &mut Prefs,
-    message: &Message,
-) -> messenger::Result<Parcel> {
-    if message.interface_id() != mime::INTERFACE {
-        return Err(Error::Errno(-errno::EINVAL));
+/// The service's state, answering requests (the generated [`wire::Server`]).
+pub(crate) struct Handler<'a> {
+    pub(crate) db: &'a MimeDb,
+    pub(crate) apps: &'a mut AppRegistry,
+    pub(crate) bus: &'a mut Option<central::Bus>,
+    pub(crate) prefs: &'a mut Prefs,
+}
+
+impl wire::Server for Handler<'_> {
+    fn guess(&mut self, _: &Caller, path: String) -> Result<String, Fault> {
+        Ok(self.db.guess(&path))
     }
-    let body = &message.parcel.body;
-    let parse = Error::Parcel;
-    match message.method() {
-        wire::METHOD_GUESS => {
-            let args = wire::decode_guess_args(body).map_err(parse)?;
-            let mime = db.guess(&args.path);
-            reply(
-                wire::METHOD_GUESS,
-                wire::encode_guess_reply(&wire::GuessReply { mime }),
-            )
+
+    fn lookup(&mut self, _: &Caller, mime: String, verb: String) -> Result<Option<String>, Fault> {
+        Ok(self.apps.lookup(&mime, &verb).map(String::from))
+    }
+
+    fn verbs(&mut self, _: &Caller, mime: String) -> Result<Vec<String>, Fault> {
+        Ok(self.apps.verbs(&mime))
+    }
+
+    fn open(&mut self, cx: &Caller, path: String, verb: String) -> Result<wire::OpenReply, Fault> {
+        // The caller's own choice of default app, by the uid the kernel stamped.
+        let (session, uid) = (Some(cx.session), Some(cx.uid));
+        let (db, apps) = (self.db, &*self.apps);
+        Ok(open_path(
+            db, apps, self.bus, self.prefs, &path, &verb, session, uid,
+        )?)
+    }
+
+    fn register(
+        &mut self,
+        cx: &Caller,
+        mime: String,
+        app: String,
+        verb: String,
+        owner: u32,
+    ) -> Result<(), Fault> {
+        // Only the package manager (a system service) registers a handler, as
+        // only it withdraws one: the registry is global, so any session could
+        // otherwise rebind a type for everyone and have the next user's
+        // `Open` (an administrator's included) launch its chosen app (audit
+        // H11). A user's own choice of app is a preference (`prefs`), not a
+        // registration.
+        require_system(cx)?;
+        require_valid(&mime, &app, &verb)?;
+        if !self.apps.register_owned(&mime, &app, &verb, owner) {
+            return Err(Errno::NOSPC.into());
         }
-        wire::METHOD_LOOKUP => {
-            let args = wire::decode_lookup_args(body).map_err(parse)?;
-            let app = apps.lookup(&args.mime, &args.verb).map(String::from);
-            reply(
-                wire::METHOD_LOOKUP,
-                wire::encode_lookup_reply(&wire::LookupReply { app }),
-            )
-        }
-        wire::METHOD_VERBS => {
-            let args = wire::decode_verbs_args(body).map_err(parse)?;
-            let verbs = apps.verbs(&args.mime);
-            reply(
-                wire::METHOD_VERBS,
-                wire::encode_verbs_reply(&wire::VerbsReply { verbs }),
-            )
-        }
-        wire::METHOD_OPEN => {
-            let args = wire::decode_open_args(body).map_err(parse)?;
-            let session = caller_session(message);
-            // The caller's own choice of default app, by the uid the kernel stamped.
-            let uid = Some(message.caller().uid);
-            let result = open_path(db, apps, bus, prefs, &args.path, &args.verb, session, uid)?;
-            reply(wire::METHOD_OPEN, wire::encode_open_reply(&result))
-        }
-        wire::METHOD_REGISTER => {
-            let args = wire::decode_register_args(body).map_err(parse)?;
-            // Only the package manager (a system service) registers a
-            // handler, as only it withdraws one: the registry is global, so
-            // any session could otherwise rebind a type for everyone and have
-            // the next user's `Open` (an administrator's included) launch its
-            // chosen app (audit H11). A user's own choice of app is a
-            // preference (`prefs`), not a registration.
-            if !caller_is_system(message) {
-                return Err(Error::Errno(-errno::EPERM));
-            }
-            if !valid_mime(&args.mime) || !valid_app_id(&args.app) || !valid_token(&args.verb) {
-                return Err(Error::Errno(-errno::EINVAL));
-            }
-            if !apps.register_owned(&args.mime, &args.app, &args.verb, args.owner) {
-                return Err(Error::Errno(-errno::ENOSPC));
-            }
-            Ok(mime::ok_reply(wire::METHOD_REGISTER))
-        }
-        wire::METHOD_UNREGISTER => {
-            let args = wire::decode_unregister_args(body).map_err(parse)?;
-            // Only the package manager (a system service) may withdraw a
-            // registration.
-            if !caller_is_system(message) {
-                return Err(Error::Errno(-errno::EPERM));
-            }
-            if !valid_mime(&args.mime) || !valid_app_id(&args.app) || !valid_token(&args.verb) {
-                return Err(Error::Errno(-errno::EINVAL));
-            }
-            apps.unregister(&args.mime, &args.app, &args.verb);
-            Ok(mime::ok_reply(wire::METHOD_UNREGISTER))
-        }
-        _ => Err(Error::Errno(-errno::EINVAL)),
+        Ok(())
+    }
+
+    fn unregister(
+        &mut self,
+        cx: &Caller,
+        mime: String,
+        app: String,
+        verb: String,
+    ) -> Result<(), Fault> {
+        // Only the package manager (a system service) may withdraw a
+        // registration.
+        require_system(cx)?;
+        require_valid(&mime, &app, &verb)?;
+        self.apps.unregister(&mime, &app, &verb);
+        Ok(())
     }
 }
 
-/// Whether the sender is an unlabelled system service: it holds
+/// Refuse a caller that is not an unlabelled system service: it must hold
 /// `CAP_SETUID` (kernel-stamped). A uid is not enough (issue #623): a root
 /// login session holds no capability.
-fn caller_is_system(message: &Message) -> bool {
-    let cred = message.caller();
-    cred.caps & user::sys::CAP_SETUID != 0 && cred.label_id == 0
+fn require_system(cx: &Caller) -> Result<(), Fault> {
+    if cx.caps & user::sys::CAP_SETUID != 0 && cx.label_id == 0 {
+        Ok(())
+    } else {
+        Err(Errno::PERM.into())
+    }
 }
 
-/// Frame an encoded reply body as a parcel of `method`.
-fn reply(method: u32, body: Result<Vec<u8>, libmessenger::Error>) -> messenger::Result<Parcel> {
-    Ok(mime::parcel(method, body.map_err(Error::Parcel)?))
+fn require_valid(mime: &str, app: &str, verb: &str) -> Result<(), Fault> {
+    if valid_mime(mime) && valid_app_id(app) && valid_token(verb) {
+        Ok(())
+    } else {
+        Err(Errno::INVAL.into())
+    }
 }
 
 /// Guess the path, resolve the app (`verb`, then the default verb; the caller's own choice of app
@@ -180,11 +173,6 @@ pub(crate) fn open_path(
         published,
         launched,
     })
-}
-
-/// The caller's kernel-stamped session.
-fn caller_session(message: &Message) -> Option<u64> {
-    Some(message.caller().session)
 }
 
 /// Ask `init` to launch `app` for `path` in the caller's session.

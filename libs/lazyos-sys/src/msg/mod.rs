@@ -192,8 +192,20 @@ pub fn recv_from(handle: u64, buf: &mut [u8], deadline: u64) -> Result<(MsgResul
 /// encoded registry parcel `request`, on behalf of `target`
 /// ([`REGISTRY_TARGET_SELF`] for this task).
 pub fn registry(op: u64, target: u64, request: &[u8]) -> Result<MsgResult, i64> {
+    registry_until(op, target, request, 0)
+}
+
+/// [`registry`] for an op that may park ([`op::WAIT_FOR`]): `deadline` is the
+/// absolute PIT tick it ends at, `0` for ever.
+pub fn registry_until(
+    op: u64,
+    target: u64,
+    request: &[u8],
+    deadline: u64,
+) -> Result<MsgResult, i64> {
     let args = MsgArgs {
         txn_id: target,
+        deadline,
         ..with_buffers(request, &mut [])
     };
     transfer(op, args, 0)
