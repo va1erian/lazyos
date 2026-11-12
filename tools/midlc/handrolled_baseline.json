@@ -62,7 +62,6 @@
  "xui-app/src/display.rs": 7,
  "xui-app/src/fabric/broker.rs": 1,
  "xui-app/src/fabric/error.rs": 1,
- "xui-app/src/fabric/subscribe/fake.rs": 10,
  "xui-app/src/fabric/subscribe/wire.rs": 4,
  "xui-app/src/input.rs": 6,
  "xui-app/src/net/mounts.rs": 1,
