@@ -11,6 +11,7 @@
 //! active only what the store holds: after a cancelled or refused prompt the
 //! list goes back to the stored layout.
 
+use xui_host::evidence;
 use std::rc::Rc;
 
 use xui_core::app::Ui;
@@ -133,7 +134,7 @@ pub fn apply(store: &dyn ConfigStore, selected: Option<usize>) -> String {
     }
     match keyboard::set(store, index) {
         Ok(()) => {
-            println!("SETTINGS:LAYOUT:APPLIED:{}", keyboard::LAYOUTS[index].0);
+            evidence!("LAYOUT:APPLIED:{}", keyboard::LAYOUTS[index].0);
             String::from("Keyboard layout changed.")
         }
         Err(error) => format!("Keyboard layout not changed: {error}"),
@@ -156,7 +157,7 @@ pub fn make_default(
         if let Err(error) = keyboard::set(machine, index) {
             return format!("The default keyboard layout was not changed: {error}");
         }
-        println!("SETTINGS:LAYOUT:DEFAULT:{}", keyboard::LAYOUTS[index].0);
+        evidence!("LAYOUT:DEFAULT:{}", keyboard::LAYOUTS[index].0);
     }
     // uid 0 (and an unknown uid) has no layout of its own: `store` is the
     // machine's, and the key just written must stay.

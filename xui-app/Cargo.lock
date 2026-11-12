@@ -5939,6 +5939,7 @@ dependencies = [
  "messenger-generated",
  "xui-canvas",
  "xui-core",
+ "xui-host",
 ]
 
 [[package]]
@@ -6143,6 +6144,7 @@ dependencies = [
  "uitheme",
  "xui-canvas",
  "xui-core",
+ "xui-host",
  "xui-work",
 ]
 

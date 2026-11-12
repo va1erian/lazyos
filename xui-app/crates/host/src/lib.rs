@@ -20,6 +20,7 @@
 
 pub mod dialogs;
 pub mod error;
+pub mod evidence;
 pub mod recent;
 pub mod settings;
 pub mod testing;

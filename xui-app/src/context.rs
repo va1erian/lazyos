@@ -35,6 +35,7 @@ use xui_core::widget::{FileDialog, FileSystem, StdFileSystem};
 use xui_explorer::platform::Launcher;
 use xui_host::dialogs::{self, Filter};
 use xui_host::error::ErrorDialog;
+use xui_host::evidence;
 use xui_host::recent::Recent;
 use xui_host::settings::{Factory, KeyValue, MemKv, Saver, Settings};
 use xui_host::{AppHost, Report};
@@ -60,6 +61,10 @@ pub struct AppContext {
 
 impl AppContext {
     pub(crate) fn new(backend: Rc<LazyOSBackend>, setup: &Setup) -> AppContext {
+        // The evidence of the crates that have no host in reach (`settings`,
+        // `confd-editor`): one line, one `trace` line on the app's channel.
+        let channel = setup.channel;
+        evidence::install(move |line| trace::line!(channel, "{line}"));
         AppContext {
             backend,
             channel: setup.channel,

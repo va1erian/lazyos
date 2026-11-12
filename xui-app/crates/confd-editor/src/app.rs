@@ -12,6 +12,7 @@
 //! administrator through `elevd` (docs/accounts-plan.md U2, [`Scope`]); then
 //! it lists every key, and every read and write goes through `elevd`.
 
+use xui_host::evidence;
 use std::rc::Rc;
 
 use xui_core::app::{App, Ui};
@@ -181,7 +182,7 @@ impl ConfdEditorApp {
         self.set_status("Waiting for an administrator to approve...".into());
         match elevation.elevate() {
             Ok(store) => {
-                println!("CONFDED:ELEVATE:PASS");
+                evidence!("ELEVATE:PASS");
                 self.store = store;
                 self.prefix = String::new();
                 self.elevation = None;
@@ -190,7 +191,7 @@ impl ConfdEditorApp {
                 self.reload_tree();
             }
             Err(error) => {
-                println!("CONFDED:ELEVATE:FAIL");
+                evidence!("ELEVATE:FAIL");
                 self.set_status(format!("Not elevated: {error}"));
             }
         }
@@ -355,7 +356,7 @@ impl App for ConfdEditorApp {
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         // Serial evidence that input reached the app (see `xui_confd.json`).
-        println!("CONFDED:MSG:{msg:?}");
+        evidence!("MSG:{msg:?}");
         // Any action other than the two-step confirms cancels a pending one.
         if !matches!(msg, Msg::Delete) {
             self.editor.clear_confirm();
@@ -365,7 +366,7 @@ impl App for ConfdEditorApp {
         }
         match msg {
             Msg::Close => {
-                println!("CONFDED:CLOSE:PASS");
+                evidence!("CLOSE:PASS");
                 ui.quit();
             }
             Msg::Select(index) => self.select_row(index),

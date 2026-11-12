@@ -8,6 +8,7 @@
 //! **Revert** goes back to what is stored. A refused save keeps the draft,
 //! so nothing typed is lost.
 
+use xui_host::evidence;
 use std::rc::Rc;
 
 use deskmenu::Entry;
@@ -235,7 +236,7 @@ impl MenuPage {
 /// answer too (the marker lives here so the evidence site does not move;
 /// see `finish` in `app/elevated.rs`).
 pub fn report_saved(entries: usize) {
-    println!("SETTINGS:MENU:SAVED:{entries}");
+    evidence!("MENU:SAVED:{entries}");
 }
 
 impl MenuPage {
