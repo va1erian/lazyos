@@ -186,19 +186,28 @@ impl Compositor {
     }
 
     /// Install `next` as the shell subscriber (or none), closing the endpoint
-    /// it replaces. A different task (or none) taking over resets the work
+    /// it replaces. A different shell (or none) taking over resets the work
     /// area the old shell set and re-fits maximized windows to it.
+    ///
+    /// "The same shell" is the same task whose old subscription is still
+    /// alive: a shell restarted after a crash can reuse the dead one's task
+    /// slot before the once-a-second probe noticed the death, and must not
+    /// inherit a work area that leaves out a taskbar it has not drawn yet
+    /// (it would size the screen from it and place its bar too high).
     pub(super) fn replace_shell(&mut self, next: Option<ShellSub>) {
         let next_task = next.as_ref().map(|sub| sub.task);
         let Some(previous) = core::mem::replace(&mut self.shell, next) else {
             return;
         };
+        let same_shell = next_task == Some(previous.task)
+            && !previous.dead
+            && super::reap::alive(previous.events, &mut self.scratch);
         // The panel keys were the old shell's: a new one starts without.
-        if next_task != Some(previous.task) {
+        if !same_shell {
             self.set_panel_keys(false);
         }
         let _ = Endpoint::from_raw(previous.events).close();
-        if next_task != Some(previous.task) && self.work.take().is_some() {
+        if !same_shell && self.work.take().is_some() {
             self.reflow_maximized();
             self.repaint_full();
         }
