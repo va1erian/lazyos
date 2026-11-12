@@ -1,55 +1,46 @@
-//! `healthd`'s request handling: dispatching the Messenger interfaces it
-//! serves and decoding a `Report`.
+//! `healthd`'s request handling: the generated `Server` over its health rows.
 //!
 //! Split out of `healthd.rs` (issue #194).
 
+use alloc::string::String;
 use alloc::vec::Vec;
+use libmessenger::client::Errno;
+use libmessenger::server::{Caller, Fault};
 use user::central;
-use user::messenger::{
-    self, services,
-    services::health::wire::{decode_report_args, ReportArgs},
-    Error, Message, Parcel,
-};
+use user::messenger::services::health::wire::{ReportReply, Server, StatusReply};
 
 use super::aggregate::{records, report, summary};
 use super::HealthRow;
 
-/// Dispatch one inbound message: heartbeat reports or a status
-/// query.
-pub(crate) fn dispatch(
-    rows: &mut Vec<HealthRow>,
-    broker: &mut central::Publisher,
-    message: &Message,
-) -> messenger::Result<Parcel> {
-    match message.interface_id() {
-        services::HEALTHD_INTERFACE => match message.method() {
-            services::health::METHOD_REPORT => {
-                let ReportArgs {
-                    name,
-                    status,
-                    detail,
-                } = decode_report(message)?;
-                report(rows, broker, &name, &status, &detail);
-                services::health_reply(&summary(rows), &records(rows))
-            }
-            services::health::METHOD_STATUS => {
-                services::health_reply(&summary(rows), &records(rows))
-            }
-            _ => Err(Error::Errno(-messenger::errno::EINVAL)),
-        },
-        _ => Err(Error::Errno(-messenger::errno::EINVAL)),
-    }
+/// The rows and the broker a request reads and publishes through.
+pub(crate) struct Handler<'a> {
+    pub(crate) rows: &'a mut Vec<HealthRow>,
+    pub(crate) broker: &'a mut central::Publisher,
 }
 
-/// Decode a `Report` request body.
-///
-/// The generated decoder defaults a missing `name` to the empty string, but a
-/// heartbeat without a service name is meaningless, so keep the explicit
-/// check the old hand-written field scan made.
-fn decode_report(message: &Message) -> messenger::Result<ReportArgs> {
-    let args = decode_report_args(&message.parcel.body).map_err(Error::Parcel)?;
-    if args.name.is_empty() {
-        return Err(Error::Errno(-messenger::errno::EINVAL));
+impl Server for Handler<'_> {
+    /// A heartbeat without a service name is meaningless.
+    fn report(
+        &mut self,
+        _: &Caller,
+        name: String,
+        status: String,
+        detail: String,
+    ) -> Result<ReportReply, Fault> {
+        if name.is_empty() {
+            return Err(Fault::errno(Errno::INVAL));
+        }
+        report(self.rows, self.broker, &name, &status, &detail);
+        Ok(ReportReply {
+            summary: summary(self.rows),
+            records: records(self.rows),
+        })
     }
-    Ok(args)
+
+    fn status(&mut self, _: &Caller) -> Result<StatusReply, Fault> {
+        Ok(StatusReply {
+            summary: summary(self.rows),
+            records: records(self.rows),
+        })
+    }
 }

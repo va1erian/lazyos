@@ -46,8 +46,7 @@ use user::messenger::services::init::Client as InitClient;
 use user::messenger::{self, registry, services, wait, Error};
 use user::sys;
 
-use aggregate::{records, refresh, summary};
-use handler::dispatch;
+use aggregate::refresh;
 
 /// How often the supervisor table is reconciled (PIT ticks). Service events
 /// are the fast path; this poll only catches detail changes and lost events,
@@ -181,12 +180,13 @@ fn run() -> messenger::Result<()> {
         // Serve the queued message (the wait says one is there).
         match server.recv_with(&mut buffer, Some(messenger::EXPIRED_DEADLINE)) {
             Ok(message) => {
-                let reply = match dispatch(&mut rows, &mut broker, &message) {
-                    Ok(parcel) => parcel,
-                    Err(_) => {
-                        services::health_reply(&summary(&rows), &records(&rows)).unwrap_or_default()
-                    }
-                };
+                let reply = services::health::wire::dispatch(
+                    &mut handler::Handler {
+                        rows: &mut rows,
+                        broker: &mut broker,
+                    },
+                    &message,
+                );
                 if let Some(txn) = message.txn {
                     // A caller whose deadline passed is a normal scheduling
                     // race, not a service failure: the kernel expired the

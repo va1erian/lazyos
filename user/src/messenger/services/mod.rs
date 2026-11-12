@@ -18,7 +18,7 @@ pub mod lifecycle;
 pub mod logd;
 pub mod sysmond;
 
-pub use health::{health_reply, HealthRecord};
+pub use health::HealthRecord;
 pub use init::{
     decode_launch_request, decode_stop_request, error_field, init_error_reply, launch_reply,
     list_apps_reply, service_event_name, services_reply, shutdown_reply, stop_reply, AppInfo,
