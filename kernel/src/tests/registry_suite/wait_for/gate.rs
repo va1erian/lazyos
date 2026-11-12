@@ -72,12 +72,14 @@ pub fn labelled_gate() -> Result<(), String> {
     let (_service, callable) = endpoint()?;
     later(PLAN_NONE, 0, 0, callable)?;
     no_later();
-    let label = crate::ipc::labels::intern("app:com.example").map_err(|_| "label")?;
+    let label = crate::ipc::labels::intern("app:com.waitfor").map_err(|_| "label")?;
+    // A label id can carry rules an earlier suite left: start with none.
+    acl::load_label(label, &[]).map_err(|_| "label rules")?;
     credentials::set(
         task::KERNEL_TASK,
         credentials::Cred::new(1000, 1000, 0, label, 0),
     );
-    let own = "app.com.example.svc";
+    let own = "app.com.waitfor.svc";
     registry::register(
         task::KERNEL_TASK,
         "os.lazy.timed",

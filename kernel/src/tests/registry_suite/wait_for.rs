@@ -318,7 +318,9 @@ pub fn wait_policy_rechecked() -> Result<(), String> {
     let base = handles::count_for_task(task::KERNEL_TASK);
     // At the start: a labelled task without rules may not resolve a system
     // name, so its wait is refused at once (and learns nothing about it).
-    let label = crate::ipc::labels::intern("app:com.example").map_err(|_| "label")?;
+    let label = crate::ipc::labels::intern("app:com.waitfor").map_err(|_| "label")?;
+    // A label id can carry rules an earlier suite left: start with none.
+    acl::load_label(label, &[]).map_err(|_| "label rules")?;
     credentials::set(
         task::KERNEL_TASK,
         credentials::Cred::new(1000, 1000, 0, label, 0),
