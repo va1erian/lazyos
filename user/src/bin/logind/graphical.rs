@@ -186,14 +186,20 @@ impl logind::wire::Server for Desktop {
 
     fn logout(&mut self, cx: &Caller) -> Result<u64, Fault> {
         match self.active.as_ref() {
-            // Without the bus the end could not be announced, so `init`
-            // would never stop the session's tasks: refuse, keep it.
-            Some(active) if cx.session == active.id && self.bus.is_none() => {
-                Err(Fault::refuse(Errno::AGAIN, "cannot announce the logout"))
-            }
             Some(active) if cx.session == active.id && active.id != 0 => {
+                let id = active.id;
+                // The end is announced before the answer: if the broker will
+                // not take it, `init` would never stop the session's tasks,
+                // so refuse and keep the session.
+                if !self.announce_end() {
+                    trace::line!(
+                        trace::Channel::Login,
+                        "LOGOUT:FAIL session={id} reason=unannounced"
+                    );
+                    return Err(Fault::refuse(Errno::AGAIN, "cannot announce the logout"));
+                }
                 self.after = After::EndSession;
-                Ok(active.id)
+                Ok(id)
             }
             _ => Err(Fault::refuse(Errno::PERM, "not your session")),
         }
@@ -379,28 +385,33 @@ impl Desktop {
         Ok(id)
     }
 
-    /// End the active session: `init` stops its tasks on the event, and the
-    /// next loop pass brings the login screen back. The end is announced
-    /// first: if it cannot be, the session stays active (its tasks are still
-    /// running) and a later Log out tries again, instead of a login screen
-    /// opening over a session nobody stopped.
-    fn end_session(&mut self) {
-        let Some(active) = self.active.as_ref() else {
-            return;
-        };
-        let (id, index) = (active.id, active.index);
+    /// The active session's account, as the end and session records carry it.
+    fn active_account(&self) -> Option<(u64, usize, accounts::UserRecord)> {
+        let active = self.active.as_ref()?;
+        let record = &self.sessions[active.index];
         let account = accounts::UserRecord {
-            name: self.sessions[index].user.clone(),
-            uid: self.sessions[index].uid,
+            name: record.user.clone(),
+            uid: record.uid,
             ..accounts::UserRecord::default()
         };
-        if !publish_end(&mut self.bus, &account, id, 0) {
-            trace::line!(
-                trace::Channel::Login,
-                "LOGOUT:FAIL session={id} reason=unannounced"
-            );
+        Some((active.id, active.index, account))
+    }
+
+    /// Publish the active session's `login/end` (`init` stops its tasks on
+    /// it); whether the broker took it.
+    fn announce_end(&mut self) -> bool {
+        let Some((id, _, account)) = self.active_account() else {
+            return false;
+        };
+        publish_end(&mut self.bus, &account, id, 0)
+    }
+
+    /// Finish the logout `Logout` announced: the next loop pass brings the
+    /// login screen back.
+    fn end_session(&mut self) {
+        let Some((id, index, account)) = self.active_account() else {
             return;
-        }
+        };
         self.active = None;
         self.sessions[index].state = String::from("exited");
         trace::line!(
