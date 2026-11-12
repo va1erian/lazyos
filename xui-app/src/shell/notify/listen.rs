@@ -4,6 +4,7 @@
 //! went away, and its channel is forgotten (its toasts stay: a notice an app
 //! posted just before it exited is still news).
 
+use crate::trace::{self, Channel};
 use lazyshell::notify::{Event, EventKind};
 use libmessenger::{flags, Header, Parcel, VERSION};
 use messenger_generated::os_lazy_notify_events_v1 as wire;
@@ -101,7 +102,7 @@ impl Listeners {
             }
         }
         for owner in gone {
-            println!("SHELL:NOTIFY:LISTEN:GONE owner={owner}");
+            trace::line!(Channel::Shell, "NOTIFY:LISTEN:GONE owner={owner}");
             self.drop_owner(&owner);
         }
     }
@@ -138,9 +139,12 @@ impl Listeners {
         };
         if let Err(code) = send(row.channel, method, body) {
             // A busy app misses an event; it is not worth more than a log.
-            println!(
-                "SHELL:NOTIFY:EVENT:FAIL owner={} id={} err={}",
-                event.owner, event.id, -code
+            trace::line!(
+                Channel::Shell,
+                "NOTIFY:EVENT:FAIL owner={} id={} err={}",
+                event.owner,
+                event.id,
+                -code
             );
         }
     }

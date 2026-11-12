@@ -13,6 +13,7 @@ description = "The LazyOS print spooler: spool, queue and send IPP jobs"
 publish = false
 
 [dependencies]
+atomicfile = { path = "../atomicfile" }
 ipp = { path = "../../../libs/ipp", features = ["std"] }
 
 [features]

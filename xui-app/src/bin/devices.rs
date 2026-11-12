@@ -54,7 +54,7 @@ impl App for Devices {
                 self.refreshes += 1;
                 self.widgets.show(&DevView::read(), self.refreshes);
                 if matches!(msg, Msg::Refresh) {
-                    println!("DEVICES:REFRESH:PASS");
+                    trace::pass!(Channel::Devices, "REFRESH");
                 }
             }
             Msg::Sort(table) => self.widgets.resort(table),

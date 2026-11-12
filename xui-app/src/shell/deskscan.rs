@@ -4,6 +4,7 @@
 //! Every filesystem call is timed ([`Timing`]); a slow scan leaves
 //! `UI:STALL kind=scan` naming the call that cost the time.
 
+use crate::trace::{self, Channel};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -331,8 +332,9 @@ fn seed(dir: &Path) -> Seed {
     let files = folder::seed(&launchers);
     match write_seed(dir, &files) {
         Ok(()) => {
-            println!(
-                "SHELL:DESKTOP:SEEDED dir={} n={}",
+            trace::line!(
+                Channel::Shell,
+                "DESKTOP:SEEDED dir={} n={}",
                 dir.display(),
                 files.len() - 1
             );

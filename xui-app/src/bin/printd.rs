@@ -17,6 +17,7 @@
 
 use std::path::Path;
 use std::process::ExitCode;
+use xui_app::trace::{self, Channel};
 
 use messenger_generated::os_lazy_print_v1 as wire;
 use printd::{JobInfo, Request, Spooler};
@@ -25,28 +26,38 @@ use xui_app::server::{self, Server};
 
 fn main() -> ExitCode {
     let report: printd::Report = Box::new(|info: &JobInfo| {
-        println!("PRINTD:JOB:{}:{}:{}", info.state.word(), info.id, info.line);
+        trace::line!(
+            Channel::Printd,
+            "JOB:{}:{}:{}",
+            info.state.word(),
+            info.id,
+            info.line
+        );
     });
     let spooler = match Spooler::open_reporting(Path::new(fhs::state::PRINT_SPOOL), Some(report)) {
         Ok(spooler) => spooler,
         Err(error) => {
-            println!("PRINTD:FAIL:spool {}: {error}", fhs::state::PRINT_SPOOL);
+            trace::line!(
+                Channel::Printd,
+                "FAIL:spool {}: {error}",
+                fhs::state::PRINT_SPOOL
+            );
             return ExitCode::FAILURE;
         }
     };
     let server = match Server::register(NAME, &[INTERFACE], &[wire::INTERFACE_NAME]) {
         Ok(server) => server,
         Err(code) => {
-            println!("PRINTD:FAIL:register {code}");
+            trace::line!(Channel::Printd, "FAIL:register {code}");
             return ExitCode::FAILURE;
         }
     };
-    println!("PRINTD:UP:PASS");
+    trace::pass!(Channel::Printd, "UP");
     // One receive buffer: a full `Write` and its framing.
     let mut buf = vec![0u8; MAX_WRITE + 64 * 1024];
     loop {
         if let Err(code) = server.wait(0) {
-            println!("PRINTD:FAIL:wait {code}");
+            trace::line!(Channel::Printd, "FAIL:wait {code}");
             return ExitCode::FAILURE;
         }
         loop {

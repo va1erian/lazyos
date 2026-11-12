@@ -264,6 +264,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "atomicfile"
+version = "0.1.0"
+
+[[package]]
 name = "audioclient"
 version = "0.1.0"
 dependencies = [
@@ -2333,6 +2337,7 @@ version = "0.1.0"
 name = "lazyhttps"
 version = "0.1.0"
 dependencies = [
+ "fhs",
  "nettls-crypto",
  "rcgen",
  "rustls",
@@ -2386,6 +2391,7 @@ dependencies = [
 name = "lazysky-core"
 version = "0.1.0"
 dependencies = [
+ "atomicfile",
  "image",
  "lazyhttps",
  "nettls-crypto",
@@ -3554,6 +3560,7 @@ dependencies = [
 name = "printd"
 version = "0.1.0"
 dependencies = [
+ "atomicfile",
  "ipp",
  "printd",
 ]
@@ -5811,6 +5818,7 @@ name = "xui-app"
 version = "0.1.0"
 dependencies = [
  "accountdb",
+ "atomicfile",
  "audioclient",
  "confd",
  "cursorgfx",
@@ -5910,6 +5918,7 @@ dependencies = [
 name = "xui-code-editor"
 version = "0.1.0"
 dependencies = [
+ "atomicfile",
  "regex",
  "rhai",
  "ropey",
@@ -6002,6 +6011,7 @@ dependencies = [
 name = "xui-lazyweb"
 version = "0.1.0"
 dependencies = [
+ "atomicfile",
  "fhs",
  "fuzzkit",
  "lazyadblock",
@@ -6027,8 +6037,7 @@ dependencies = [
  "esmail-glue",
  "fhs",
  "keyring",
- "nettls-crypto",
- "rustls",
+ "lazyhttps",
  "secrecy",
  "sha2",
  "xui-app",
@@ -6062,6 +6071,8 @@ name = "xui-paint"
 version = "0.0.0"
 dependencies = [
  "cosmic-text",
+ "crc32fast",
+ "flate2",
  "tiny-skia",
  "xui-app-testkit",
  "xui-canvas",

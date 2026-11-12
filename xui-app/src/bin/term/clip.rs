@@ -4,6 +4,7 @@
 //! bar, so a stray newline cannot run a command unseen.
 
 use std::path::PathBuf;
+use xui_app::trace::{self, Channel};
 
 use lazyterm::paste::{line_count, needs_confirmation, paste_bytes, shell_quote};
 
@@ -21,7 +22,7 @@ impl Terminal {
         let text = self.term.borrow().selection_text();
         if let Some(text) = text {
             ui.set_clipboard_text(&text);
-            println!("TERM:COPY:{}", text.len());
+            trace::line!(Channel::Term, "COPY:{}", text.len());
         }
     }
 
@@ -44,7 +45,7 @@ impl Terminal {
         let bracketed = self.term.borrow().bracketed_paste();
         if self.conf.settings.confirm_multiline && needs_confirmation(&text, bracketed) {
             let lines = line_count(&text);
-            println!("TERM:PASTE:CONFIRM:{lines}");
+            trace::line!(Channel::Term, "PASTE:CONFIRM:{lines}");
             self.pending_text = Some(text);
             self.show_prompt(ui, Prompt::paste(lines));
         } else {
@@ -58,7 +59,7 @@ impl Terminal {
         let bracketed = self.term.borrow().bracketed_paste();
         let bytes = paste_bytes(text, bracketed);
         self.input(ui, &bytes);
-        println!("TERM:PASTE:{}", bytes.len());
+        trace::line!(Channel::Term, "PASTE:{}", bytes.len());
         if !bracketed {
             self.track_paste(&String::from_utf8_lossy(&bytes));
         }
@@ -104,7 +105,7 @@ impl Terminal {
         if accept {
             self.write_paste(ui, &text);
         } else {
-            println!("TERM:PASTE:CANCEL");
+            trace::line!(Channel::Term, "PASTE:CANCEL");
         }
     }
 }

@@ -8,16 +8,17 @@
 //! screenshot can catch the gradient before the kernel mux reclaims the screen.
 
 use xui_app::sys::{self, DisplayInfo};
+use xui_app::trace::{self, Channel};
 
 fn main() {
     let mut info = DisplayInfo::default();
     if let Err(code) = sys::display_bind(&mut info) {
-        println!("XUIAPP:BIND:FAIL:{code}");
+        trace::fail!(Channel::Xuiapp, "BIND", "{code}");
         std::process::exit(1);
     }
     let (width, height) = (info.width as usize, info.height as usize);
     if width == 0 || height == 0 || info.va == 0 || info.size as usize != width * height * 4 {
-        println!("XUIAPP:BIND:FAIL:geometry");
+        trace::fail!(Channel::Xuiapp, "BIND", "geometry");
         let _ = sys::display_unbind();
         std::process::exit(1);
     }
@@ -36,11 +37,11 @@ fn main() {
     }
 
     if let Err(code) = sys::display_present(0, 0, width as i32, height as i32) {
-        println!("XUIAPP:PRESENT:FAIL:{code}");
+        trace::fail!(Channel::Xuiapp, "PRESENT", "{code}");
         let _ = sys::display_unbind();
         std::process::exit(1);
     }
-    println!("XUIAPP:PRESENT:PASS");
+    trace::pass!(Channel::Xuiapp, "PRESENT");
 
     // Hold the display so the frame is observable, then release it.
     std::thread::sleep(std::time::Duration::from_millis(30_000));

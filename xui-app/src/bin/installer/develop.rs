@@ -51,25 +51,25 @@ pub fn requested<I: IntoIterator<Item = OsString>>(args: I) -> Option<Option<Pat
 /// Run the `develop` verb for `path` and exit.
 pub fn main(path: Option<PathBuf>) -> ExitCode {
     let Some(path) = path.filter(|path| argv::is_acceptable(path)) else {
-        println!("INSTALLER:DEVELOP:FAIL not an absolute path");
+        trace::line!(Channel::Installer, "DEVELOP:FAIL not an absolute path");
         return ExitCode::FAILURE;
     };
     let text = path.to_string_lossy().into_owned();
     match pkg::develop(&text, false) {
         Ok((label, true)) => {
-            println!("INSTALLER:DEVELOP:PASS {} asked=0", clean(&label));
+            trace::line!(Channel::Installer, "DEVELOP:PASS {} asked=0", clean(&label));
             return ExitCode::SUCCESS;
         }
         Ok((_, false)) => {}
         Err(reason) => {
-            println!("INSTALLER:DEVELOP:FAIL {}", clean(&reason));
+            trace::line!(Channel::Installer, "DEVELOP:FAIL {}", clean(&reason));
             return ExitCode::FAILURE;
         }
     }
     let package = match pkg::inspect(&text) {
         Ok(package) => package,
         Err(reason) => {
-            println!("INSTALLER:DEVELOP:FAIL {}", clean(&reason));
+            trace::line!(Channel::Installer, "DEVELOP:FAIL {}", clean(&reason));
             return ExitCode::FAILURE;
         }
     };
@@ -94,18 +94,24 @@ impl App for Consent {
     fn update(&mut self, msg: DevMsg, ui: &mut Ui<DevMsg>) {
         match msg {
             DevMsg::Allow => match pkg::develop(&self.path, true) {
-                Ok((label, true)) => println!("INSTALLER:DEVELOP:PASS {} asked=1", clean(&label)),
-                Ok((label, false)) => {
-                    println!("INSTALLER:DEVELOP:FAIL not approved {}", clean(&label))
+                Ok((label, true)) => {
+                    trace::line!(Channel::Installer, "DEVELOP:PASS {} asked=1", clean(&label))
                 }
-                Err(reason) => println!("INSTALLER:DEVELOP:FAIL {}", clean(&reason)),
+                Ok((label, false)) => {
+                    trace::line!(
+                        Channel::Installer,
+                        "DEVELOP:FAIL not approved {}",
+                        clean(&label)
+                    )
+                }
+                Err(reason) => trace::line!(Channel::Installer, "DEVELOP:FAIL {}", clean(&reason)),
             },
             DevMsg::Deny => {
                 // Tell pkgd, so the IDE waiting for the answer stops now.
                 if let Err(reason) = pkg::develop_declined(&self.path) {
-                    println!("INSTALLER:DEVELOP:FAIL {}", clean(&reason));
+                    trace::line!(Channel::Installer, "DEVELOP:FAIL {}", clean(&reason));
                 }
-                println!("INSTALLER:DEVELOP:DENIED");
+                trace::line!(Channel::Installer, "DEVELOP:DENIED");
             }
         }
         ui.quit();

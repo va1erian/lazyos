@@ -12,6 +12,7 @@
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+use xui_app::trace::{self, Channel};
 
 use lazyrad_ide::run::{EventSink, Launcher, RunEvent};
 
@@ -39,8 +40,10 @@ pub fn play_headless(player: &Path, project_dir: &Path, author: &str) -> i32 {
     let exit: Arc<Mutex<Option<Option<i32>>>> = Arc::new(Mutex::new(None));
     let seen = Arc::clone(&exit);
     let sink: EventSink = Arc::new(move |_run, event| match event {
-        RunEvent::Output(line) => println!("LRIDE:PLAY:OUT:{line}"),
-        RunEvent::Diagnostic(report) => println!("LRIDE:PLAY:OUT:error: {}", report.message),
+        RunEvent::Output(line) => trace::line!(Channel::Lride, "PLAY:OUT:{line}"),
+        RunEvent::Diagnostic(report) => {
+            trace::line!(Channel::Lride, "PLAY:OUT:error: {}", report.message)
+        }
         // A headless run never starts the player under the debugger.
         RunEvent::Debug(_) => {}
         RunEvent::Exited(code) => {
@@ -53,7 +56,7 @@ pub fn play_headless(player: &Path, project_dir: &Path, author: &str) -> i32 {
     let mut child = match launcher.launch(player, project_dir, 1, sink) {
         Ok(child) => child,
         Err(error) => {
-            println!("LRIDE:PLAY:FAIL:{error}");
+            trace::fail!(Channel::Lride, "PLAY", "{error}");
             return 1;
         }
     };
@@ -63,8 +66,8 @@ pub fn play_headless(player: &Path, project_dir: &Path, author: &str) -> i32 {
     }
     let code = exit.lock().ok().and_then(|slot| *slot).flatten();
     match code {
-        Some(code) => println!("LRIDE:PLAY:EXIT:{code}"),
-        None => println!("LRIDE:PLAY:EXIT:none"),
+        Some(code) => trace::line!(Channel::Lride, "PLAY:EXIT:{code}"),
+        None => trace::line!(Channel::Lride, "PLAY:EXIT:none"),
     }
     code.unwrap_or(1)
 }

@@ -95,7 +95,7 @@ impl App for Widget {
             Msg::Tick => {
                 let mut state = self.state.borrow_mut();
                 state.reload();
-                println!("WIDGET:TICK:cpu={} mem={}", state.cpu, state.mem);
+                trace::line!(Channel::Widget, "TICK:cpu={} mem={}", state.cpu, state.mem);
                 drop(state);
                 ui.invalidate(self.root.id());
             }

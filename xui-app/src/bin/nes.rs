@@ -20,6 +20,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use xui_app::platform::audio::{Audio, Params, PlaybackStream};
+use xui_app::platform::dirs;
 use xui_app::trace::{self, Channel};
 use xui_nes::host::{Host, Report};
 use xui_nes::{Msg, NesApp, Session, WINDOW};
@@ -31,6 +32,8 @@ const PERIOD_BYTES: u32 = 2048;
 const RATE_HZ: u32 = 48_000;
 /// Where a headless run leaves its result, for a harness that reads files.
 const RESULT_FILE: &str = "nes-result.txt";
+/// The app's id: its data folder is `<home>/.apps/<SYSTEM_NAME>`.
+const SYSTEM_NAME: &str = "os.lazy.nes";
 
 /// The LazyOS side of the app.
 struct Platform {
@@ -184,13 +187,11 @@ impl Host for Platform {
     }
 }
 
-/// `$HOME/.apps/os.lazy.nes`, or `/transient`'s when there is no home.
+/// The app's data folder (`fhs::app_data_dir` of the home, or `/transient`'s
+/// when there is no home).
 fn app_dir() -> PathBuf {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .filter(|home| home.is_absolute() && home.is_dir());
-    let base = home.unwrap_or_else(|| PathBuf::from(fhs::mount::TRANSIENT));
-    base.join(".apps").join("os.lazy.nes")
+    let home = dirs::default_dir();
+    PathBuf::from(fhs::app_data_dir(&home.to_string_lossy(), SYSTEM_NAME))
 }
 
 fn main() {

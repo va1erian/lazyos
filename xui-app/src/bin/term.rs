@@ -32,7 +32,6 @@
 use std::cell::{Cell, RefCell};
 use std::os::unix::io::RawFd;
 use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
 use std::process::Command;
 use std::rc::Rc;
 
@@ -174,7 +173,7 @@ fn main() {
     let conf = follower.read();
     // A new window starts where its launcher said (`--cwd` or one directory
     // argument), else in the home directory.
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home = xui_app::platform::dirs::home();
     let start_dir = helpers::start_dir(std::env::args_os(), home.as_deref(), |p| p.is_dir());
     let paint_clock = Rc::new(PaintClock::default());
     let layout = Rc::new(Cell::new(None));

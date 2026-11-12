@@ -9,6 +9,15 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+/// The user's home: `$HOME` when it is an absolute path, else none. It does not
+/// touch the filesystem, so the UI thread may call it; [`default_dir`] also
+/// checks that the folder exists.
+pub fn home() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|home| home.is_absolute())
+}
+
 /// The folder a picker opens in when the app has no better one.
 pub fn default_dir() -> PathBuf {
     resolve_default_dir(std::env::var_os("HOME"), |path| path.is_dir())

@@ -17,7 +17,6 @@
 //! | JPEG `.jpg` `.jpeg` | yes | no | no |
 
 mod bmp;
-mod inflate;
 mod ora;
 mod xml;
 mod zip;

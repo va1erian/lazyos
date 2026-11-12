@@ -93,6 +93,8 @@ members = [
     "crates/adblock",
     # Worker threads that answer a window with messages (docs/client-api-plan.md 4.3).
     "crates/work",
+    # `atomicfile`: the one atomic write (temp file, sync, rename, directory sync) the apps share.
+    "crates/atomicfile",
 ]
 
 [dependencies]
@@ -178,6 +180,7 @@ xui-explorer = { path = "crates/explorer", features = ["village-icons"] }
 # The Archiver (docs/archiver-plan.md): its app core and format library.
 xui-archiver = { path = "crates/archiver" }
 xui-work = { path = "crates/work" }
+atomicfile = { path = "crates/atomicfile" }
 # The PDF Viewer (docs/pdf-reader-plan.md): its window over `lazypdf`.
 xui-pdfview = { path = "crates/pdfview" }
 # The Video Player (docs/video-player-plan.md): its window over `lazyvideo`.

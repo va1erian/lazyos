@@ -9,6 +9,7 @@
 //! sender, so an app cannot post as another app or as the system. A refused
 //! call prints `SHELL:NOTIFY:DENY` and closes any channel it carried.
 
+use crate::trace::{self, Channel};
 use std::rc::Rc;
 
 use lazyshell::notify::policy::{identify, Sender};
@@ -104,7 +105,7 @@ impl NotifyService {
         ) {
             Ok(server) => {
                 self.server = Some(server);
-                println!("SHELL:NOTIFY:SERVICE:PASS");
+                trace::line!(Channel::Shell, "NOTIFY:SERVICE:PASS");
                 true
             }
             Err(code) => {
@@ -141,8 +142,9 @@ fn identify_owner(ctx: &Ctx, call: &Call, rows: &mut Rows) -> Result<String, Fai
         session: ctx.notify.session,
     };
     let deny = |why: Deny| {
-        println!(
-            "SHELL:NOTIFY:DENY uid={} label={} sender={} why={}",
+        trace::line!(
+            Channel::Shell,
+            "NOTIFY:DENY uid={} label={} sender={} why={}",
             origin.uid,
             origin.label_id,
             call.sender,
@@ -196,21 +198,26 @@ fn dispatch(ctx: &Ctx, owner: &str, method: u32, call: &Call) -> Result<Vec<u8>,
         wire::METHOD_NOTIFY => {
             let args = wire::decode_notify_args(body).map_err(|_| bad)?;
             let request = Request::from_wire(args).map_err(|why| {
-                println!("SHELL:NOTIFY:INVALID owner={owner} field={}", why.as_str());
+                trace::line!(
+                    Channel::Shell,
+                    "NOTIFY:INVALID owner={owner} field={}",
+                    why.as_str()
+                );
                 (errno::EINVAL, "invalid notification")
             })?;
             let (level, title) = (request.note.level, request.note.title.clone());
             let posted = state.center.borrow_mut().post(owner, request, now);
             match posted {
                 Ok(id) => {
-                    println!(
-                        "SHELL:NOTIFY:POST owner={owner} id={id} level={} title={title}",
+                    trace::line!(
+                        Channel::Shell,
+                        "NOTIFY:POST owner={owner} id={id} level={} title={title}",
                         level.as_str()
                     );
                     wire::encode_notify_reply(&wire::NotifyReply { id }).map_err(|_| bad)
                 }
                 Err(Refused::RateLimited) => {
-                    println!("SHELL:NOTIFY:LIMIT owner={owner}");
+                    trace::line!(Channel::Shell, "NOTIFY:LIMIT owner={owner}");
                     Err((errno::EBUSY, "too many notifications: slow down"))
                 }
                 Err(Refused::Full) => Err((ENOSPC, "too many notifications alive")),
@@ -229,7 +236,7 @@ fn dispatch(ctx: &Ctx, owner: &str, method: u32, call: &Call) -> Result<Vec<u8>,
                 let _ = sys::msg_close(args.events);
                 return Err((ENOSPC, "too many listeners"));
             }
-            println!("SHELL:NOTIFY:LISTEN owner={owner}");
+            trace::line!(Channel::Shell, "NOTIFY:LISTEN owner={owner}");
             Ok(Vec::new())
         }
         _ => Err((ENOTSUP, "unknown method")),

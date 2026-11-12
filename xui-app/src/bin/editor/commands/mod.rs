@@ -15,6 +15,7 @@ mod edit;
 mod find;
 
 use std::path::{Path, PathBuf};
+use xui_app::trace::{self, Channel};
 
 use xui_code_editor::document::Document;
 use xui_core::app::Ui;
@@ -168,10 +169,10 @@ pub fn open_path(app: &mut Notepad, ui: &mut Ui<Msg>, path: PathBuf) {
             clear_find(app, ui);
             app.editor.focus();
             refresh(app, ui);
-            println!("EDITOR:OPEN:PASS:{}", path.display());
+            trace::pass!(Channel::Editor, "OPEN", "{}", path.display());
         }
         Err(error) => {
-            println!("EDITOR:OPEN:FAIL:{}", path.display());
+            trace::fail!(Channel::Editor, "OPEN", "{}", path.display());
             show_error(
                 app,
                 ui,
@@ -207,10 +208,10 @@ fn save_to(app: &mut Notepad, ui: &mut Ui<Msg>, path: PathBuf) {
         Ok(()) => {
             refresh(app, ui);
             app.editor.focus();
-            println!("EDITOR:SAVE:PASS:{}", path.display());
+            trace::pass!(Channel::Editor, "SAVE", "{}", path.display());
         }
         Err(error) => {
-            println!("EDITOR:SAVE:FAIL:{}", path.display());
+            trace::fail!(Channel::Editor, "SAVE", "{}", path.display());
             show_error(
                 app,
                 ui,

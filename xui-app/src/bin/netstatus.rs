@@ -259,7 +259,7 @@ fn run(res: &Rc<Resident>) {
         }
         let now = (net.tooltip(), net.bars());
         if now != shown {
-            println!("NETSTATUS:STATE {}", now.0);
+            trace::line!(Channel::Netstatus, "STATE {}", now.0);
             let patch = wire::UpdateArgs {
                 icon: Some(net.icon()),
                 tooltip: Some(now.0.clone()),

@@ -10,7 +10,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::PathBuf;
 
 use super::file::{append, clean_web_url, read_head, truncate, Fault};
@@ -453,17 +453,7 @@ impl Bookmarks {
         for e in self.entries.values() {
             bytes.extend_from_slice(&log::encode(&Op::Put(e.clone())));
         }
-        let temp = file.with_extension("log.tmp");
-        let written = (|| {
-            let mut f = fs::File::create(&temp)?;
-            f.write_all(&bytes)?;
-            f.sync_all()?;
-            fs::rename(&temp, &file)
-        })();
-        if written.is_err() {
-            let _ = fs::remove_file(&temp);
-        }
-        written?;
+        atomicfile::write(&file, &bytes)?;
         self.records = self.entries.len();
         Ok(())
     }

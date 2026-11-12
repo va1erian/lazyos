@@ -78,7 +78,7 @@ struct Folders {
 }
 
 fn folders() -> Folders {
-    let home = std::env::var("HOME").ok().filter(|h| h.starts_with('/'));
+    let home = xui_app::platform::dirs::home().map(|home| home.to_string_lossy().into_owned());
     let profile = home.as_ref().and_then(|home| {
         let dir = PathBuf::from(fhs::app_data_dir(home, SYSTEM_NAME));
         std::fs::create_dir_all(&dir).ok().map(|_| dir)

@@ -3,6 +3,7 @@
 //! (`?2026`) it asks the repaint to wait for.
 
 use xui_core::app::Ui;
+use xui_app::trace::{self, Channel};
 
 use super::appearance::now_ms;
 use super::{Msg, Terminal};
@@ -24,6 +25,11 @@ pub fn resolve_cwd(host: &str, path: &str, home: Option<&str>) -> Option<String>
     path.starts_with('/').then(|| path.to_string())
 }
 
+/// The home folder as text, for [`resolve_cwd`].
+fn home_text() -> Option<String> {
+    xui_app::platform::dirs::home().map(|home| home.to_string_lossy().into_owned())
+}
+
 impl Terminal {
     /// Show a changed title and report a changed working directory.
     pub(super) fn meta_changed(&mut self, ui: &mut Ui<Msg>) {
@@ -36,13 +42,12 @@ impl Terminal {
             let shown = title.as_deref().unwrap_or(DEFAULT_TITLE);
             ui.set_window_title(shown);
             self.title = shown.to_string();
-            println!("TERM:TITLE:{shown}");
+            trace::line!(Channel::Term, "TITLE:{shown}");
         }
         if cwd != self.cwd {
             if let Some(cwd) = &cwd {
-                let home = std::env::var("HOME").ok();
-                if let Some(path) = resolve_cwd(&cwd.host, &cwd.path, home.as_deref()) {
-                    println!("TERM:CWD:{path}");
+                if let Some(path) = resolve_cwd(&cwd.host, &cwd.path, home_text().as_deref()) {
+                    trace::line!(Channel::Term, "CWD:{path}");
                 }
             }
             self.cwd = cwd;
@@ -53,7 +58,7 @@ impl Terminal {
     #[allow(dead_code)]
     pub(super) fn cwd_path(&self) -> Option<String> {
         let cwd = self.cwd.as_ref()?;
-        resolve_cwd(&cwd.host, &cwd.path, std::env::var("HOME").ok().as_deref())
+        resolve_cwd(&cwd.host, &cwd.path, home_text().as_deref())
     }
 
     /// Whether the repaint waits: a synchronized update is open and has not

@@ -506,6 +506,37 @@ send.
 * Every evidence line through `trace`; the `println!` markers move and the
   `check_adhoc.py` baseline drops with them.
 
+**As built (X4).**
+
+* `xui-app/crates/atomicfile` (std only, no dependencies): `write` and
+  `write_with` create the temp file exclusively beside the target, sync it,
+  give it the target's permissions, rename it over the target and sync the
+  directory; a symlink target is refused. Paint's and Writer's storage, the code
+  editor, LazySky (settings and saved pictures), printd and LazyWeb (session,
+  visits, places, notifications, blocker lists) use it. Left on purpose: the
+  Archiver's extract and create (they stream to a path the format writers open
+  themselves, and extract replaces a link rather than following it), downloads'
+  `.part` rename (a finished download, not a rewrite) and the Explorer's moves.
+* Paint's inflate and CRC-32 tables are gone (`flate2` and `crc32fast`, the
+  copies `lazyarc` links). Its small in-memory zip container stays: `lazyarc`'s
+  zip reads and writes `std::fs::File`, and Paint's crate does no I/O.
+* Image decoding needed no change: the PDF crate's `png` is a dev-dependency of
+  an example, `video` and the `image` crate already share one `zune-jpeg`, and
+  Explorer and LazySky enable different `image` features, so merging them would
+  link codecs an app does not use.
+* `lazyhttps::Roots::lazyos()` is the one CA bundle lookup (LazySky's
+  `ca_roots`); Mail installs its TLS provider with `lazyhttps::install_tls_provider`.
+  Net Tools' `net::{http, web}` stay a raw HTTP/1.0 socket probe (resolved
+  address, bytes counted with headers, timing), which is what the app shows.
+* `xui_app::platform::dirs::home()` is the one `$HOME` lookup (no filesystem
+  access, so the UI thread may call it); `default_dir()` adds the existence
+  check and the `/transient` fallback. Paint, NES (now `fhs::app_data_dir`),
+  the Terminal, LazyWeb's profile and the desktop folder use them.
+* 289 `println!` markers moved to `trace::pass!`/`fail!`/`line!` with the same
+  text on the wire; the baseline fell from 319 to 30 prints in `xui-app` and `lazyrad-os`. Left: Settings, Writer,
+  confd-editor and pdfview (portable crates `xui-app` depends on, no seam yet),
+  `shell/failures.rs`, and LazyWeb's host-build fallback print.
+
 ### 4.5 Async: one non-blocking form, no `async fn` API (yet)
 
 Async/await works in LazyOS Rust, but only `user::messenger_async` uses it
@@ -558,7 +589,7 @@ leaves `main` green.
 | X1 | `xui_app::app(..)` builder, `.opens`, panic hook, `finish`; new template; migrate every bin | `themed.rs`, outboxes, seven launch paths |
 | X2 | `AppContext`: settings, dirs, recent, dialogs, error, files | four `Host` structs, `format!` confd keys, `$HOME` lookups |
 | X3 | **Built** (`xui_app::work`, section 4.3; `cx.spawn` follows X2) | four worker handoff mechanisms |
-| X4 | Shared plumbing (4.4) and the marker migration | atomic-write, image, zip, HTTP copies; `println!` markers |
+| X4 | **Built** (section 4.4, "As built"); the four portable crates' markers wait for an event seam | atomic-write, image, zip, HTTP copies; `println!` markers |
 
 C1, C2a and X1 are independent and run in parallel; C2b needs C1 and C2a;
 C3 and C4 need C2b; C5 needs C1; X3 follows X1 (they touch the same bins);

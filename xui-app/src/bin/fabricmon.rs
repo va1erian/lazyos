@@ -165,10 +165,10 @@ impl App for Fabricmon {
                 self.widgets.show(&self.state, self.refreshes);
                 if !manual && !self.ticked {
                     self.ticked = true;
-                    println!("FABMON:READY:PASS");
+                    trace::pass!(Channel::Fabmon, "READY");
                 }
                 if manual {
-                    println!("FABMON:REFRESH:PASS");
+                    trace::pass!(Channel::Fabmon, "REFRESH");
                 }
             }
             Msg::Show(index) => self.widgets.tabs.get().select(index),
@@ -191,7 +191,7 @@ impl App for Fabricmon {
                 }
                 self.widgets.set_compact(ui, small);
                 let rect = ui.client_rect();
-                println!("FABMON:SIZE:{}x{}", rect.width(), rect.height());
+                trace::line!(Channel::Fabmon, "SIZE:{}x{}", rect.width(), rect.height());
             }
         }
         // Longer values change the labels' natural sizes.

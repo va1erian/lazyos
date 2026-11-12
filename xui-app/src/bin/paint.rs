@@ -25,11 +25,12 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use xui_app::trace::Channel;
+use xui_app::trace::{self, Channel};
 
 use xui_app::font;
 use xui_app::platform::argv;
 use xui_app::platform::clipboard as system_clipboard;
+use xui_app::platform::dirs;
 use xui_app::platform::storage::{PngStorage, EDITOR_MAX_LOAD_BYTES};
 use xui_app::probe;
 use xui_core::widget::StdFileSystem;
@@ -84,7 +85,7 @@ fn text_rasterizer() -> Rc<dyn TextRasterizer> {
         // an unknown name) does not depend on the directory's.
         files.sort();
         // Evidence that the text tool has the system fonts, not only Droid.
-        println!("PAINT:FONTS:{}", files.len());
+        trace::line!(Channel::Paint, "FONTS:{}", files.len());
         for path in files {
             if let Ok(bytes) = std::fs::read(&path) {
                 rasterizer.register_font(bytes);
@@ -99,10 +100,7 @@ fn text_rasterizer() -> Rc<dyn TextRasterizer> {
 
 /// The default save file when no path is given.
 fn default_path() -> PathBuf {
-    match std::env::var_os("HOME") {
-        Some(home) if !home.is_empty() => PathBuf::from(home).join("xpaint.png"),
-        _ => PathBuf::from(fhs::mount::TMP).join("xpaint.png"),
-    }
+    dirs::default_dir().join("xpaint.png")
 }
 
 /// A storage wrapper that reports save/load outcomes on the serial log.
@@ -116,7 +114,7 @@ impl Storage for ReportingStorage {
             // The app reports a success, with the format it wrote.
             Ok(()) => Ok(()),
             Err(error) => {
-                println!("PAINT:SAVE:FAIL:{}", self.inner.path().display());
+                trace::fail!(Channel::Paint, "SAVE", "{}", self.inner.path().display());
                 Err(error)
             }
         }
@@ -133,7 +131,7 @@ impl Storage for ReportingStorage {
     fn save_to(&self, path: &Path, bytes: &[u8]) -> Result<(), String> {
         let result = self.inner.save_to(path, bytes);
         if result.is_err() {
-            println!("PAINT:SAVE:FAIL:{}", path.display());
+            trace::fail!(Channel::Paint, "SAVE", "{}", path.display());
         }
         result
     }
@@ -157,8 +155,10 @@ fn announce(report: &Report, default: &Path) {
     match report {
         Report::Opened { path, size, layers } => {
             let path = path.as_deref().unwrap_or(default);
-            println!(
-                "PAINT:OPEN:PASS:{}:{}x{}:{layers}",
+            trace::pass!(
+                Channel::Paint,
+                "OPEN",
+                "{}:{}x{}:{layers}",
                 path.display(),
                 size.0,
                 size.1
@@ -166,23 +166,24 @@ fn announce(report: &Report, default: &Path) {
         }
         Report::Saved { path, format } => {
             let path = path.as_deref().unwrap_or(default);
-            println!("PAINT:SAVE:PASS:{}:{}", path.display(), format.extension());
+            trace::pass!(
+                Channel::Paint,
+                "SAVE",
+                "{}:{}",
+                path.display(),
+                format.extension()
+            );
         }
     }
 }
 
-/// Where the file dialogs start: the file's directory, else `$HOME`, else `/`.
+/// Where the file dialogs start: the file's directory, else the home folder.
 fn start_dir(requested: Option<&Path>) -> PathBuf {
     requested
         .and_then(Path::parent)
         .filter(|dir| !dir.as_os_str().is_empty())
         .map(Path::to_path_buf)
-        .or_else(|| {
-            std::env::var_os("HOME")
-                .filter(|home| !home.is_empty())
-                .map(PathBuf::from)
-        })
-        .unwrap_or_else(|| PathBuf::from("/"))
+        .unwrap_or_else(dirs::default_dir)
 }
 
 fn main() {

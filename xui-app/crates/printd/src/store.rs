@@ -9,7 +9,7 @@
 //! so a value cannot forge another line.
 
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::{JobId, MAX_FIELD, State, Ticket};
@@ -65,16 +65,7 @@ impl Store {
     /// Writes `record`, replacing the last one.
     pub fn save(&self, record: &Record) -> io::Result<()> {
         let path = self.record_path(record.id);
-        let temp = self.dir.join(format!("{}.job.new", record.id));
-        let mut file = fs::File::create(&temp)?;
-        file.write_all(encode(record).as_bytes())?;
-        file.sync_all()?;
-        drop(file);
-        fs::rename(&temp, &path)?;
-        // The rename itself reaches the disk only with its directory.
-        #[cfg(unix)]
-        fs::File::open(&self.dir)?.sync_all()?;
-        Ok(())
+        atomicfile::write(&path, encode(record).as_bytes())
     }
 
     /// Forgets job `id`: both its files.

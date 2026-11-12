@@ -46,15 +46,15 @@ impl App for Counter {
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         match msg {
             Msg::Close => {
-                println!("XUIAPP:CLOSE:PASS");
+                trace::pass!(Channel::Xuiapp, "CLOSE");
                 ui.quit();
             }
             Msg::Bump => {
                 self.count += 1;
                 self.label.get().set_text(&format!("{} clicks", self.count));
-                println!("XUIAPP:CLICK:{}", self.count);
+                trace::line!(Channel::Xuiapp, "CLICK:{}", self.count);
                 if self.count == 1 {
-                    println!("XUIAPP:INPUT:PASS");
+                    trace::pass!(Channel::Xuiapp, "INPUT");
                 }
             }
         }

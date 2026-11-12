@@ -5,7 +5,7 @@
 //! `tls.rs`, `roots.rs` and `resolve.rs` were adapted from the fetcher of
 //! LazyWeb, the Blitz browser (removed), which was declared GPL-2.0-only.
 //! This crate is GPL-3.0-or-later and shared by the two apps that may link
-//! it; it names no xui type and no LazyOS crate.
+//! it; it names no xui type and no LazyOS crate but `fhs` (paths only).
 
 mod http;
 mod resolve;
@@ -33,6 +33,23 @@ pub enum Roots {
     Pem(Arc<Vec<u8>>),
     /// The host's trust store (feature `native-roots`, desktop only).
     Native,
+}
+
+impl Roots {
+    /// LazyOS's trust anchors: the bundle `SSL_CERT_FILE` names, else the first
+    /// of the system bundle and the Linux-conventional one that exists, else
+    /// the system bundle's path (so a failure names it).
+    pub fn lazyos() -> Roots {
+        let from_env = std::env::var_os("SSL_CERT_FILE").filter(|v| !v.is_empty());
+        let path = from_env.map(PathBuf::from).unwrap_or_else(|| {
+            [fhs::etc::CA_BUNDLE, fhs::etc::LINUX_CA_BUNDLE]
+                .iter()
+                .map(PathBuf::from)
+                .find(|path| path.is_file())
+                .unwrap_or_else(|| PathBuf::from(fhs::etc::CA_BUNDLE))
+        });
+        Roots::Bundle(path)
+    }
 }
 
 /// Installs `nettls-crypto` as the process's default rustls provider (the

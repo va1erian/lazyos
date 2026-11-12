@@ -16,6 +16,7 @@
 //! app needs `os.lazy.shell.tray.v1` and `subscribe:session/+/shell/tray` in
 //! its manifest (both implied by `resident` from stage T3).
 
+use crate::trace::{self, Channel};
 use libmessenger::client::{Connection, Deadline, Retry};
 use libmessenger::Parcel;
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;
@@ -186,7 +187,7 @@ impl TrayIcon {
             // A `Set` a restarting shell refused is tried again.
             self.next_retry = tick.saturating_add(GENERATION_TICKS);
             if let Some(Err(code)) = self.tray.retry() {
-                println!("TRAY:RESET:RETRY err={}", -code);
+                trace::line!(Channel::Tray, "RESET:RETRY err={}", -code);
             }
         }
         let events = if now {
@@ -197,7 +198,7 @@ impl TrayIcon {
         for event in events {
             if let Ok(value) = wire::decode_session_shell_tray(&event.payload) {
                 if let Some(Err(code)) = self.tray.generation(value.generation) {
-                    println!("TRAY:RESET:FAIL err={}", -code);
+                    trace::line!(Channel::Tray, "RESET:FAIL err={}", -code);
                 }
             }
         }

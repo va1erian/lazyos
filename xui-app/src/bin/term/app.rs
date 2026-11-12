@@ -3,6 +3,7 @@
 use std::cell::{Cell, RefCell};
 use std::process::Child;
 use std::rc::Rc;
+use xui_app::trace::{self, Channel};
 
 use lazyterm::input::Button;
 use lazyterm::Term as Engine;
@@ -103,7 +104,7 @@ pub(super) struct Terminal {
 impl Terminal {
     pub(super) fn finish(&mut self, ui: &mut Ui<Msg>) {
         self.save_size(true);
-        println!("TERM:EXIT:PASS");
+        trace::pass!(Channel::Term, "EXIT");
         ui.quit();
     }
 }
