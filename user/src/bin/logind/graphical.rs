@@ -34,7 +34,8 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use libmessenger::client::{CallError, Deadline};
+use libmessenger::client::{CallError, Deadline, Errno};
+use libmessenger::server::{Caller, Fault};
 use user::central;
 use user::messenger::accounts::Directory;
 use user::messenger::client::Native;
@@ -42,7 +43,7 @@ use user::messenger::confd::ValueClient;
 use user::messenger::services::init::{Client as InitClient, ClientError as InitError};
 use user::trace;
 
-use user::messenger::{self, accounts, confd, errno, logind, Endpoint, Message, Parcel};
+use user::messenger::{self, accounts, confd, errno, logind, Endpoint};
 use user::sys;
 
 /// The confd key that selects the session kind.
@@ -107,6 +108,8 @@ struct Desktop {
     init: Option<InitClient>,
     greeter: bool,
     autologin_tried: bool,
+    /// What the request just answered asks for once its reply is sent.
+    after: After,
 }
 
 /// Serve graphical logins until the system stops. Returns only when the login
@@ -121,6 +124,7 @@ pub fn run(server: &Endpoint, buffer: &mut [u8]) -> messenger::Result<()> {
         init: None,
         greeter: false,
         autologin_tried: false,
+        after: After::Nothing,
     };
     sys::write_str("logind: graphical login\n");
     loop {
@@ -151,14 +155,47 @@ pub fn run(server: &Endpoint, buffer: &mut [u8]) -> messenger::Result<()> {
             Err(messenger::Error::Errno(code)) if code == -errno::ETIMEDOUT => continue,
             Err(error) => return Err(error),
         };
-        let (reply, after) = desktop.answer(&message);
+        let reply = logind::wire::dispatch(&mut desktop, &message);
         if let Some(txn) = message.txn {
             server.reply_or_drop(txn, &reply)?;
         }
-        match after {
+        match core::mem::replace(&mut desktop.after, After::Nothing) {
             After::Nothing => {}
             After::StopGreeter => desktop.stop_greeter(),
             After::EndSession => desktop.end_session(),
+        }
+    }
+}
+
+/// The generated server: a method that must be followed by more work (the
+/// greeter stops, the session ends) leaves it in `after` for the loop.
+impl logind::wire::Server for Desktop {
+    fn sessions(&mut self, _: &Caller) -> Result<logind::wire::SessionsReply, Fault> {
+        Ok(logind::wire::SessionsReply {
+            active: self.active.iter().count() as u64,
+            sessions: self.sessions.clone(),
+        })
+    }
+
+    fn login(&mut self, cx: &Caller, user: String, secret: String) -> Result<u64, Fault> {
+        let session = Desktop::login(self, cx, &user, &secret)
+            .map_err(|(code, why)| Fault::new(code as u32, why))?;
+        self.after = After::StopGreeter;
+        Ok(session)
+    }
+
+    fn logout(&mut self, cx: &Caller) -> Result<u64, Fault> {
+        match self.active.as_ref() {
+            // Without the bus the end could not be announced, so `init`
+            // would never stop the session's tasks: refuse, keep it.
+            Some(active) if cx.session == active.id && self.bus.is_none() => {
+                Err(Fault::refuse(Errno::AGAIN, "cannot announce the logout"))
+            }
+            Some(active) if cx.session == active.id && active.id != 0 => {
+                self.after = After::EndSession;
+                Ok(active.id)
+            }
+            _ => Err(Fault::refuse(Errno::PERM, "not your session")),
         }
     }
 }
@@ -230,60 +267,14 @@ impl Desktop {
         self.greeter = false;
     }
 
-    /// Answer one request, and say what must follow the reply.
-    fn answer(&mut self, message: &Message) -> (Parcel, After) {
-        let method = message.method();
-        if message.interface_id() != logind::INTERFACE {
-            return (Parcel::default(), After::Nothing);
-        }
-        match method {
-            logind::wire::METHOD_SESSIONS => {
-                let active = self.active.iter().count() as u64;
-                let reply = logind::sessions_reply(&self.sessions, active).unwrap_or_default();
-                (reply, After::Nothing)
-            }
-            logind::wire::METHOD_LOGIN => match self.login(message) {
-                Ok(session) => {
-                    let body =
-                        logind::wire::encode_login_reply(&logind::wire::LoginReply { session })
-                            .unwrap_or_default();
-                    (logind::reply(method, body), After::StopGreeter)
-                }
-                Err((code, why)) => (logind::error_reply(method, code, why), After::Nothing),
-            },
-            logind::wire::METHOD_LOGOUT => {
-                let caller = message.caller();
-                match self.active.as_ref() {
-                    // Without the bus the end could not be announced, so `init`
-                    // would never stop the session's tasks: refuse, keep it.
-                    Some(active) if caller.session == active.id && self.bus.is_none() => (
-                        logind::error_reply(method, errno::EAGAIN, "cannot announce the logout"),
-                        After::Nothing,
-                    ),
-                    Some(active) if caller.session == active.id && active.id != 0 => {
-                        let body = logind::wire::encode_logout_reply(&logind::wire::LogoutReply {
-                            session: active.id,
-                        })
-                        .unwrap_or_default();
-                        (logind::reply(method, body), After::EndSession)
-                    }
-                    _ => (
-                        logind::error_reply(method, errno::EPERM, "not your session"),
-                        After::Nothing,
-                    ),
-                }
-            }
-            _ => (
-                logind::error_reply(method, errno::EINVAL, "unknown method"),
-                After::Nothing,
-            ),
-        }
-    }
-
     /// `Login` from the login screen: who may ask, then the password, then
     /// the session.
-    fn login(&mut self, message: &Message) -> Result<u64, (i64, &'static str)> {
-        let caller = message.caller();
+    fn login(
+        &mut self,
+        caller: &Caller,
+        user: &str,
+        secret: &str,
+    ) -> Result<u64, (i64, &'static str)> {
         // The login screen's identity alone: a task of a session (or anyone
         // else) never gets to try passwords through this call.
         if caller.uid != logind::GREETER_UID || caller.label_id != 0 || caller.session != 0 {
@@ -292,38 +283,36 @@ impl Desktop {
         if self.active.is_some() {
             return Err((errno::EBUSY, "a session is open"));
         }
-        let args = logind::wire::decode_login_args(&message.parcel.body)
-            .map_err(|_| (errno::EINVAL, "malformed"))?;
         let accounts = self
             .accounts
             .as_ref()
             .ok_or((errno::EAGAIN, "accounts not ready"))?;
-        let account = match accounts.lookup_name(&args.user) {
+        let account = match accounts.lookup_name(user) {
             Ok(Some(account)) => account,
             Ok(None) => {
-                super::deny(&mut self.bus, &args.user, "unknown-user");
+                super::deny(&mut self.bus, user, "unknown-user");
                 return Err((errno::EACCES, "refused"));
             }
             Err(_) => {
-                super::deny(&mut self.bus, &args.user, "no-accounts");
+                super::deny(&mut self.bus, user, "no-accounts");
                 return Err((errno::EACCES, "refused"));
             }
         };
-        match accounts.authenticate(&args.user, &args.secret) {
+        match accounts.authenticate(user, secret) {
             Ok(true) => {}
             // `accountsd`'s brake holds for this name (U1): say so, and do
             // not count it as one more wrong password.
             Err(error) if error.code() == -errno::EAGAIN => {
-                super::deny(&mut self.bus, &args.user, "slowed");
+                super::deny(&mut self.bus, user, "slowed");
                 return Err((errno::EAGAIN, "too many failed attempts"));
             }
             Ok(false) | Err(_) => {
-                super::deny(&mut self.bus, &args.user, "bad-secret");
+                super::deny(&mut self.bus, user, "bad-secret");
                 return Err((errno::EACCES, "refused"));
             }
         }
         self.open(&account).map_err(|_| {
-            super::deny(&mut self.bus, &args.user, "spawn-failed");
+            super::deny(&mut self.bus, user, "spawn-failed");
             (errno::EIO, "the desktop could not start")
         })
     }

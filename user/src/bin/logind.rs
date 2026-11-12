@@ -45,10 +45,11 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use libmessenger::server::{Caller, Fault};
 use user::central;
 use user::messenger::accounts::{self, Directory};
 use user::messenger::client::Native;
-use user::messenger::{self, logind, registry, wait, Endpoint, Parcel};
+use user::messenger::{self, logind, registry, wait, Endpoint};
 use user::sys::{self, Cred};
 use user::trace;
 
@@ -321,22 +322,40 @@ fn serve_queries(
     buffer: &mut [u8],
 ) -> messenger::Result<()> {
     while let Some(message) = server.poll_recv_with(buffer)? {
-        let reply = if message.interface_id() == logind::INTERFACE
-            && message.method() == logind::wire::METHOD_SESSIONS
-        {
-            let active = sessions
-                .iter()
-                .filter(|session| session.state == "active")
-                .count() as u64;
-            logind::sessions_reply(sessions, active).unwrap_or_default()
-        } else {
-            Parcel::default()
-        };
+        let reply = logind::wire::dispatch(&mut Console { sessions }, &message);
         if let Some(txn) = message.txn {
             server.reply_or_drop(txn, &reply)?;
         }
     }
     Ok(())
+}
+
+/// The console login answers `Sessions`; a login or logout is the graphical
+/// session's.
+struct Console<'a> {
+    sessions: &'a [logind::SessionRecord],
+}
+
+impl logind::wire::Server for Console<'_> {
+    fn sessions(&mut self, _: &Caller) -> Result<logind::wire::SessionsReply, Fault> {
+        let active = self
+            .sessions
+            .iter()
+            .filter(|session| session.state == "active")
+            .count() as u64;
+        Ok(logind::wire::SessionsReply {
+            active,
+            sessions: self.sessions.to_vec(),
+        })
+    }
+
+    fn login(&mut self, _: &Caller, _: String, _: String) -> Result<u64, Fault> {
+        Err(Fault::unserved())
+    }
+
+    fn logout(&mut self, _: &Caller) -> Result<u64, Fault> {
+        Err(Fault::unserved())
+    }
 }
 
 /// Read one line from the terminal. `echo` prints the characters back (the
