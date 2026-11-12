@@ -155,9 +155,9 @@ x86_64-unknown-linux-musl -p emusic` with zig as the C compiler
 in either repo was changed.
 
 **(a) Audio transport: already exists.** `xui-app/src/platform/audio.rs`
-(`xui_app::platform::audio::Audio`) is the musl `audioclient::Transport`
-(Messenger over `int 0x80`, display shared buffers for the ring), used by the
-LazyRAD player. Audio plan item A7's transport half is done; P0(a) is not work.
+(`xui_app::platform::audio`) is the musl `audioclient` runtime
+(the generated client over the xui transport, display shared buffers for the
+ring), used by the LazyRAD player. Audio plan item A7's transport half is done; P0(a) is not work.
 
 **(b) emusic builds for musl, almost as is.** With no source change, these
 type-check for musl: SQLite (`rusqlite` bundled C, compiled by zig), `lofty`,

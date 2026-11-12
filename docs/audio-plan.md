@@ -52,7 +52,7 @@ hardened, single-client pipe. This is the `audiod` that
 | A1 | `libs/audiomix`: the engine (stream table, contract checks, resampler, gain, mixing, positions by card marks) and its wire layer, host-tested with a seeded script fuzz | **done** |
 | A2 | IDL: `SetVolume`/`SetMute` in `os.lazy.audio.v1` (#452); `os.lazy.audio.mixer.v1` (`idl/audio_mixer.midl`) | **done** |
 | A3 | `audiod`: the service, card pacing, deferred `Drain` replies, reclaim, `_audio` identity; `sndd` moves to `os.lazy.audio.card` and applies volume to its own copy | **done** |
-| A4 | `libs/audioclient` (#451): typed `Client`/`MixerControl` and the blocking `PlaybackStream` over a `Transport` trait; `user::audio` is the native transport; `beep` and `modplay` use it | **done** |
+| A4 | `libs/audioclient` (#451): the generated `Client`/`MixerControl` and the blocking `PlaybackStream` over a `libmessenger` `Transport` and an `audioclient::Runtime` (rings, clock); `user::audio` is the native runtime; `beep` and `modplay` use it | **done** |
 | A5 | `mixer` shell command; harness `--mix` (chord + half-volume, judged by `tools/sound/mixcheck.py`); `mixer probe` and the reworked `beep probe` as boot evidence | **done** |
 | A6 | Events (#453): publish `system/audio/{card}/event` with per-stream underrun/drained/period (**done**, `audiomix::events`, `tools/sound/run.py --starve`); a client `write()` that sleeps on the topic instead of polling; tickless `audiod` and `sndd` loops | in progress |
 | A7 | Persisted volumes (`confd` `user/<uid>/audio/...`, `driver-config-plan.md`), a Sound page in Settings on `MixerControl`, a std/musl `Transport` so xui apps get `PlaybackStream` | next |

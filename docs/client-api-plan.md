@@ -286,6 +286,54 @@ generated client of an interface may not call a method the `.midl` resolves
 to `deadline=never` (it would park the UI thread); use `<method>_within` with
 a bound.
 
+As built (C3, the rest of the native clients and the library seams):
+
+* **`net` (NIC), `netstack`, `netsock`, `netstd`.** `net::Client` and
+  `netstack::Client` are `wire::Client<Native>`; the NIC's ring attach
+  (`net::attach`, `attach_notifying`) and the stack's parked calls
+  (`netstack::ping`, `resolve`, `lookup_host`, which bound a call by the
+  caller's `timeout_ms` plus a second) are free functions. `netsock::Client`
+  stays a thin struct over `wire::Client<Native>` because it is a domain
+  adapter: `Addr` for the wire's byte vector and port, the 10 ms to 60 s timeout
+  clamp, the 16 KiB chunk cap, and the parked-call bound. `netstd` and every
+  tool get `CallError`; `netsock::{is_errno, describe}` replace three copies.
+* **`wifi`.** `Radio` and `Client` are the generated clients (`connect_radio`,
+  `scan_results`'s page loop). `SetKey` and `AddNetwork` carry a secret, so
+  `wifi::set_key` and `wifi::add_network` keep a buffer sized up front and
+  wiped, framing on the connection (`call_secret`); that is the one hand-framed
+  client call left here, and the reason is security, not convenience. The radio
+  interface's `default deadline` is the 3 s `wlanmd` gave a driver.
+* **`display`, `input`.** `display::Client` wraps `wire::Client<Nested>` (and
+  the cursor scope's client) with `Rect` adapters; `Nested`, the transport that
+  sets `ALLOW_NESTED` (an app's event poll must not trip the kernel's
+  per-channel cycle check while a `Commit` is in flight), moved from the
+  clipboard to `messenger::client`. `input::ShellLink` and `KeySession` keep
+  `inputd`'s private shell channel as a `Held` transport (a handle the task
+  already owns, released with the connection only when it came from name
+  resolution) under the generated clients, with the compositor's 200 ms bound
+  passed per call (`_within`).
+* **`audioclient`.** The `Transport` trait is gone: `Client` and `MixerControl`
+  are the generated clients, and `PlaybackStream<T: Transport, R: Runtime>`
+  keeps the ring arithmetic, with `Runtime` reduced to what is not framing
+  (rings, clock, sleep). `user::audio`, `xui_app::platform::audio`, the `audiod`
+  card client, `beep`, `mixer`, `modplay`, Volume, NES and the terminal bell use
+  it; the stream tests run the real mixer engine behind a `libmessenger`
+  `Transport`. The mixer control interface declares the 2 s bound xui gave it.
+* **`trayclient`.** `Tray<T: Transport, C: Channels>` calls through
+  `wire::Client`; `Channels` is only the channel pair source. Its tests run on
+  `Mock`; the tray interface declares the 1 s bound. A call resolves the shell
+  with one attempt (`reach`), as before.
+* **Still hand-framed, and why.** `webd` (`platform::webd`, `xui-webd-client`):
+  one `Transport` seam over two interfaces (`webd.light` and `webd.view`, with a
+  scoped `CreateView`), shared memory, an event channel and an outbox that
+  resends the oneway messages that must arrive; a generated client per
+  interface cannot be that seam without losing the outbox and the view-slot
+  checks. The hostile-input probes (`netctl probe/sockprobe`, `nicctl probe`,
+  `beep probe`) send what no generated client would (foreign interface ids,
+  missing objects, requests the kernel drops), through `Connection::call` or the
+  endpoint, each with a comment saying so. `audio_events` publishes a topic
+  (C5).
+
 As built (resend and deadline policy, after C3): the policy lives in the IDL.
 `deadline=<n>ms|<n>s|never`, `retry=safe|never` and an interface-level
 `default deadline=.. retry=..;` line are in [midl.md](midl.md) ("`deadline`,
@@ -551,7 +599,7 @@ leaves `main` green.
 | C1b | Kernel registry: wait for a name to register (topic or `WaitFor`), with kernel correctness and stress tests; both transports block on it | the resolve sleep loops |
 | C2a | midlc: `service`, `errors`, `scope`, `deadline` syntax and their generated constants; per-interface modules and features | service-name literals, `fnv1a64` copies, confd/clipboard constant copies |
 | C2b | **Built.** Rust client generation over C1's `Transport` (blocking forms; `_begin` waits for an asynchronous transport call); host tests through `Mock` (`libs/generated/tests/client.rs`); `timed` and `notify` migrated as proof | (enables C3) |
-| C3 | Migrate clients interface by interface (confd, init, topics, clipboard first: the most duplicated); `user::messenger::*` and `xui_app::platform::*` keep only domain adapters. **Native half built for** confd, mimed, pkgd, accountsd, keyd, logind, mountd, devd, gpud, usb audio, init, healthd, logd, sysmond and the clipboard (`user/src/messenger/<svc>.rs` is `pub type Client = wire::Client<Native>` plus domain meaning; slow calls keep `Deadline::Never`, `Nested` carries the clipboard's `ALLOW_NESTED`). Not yet: `net`/`netstack`/`netsock`/`netstd`, `wifi`, `display`, `input`, the `audioclient`/`trayclient` seams, and the xui lane | per-module `fn header`/`fn parcel`/`error_code`, `Service::call_*` |
+| C3 | Migrate clients interface by interface (confd, init, topics, clipboard first: the most duplicated); `user::messenger::*` and `xui_app::platform::*` keep only domain adapters. **Native half built for** confd, mimed, pkgd, accountsd, keyd, logind, mountd, devd, gpud, usb audio, init, healthd, logd, sysmond and the clipboard (`user/src/messenger/<svc>.rs` is `pub type Client = wire::Client<Native>` plus domain meaning; slow calls keep `Deadline::Never`, `Nested` carries the clipboard's `ALLOW_NESTED`). **Also built:** `net` (NIC), `netstack`, `netsock`/`netstd`, `wifi`, `display`, `input`, `logind`'s console session, and the `audioclient`/`trayclient` seams (see the "as built (C3, the rest)" note). Left: `webd`, `audio_events` (a topic publisher, C5) and the hostile-input probes | per-module `fn header`/`fn parcel`/`error_code`, `Service::call_*` |
 | C4 | Server generation and `dispatch`; migrate daemons, starting with small ones (`timed`, `mimed`, `pkgd`) then `xuid`, `netd`, `inputd` | 469 dispatch arms, 16 `error_reply`, `xui-app/src/server.rs` |
 | C5 | Typed bell subscriptions; move `init`/`healthd` off the interim router; declare or drop the undeclared topics | `topic_feed`, `router`, three ad hoc pollers |
 | C6 | `check_handrolled.py --ratchet` in CI | (keeps it from coming back) |
