@@ -577,6 +577,18 @@ transports and the kernel's IPC core, it counts `Header {` literals,
 `fnv1a64` definitions, and fails when a file has more than its baseline. The
 baseline only goes down.
 
+As built: the lint is `tools/midlc/check_handrolled.py` with the baseline
+`tools/midlc/handrolled_baseline.json`. `Header {` counts only a literal whose
+first field is `version` (GPT, ELF and similar headers do not match); a
+`METHOD_X | METHOD_Y =>` arm is one hit; `fn error_reply` and `fn parcel(..
+method ..)` count as reply helpers. Not scanned: the generated crate and Rhai
+bindings, `libs/messenger`, `libs/lazyos-sys`, the two transports
+(`user/src/messenger/client.rs`, `xui-app/src/platform/messenger.rs`), the
+whole of `kernel/`, `@generated` files and test code (`tests/`, `fixtures/`,
+`benches/`, `tests.rs`, `*_tests.rs`, `test_*.rs`, `mock*.rs`, and a file's
+`#[cfg(test)]` tail). `--update-baseline` only lowers counts and drops zeroed
+files; `--init-baseline` rewrites it from the tree.
+
 ## 4. xui-app: one app shape
 
 ### 4.1 One entry point
@@ -813,7 +825,7 @@ leaves `main` green.
 | C3 | Migrate clients interface by interface (confd, init, topics, clipboard first: the most duplicated); `user::messenger::*` and `xui_app::platform::*` keep only domain adapters. **Native half built for** confd, mimed, pkgd, accountsd, keyd, logind, mountd, devd, gpud, usb audio, init, healthd, logd, sysmond and the clipboard (`user/src/messenger/<svc>.rs` is `pub type Client = wire::Client<Native>` plus domain meaning; slow calls keep `Deadline::Never`, `Nested` carries the clipboard's `ALLOW_NESTED`). **Also built:** `net` (NIC), `netstack`, `netsock`/`netstd`, `wifi`, `display`, `input`, `logind`'s console session, and the `audioclient`/`trayclient` seams (see the "as built (C3, the rest)" note). Left: `webd`, `audio_events` (a topic publisher, C5) and the hostile-input probes | per-module `fn header`/`fn parcel`/`error_code`, `Service::call_*` |
 | C5 | **Built.** Typed bell subscriptions (generated `subscribe_<topic>` returns a decoding stream; `central::Feed` natively, `fabric::Follow` and its per-thread hub in xui); `init`, `healthd` and their readers moved off the interim router; the undeclared topics declared or named | `topic_feed`, `router` (422 + 132 lines), `Roster`/`Sink` (588), the shell failures poller, the handoff poller |
 | C4 | **Generator and 22 servers built** (section 3.3 lists what is migrated and what is not): `Server` and `dispatch` per interface over `libmessenger::server`; `xuid`, `netd`, `inputd`, `init`, `healthd`, `audiod`, `logind` and `webd` still hand-write theirs | dispatch arms 469 to 347 (the rest are event decoders and the unmigrated servers), `error_reply` helpers, `xui-app`'s `reply_parcel`/`error_parcel` |
-| C6 | `check_handrolled.py --ratchet` in CI | (keeps it from coming back) |
+| C6 | **Built.** `tools/midlc/check_handrolled.py --ratchet` in CI (the `trace` job; baseline `handrolled_baseline.json`, self-test `test_check_handrolled.py`); baseline 355 hits in 86 files | (keeps it from coming back) |
 | X1 | `xui_app::app(..)` builder, `.opens`, panic hook, `finish`; new template; migrate every bin | `themed.rs`, outboxes, seven launch paths |
 | X2 | **Built** (section 4.2, "As built"); LazySky's TOML and four more dialog chains wait | four `Host` structs, `format!` confd keys, `$HOME` lookups |
 | X3 | **Built** (`xui_app::work`, section 4.3; `cx.spawn` follows X2) | four worker handoff mechanisms |
