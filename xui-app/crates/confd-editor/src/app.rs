@@ -12,8 +12,8 @@
 //! administrator through `elevd` (docs/accounts-plan.md U2, [`Scope`]); then
 //! it lists every key, and every read and write goes through `elevd`.
 
-use xui_host::evidence;
 use std::rc::Rc;
+use xui_host::evidence;
 
 use xui_core::app::{App, Ui};
 use xui_core::arrange::{column, label, panel, row, LayoutExt};

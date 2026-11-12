@@ -17,8 +17,8 @@
 //! for everyone** (one approval per key that differs). The clock, the zone and the About facts go through [`System`].
 //! The window itself follows the theme it edits ([`theme_ops::xui_theme_for`]).
 
-use xui_host::evidence;
 use std::rc::Rc;
+use xui_host::evidence;
 
 use uitheme::Mode;
 use xui_core::app::{App, Ui};

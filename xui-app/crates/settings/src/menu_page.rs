@@ -8,8 +8,8 @@
 //! **Revert** goes back to what is stored. A refused save keeps the draft,
 //! so nothing typed is lost.
 
-use xui_host::evidence;
 use std::rc::Rc;
+use xui_host::evidence;
 
 use deskmenu::Entry;
 use xui_core::app::Ui;

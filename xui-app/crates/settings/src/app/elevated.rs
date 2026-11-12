@@ -2,8 +2,8 @@
 //! run on a worker thread so the window keeps painting, resizing and closing
 //! while the prompt is up. The answer returns as [`Msg::Done`].
 
-use xui_host::evidence;
 use std::rc::Rc;
+use xui_host::evidence;
 
 use xui_core::app::Ui;
 use xui_core::HasText;

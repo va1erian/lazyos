@@ -4,6 +4,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use super::*;
+use xui_app::context::user_key;
 
 /// `confd`'s registered name: a store call blocks while it is not registered, so nothing is read or
 /// written unless it already is.
@@ -18,7 +19,7 @@ pub(super) struct ConfdSettings {
 
 impl ConfdSettings {
     fn key(&self, name: &str) -> String {
-        format!("user/{}/lazyweb/blocker/{name}", self.uid)
+        user_key(self.uid, "lazyweb", &format!("blocker/{name}"))
     }
 
     fn text(&self, name: &str) -> Option<String> {

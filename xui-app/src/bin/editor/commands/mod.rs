@@ -246,9 +246,7 @@ fn clear_find(app: &mut Notepad, ui: &mut Ui<Msg>) {
 
 /// Show the error dialog.
 fn show_error(app: &mut Notepad, _ui: &mut Ui<Msg>, message: &str) {
-    app.message.set_title("Error");
-    app.message.set_message(message);
-    app.message.open();
+    app.message.show(&message);
     app.dialog_open.set(true);
 }
 

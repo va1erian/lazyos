@@ -10,7 +10,6 @@ use xui_app::trace::Channel;
 use xui_core::app::Ui;
 use xui_core::arrange::Handle;
 use xui_core::backend::{Event, Result, WidgetId};
-use xui_core::widget::{FileDialog, StdFileSystem};
 use xui_core::{Key, Modifiers};
 use xui_playground::arrival::Known;
 use xui_playground::docs::Block;
@@ -42,21 +41,16 @@ pub fn build(ui: &mut Ui<Msg>, cx: &xui_app::AppContext) -> Result<Playground> {
     ui.root(w.layout(&notice, &panes.saved))?;
     let editor = Rc::clone(&w.editor.get().0);
 
-    let open_dialog = FileDialog::open_file(ui, "Open script")?
-        .file_system(Rc::new(StdFileSystem))
+    let rhai: &[(&str, &[&str])] = &[("Rhai scripts", &["rhai"])];
+    let open_dialog = cx
+        .open_dialog(ui, "Open script", rhai, || Some(Msg::DialogDone))?
         .initial_dir(crate::files::scripts_dir())
-        .filter("Rhai scripts", &["rhai"])
-        .filter("All files", &[])
-        .require_existing(true)
-        .on_accept(|path| Some(Msg::OpenChosen(path)))
-        .on_cancel(|| Some(Msg::DialogDone));
-    let save_dialog = FileDialog::save_file(ui, "Save script")?
-        .file_system(Rc::new(StdFileSystem))
+        .on_accept(|path| Some(Msg::OpenChosen(path)));
+    let save_dialog = cx
+        .save_dialog(ui, "Save script", rhai, || Some(Msg::DialogDone))?
         .initial_dir(crate::files::scripts_dir())
         .suggested_name("script.rhai")
-        .filter("Rhai scripts", &["rhai"])
-        .on_accept(|path| Some(Msg::SaveChosen(path)))
-        .on_cancel(|| Some(Msg::DialogDone));
+        .on_accept(|path| Some(Msg::SaveChosen(path)));
 
     ui.on_key(|key, modifiers| shortcut(key, modifiers));
     ui.on_close(|| Some(Msg::Close));

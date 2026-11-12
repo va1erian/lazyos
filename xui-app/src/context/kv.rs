@@ -1,5 +1,6 @@
 //! `confd` as the key-value store of [`xui_host::settings`].
 
+pub use xui_host::settings::user_key;
 use xui_host::settings::{KeyValue, Value};
 use xui_settings::store::ConfigStore;
 
@@ -12,7 +13,7 @@ impl ConfdKv {
     /// `user/<uid>/<app>/<name>`, for this task's uid.
     pub(super) fn key(app: &str, name: &str) -> Option<String> {
         let uid = ConfdStore::new().uid()?;
-        Some(format!("user/{uid}/{app}/{name}"))
+        Some(user_key(uid, app, name))
     }
 }
 

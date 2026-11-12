@@ -41,6 +41,7 @@ use xui_host::settings::{Factory, KeyValue, MemKv, Saver, Settings};
 use xui_host::{AppHost, Report};
 
 pub use dirs::Dirs;
+pub use kv::user_key;
 use kv::ConfdKv;
 
 use crate::backend::LazyOSBackend;

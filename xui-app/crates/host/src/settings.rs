@@ -36,6 +36,12 @@ pub trait KeyValue {
     fn uid(&self) -> Option<u32>;
 }
 
+/// `user/<uid>/<app>/<name>`: where an app's setting lives in `confd`. The one
+/// place that spells the layout; `name` may hold `/` for a nested key.
+pub fn user_key(uid: u32, app: &str, name: &str) -> String {
+    format!("user/{uid}/{app}/{name}")
+}
+
 /// Builds another handle on the store for the worker thread.
 pub type Factory = Arc<dyn Fn() -> Box<dyn KeyValue> + Send + Sync>;
 
@@ -74,7 +80,9 @@ impl<T: Serialize + DeserializeOwned + Default> Settings<T> {
     /// Opens the store of `app` (the subtree name under `user/<uid>/`) and
     /// reads it.
     pub fn open(kv: &dyn KeyValue, app: &str, saver: Saver) -> Settings<T> {
-        let prefix = kv.uid().map(|uid| format!("user/{uid}/{app}"));
+        let prefix = kv
+            .uid()
+            .map(|uid| user_key(uid, app, "").trim_end_matches('/').to_owned());
         let template = serde_json::to_value(T::default()).unwrap_or(Json::Null);
         let mut stored = BTreeMap::new();
         let tree = match &prefix {

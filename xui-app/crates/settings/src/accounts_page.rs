@@ -9,8 +9,8 @@
 //! deleted outright. Every new password is typed twice and follows
 //! `accountdb::secret`'s rule; the rules live in [`accounts_ops`].
 
-use xui_host::evidence;
 use std::rc::Rc;
+use xui_host::evidence;
 
 use xui_core::app::Ui;
 use xui_core::arrange::{
@@ -226,10 +226,7 @@ impl AccountsPage {
         if outcome.is_ok() {
             self.name.set_text("");
             self.admin.set_checked(false);
-            evidence!(
-                "ACCOUNTS:ADD:PASS user={name} admin={}",
-                u8::from(admin)
-            );
+            evidence!("ACCOUNTS:ADD:PASS user={name} admin={}", u8::from(admin));
         }
         outcome
     }

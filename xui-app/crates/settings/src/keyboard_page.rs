@@ -11,8 +11,8 @@
 //! active only what the store holds: after a cancelled or refused prompt the
 //! list goes back to the stored layout.
 
-use xui_host::evidence;
 use std::rc::Rc;
+use xui_host::evidence;
 
 use xui_core::app::Ui;
 use xui_core::arrange::{button, column, edit, label, row, Handle, LayoutExt, Mounted};

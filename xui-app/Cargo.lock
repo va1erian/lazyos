@@ -6080,6 +6080,7 @@ dependencies = [
  "tetanes-core",
  "xui-canvas",
  "xui-core",
+ "xui-host",
 ]
 
 [[package]]
