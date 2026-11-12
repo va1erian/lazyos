@@ -80,7 +80,10 @@ impl<T> Feed<T> {
     /// it was made now.
     pub fn ensure(&mut self) -> bool {
         let now = sys::clock();
-        if self.stream.is_some() || now < self.next_try {
+        // Without a broker endpoint the attempt is one registry lookup, so it
+        // is made on every call (a service that just came up is found at
+        // once); the pause is for a subscribe the broker refused or timed out.
+        if self.stream.is_some() || (self.connected && now < self.next_try) {
             return false;
         }
         self.next_try = now + RETRY_TICKS;
