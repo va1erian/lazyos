@@ -411,7 +411,7 @@ mod tests {
         push16(&mut out, 1);
         push16(&mut out, 0);
         out.push(b'x');
-        out.extend_from_slice(&deflated);
+        out.extend_from_slice(deflated);
         let start = out.len();
         push32(&mut out, CENTRAL);
         for v in [20u16, 20, 0, 8, 0, DOS_DATE] {

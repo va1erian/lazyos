@@ -2,9 +2,9 @@
 //! number of rows at a time, the rest on a timer while the scan has rows left),
 //! stepping through matches and scrolling the view to the current one.
 
-use xui_app::trace::{self, Channel};
 use lazyterm::search::DEFAULT_BUDGET;
 use xui_app::probe;
+use xui_app::trace::{self, Channel};
 use xui_core::app::Ui;
 
 use super::findbar::{self, Find, Step};

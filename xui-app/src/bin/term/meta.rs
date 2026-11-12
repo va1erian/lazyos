@@ -2,8 +2,8 @@
 //! working directory its shell reports (OSC 7), and the synchronized updates
 //! (`?2026`) it asks the repaint to wait for.
 
-use xui_app::trace::{self, Channel};
 use xui_core::app::Ui;
+use xui_app::trace::{self, Channel};
 
 use super::appearance::now_ms;
 use super::{Msg, Terminal};

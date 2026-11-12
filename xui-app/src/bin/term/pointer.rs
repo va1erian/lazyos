@@ -2,10 +2,10 @@
 //! edge), and reporting it to a program that asked (`?1000`/`?1002`/`?1003`).
 //! Holding Shift always selects, whatever the program asked for.
 
-use xui_app::trace::{self, Channel};
 use lazyterm::input::{mouse_report, Action, Button, Mods, MouseMode};
 use lazyterm::SelectMode;
 use xui_app::sys::monotonic_ns;
+use xui_app::trace::{self, Channel};
 use xui_core::app::Ui;
 use xui_core::{Modifiers, MouseButton};
 

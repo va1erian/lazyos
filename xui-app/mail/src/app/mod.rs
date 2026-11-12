@@ -22,7 +22,6 @@ mod reader;
 #[cfg(test)]
 mod window_tests;
 
-use xui_app::trace::{self, Channel};
 use std::collections::VecDeque;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -38,6 +37,7 @@ use secrecy::SecretString;
 use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
 use xui_app::table::SortedTable;
+use xui_app::trace::{self, Channel};
 use xui_core::widget::{HasText, Label, ListView, Panel};
 
 use account::AccountPage;

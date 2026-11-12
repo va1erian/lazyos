@@ -1,12 +1,12 @@
 //! The conveniences' actions: clear and reset, Save output, New Window, closing
 //! over a running program, opening a link, and the bell.
 
-use xui_app::trace::{self, Channel};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use lazyterm::settings::Bell;
 use xui_app::platform::launcher;
+use xui_app::trace::{self, Channel};
 use xui_core::app::Ui;
 
 use super::appearance::now_ms;

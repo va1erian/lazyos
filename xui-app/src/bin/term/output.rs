@@ -3,8 +3,8 @@
 //! what it has no room for) and output coming in (drained, scrolled to, kept
 //! on screen).
 
-use xui_app::trace::{self, Channel};
 use std::io::{Read, Write};
+use xui_app::trace::{self, Channel};
 
 use xui_core::app::Ui;
 

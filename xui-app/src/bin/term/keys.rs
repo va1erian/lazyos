@@ -1,9 +1,9 @@
 //! Keys to bytes, and the Terminal's own shortcuts. Plain `Ctrl+C` stays
 //! `^C`: the copy and paste chords all involve Shift or Insert.
 
-use xui_app::trace::{self, Channel};
 use xui_core::app::Ui;
 use xui_core::{Key, Modifiers};
+use xui_app::trace::{self, Channel};
 
 use super::chords::chord_bytes;
 use super::scroll::key_move;

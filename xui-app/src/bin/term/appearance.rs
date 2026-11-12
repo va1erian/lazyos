@@ -2,10 +2,10 @@
 //! decide about how the Terminal looks: the font and its cell, the colours,
 //! the cursor, and so the grid's rows (the engine and the pty follow).
 
-use xui_app::trace::{self, Channel};
 use lazyterm::palette::scheme_by_name;
 use lazyterm::settings::{MAX_GRID_COLS, MAX_GRID_ROWS, MIN_COLS, MIN_ROWS};
 use xui_app::sys::monotonic_ns;
+use xui_app::trace::{self, Channel};
 use xui_core::app::Ui;
 use xui_core::Rect;
 

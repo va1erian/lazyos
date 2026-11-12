@@ -4,8 +4,8 @@
 //! `prefs.rs`, `findbar.rs`, `prompt.rs`); this routes events into them and
 //! carries out what they decide.
 
-use xui_app::trace::{self, Channel};
 use xui_app::probe;
+use xui_app::trace::{self, Channel};
 use xui_core::app::Ui;
 use xui_core::{Key, Modifiers, MouseButton, Rect};
 
