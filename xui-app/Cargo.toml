@@ -93,6 +93,8 @@ members = [
     "crates/adblock",
     # Worker threads that answer a window with messages (docs/client-api-plan.md 4.3).
     "crates/work",
+    # `xui-host`: the platform seam of the portable app crates (docs/client-api-plan.md 4.2).
+    "crates/host",
     # `atomicfile`: the one atomic write (temp file, sync, rename, directory sync) the apps share.
     "crates/atomicfile",
 ]
