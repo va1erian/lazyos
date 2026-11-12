@@ -70,6 +70,11 @@ jobs:
       - name: xui-playground crate and lazyshell
         run: cargo test --manifest-path xui-app/Cargo.toml -p xui-playground -p lazyshell
 
+      # The app layer every xui app shares (docs/client-api-plan.md 4): typed
+      # settings, worker threads and inboxes, atomic file replacement.
+      - name: xui-host, xui-work and atomicfile
+        run: cargo test --manifest-path xui-app/Cargo.toml -p xui-host -p xui-work -p atomicfile
+
       # The judges fail when they should, and the checked-in sessions are the
       # ones the generators write.
       - name: Playground judges and sessions
