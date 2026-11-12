@@ -207,7 +207,7 @@ deadline. The caller's name policy is asked at the syscall edge and again each
 time the name is found, before any handle opens. A ticket is dropped on every
 way out; a task that died parked is dropped by `forget_waiter` (channel
 teardown) or the access-time prune of dead slots. Bounds: one ticket per task,
-16 per process, 512 in all of which 128 are for unlabelled tasks (`EAGAIN`).
+16 per process (keyed on the address-space root, not the thread-group id, which moves when the lowest thread exits), 512 in all of which 128 are for platform tasks, those with no label and no login session (`EAGAIN`).
 A kill reaches the wait through the `Interrupted` wake (`must_unwind`,
 `ECANCELED`); any other `Interrupted` wake (a signal, or `wait` refusing to
 park while a handler frame is deferred) ends it with `EINTR` after one more

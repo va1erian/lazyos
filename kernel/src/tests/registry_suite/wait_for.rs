@@ -415,6 +415,10 @@ pub(crate) const WAIT_CASES: &[(&str, Test)] = &[
         limits::wait_limits_and_release,
     ),
     (
+        "ipc_registry_wait_process_cap_survives_leader_exit",
+        limits::wait_process_cap_survives_leader_exit,
+    ),
+    (
         "ipc_registry_wait_killed_waiter_is_canceled",
         signals::killed_waiter_is_canceled,
     ),

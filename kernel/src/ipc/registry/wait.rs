@@ -22,7 +22,7 @@
 //!   in one syscall at a time, so a second is a bug), [`MAX_WAITERS_PER_PROCESS`]
 //!   per address space (threads are slots, so one process could otherwise
 //!   take the whole table), and [`MAX_WAITERS`] in all, of which
-//!   [`SYSTEM_RESERVE`] are kept for unlabelled (platform) tasks. More is
+//!   [`SYSTEM_RESERVE`] are kept for platform tasks (no label, no session). More is
 //!   [`Error::TooManyWaiters`] (`EAGAIN`); the client runtimes then fall back
 //!   to a bounded plain-`Resolve` retry, so an overloaded table degrades
 //!   a connect, it does not fail it.
@@ -53,9 +53,10 @@ pub const MAX_WAITERS_PER_TASK: usize = 1;
 /// threads connecting at once (a browser's workers, an app's UI and I/O
 /// threads); 16 covers that and leaves the 512 to many programs.
 pub const MAX_WAITERS_PER_PROCESS: usize = 16;
-/// Of [`MAX_WAITERS`], the places only unlabelled tasks (platform services,
-/// the user's own programs) may take, so labelled apps cannot starve the
-/// services' connects.
+/// Of [`MAX_WAITERS`], the places only platform tasks (no label, no login
+/// session: the services `init` starts before login) may take, so apps and
+/// the user's programs cannot starve the services' connects. A service that
+/// starts after login runs in a session and shares the open part.
 pub const SYSTEM_RESERVE: usize = 128;
 
 /// The three bounds of [`Ticket::take_with`].
@@ -65,7 +66,7 @@ pub struct Limits {
     pub global: usize,
     /// Waiters of one process.
     pub per_process: usize,
-    /// Places of `global` a labelled task may not take.
+    /// Places of `global` only a platform task may take.
     pub reserve: usize,
 }
 
@@ -89,8 +90,11 @@ pub(super) struct Waiter {
     id: u64,
     /// The waiting task's slot.
     pub(super) slot: usize,
-    /// Its address space (the thread-group id), for the per-process bound.
-    process: usize,
+    /// Its address space root, for the per-process bound. Not the thread-group
+    /// id: that is the lowest slot sharing the space and changes when that
+    /// thread exits, which would free the cap and charge the old value to an
+    /// unrelated process.
+    process: u64,
     /// The name it waits for.
     name: String,
 }
@@ -104,9 +108,13 @@ pub struct Ticket {
 impl Ticket {
     /// Enter the table for `slot` waiting on `name`.
     pub fn take(slot: usize, name: &str) -> Result<Ticket, Error> {
-        let process = task::signal::tgid_of(slot);
-        let labelled = crate::ipc::credentials::of(slot).label_id != 0;
-        Ticket::take_with(slot, process, labelled, name, &LIMITS)
+        let process = task::pml4_of(slot).unwrap_or(slot as u64);
+        let cred = crate::ipc::credentials::of(slot);
+        // Platform: no label and no login session (`0` before login is how
+        // the kernel marks a system service). A user's own programs run in a
+        // session, so they cannot fill the reserve.
+        let platform = cred.label_id == 0 && cred.session == 0;
+        Ticket::take_with(slot, process, platform, name, &LIMITS)
     }
 
     /// [`Ticket::take`] with the task's process and class given and the
@@ -114,8 +122,8 @@ impl Ticket {
     /// tasks instead of hundreds.
     pub fn take_with(
         slot: usize,
-        process: usize,
-        labelled: bool,
+        process: u64,
+        platform: bool,
         name: &str,
         limits: &Limits,
     ) -> Result<Ticket, Error> {
@@ -125,10 +133,10 @@ impl Ticket {
         let mut registry = REGISTRY.lock();
         // Dead tasks' tickets first, so they cannot crowd a live one out.
         super::prune_locked(&mut registry, &live, now);
-        let ceiling = if labelled {
-            limits.global.saturating_sub(limits.reserve)
-        } else {
+        let ceiling = if platform {
             limits.global
+        } else {
+            limits.global.saturating_sub(limits.reserve)
         };
         let held =
             |keep: &dyn Fn(&Waiter) -> bool| registry.waiters.iter().filter(|w| keep(w)).count();

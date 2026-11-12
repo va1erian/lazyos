@@ -343,7 +343,7 @@ re-checks the table itself. The kernel side (`kernel/src/ipc/registry/
 wait.rs`) takes a ticket in the registry's waiter table before the first
 look (no lost wake-up), wakes only the waiters of the registered name after
 the registry lock is released, re-applies the caller's name policy when the
-name appears, and bounds waiters at one per task, 16 per process and 512 in all, 128 of them reserved for unlabelled tasks (`EAGAIN`, on which both transports fall back to plain `Resolve` retries, the only sleep left); a signal ends the wait with `EINTR` and the transports re-issue it with the same deadline (`libmessenger::client::resolve_waiting`).
+name appears, and bounds waiters at one per task, 16 per process and 512 in all, 128 of them reserved for platform tasks, i.e. no label and no login session (a user's own programs share the open part; many same-uid processes can still fill it) (`EAGAIN`, on which both transports fall back to plain `Resolve` retries, the only sleep left); a signal ends the wait with `EINTR` and the transports run an interrupt hook (std: `sched_yield`, because an `int 0x80` return never lays out a Linux handler frame) and re-issue it with the same deadline (`libmessenger::client::resolve_waiting`). A name that never registers now ends a connect with `ETIMEDOUT`, where the polling runtimes ended with `ENOENT` (the generic text in `user::messenger::Error` covers both).
 `Errno` is a named newtype
 (`Errno::INVAL`), so `Err(-22)` disappears; `CallError` implements `Display`
 with the friendly text section 12 of `messenger.md` describes.

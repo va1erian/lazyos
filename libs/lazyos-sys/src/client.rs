@@ -55,6 +55,11 @@ impl Transport for Std {
             || parcel::resolve(name).map_err(Errno::from_syscall),
             || stop != 0 && clock() >= stop,
             || std::thread::sleep(OVERLOAD_PAUSE),
+            // `EINTR` leaves through `int 0x80`, which never runs a Linux
+            // handler; a Linux syscall's return does (`deliver_linux`), and
+            // `sched_yield` is the cheapest one. Without it a pending handler
+            // runs only when the wait ends.
+            std::thread::yield_now,
         )
     }
 

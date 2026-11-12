@@ -6,8 +6,16 @@ use super::{Errno, Handle};
 /// Wait for a name through `wait` (one `WaitFor` with the caller's absolute
 /// deadline, fixed before the first call).
 ///
-/// * `EINTR`: a signal ended the kernel wait so its handler could run; the
-///   wait is issued again, with the same deadline.
+/// * `EINTR`: a signal ended the kernel wait; `on_interrupt` runs, then the
+///   wait is issued again with the same deadline. Returning `EINTR` is not
+///   enough to run a Linux handler: Messenger ops enter through `int 0x80`,
+///   whose return only ends a native task (`deliver_native`) and never lays out
+///   a handler frame. So the std runtime's hook is a Linux syscall
+///   (`sched_yield`) whose return goes through `deliver_linux`; without it a
+///   deferred frame would be re-issued in a busy loop until the kernel killed
+///   the task, and an ordinary handled signal would wait out the deadline.
+///   The native runtime has no handlers (a fatal signal ends it on this very
+///   return), so its hook is empty.
 /// * `EAGAIN`: the kernel's waiter table is full (or this process holds its
 ///   share). That is overload, not a missing service, so the connect does not
 ///   fail: it degrades to `poll` (a plain `Resolve`) every `pause`, until
@@ -18,10 +26,11 @@ pub fn resolve_waiting(
     mut poll: impl FnMut() -> Result<Handle, Errno>,
     mut expired: impl FnMut() -> bool,
     mut pause: impl FnMut(),
+    mut on_interrupt: impl FnMut(),
 ) -> Result<Handle, Errno> {
     loop {
         match wait() {
-            Err(Errno::INTR) => continue,
+            Err(Errno::INTR) => on_interrupt(),
             Err(Errno::AGAIN) => break,
             outcome => return outcome,
         }
@@ -43,8 +52,10 @@ mod tests {
     #[test]
     fn a_signal_reissues_the_wait() {
         let calls = Cell::new(0);
+        let order = std::cell::RefCell::new(Vec::new());
         let found = resolve_waiting(
             || {
+                order.borrow_mut().push("wait");
                 calls.set(calls.get() + 1);
                 if calls.get() < 3 {
                     Err(Errno::INTR)
@@ -55,15 +66,24 @@ mod tests {
             || panic!("no fallback for a signal"),
             || false,
             || panic!("no pause"),
+            || order.borrow_mut().push("hook"),
         );
         assert_eq!(found, Ok(7));
         assert_eq!(calls.get(), 3);
+        // The hook runs after each interrupted wait and before the next one.
+        assert_eq!(*order.borrow(), ["wait", "hook", "wait", "hook", "wait"]);
     }
 
     #[test]
     fn a_timeout_or_refusal_is_returned_as_it_is() {
         for errno in [Errno::TIMEDOUT, Errno::ACCES, Errno::CANCELED] {
-            let found = resolve_waiting(|| Err(errno), || panic!(), || false, || panic!());
+            let found = resolve_waiting(
+                || Err(errno),
+                || panic!(),
+                || false,
+                || panic!(),
+                || panic!("no hook"),
+            );
             assert_eq!(found, Err(errno));
         }
     }
@@ -84,6 +104,7 @@ mod tests {
             },
             || false,
             || pauses.set(pauses.get() + 1),
+            || panic!("no hook"),
         );
         assert_eq!(found, Ok(9));
         assert_eq!(pauses.get(), 2);
@@ -93,6 +114,7 @@ mod tests {
             || Err(Errno::NOENT),
             || true,
             || panic!("no pause after the bound"),
+            || panic!("no hook"),
         );
         assert_eq!(gone, Err(Errno::TIMEDOUT));
     }

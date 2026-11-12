@@ -51,6 +51,9 @@ pub fn resolve_within(name: &str, until: Deadline) -> Result<Endpoint> {
         },
         || stop != 0 && sys::clock() >= stop,
         park_tick,
+        // A native task has no handlers: a fatal signal ended it on the
+        // `EINTR` return itself (`deliver_native`), so there is nothing to run.
+        || {},
     );
     found.map(Endpoint::from_raw).map_err(|code| match code {
         Errno::TIMEDOUT => Error::Errno(-errno::ETIMEDOUT),
