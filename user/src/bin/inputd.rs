@@ -54,6 +54,8 @@ mod pointer;
 mod settle;
 #[path = "inputd/shellchan.rs"]
 mod shellchan;
+#[path = "inputd/shellserve.rs"]
+mod shellserve;
 #[path = "inputd/source.rs"]
 mod source;
 #[path = "inputd/trace.rs"]
