@@ -23,10 +23,11 @@ service "os.lazy.demo" implements os.lazy.demo.v1, os.lazy.demo.plain.v1;
 service "os.lazy.demo.card/{id}" implements os.lazy.demo.card.v1;
 
 interface os.lazy.demo.v1 {
+    default deadline=5s;
     errors { NotFound = 1001, Denied = 1004 }
     struct Item { name: String = 1 }
     /// Quick.
-    method Get(path: String = 1) -> (value: Option<Item> = 1) deadline=500ms;
+    method Get(path: String = 1) -> (value: Option<Item> = 1) deadline=500ms retry=safe;
     method Slow(blob: Bytes = 1, names: Array<String> = 2, item: Item = 3, count: U32 = 4) -> () ;
     method Pair() -> (a: U32 = 1, b: String = 2);
     method Hand(data: Buffer = 1, ch: Channel<os.lazy.demo.plain.v1> = 2) -> (id: U64 = 1);
@@ -36,9 +37,11 @@ interface os.lazy.demo.v1 {
     method Connect(name: String = 1) -> ();
 }
 interface os.lazy.demo.plain.v1 {
+    default deadline=1s retry=safe;
     method Ping() -> ();
 }
 interface os.lazy.demo.card.v1 {
+    default deadline=never;
     method Poke() -> ();
 }
 interface os.lazy.demo.callback.v1 {
@@ -96,9 +99,23 @@ class ClientEmitterTests(unittest.TestCase):
         self.assertIn(".call(INTERFACE_ID, METHOD_GET,", self.demo)
 
     def test_deadline_is_the_methods_or_the_default(self) -> None:
-        self.assertIn("self.get_within(path, libmessenger::client::Deadline::millis(METHOD_GET_DEADLINE_MS as u64))", self.demo)
-        self.assertIn("self.pair_within(libmessenger::client::DEFAULT_DEADLINE)", self.demo)
+        self.assertIn("self.get_within(path, METHOD_GET_DEADLINE)", self.demo)
+        self.assertIn("self.pair_within(METHOD_PAIR_DEADLINE)", self.demo)
         self.assertIn("at most 500 ms", self.demo)
+        self.assertIn("at most 5000 ms", self.demo)
+        self.assertNotIn("DEFAULT_DEADLINE", self.demo)
+
+    def test_a_never_deadline_is_stated_in_the_docs(self) -> None:
+        card = client_text("os.lazy.demo.card.v1")
+        self.assertIn("Waits for the reply for ever", card)
+        self.assertIn("self.poke_within(METHOD_POKE_DEADLINE)", card)
+
+    def test_retry_is_passed_to_the_connection(self) -> None:
+        self.assertIn("wire_objects, within, METHOD_GET_RETRY)", self.demo)
+        self.assertIn("wire_objects, within, METHOD_PAIR_RETRY)", self.demo)
+        self.assertIn("(`retry=safe`)", self.demo)
+        self.assertIn("only if the request never left (`retry=never`)", self.demo)
+        self.assertNotIn("METHOD_FIRE_RETRY", self.demo)
 
     def test_every_call_has_one_deadline_override(self) -> None:
         for name in ("get", "slow", "pair", "hand", "offer", "maybe"):

@@ -42,7 +42,7 @@ Grammar (small on purpose):
 
 Beside methods, an interface may declare `errors { NotFound = 1001 }`, and a
 file `service "os.lazy.echo" implements os.lazy.echo.v1;`; a method takes the
-attributes `scope "os.lazy.x.v1"` and `deadline=500ms` (`midlc_decls`).
+attributes `scope "os.lazy.x.v1"`, `deadline=500ms` (or `never`) and `retry=safe`, and an interface a `default deadline=2s;` line (`midlc_decls`).
 
 `Channel<interface>`, `Buffer` and `Ring<...>` are the kernel objects a request
 carries (its parcel's object list); they are parameter types, legal in a

@@ -1,5 +1,5 @@
 """midlc declarations that state protocol facts: `service`, `errors`, `scope`
-and `deadline` (`docs/client-api-plan.md` 3.1, `docs/midl.md`).
+`deadline` and `retry` (`docs/client-api-plan.md` 3.1, `docs/midl.md`).
 
 Part of the Messenger IDL compiler; see `midlc.py` for the CLI. Each of these
 replaces a family of hand-written constants (registry names, error codes, ACL
@@ -9,7 +9,8 @@ owns the fact:
     service "os.lazy.confd" implements os.lazy.confd.v1;
     interface os.lazy.confd.v1 {
         errors { NotFound = 1001, BadPath = 1002 }
-        method Get(path: String) -> (value: String) deadline=500ms;
+        default deadline=2s retry=never;
+        method Get(path: String) -> (value: String) deadline=500ms retry=safe;
         method Offer(...) -> (...) scope "os.lazy.clipboard.write.v1";
     }
 
@@ -22,7 +23,7 @@ from __future__ import annotations
 
 import re
 
-from midlc_model import ErrorCode, Interface, Method, MidlError, Service
+from midlc_model import CallPolicy, ErrorCode, Interface, Method, MidlError, Service
 
 INTERFACE_NAME = re.compile(r"[a-z0-9_.]+\.v\d+")
 # A registry name, optionally a family: `os.lazy.net.nic/{ifname}`.
@@ -101,23 +102,67 @@ def parse_scope(parser, method: Method, keyword) -> None:
     method.scope = text
 
 
-def parse_deadline(parser, method: Method, keyword) -> None:
-    """`deadline=<N>ms` or `deadline=<N>s` on a method."""
-    if method.deadline_ms is not None:
-        raise MidlError(f"method {method.name!r} declares a deadline twice", keyword.line)
+RETRY_VALUES = ("safe", "never")
+
+
+def parse_deadline(parser, policy: CallPolicy, keyword, owner: str) -> None:
+    """`deadline=<N>ms`, `deadline=<N>s` or `deadline=never` (`owner` names
+    the method or the interface default for the messages)."""
+    if policy.has_deadline:
+        raise MidlError(f"{owner} declares a deadline twice", keyword.line)
     parser.expect("=")
     number = parser.next()
+    if number.kind == "ident" and number.text == "never":
+        policy.never = True
+        return
     if number.kind != "number":
-        raise MidlError("expected a number after 'deadline=' (deadline=500ms)", number.line)
+        raise MidlError("expected a number or 'never' after 'deadline=' (deadline=500ms)", number.line)
     unit = parser.next()
     if unit.text not in UNIT_MS:
         raise MidlError(f"deadline {number.text} needs a unit: ms or s, found {unit.text!r}", unit.line)
     millis = int(number.text) * UNIT_MS[unit.text]
     if millis == 0:
-        raise MidlError(f"method {method.name!r}: a deadline of 0 would fail every call", number.line)
+        raise MidlError(f"{owner}: a deadline of 0 would fail every call (deadline=never waits for ever)", number.line)
     if millis > MAX_DEADLINE_MS:
-        raise MidlError(f"method {method.name!r}: the deadline does not fit 32 bits of milliseconds", number.line)
-    method.deadline_ms = millis
+        raise MidlError(f"{owner}: the deadline does not fit 32 bits of milliseconds", number.line)
+    policy.deadline_ms = millis
+
+
+def parse_retry(parser, policy: CallPolicy, keyword, owner: str) -> None:
+    """`retry=safe` or `retry=never`."""
+    if policy.retry is not None:
+        raise MidlError(f"{owner} declares a retry policy twice", keyword.line)
+    parser.expect("=")
+    value = parser.next()
+    if value.text not in RETRY_VALUES:
+        raise MidlError(f"retry must be one of {', '.join(RETRY_VALUES)}, found {value.text!r}", value.line)
+    policy.retry = value.text
+
+
+def parse_policy_attr(parser, policy: CallPolicy, keyword, owner: str) -> None:
+    """The `deadline=` or `retry=` attribute `keyword` starts."""
+    if keyword.text == "deadline":
+        parse_deadline(parser, policy, keyword, owner)
+    else:
+        parse_retry(parser, policy, keyword, owner)
+
+
+def parse_default(parser, interface: Interface, keyword) -> None:
+    """`default deadline=<..> retry=<..>;` in an interface: the policy of
+    every method that does not state its own (the keyword is consumed)."""
+    parser.take_doc()
+    if interface.default_policy is not None:
+        raise MidlError(f"interface {interface.name!r} declares its default policy twice", keyword.line)
+    policy = CallPolicy()
+    while parser.peek() and parser.peek().text != ";":
+        token = parser.next()
+        if token.text not in ("deadline", "retry"):
+            raise MidlError(f"unexpected {token.text!r} in `default` (deadline=.. or retry=..)", token.line)
+        parse_policy_attr(parser, policy, token, "the interface default")
+    parser.expect(";")
+    if not policy.stated:
+        raise MidlError("`default` states nothing: write deadline=.. and/or retry=..", keyword.line)
+    interface.default_policy = policy
 
 
 def validate_errors(interface: Interface) -> None:
@@ -147,8 +192,26 @@ def validate_errors(interface: Interface) -> None:
 
 
 def validate_method_attrs(method: Method) -> None:
-    if method.oneway and method.deadline_ms is not None:
+    if method.oneway and method.policy.has_deadline:
         raise MidlError(f"oneway method {method.name!r} has no reply to wait for, so it takes no deadline")
+    if method.oneway and method.policy.retry is not None:
+        raise MidlError(f"oneway method {method.name!r} is never retried (a send is refused before it is queued), so it takes no retry")
+
+
+def apply_default_policy(interface: Interface) -> None:
+    """Fold the interface's `default` line into every two-way method that
+    does not state the attribute itself; a oneway method keeps none."""
+    default = interface.default_policy
+    if default is None:
+        return
+    for method in interface.methods:
+        if method.oneway:
+            continue
+        policy = method.policy
+        if not policy.has_deadline:
+            policy.deadline_ms, policy.never = default.deadline_ms, default.never
+        if policy.retry is None:
+            policy.retry = default.retry
 
 
 def attach_services(interfaces: list[Interface], services: list[Service]) -> None:
