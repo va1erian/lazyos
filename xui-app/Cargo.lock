@@ -2337,6 +2337,7 @@ version = "0.1.0"
 name = "lazyhttps"
 version = "0.1.0"
 dependencies = [
+ "fhs",
  "nettls-crypto",
  "rcgen",
  "rustls",
@@ -6036,8 +6037,7 @@ dependencies = [
  "esmail-glue",
  "fhs",
  "keyring",
- "nettls-crypto",
- "rustls",
+ "lazyhttps",
  "secrecy",
  "sha2",
  "xui-app",
