@@ -224,47 +224,25 @@ The userspace compositor protocol (`xuid`; issues #113, #143, #145, #167,
 |---|---|---|
 | `commit(surface, x, y, w, h)` | `Commit(surface: U64, x: U32, y: U32, w: U32, h: U32) -> ()` | Signal that the damage rectangle of `surface` (content-relative) is |
 | `destroy_surface(surface)` | `DestroySurface(surface: U64) -> ()` | Drop a surface; the compositor forgets it and repaints. |
-| `pointer_move(x, y)` | `PointerMove(x: I32, y: I32) -> () oneway` | Event: the pointer moved to `(x, y)`, relative to the focused surface. |
-| `pointer_down(x, y, button)` | `PointerDown(x: I32, y: I32, button: U32) -> () oneway` | Event: pointer button `button` went down at `(x, y)`, relative to the |
-| `pointer_up(x, y, button)` | `PointerUp(x: I32, y: I32, button: U32) -> () oneway` | Event: pointer button `button` went up at `(x, y)`, relative to the |
-| `key_down(key)` | `KeyDown(key: U32) -> () oneway` | Event: key `key` was pressed (a character or a non-printable code). |
-| `key_up(key)` | `KeyUp(key: U32) -> () oneway` | Event: key `key` was released. |
-| `window_close()` | `WindowClose() -> () oneway` | Event: the window manager closed this surface (the X button or Alt+F4). |
 | `drag_start(surface, token, mime)` | `DragStart(surface: U64, token: U64, mime: String) -> ()` | Begin a compositor-mediated drag from `surface` carrying clipboard |
 | `drag_cancel(surface)` | `DragCancel(surface: U64) -> ()` | Cancel the drag that started at `surface`. |
-| `drag_enter(x, y, mime)` | `DragEnter(x: I32, y: I32, mime: String) -> () oneway` | Event: a drag carrying `mime` entered this surface at `(x, y)`. |
-| `drag_over(x, y)` | `DragOver(x: I32, y: I32) -> () oneway` | Event: a drag moved inside this surface to `(x, y)`. |
-| `drag_leave()` | `DragLeave() -> () oneway` | Event: a drag left this surface. |
-| `drop(x, y, token, mime, modifiers, source)` | `Drop(x: I32, y: I32, token: U64, mime: String, modifiers: Option<U32>, source: Option<U64>) -> () oneway` | Event: a drag was released over this surface at `(x, y)`; the target |
-| `drag_ended(dropped)` | `DragEnded(dropped: Bool) -> () oneway` | Event to the drag's source: the drag ended (`dropped`) or was cancelled. |
 | `list_surfaces()` | `ListSurfaces() -> (surfaces: Array<SurfaceRow>)` | Every surface in z-order (bottom first), including the desktop and |
 | `get_work_area()` | `GetWorkArea() -> (x: I32, y: I32, w: I32, h: I32)` | The rectangle available to windows: what the shell set with |
 | `get_theme()` | `GetTheme() -> (title_bg_active: U32, title_bg_inactive: U32, border: U32, taskbar: U32, text: U32, mode: String, accent: U32)` | The compositor's chrome palette as `0xRRGGBB` colours. `text` is the |
-| `surface_changed(surface, kind, x, y, w, h, minimized, focused, title, role, maximized)` | `SurfaceChanged(surface: U64, kind: U32, x: I32, y: I32, w: I32, h: I32, minimized: Bool, focused: Bool, title: Option<String>, role: U32, maximized: Bool) -> () oneway` | Shell event: surface `surface` changed. `kind` is a `Change` value; |
-| `focus_changed(surface)` | `FocusChanged(surface: Option<U64>) -> () oneway` | Shell event: the focused surface changed; absent when nothing is |
-| `start_menu()` | `StartMenu() -> () oneway` | Shell event: the global start-menu hotkey (Ctrl+Esc or Super) fired. |
 | `present(surface, slot, seq, damage)` | `Present(surface: U64, slot: U32, seq: U64, damage: Array<Rect>) -> () oneway` | Pipelined present (no reply): make `slot` the surface's current buffer |
-| `buffer_release(surface, slot)` | `BufferRelease(surface: U64, slot: U32) -> () oneway` | Event: the compositor no longer reads `slot` of `surface`; the client |
-| `frame_done(surface, seq)` | `FrameDone(surface: U64, seq: U64) -> () oneway` | Event: the compositor consumed the `Present` numbered `seq`. Frames |
 | `set_title(surface, title)` | `SetTitle(surface: U64, title: String) -> ()` | Rename `surface`'s window (its title bar, taskbar entry and switcher |
 | `hint_open_origin(surface, x, y, w, h)` | `HintOpenOrigin(surface: U64, x: I32, y: I32, w: U32, h: U32) -> ()` | Hint where the *next* `CreateSurface` from this task should open from: |
-| `pointer_wheel(x, y, delta)` | `PointerWheel(x: I32, y: I32, delta: I32) -> () oneway` | Event: the mouse wheel rolled `delta` notches over this surface's |
 | `set_size_hints(surface, min_w, min_h, max_w, max_h)` | `SetSizeHints(surface: U64, min_w: U32, min_h: U32, max_w: U32, max_h: U32) -> ()` | Declare `surface` resizable within these content-size bounds (pixels). |
-| `configure(surface, width, height, state)` | `Configure(surface: U64, width: U32, height: U32, state: U32) -> () oneway` | Event: the window manager changed the surface's content size to |
 | `request_size(surface, width, height)` | `RequestSize(surface: U64, width: U32, height: U32) -> ()` | Ask the compositor to change `surface`'s content size to `width` x |
-| `ping()` | `Ping() -> () oneway` | Event: a liveness probe. The compositor sends it to each window's |
 | `place_surface(surface, x, y)` | `PlaceSurface(surface: U64, x: I32, y: I32) -> ()` | Move a `Panel` surface so its top-left corner is at screen `(x, y)`. |
 | `activate_surface(surface)` | `ActivateSurface(surface: U64) -> ()` | Shell-only: restore `surface` if minimized, raise it and give it focus |
 | `minimize_surface(surface)` | `MinimizeSurface(surface: U64) -> ()` | Shell-only: minimize `surface` (a click on the focused taskbar entry). |
 | `set_work_area(x, y, w, h)` | `SetWorkArea(x: I32, y: I32, w: I32, h: I32) -> ()` | Shell-only: the rectangle windows may occupy (the screen minus the |
 | `set_icon_geometry(surface, x, y, w, h)` | `SetIconGeometry(surface: U64, x: I32, y: I32, w: I32, h: I32) -> ()` | Shell-only: where `surface`'s taskbar entry is on screen, so the |
 | `hint_launch_origin(x, y, w, h)` | `HintLaunchOrigin(x: I32, y: I32, w: U32, h: U32) -> ()` | Shell-only: the next window *any* task creates within about two seconds |
-| `dismiss()` | `Dismiss() -> () oneway` | Shell event: a pointer button went down outside every `Panel` surface |
 | `get_output()` | `GetOutput() -> (width: U32, height: U32, scale: U32, refresh_millihz: U32)` | The screen in physical pixels and the desktop's integer UI scale |
 | `allow_popup(task, token, x, y, w, h)` | `AllowPopup(task: U64, token: U64, x: I32, y: I32, w: U32, h: U32) -> ()` | Shell-only: let task `task` create one `Popup` surface with `token` |
 | `grab_panel_keys(grab)` | `GrabPanelKeys(grab: Bool) -> ()` | Shell-only: take the keyboard for the shell's panel menus (issue |
-| `panel_key(key)` | `PanelKey(key: U32) -> () oneway` | Shell event: a key went down while the shell holds the panel keys |
-| `tray_keys()` | `TrayKeys() -> () oneway` | Shell event: Super+B (Win+B) went down: move the keyboard to the |
 | `set_close_mode(surface, ask)` | `SetCloseMode(surface: U64, ask: Bool) -> ()` | Ask the compositor to keep `surface` when the window manager closes it |
 | `activate_app(label, session)` | `ActivateApp(label: U32, session: U64) -> ()` | Shell-only: restore, raise and focus every window created by a program |
 | `new_rect()` | struct `Rect` | a `Rect` at its zero value |
@@ -441,8 +419,6 @@ What `init` sends an app on the channel it transferred with `Watch`.
 
 | Function | IDL | About |
 |---|---|---|
-| `reopen(args)` | `Reopen(args: String) -> () oneway` | The app was launched again in this session (the start menu, a |
-| `quit(grace_ms)` | `Quit(grace_ms: U32) -> () oneway` | The user, a logout or the package manager asked the app to quit: |
 
 ## `sys::input`
 
@@ -457,16 +433,6 @@ The system input service (`inputd`; `docs/input-plan.md`).
 | `request_grant(session, kind)` | `RequestGrant(session: U64, kind: U32) -> ()` | Ask for a grab of kind `kind` (a `GrantKind`) for `session`, which |
 | `release_grant(session)` | `ReleaseGrant(session: U64) -> ()` | Give up the grab (or a pending request) `session` holds. Only its |
 | `ping(session, token)` | `Ping(session: U64, token: U64) -> (token: U64, seq: U64)` | Liveness and freshness for the caller's own `session`: echoes `token` |
-| `key_event(code, sym, mods, state, ts_ns, seq)` | `KeyEvent(code: U32, sym: U32, mods: U32, state: U32, ts_ns: U64, seq: U64) -> () oneway` | Event: a key changed state. `code` is the physical key, `sym` its |
-| `text_input(utf8)` | `TextInput(utf8: String) -> () oneway` | Event: composed text (UTF-8) for a character-producing press or repeat. |
-| `keyboard_enter(down)` | `KeyboardEnter(down: Array<U32>) -> () oneway` | Event: keyboard focus arrived. `down` lists the physical keys held right |
-| `keyboard_leave()` | `KeyboardLeave() -> () oneway` | Event: keyboard focus left. The client **must release every key** it |
-| `layout_changed(layout)` | `LayoutChanged(layout: String) -> () oneway` | Event: the layout changed (a `confd` write, live). |
-| `grant_changed(kind, active, reason)` | `GrantChanged(kind: U32, active: Bool, reason: U32) -> () oneway` | Event: the session's grab of kind `kind` started (`active`) or ended; |
-| `gamepad_axis(device, code, value, ts_ns, seq)` | `GamepadAxis(device: U32, code: U32, value: I32, ts_ns: U64, seq: U64) -> () oneway` | Event: a gamepad axis changed (only the focused session that attached |
-| `gamepad_button(device, code, pressed, ts_ns, seq)` | `GamepadButton(device: U32, code: U32, pressed: Bool, ts_ns: U64, seq: U64) -> () oneway` | Event: a gamepad button changed (only the focused session that |
-| `gamepad_enter()` | `GamepadEnter() -> () oneway` | Event: gamepad input arrived with this session's focus: read the |
-| `gamepad_leave()` | `GamepadLeave() -> () oneway` | Event: focus left, or events were lost. The client **must release |
 
 Not callable from a script (the request carries a kernel object): `Open`, `AttachKeyState`, `AttachGamepadState`.
 
@@ -496,14 +462,6 @@ The compositor side of `inputd`. Only the compositor may call it: `inputd`
 | `note_input_done(seq)` | `NoteInputDone(seq: U64) -> () oneway` | One-way: the compositor has handled every `PointerEvent` up to `seq` |
 | `note_keys_held(held)` | `NoteKeysHeld(held: Bool) -> () oneway` | One-way: the shell's panel menu has the keyboard (`held`), or no |
 | `note_session_layout(layout)` | `NoteSessionLayout(layout: Option<String>) -> () oneway` | One-way: the logged-in user's own keyboard layout (`confd`'s |
-| `hotkey_fired(id)` | `HotkeyFired(id: U64) -> () oneway` | Shell event: a registered chord was pressed. |
-| `grant_requested(session, kind, surface)` | `GrantRequested(session: U64, kind: U32, surface: U64) -> () oneway` | Shell event: the client owning `surface` asked for a grab of `kind` |
-| `escape_chord()` | `EscapeChord() -> () oneway` | Shell event: the reserved escape chord (Ctrl+Alt+Esc) was pressed. It |
-| `session_opened(surface)` | `SessionOpened(surface: U64) -> () oneway` | Shell event: `surface` now receives keys through an input session, so |
-| `session_closed(surface)` | `SessionClosed(surface: U64) -> () oneway` | Shell event: the last input session of `surface` ended; legacy key |
-| `pointer_event(x, y, buttons, wheel, wheel_h, ts_ns, seq)` | `PointerEvent(x: I32, y: I32, buttons: U32, wheel: I32, wheel_h: I32, ts_ns: U64, seq: U64) -> () oneway` | Shell event: the pointer changed. One cursor for every pointing device |
-| `grab_changed(surface)` | `GrabChanged(surface: Option<U64>) -> () oneway` | Shell event: `surface` now holds the keyboard grab (absent: nobody |
-| `key_activity()` | `KeyActivity() -> () oneway` | Shell event: a key went down on some keyboard (PS/2 or USB; sent after |
 
 Not callable from a script (the request carries a kernel object): `Attach`.
 
@@ -645,7 +603,6 @@ A network interface card, **link layer only** (docs/driver-plan.md §3.8,
 | `detach_ring(ring)` | `DetachRing(ring: U32) -> ()` | Release the rings; the driver stops reading and writing them. Also |
 | `stats()` | `Stats() -> (stats: NicStats)` | Frame and error counters since the driver started. |
 | `kick(ring)` | `Kick(ring: U32) -> () oneway` | Event, client to driver: the client queued frames in the transmit ring |
-| `notify(ring, events)` | `Notify(ring: U32, events: U32) -> () oneway` | Event, driver to client: something needs the client's attention. |
 | `new_nic_info()` | struct `NicInfo` | a `NicInfo` at its zero value |
 | `new_nic_stats()` | struct `NicStats` | a `NicStats` at its zero value |
 | `new_link_event()` | struct `LinkEvent` | a `LinkEvent` at its zero value |
@@ -747,14 +704,10 @@ Not callable from a script (the request carries a kernel object): `Listen`.
 
 Interface `os.lazy.notify.events.v1`, source [`notify_events.rhai`](notify_events.rhai).
 
-What the shell sends an app about its toasts: oneway methods on the
+What the shell sends an app about its toasts: `event` methods on the
 
 | Function | IDL | About |
 |---|---|---|
-| `activated(id)` | `Activated(id: U64) -> () oneway` | The user clicked the toast's body. |
-| `action_invoked(id, action)` | `ActionInvoked(id: U64, action: U32) -> () oneway` | The user pressed action `action` of toast `id`; the toast closes. |
-| `closed(id, reason)` | `Closed(id: U64, reason: U32) -> () oneway` | The toast is gone; `reason` is a `CloseReason` value. It is sent once |
-| `ping()` | `Ping() -> () oneway` | Liveness probe; nothing to answer. |
 
 ## `sys::pkgd`
 
@@ -821,8 +774,6 @@ The Messenger service name registry (issues #89, #300).
 | `unregister(name)` | `Unregister(name: String) -> ()` | Withdraw `name`. Only its owner (or an administrator) may. |
 | `list()` | `List() -> (entries: Array<Entry>)` | Snapshot the name table. |
 | `new_entry()` | struct `Entry` | a `Entry` at its zero value |
-
-Not callable from a script (the request carries a kernel object): `Connected`.
 
 ## `sys::shell`
 
@@ -953,15 +904,10 @@ Not callable from a script (the request carries a kernel object): `Set`.
 
 Interface `os.lazy.shell.tray.events.v1`, source [`shell_tray_events.rhai`](shell_tray_events.rhai).
 
-What the shell sends an app about its item: oneway methods on the channel
+What the shell sends an app about its item: `event` methods on the channel
 
 | Function | IDL | About |
 |---|---|---|
-| `activate(anchor, popup)` | `Activate(anchor: Rect, popup: U64) -> () oneway` | Primary click. `anchor` is the icon in screen pixels; `popup` a |
-| `secondary_activate(anchor)` | `SecondaryActivate(anchor: Rect) -> () oneway` | Secondary click on an item without a menu. |
-| `menu_item(id, checked)` | `MenuItem(id: U32, checked: Bool) -> () oneway` | The user picked menu row `id`; `checked` is a check or radio row's |
-| `scroll(delta)` | `Scroll(delta: I32) -> () oneway` | The wheel rolled `delta` notches over the icon (positive: up). |
-| `ping()` | `Ping() -> () oneway` | Liveness probe; nothing to answer. |
 | `new_rect()` | struct `Rect` | a `Rect` at its zero value |
 
 ## `sys::usb_audio`
@@ -1022,33 +968,6 @@ webd's full views (docs/webd-plan.md sections 3.3 to 3.5 and 4, phase P2
 | `recover_group(view)` | `RecoverGroup(view: U64) -> ()` | Like `Recover` without a reload, for a view that shares its web process |
 | `detach_slots(view)` | `DetachSlots(view: U64) -> (seq: U64)` | Detach every slot of the view, as `Resize` does, without resizing it |
 | `set_user_agent(view, user_agent)` | `SetUserAgent(view: U64, user_agent: String) -> ()` | Change the user agent the page's requests and `navigator.userAgent` |
-| `frame(view, slot, seq, width, height, whole, shift, rects, offset_x, offset_y, at_bottom)` | `Frame(view: U64, slot: U32, seq: U64, width: U32, height: U32, whole: Bool, shift: Option<Shift>, rects: Array<Rect>, offset_x: I32, offset_y: I32, at_bottom: Bool) -> () oneway` | Event: slot `slot` holds frame `seq`. `whole`: every pixel is new. |
-| `state(view, title, loading, finished, error, url, committed_url, can_back, can_forward, progress, secure, commits)` | `State(view: U64, title: String, loading: Bool, finished: U32, error: String, url: String, committed_url: String, can_back: Bool, can_forward: Bool, progress: U32, secure: Bool, commits: U32) -> () oneway` | Event: what the page says about itself. `url` is the address on show, |
-| `scroll(view, x, y, at_bottom)` | `Scroll(view: U64, x: I32, y: I32, at_bottom: Bool) -> () oneway` | Event: the page scrolled (as on the light interface). |
-| `link_clicked(view, url)` | `LinkClicked(view: U64, url: String) -> () oneway` | Event: as on the light interface (a full view's navigation is not |
-| `clipboard_write(view, text)` | `ClipboardWrite(view: U64, text: String) -> () oneway` |  |
-| `view_lost(view, reason)` | `ViewLost(view: U64, reason: U32) -> () oneway` |  |
-| `ping()` | `Ping() -> () oneway` |  |
-| `band(view, slot, doc_x, doc_y, width, height)` | `Band(view: U64, slot: U32, doc_x: I32, doc_y: I32, width: U32, height: U32) -> () oneway` | Event: band slot `slot` holds `height` rows of the page from document |
-| `hover(view, url)` | `Hover(view: U64, url: String) -> () oneway` | Event: the pointer is over a link (its address) or no longer (""). |
-| `cursor(view, shape)` | `Cursor(view: U64, shape: U32) -> () oneway` | Event: the page wants this pointer shape (a `CursorShape`). |
-| `new_window_requested(view, url, gesture)` | `NewWindowRequested(view: U64, url: String, gesture: Bool) -> () oneway` | Event: the page asked for a new window (`target=_blank`, |
-| `navigation_requested(view, request, url, kind, gesture)` | `NavigationRequested(view: U64, request: U64, url: String, kind: U32, gesture: Bool) -> () oneway` | Event: a navigation outside the view's policy is held (`Handoff.Ask`); |
-| `dialog(view, dialog, kind, message, default_value)` | `Dialog(view: U64, dialog: U64, kind: U32, message: String, default_value: String) -> () oneway` | Event: the page opened a JavaScript dialog (a `DialogKind`) and waits |
-| `download_started(view, download, url, name, total)` | `DownloadStarted(view: U64, download: U64, url: String, name: String, total: I64) -> () oneway` | Event: a download began, into the person's Downloads folder under a |
-| `download_progress(view, download, received, total)` | `DownloadProgress(view: U64, download: U64, received: I64, total: I64) -> () oneway` |  |
-| `download_done(view, download, name)` | `DownloadDone(view: U64, download: U64, name: String) -> () oneway` | Event: every byte is in `name` (a file of the Downloads folder). |
-| `download_failed(view, download, reason)` | `DownloadFailed(view: U64, download: U64, reason: String) -> () oneway` |  |
-| `notify_permission_request(view, origin)` | `NotifyPermissionRequest(view: U64, origin: String) -> () oneway` | Event: a page asked to show notifications for `origin`. |
-| `notify_clicked(view, notification)` | `NotifyClicked(view: U64, notification: U64) -> () oneway` | Event: the person clicked notification `notification` (webd posted it |
-| `blocking_list(view, list, status)` | `BlockingList(view: U64, list: String, status: U32) -> () oneway` | Event: what became of rule list `list` (a `BlockingStatus`). |
-| `blocked(view, count)` | `Blocked(view: U64, count: U32) -> () oneway` | Event: the number of loads the lists blocked on the page on show. |
-| `responsive(view, responsive)` | `Responsive(view: U64, responsive: Bool) -> () oneway` | Event: the page's process stopped answering, or answers again. |
-| `handed_off(view, url)` | `HandedOff(view: U64, url: String) -> () oneway` | Event: webd gave `url` to the program the person chose for it |
-| `notify_show(view, notification, origin, page_url, title, body, tag)` | `NotifyShow(view: U64, notification: U64, origin: String, page_url: String, title: String, body: String, tag: String) -> () oneway` | Event (a view made with `notify_in_client`): the page asked to show |
-| `notify_cancel(view, notification)` | `NotifyCancel(view: U64, notification: U64) -> () oneway` | Event: the page closed notification `notification` itself. |
-| `notify_gone(view, notification)` | `NotifyGone(view: U64, notification: U64) -> () oneway` | Event: the page's object for `notification` is gone (its document went |
-| `wheel_done(view, seq, x, y)` | `WheelDone(view: U64, seq: U64, x: I32, y: I32) -> () oneway` | Event: the page has answered every wheel turn up to `seq` (`Wheel`), and |
 | `new_view_config()` | struct `ViewConfig` | a `ViewConfig` at its zero value |
 | `new_rect()` | struct `Rect` | a `Rect` at its zero value |
 | `new_shift()` | struct `Shift` | a `Shift` at its zero value |
@@ -1107,13 +1026,6 @@ webd's light views (docs/webd-plan.md sections 3.6 and 4, phase P2): an app
 | `wheel(view, x, y, ticks_x, ticks_y, mods, seq)` | `Wheel(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32, seq: U64) -> () oneway` | A wheel turn of `ticks_x` / `ticks_y` notches at `(x, y)`. `seq` numbers |
 | `key(view, press, keysym, text, mods)` | `Key(view: U64, press: Bool, keysym: U32, text: String, mods: U32) -> () oneway` | A key edge: `keysym` is the X11 keysym the display protocol carries, |
 | `focus(view, focused)` | `Focus(view: U64, focused: Bool) -> () oneway` | The view gained or lost keyboard focus. |
-| `frame(view, slot, seq, width, height)` | `Frame(view: U64, slot: U32, seq: U64, width: U32, height: U32) -> () oneway` | Event: slot `slot` of `view` holds frame number `seq` (counting from 1) |
-| `state(view, title, loading, finished, error)` | `State(view: U64, title: String, loading: Bool, finished: U32, error: String) -> () oneway` | Event: what the page says about itself. `loading` while a load is in |
-| `scroll(view, x, y, at_bottom)` | `Scroll(view: U64, x: I32, y: I32, at_bottom: Bool) -> () oneway` | Event: the page scrolled to `(x, y)` in document pixels; `at_bottom` |
-| `link_clicked(view, url)` | `LinkClicked(view: U64, url: String) -> () oneway` | Event: a link was clicked, a form submitted or a meta refresh fired, |
-| `clipboard_write(view, text)` | `ClipboardWrite(view: U64, text: String) -> () oneway` | Event: the user copied `text` out of the page. |
-| `view_lost(view, reason)` | `ViewLost(view: U64, reason: U32) -> () oneway` | Event: the view cannot go on (`reason` is a `LostReason`). The id stays |
-| `ping()` | `Ping() -> () oneway` | Event: liveness probe, about once a second; nothing to answer. `EPIPE` |
 | `new_light_config()` | struct `LightConfig` | a `LightConfig` at its zero value |
 
 Not callable from a script (the request carries a kernel object): `CreateView`, `AttachSlot`, `LoadHtml`.
@@ -1143,10 +1055,6 @@ A Wi-Fi radio, **seen from the station manager** (docs/wifi-prerequisites-plan.m
 | `del_key(kind, index)` | `DelKey(kind: U32, index: U32) -> ()` | Remove a key; not an error when the slot is empty. |
 | `leave(reason)` | `Leave(reason: U32) -> ()` | Leave the BSS: a `Deauthentication` with this IEEE 802.11 reason code |
 | `stats()` | `Stats() -> (stats: HwStats)` | Counters since the driver started. |
-| `scan_done(scan_id, aborted)` | `ScanDone(scan_id: U32, aborted: Bool) -> () oneway` | Event, driver to client: the scan finished (`aborted` false) or was |
-| `rx_mgmt(kind, rssi_dbm, frame)` | `RxMgmt(kind: U32, rssi_dbm: I32, frame: Bytes) -> () oneway` | Event, driver to client: a management or EAPOL frame addressed to this |
-| `beacon_loss()` | `BeaconLoss() -> () oneway` | Event, driver to client: the radio stopped hearing the AP (the |
-| `deauthenticated(reason)` | `Deauthenticated(reason: U32) -> () oneway` | Event, driver to client: the AP deauthenticated or disassociated us. |
 | `new_hw_info()` | struct `HwInfo` | a `HwInfo` at its zero value |
 | `new_scan_request()` | struct `ScanRequest` | a `ScanRequest` at its zero value |
 | `new_scan_entry()` | struct `ScanEntry` | a `ScanEntry` at its zero value |

@@ -86,16 +86,16 @@ interface os.lazy.notify.v1 {
     enum CloseReason { User, Timeout, Replaced, Sender, Restart, Muted }
 }
 
-/// What the shell sends an app about its toasts: oneway methods on the
+/// What the shell sends an app about its toasts: `event` methods on the
 /// channel the app transferred with `Listen`.
 interface os.lazy.notify.events.v1 {
     /// The user clicked the toast's body.
-    method Activated(id: U64 = 1) -> () = 1 oneway;
+    method Activated(id: U64 = 1) -> () = 1 event;
     /// The user pressed action `action` of toast `id`; the toast closes.
-    method ActionInvoked(id: U64 = 1, action: U32 = 2) -> () = 2 oneway;
+    method ActionInvoked(id: U64 = 1, action: U32 = 2) -> () = 2 event;
     /// The toast is gone; `reason` is a `CloseReason` value. It is sent once
     /// per toast, also for one that was never shown (`Muted`).
-    method Closed(id: U64 = 1, reason: U32 = 2) -> () = 3 oneway;
+    method Closed(id: U64 = 1, reason: U32 = 2) -> () = 3 event;
     /// Liveness probe; nothing to answer.
-    method Ping() -> () = 4 oneway;
+    method Ping() -> () = 4 event;
 }

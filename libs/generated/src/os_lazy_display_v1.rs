@@ -2404,63 +2404,6 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(())
     }
 
-    /// Event: the pointer moved to `(x, y)`, relative to the focused surface.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn pointer_move(&self, x: i32, y: i32) -> Result<(), ClientError> {
-        let wire_body = encode_pointer_move_args(&PointerMoveArgs { x, y }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_POINTERMOVE, wire_body, wire_objects)
-    }
-
-    /// Event: pointer button `button` went down at `(x, y)`, relative to the
-    /// surface.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn pointer_down(&self, x: i32, y: i32, button: u32) -> Result<(), ClientError> {
-        let wire_body = encode_pointer_down_args(&PointerDownArgs { x, y, button }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_POINTERDOWN, wire_body, wire_objects)
-    }
-
-    /// Event: pointer button `button` went up at `(x, y)`, relative to the
-    /// surface.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn pointer_up(&self, x: i32, y: i32, button: u32) -> Result<(), ClientError> {
-        let wire_body = encode_pointer_up_args(&PointerUpArgs { x, y, button }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_POINTERUP, wire_body, wire_objects)
-    }
-
-    /// Event: key `key` was pressed (a character or a non-printable code).
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn key_down(&self, key: u32) -> Result<(), ClientError> {
-        let wire_body = encode_key_down_args(&KeyDownArgs { key }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_KEYDOWN, wire_body, wire_objects)
-    }
-
-    /// Event: key `key` was released.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn key_up(&self, key: u32) -> Result<(), ClientError> {
-        let wire_body = encode_key_up_args(&KeyUpArgs { key }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_KEYUP, wire_body, wire_objects)
-    }
-
-    /// Event: the window manager closed this surface (the X button or Alt+F4).
-    /// The app is expected to exit or re-create it.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn window_close(&self) -> Result<(), ClientError> {
-        let wire_body = Vec::new();
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_WINDOWCLOSE, wire_body, wire_objects)
-    }
-
     /// Begin a compositor-mediated drag from `surface` carrying clipboard
     /// `token` of type `mime`. Only the surface's creator may start one, while
     /// a pointer button is held; one drag at a time.
@@ -2497,57 +2440,6 @@ impl<T: libmessenger::client::Transport> Client<T> {
             .call(INTERFACE_ID, METHOD_DRAGCANCEL, wire_body, wire_objects, within, METHOD_DRAGCANCEL_RETRY)
             ?;
         Ok(())
-    }
-
-    /// Event: a drag carrying `mime` entered this surface at `(x, y)`.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn drag_enter(&self, x: i32, y: i32, mime: &str) -> Result<(), ClientError> {
-        let wire_body = encode_drag_enter_args(&DragEnterArgs { x, y, mime: mime.into() }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_DRAGENTER, wire_body, wire_objects)
-    }
-
-    /// Event: a drag moved inside this surface to `(x, y)`.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn drag_over(&self, x: i32, y: i32) -> Result<(), ClientError> {
-        let wire_body = encode_drag_over_args(&DragOverArgs { x, y }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_DRAGOVER, wire_body, wire_objects)
-    }
-
-    /// Event: a drag left this surface.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn drag_leave(&self) -> Result<(), ClientError> {
-        let wire_body = Vec::new();
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_DRAGLEAVE, wire_body, wire_objects)
-    }
-
-    /// Event: a drag was released over this surface at `(x, y)`; the target
-    /// pastes `token` of type `mime` through the clipboard service.
-    /// `modifiers` are the `MOD_*` key bits held at the release (the
-    /// keyboard may be another client's, so the target cannot read them
-    /// itself) and `source` is the surface the drag started from, so a
-    /// client can tell a drag between its own windows from another app's.
-    /// Both are absent from an older compositor.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn drop(&self, x: i32, y: i32, token: u64, mime: &str, modifiers: core::option::Option<u32>, source: core::option::Option<u64>) -> Result<(), ClientError> {
-        let wire_body = encode_drop_args(&DropArgs { x, y, token, mime: mime.into(), modifiers, source }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_DROP, wire_body, wire_objects)
-    }
-
-    /// Event to the drag's source: the drag ended (`dropped`) or was cancelled.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn drag_ended(&self, dropped: bool) -> Result<(), ClientError> {
-        let wire_body = encode_drag_ended_args(&DragEndedArgs { dropped }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_DRAGENDED, wire_body, wire_objects)
     }
 
     /// Every surface in z-order (bottom first), including the desktop and
@@ -2639,35 +2531,6 @@ impl<T: libmessenger::client::Transport> Client<T> {
         decode_get_theme_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
 
-    /// Shell event: surface `surface` changed. `kind` is a `Change` value;
-    /// `title` is set on `Created` and `Title`. `role` is a `Role` value.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn surface_changed(&self, surface: u64, kind: u32, x: i32, y: i32, w: i32, h: i32, minimized: bool, focused: bool, title: core::option::Option<&str>, role: u32, maximized: bool) -> Result<(), ClientError> {
-        let wire_body = encode_surface_changed_args(&SurfaceChangedArgs { surface, kind, x, y, w, h, minimized, focused, title: title.map(Into::into), role, maximized }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_SURFACECHANGED, wire_body, wire_objects)
-    }
-
-    /// Shell event: the focused surface changed; absent when nothing is
-    /// focused.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn focus_changed(&self, surface: core::option::Option<u64>) -> Result<(), ClientError> {
-        let wire_body = encode_focus_changed_args(&FocusChangedArgs { surface }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_FOCUSCHANGED, wire_body, wire_objects)
-    }
-
-    /// Shell event: the global start-menu hotkey (Ctrl+Esc or Super) fired.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn start_menu(&self) -> Result<(), ClientError> {
-        let wire_body = Vec::new();
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_STARTMENU, wire_body, wire_objects)
-    }
-
     /// Register a pixel buffer (`pixels`, at least `width * height * 4`
     /// bytes) as buffer slot `slot` (0-3) of `surface`.
     /// The compositor only reads the *current* slot, so attaching to any
@@ -2706,26 +2569,6 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self.conn
             .send(INTERFACE_ID, METHOD_PRESENT, wire_body, wire_objects)
-    }
-
-    /// Event: the compositor no longer reads `slot` of `surface`; the client
-    /// may write it again. Only sent to surfaces that use `Present`.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn buffer_release(&self, surface: u64, slot: u32) -> Result<(), ClientError> {
-        let wire_body = encode_buffer_release_args(&BufferReleaseArgs { surface, slot }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_BUFFERRELEASE, wire_body, wire_objects)
-    }
-
-    /// Event: the compositor consumed the `Present` numbered `seq`. Frames
-    /// complete in submission order.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn frame_done(&self, surface: u64, seq: u64) -> Result<(), ClientError> {
-        let wire_body = encode_frame_done_args(&FrameDoneArgs { surface, seq }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_FRAMEDONE, wire_body, wire_objects)
     }
 
     /// Rename `surface`'s window (its title bar, taskbar entry and switcher
@@ -2784,19 +2627,6 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(())
     }
 
-    /// Event: the mouse wheel rolled `delta` notches over this surface's
-    /// content at `(x, y)` (relative to the content origin). Positive scrolls
-    /// up (the wheel rolled away from the user), negative down. The compositor
-    /// sends it to the topmost window under the pointer, which need not be the
-    /// focused one, and never to the title bar or an area outside every window.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn pointer_wheel(&self, x: i32, y: i32, delta: i32) -> Result<(), ClientError> {
-        let wire_body = encode_pointer_wheel_args(&PointerWheelArgs { x, y, delta }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_POINTERWHEEL, wire_body, wire_objects)
-    }
-
     /// Declare `surface` resizable within these content-size bounds (pixels).
     /// Only the creator may call it (`EACCES`; `ENOENT` for an unknown
     /// surface). A `max_*` of 0 means the largest size the screen allows.
@@ -2822,19 +2652,6 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(())
     }
 
-    /// Event: the window manager changed the surface's content size to
-    /// `width` x `height` (`state` is a `WindowState`). The client should
-    /// attach buffer(s) of the new size (`AttachBuffer`, or `AttachBufferSlot`
-    /// on non-current slots for `Present` users) and present a full frame.
-    /// Until it does the compositor shows the old buffer cropped or padded.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn configure(&self, surface: u64, width: u32, height: u32, state: u32) -> Result<(), ClientError> {
-        let wire_body = encode_configure_args(&ConfigureArgs { surface, width, height, state }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_CONFIGURE, wire_body, wire_objects)
-    }
-
     /// Ask the compositor to change `surface`'s content size to `width` x
     /// `height`, keeping its top-left corner (a compact/expanded toggle). Only
     /// the creator may call it (`EACCES`; `ENOENT` for an unknown surface) and
@@ -2858,19 +2675,6 @@ impl<T: libmessenger::client::Transport> Client<T> {
             .call(INTERFACE_ID, METHOD_REQUESTSIZE, wire_body, wire_objects, within, METHOD_REQUESTSIZE_RETRY)
             ?;
         Ok(())
-    }
-
-    /// Event: a liveness probe. The compositor sends it to each window's
-    /// event endpoint about once a second; a send that fails with `EPIPE`
-    /// tells it the client died without calling `DestroySurface`, and it
-    /// removes the window. Clients ignore it (an old client drops an unknown
-    /// event), so there is nothing to answer.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn ping(&self) -> Result<(), ClientError> {
-        let wire_body = Vec::new();
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_PING, wire_body, wire_objects)
     }
 
     /// Move a `Panel` surface so its top-left corner is at screen `(x, y)`.
@@ -2999,17 +2803,6 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(())
     }
 
-    /// Shell event: a pointer button went down outside every `Panel` surface
-    /// (on a window, the desktop or the bare background), so the shell closes
-    /// any open popup panel such as the start menu.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn dismiss(&self) -> Result<(), ClientError> {
-        let wire_body = Vec::new();
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_DISMISS, wire_body, wire_objects)
-    }
-
     /// The screen in physical pixels and the desktop's integer UI scale
     /// (`1` or `2`; docs/hidpi-plan.md). Every size and coordinate on this
     /// interface stays in physical pixels; a scale-aware client draws at
@@ -3083,26 +2876,6 @@ impl<T: libmessenger::client::Transport> Client<T> {
             .call(INTERFACE_ID, METHOD_GRABPANELKEYS, wire_body, wire_objects, within, METHOD_GRABPANELKEYS_RETRY)
             ?;
         Ok(())
-    }
-
-    /// Shell event: a key went down while the shell holds the panel keys
-    /// (`GrabPanelKeys`), with the held modifiers OR-ed in like `KeyDown`.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn panel_key(&self, key: u32) -> Result<(), ClientError> {
-        let wire_body = encode_panel_key_args(&PanelKeyArgs { key }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_PANELKEY, wire_body, wire_objects)
-    }
-
-    /// Shell event: Super+B (Win+B) went down: move the keyboard to the
-    /// tray. Super pressed and released alone still sends `StartMenu`.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn tray_keys(&self) -> Result<(), ClientError> {
-        let wire_body = Vec::new();
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_TRAYKEYS, wire_body, wire_objects)
     }
 
     /// Ask the compositor to keep `surface` when the window manager closes it
@@ -3194,39 +2967,6 @@ pub trait Server {
     /// Drop a surface; the compositor forgets it and repaints.
     fn destroy_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64) -> Result<(), libmessenger::server::Fault>;
 
-    /// Event: the pointer moved to `(x, y)`, relative to the focused surface.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn pointer_move(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32);
-
-    /// Event: pointer button `button` went down at `(x, y)`, relative to the
-    /// surface.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn pointer_down(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, button: u32);
-
-    /// Event: pointer button `button` went up at `(x, y)`, relative to the
-    /// surface.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn pointer_up(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, button: u32);
-
-    /// Event: key `key` was pressed (a character or a non-printable code).
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn key_down(&mut self, cx: &libmessenger::server::Caller, key: u32);
-
-    /// Event: key `key` was released.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn key_up(&mut self, cx: &libmessenger::server::Caller, key: u32);
-
-    /// Event: the window manager closed this surface (the X button or Alt+F4).
-    /// The app is expected to exit or re-create it.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn window_close(&mut self, cx: &libmessenger::server::Caller);
-
     /// Begin a compositor-mediated drag from `surface` carrying clipboard
     /// `token` of type `mime`. Only the surface's creator may start one, while
     /// a pointer button is held; one drag at a time.
@@ -3234,37 +2974,6 @@ pub trait Server {
 
     /// Cancel the drag that started at `surface`.
     fn drag_cancel(&mut self, cx: &libmessenger::server::Caller, surface: u64) -> Result<(), libmessenger::server::Fault>;
-
-    /// Event: a drag carrying `mime` entered this surface at `(x, y)`.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn drag_enter(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, mime: alloc::string::String);
-
-    /// Event: a drag moved inside this surface to `(x, y)`.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn drag_over(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32);
-
-    /// Event: a drag left this surface.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn drag_leave(&mut self, cx: &libmessenger::server::Caller);
-
-    /// Event: a drag was released over this surface at `(x, y)`; the target
-    /// pastes `token` of type `mime` through the clipboard service.
-    /// `modifiers` are the `MOD_*` key bits held at the release (the
-    /// keyboard may be another client's, so the target cannot read them
-    /// itself) and `source` is the surface the drag started from, so a
-    /// client can tell a drag between its own windows from another app's.
-    /// Both are absent from an older compositor.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn drop(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, token: u64, mime: alloc::string::String, modifiers: core::option::Option<u32>, source: core::option::Option<u64>);
-
-    /// Event to the drag's source: the drag ended (`dropped`) or was cancelled.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn drag_ended(&mut self, cx: &libmessenger::server::Caller, dropped: bool);
 
     /// Every surface in z-order (bottom first), including the desktop and
     /// panels. Shell-only (the `shell` subscriber's task, uid 0 or
@@ -3295,23 +3004,6 @@ pub trait Server {
     /// effect, so an app can match its own widgets to the desktop.
     fn get_theme(&mut self, cx: &libmessenger::server::Caller) -> Result<GetThemeReply, libmessenger::server::Fault>;
 
-    /// Shell event: surface `surface` changed. `kind` is a `Change` value;
-    /// `title` is set on `Created` and `Title`. `role` is a `Role` value.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn surface_changed(&mut self, cx: &libmessenger::server::Caller, surface: u64, kind: u32, x: i32, y: i32, w: i32, h: i32, minimized: bool, focused: bool, title: core::option::Option<alloc::string::String>, role: u32, maximized: bool);
-
-    /// Shell event: the focused surface changed; absent when nothing is
-    /// focused.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn focus_changed(&mut self, cx: &libmessenger::server::Caller, surface: core::option::Option<u64>);
-
-    /// Shell event: the global start-menu hotkey (Ctrl+Esc or Super) fired.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn start_menu(&mut self, cx: &libmessenger::server::Caller);
-
     /// Register a pixel buffer (`pixels`, at least `width * height * 4`
     /// bytes) as buffer slot `slot` (0-3) of `surface`.
     /// The compositor only reads the *current* slot, so attaching to any
@@ -3333,18 +3025,6 @@ pub trait Server {
     ///
     /// `oneway`: it has no reply, so it returns nothing.
     fn present(&mut self, cx: &libmessenger::server::Caller, surface: u64, slot: u32, seq: u64, damage: alloc::vec::Vec<Rect>);
-
-    /// Event: the compositor no longer reads `slot` of `surface`; the client
-    /// may write it again. Only sent to surfaces that use `Present`.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn buffer_release(&mut self, cx: &libmessenger::server::Caller, surface: u64, slot: u32);
-
-    /// Event: the compositor consumed the `Present` numbered `seq`. Frames
-    /// complete in submission order.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn frame_done(&mut self, cx: &libmessenger::server::Caller, surface: u64, seq: u64);
 
     /// Rename `surface`'s window (its title bar, taskbar entry and switcher
     /// row) to `title`, so a document window can show the file it holds. Only
@@ -3372,15 +3052,6 @@ pub trait Server {
     /// predates the method answers `EINVAL`, which callers ignore.
     fn hint_open_origin(&mut self, cx: &libmessenger::server::Caller, surface: u64, x: i32, y: i32, w: u32, h: u32) -> Result<(), libmessenger::server::Fault>;
 
-    /// Event: the mouse wheel rolled `delta` notches over this surface's
-    /// content at `(x, y)` (relative to the content origin). Positive scrolls
-    /// up (the wheel rolled away from the user), negative down. The compositor
-    /// sends it to the topmost window under the pointer, which need not be the
-    /// focused one, and never to the title bar or an area outside every window.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn pointer_wheel(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, delta: i32);
-
     /// Declare `surface` resizable within these content-size bounds (pixels).
     /// Only the creator may call it (`EACCES`; `ENOENT` for an unknown
     /// surface). A `max_*` of 0 means the largest size the screen allows.
@@ -3391,15 +3062,6 @@ pub trait Server {
     /// decorated window is `BORDER` wider and `TITLE_H + BORDER` taller).
     fn set_size_hints(&mut self, cx: &libmessenger::server::Caller, surface: u64, min_w: u32, min_h: u32, max_w: u32, max_h: u32) -> Result<(), libmessenger::server::Fault>;
 
-    /// Event: the window manager changed the surface's content size to
-    /// `width` x `height` (`state` is a `WindowState`). The client should
-    /// attach buffer(s) of the new size (`AttachBuffer`, or `AttachBufferSlot`
-    /// on non-current slots for `Present` users) and present a full frame.
-    /// Until it does the compositor shows the old buffer cropped or padded.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn configure(&mut self, cx: &libmessenger::server::Caller, surface: u64, width: u32, height: u32, state: u32);
-
     /// Ask the compositor to change `surface`'s content size to `width` x
     /// `height`, keeping its top-left corner (a compact/expanded toggle). Only
     /// the creator may call it (`EACCES`; `ENOENT` for an unknown surface) and
@@ -3409,15 +3071,6 @@ pub trait Server {
     /// `Configure` with the size it actually applied (also when that equals
     /// the current size), which is the only confirmation the client needs.
     fn request_size(&mut self, cx: &libmessenger::server::Caller, surface: u64, width: u32, height: u32) -> Result<(), libmessenger::server::Fault>;
-
-    /// Event: a liveness probe. The compositor sends it to each window's
-    /// event endpoint about once a second; a send that fails with `EPIPE`
-    /// tells it the client died without calling `DestroySurface`, and it
-    /// removes the window. Clients ignore it (an old client drops an unknown
-    /// event), so there is nothing to answer.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn ping(&mut self, cx: &libmessenger::server::Caller);
 
     /// Move a `Panel` surface so its top-left corner is at screen `(x, y)`.
     /// Only the surface's creator may call it (`EACCES`), only for a panel
@@ -3455,13 +3108,6 @@ pub trait Server {
     /// own `HintOpenOrigin` wins over it. An empty rectangle is ignored.
     fn hint_launch_origin(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, w: u32, h: u32) -> Result<(), libmessenger::server::Fault>;
 
-    /// Shell event: a pointer button went down outside every `Panel` surface
-    /// (on a window, the desktop or the bare background), so the shell closes
-    /// any open popup panel such as the start menu.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn dismiss(&mut self, cx: &libmessenger::server::Caller);
-
     /// The screen in physical pixels and the desktop's integer UI scale
     /// (`1` or `2`; docs/hidpi-plan.md). Every size and coordinate on this
     /// interface stays in physical pixels; a scale-aware client draws at
@@ -3491,18 +3137,6 @@ pub trait Server {
     /// with `GrabPanelKeys(false)`, when the shell's subscription goes away,
     /// or under a client's keyboard grab or the trusted prompt, which win.
     fn grab_panel_keys(&mut self, cx: &libmessenger::server::Caller, grab: bool) -> Result<(), libmessenger::server::Fault>;
-
-    /// Shell event: a key went down while the shell holds the panel keys
-    /// (`GrabPanelKeys`), with the held modifiers OR-ed in like `KeyDown`.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn panel_key(&mut self, cx: &libmessenger::server::Caller, key: u32);
-
-    /// Shell event: Super+B (Win+B) went down: move the keyboard to the
-    /// tray. Super pressed and released alone still sends `StartMenu`.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn tray_keys(&mut self, cx: &libmessenger::server::Caller);
 
     /// Ask the compositor to keep `surface` when the window manager closes it
     /// (the X button, Alt+F4, the taskbar): `WindowClose` is still sent, but
@@ -3538,6 +3172,7 @@ pub trait Server {
 /// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
 /// as the standard error field. A method this interface does not declare is `ENOSYS`.
 /// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// A server-to-client `event` has no arm either (`ENOSYS`).
 /// Objects of the request are claimed by the decode and passed by value.
 pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
     let id = message.interface_id();
@@ -3568,45 +3203,6 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             };
             libmessenger::server::finish(id, method, server.destroy_surface(&cx, args.surface), |()| Ok(Vec::new()))
         }
-        METHOD_POINTERMOVE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_pointer_move_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.pointer_move(&cx, args.x, args.y);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_POINTERDOWN if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_pointer_down_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.pointer_down(&cx, args.x, args.y, args.button);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_POINTERUP if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_pointer_up_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.pointer_up(&cx, args.x, args.y, args.button);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_KEYDOWN if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_key_down_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.key_down(&cx, args.key);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_KEYUP if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_key_up_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.key_up(&cx, args.key);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_WINDOWCLOSE if id == INTERFACE_ID => {
-            server.window_close(&cx);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
         METHOD_DRAGSTART if id == INTERFACE_ID => {
             let Ok(args) = message.decode(|body, _| decode_drag_start_args(body)) else {
                 return libmessenger::server::bad_request(id, method);
@@ -3618,38 +3214,6 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.drag_cancel(&cx, args.surface), |()| Ok(Vec::new()))
-        }
-        METHOD_DRAGENTER if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_drag_enter_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.drag_enter(&cx, args.x, args.y, args.mime);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_DRAGOVER if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_drag_over_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.drag_over(&cx, args.x, args.y);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_DRAGLEAVE if id == INTERFACE_ID => {
-            server.drag_leave(&cx);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_DROP if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_drop_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.drop(&cx, args.x, args.y, args.token, args.mime, args.modifiers, args.source);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_DRAGENDED if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_drag_ended_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.drag_ended(&cx, args.dropped);
-            libmessenger::server::reply(id, method, Vec::new())
         }
         METHOD_LISTSURFACES if id == INTERFACE_ID => {
             libmessenger::server::finish(id, method, server.list_surfaces(&cx), |value| encode_list_surfaces_reply(&ListSurfacesReply { surfaces: value }))
@@ -3666,24 +3230,6 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
         METHOD_GETTHEME if id == INTERFACE_ID => {
             libmessenger::server::finish(id, method, server.get_theme(&cx), |value| encode_get_theme_reply(&value))
         }
-        METHOD_SURFACECHANGED if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_surface_changed_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.surface_changed(&cx, args.surface, args.kind, args.x, args.y, args.w, args.h, args.minimized, args.focused, args.title, args.role, args.maximized);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_FOCUSCHANGED if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_focus_changed_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.focus_changed(&cx, args.surface);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_STARTMENU if id == INTERFACE_ID => {
-            server.start_menu(&cx);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
         METHOD_ATTACHBUFFERSLOT if id == INTERFACE_ID => {
             let Ok(args) = message.decode(decode_attach_buffer_slot_args) else {
                 return libmessenger::server::bad_request(id, method);
@@ -3695,20 +3241,6 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
                 return libmessenger::server::bad_request(id, method);
             };
             server.present(&cx, args.surface, args.slot, args.seq, args.damage);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_BUFFERRELEASE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_buffer_release_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.buffer_release(&cx, args.surface, args.slot);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_FRAMEDONE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_frame_done_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.frame_done(&cx, args.surface, args.seq);
             libmessenger::server::reply(id, method, Vec::new())
         }
         METHOD_SETTITLE if id == INTERFACE_ID => {
@@ -3723,35 +3255,17 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             };
             libmessenger::server::finish(id, method, server.hint_open_origin(&cx, args.surface, args.x, args.y, args.w, args.h), |()| Ok(Vec::new()))
         }
-        METHOD_POINTERWHEEL if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_pointer_wheel_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.pointer_wheel(&cx, args.x, args.y, args.delta);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
         METHOD_SETSIZEHINTS if id == INTERFACE_ID => {
             let Ok(args) = message.decode(|body, _| decode_set_size_hints_args(body)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_size_hints(&cx, args.surface, args.min_w, args.min_h, args.max_w, args.max_h), |()| Ok(Vec::new()))
         }
-        METHOD_CONFIGURE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_configure_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.configure(&cx, args.surface, args.width, args.height, args.state);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
         METHOD_REQUESTSIZE if id == INTERFACE_ID => {
             let Ok(args) = message.decode(|body, _| decode_request_size_args(body)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.request_size(&cx, args.surface, args.width, args.height), |()| Ok(Vec::new()))
-        }
-        METHOD_PING if id == INTERFACE_ID => {
-            server.ping(&cx);
-            libmessenger::server::reply(id, method, Vec::new())
         }
         METHOD_PLACESURFACE if id == INTERFACE_ID => {
             let Ok(args) = message.decode(|body, _| decode_place_surface_args(body)) else {
@@ -3789,10 +3303,6 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             };
             libmessenger::server::finish(id, method, server.hint_launch_origin(&cx, args.x, args.y, args.w, args.h), |()| Ok(Vec::new()))
         }
-        METHOD_DISMISS if id == INTERFACE_ID => {
-            server.dismiss(&cx);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
         METHOD_GETOUTPUT if id == INTERFACE_ID => {
             libmessenger::server::finish(id, method, server.get_output(&cx), |value| encode_get_output_reply(&value))
         }
@@ -3807,17 +3317,6 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.grab_panel_keys(&cx, args.grab), |()| Ok(Vec::new()))
-        }
-        METHOD_PANELKEY if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_panel_key_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.panel_key(&cx, args.key);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_TRAYKEYS if id == INTERFACE_ID => {
-            server.tray_keys(&cx);
-            libmessenger::server::reply(id, method, Vec::new())
         }
         METHOD_SETCLOSEMODE if id == INTERFACE_ID => {
             let Ok(args) = message.decode(|body, _| decode_set_close_mode_args(body)) else {

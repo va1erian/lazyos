@@ -46,7 +46,7 @@ service "os.lazy.net.wifi.hw/{ifname}" implements os.lazy.net.wifi.hw.v1;
 /// deleted.
 ///
 /// **Events.** `Attach` carries the client's event channel; the driver sends
-/// the `oneway` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,
+/// the `event` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,
 /// `Deauthenticated`) on it. They carry the same bounds as calls: a frame is
 /// at most `HwInfo.max_mgmt` bytes, never truncated and never delivered
 /// partially; one that does not fit is dropped and counted. Anyone in radio
@@ -162,7 +162,7 @@ interface os.lazy.net.wifi.hw.v1 {
     /// Event, driver to client: the scan finished (`aborted` false) or was
     /// stopped (`aborted` true, or the radio could not finish); its results
     /// are readable with `ScanResults` until the next `Scan`.
-    method ScanDone(scan_id: U32 = 1, aborted: Bool = 2) -> () oneway;
+    method ScanDone(scan_id: U32 = 1, aborted: Bool = 2) -> () event;
     /// Event, driver to client: a management or EAPOL frame addressed to this
     /// station arrived from the joined BSS, and the client can be waiting for
     /// it: an authentication or (re)association response only after
@@ -173,15 +173,15 @@ interface os.lazy.net.wifi.hw.v1 {
     /// a whole management frame (from the MAC header, no FCS), or EAPOL as
     /// an 802.3 frame (destination, source, ethertype 0x888E, then the
     /// EAPOL PDU), decrypted. The bytes are unparsed and hostile.
-    method RxMgmt(kind: U32 = 1, rssi_dbm: I32 = 2, frame: Bytes = 3) -> () oneway;
+    method RxMgmt(kind: U32 = 1, rssi_dbm: I32 = 2, frame: Bytes = 3) -> () event;
     /// Event, driver to client: the radio stopped hearing the AP (the
     /// firmware's missed-beacon threshold). The client decides what to do.
-    method BeaconLoss() -> () oneway;
+    method BeaconLoss() -> () event;
     /// Event, driver to client: the AP deauthenticated or disassociated us.
     /// `reason` is the IEEE 802.11 reason code, taken from the frame by the
     /// firmware (the one field of a frame the driver reports; the frame
     /// itself is also delivered as `RxMgmt`).
-    method Deauthenticated(reason: U32 = 1) -> () oneway;
+    method Deauthenticated(reason: U32 = 1) -> () event;
 
     /// What the radio is.
     struct HwInfo {

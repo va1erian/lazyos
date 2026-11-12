@@ -4,7 +4,7 @@
 //
 // `sys::shell_tray_events`: the Messenger interface `os.lazy.shell.tray.events.v1`.
 //
-// What the shell sends an app about its item: oneway methods on the channel
+// What the shell sends an app about its item: `event` methods on the channel
 // the app transferred with `Set`.
 
 // The interface every function of this module calls.
@@ -14,53 +14,6 @@ export const INTERFACE = "os.lazy.shell.tray.events.v1";
 /// (`docs/rhai/msg.md`). Resolved once per process.
 fn connect() {
     msg::connect("os.lazy.shell.tray.events.v1")
-}
-
-/// `Activate(anchor: Rect, popup: U64) -> () oneway`
-///
-/// Primary click. `anchor` is the icon in screen pixels; `popup` a
-/// one-shot token for a flyout (0 when flyouts are unavailable).
-///
-/// One-way: returns `()` once the message is queued.
-fn activate(anchor, popup) {
-    msg::connect("os.lazy.shell.tray.events.v1").invoke("Activate", [anchor, popup])
-}
-
-/// `SecondaryActivate(anchor: Rect) -> () oneway`
-///
-/// Secondary click on an item without a menu.
-///
-/// One-way: returns `()` once the message is queued.
-fn secondary_activate(anchor) {
-    msg::connect("os.lazy.shell.tray.events.v1").invoke("SecondaryActivate", [anchor])
-}
-
-/// `MenuItem(id: U32, checked: Bool) -> () oneway`
-///
-/// The user picked menu row `id`; `checked` is a check or radio row's
-/// new state (the app sends `Update` to show it).
-///
-/// One-way: returns `()` once the message is queued.
-fn menu_item(id, checked) {
-    msg::connect("os.lazy.shell.tray.events.v1").invoke("MenuItem", [id, checked])
-}
-
-/// `Scroll(delta: I32) -> () oneway`
-///
-/// The wheel rolled `delta` notches over the icon (positive: up).
-///
-/// One-way: returns `()` once the message is queued.
-fn scroll(delta) {
-    msg::connect("os.lazy.shell.tray.events.v1").invoke("Scroll", [delta])
-}
-
-/// `Ping() -> () oneway`
-///
-/// Liveness probe; nothing to answer.
-///
-/// One-way: returns `()` once the message is queued.
-fn ping() {
-    msg::connect("os.lazy.shell.tray.events.v1").invoke("Ping", [])
 }
 
 /// A `Rect` with every field at its zero value.

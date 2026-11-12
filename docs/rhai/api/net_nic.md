@@ -156,27 +156,6 @@ One-way: the call returns `()` once the message is queued.
 let result = sys::net_nic::kick(ring);
 ```
 
-### `notify(ring, events)`
-
-`Notify(ring: U32, events: U32) -> () oneway`
-
-Event, driver to client: something needs the client's attention.
-`events` is a bitmap: bit *n* is set for the `NotifyBit` with ordinal
-*n*. Reserved bits are zero; a client ignores them.
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `ring` | `U32` | int |
-| `events` | `U32` | int |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::net_nic::notify(ring, events);
-```
-
 Not callable from a script (the request carries a kernel object): `AttachRing`.
 
 ## Types

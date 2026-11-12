@@ -97,7 +97,7 @@ interface os.lazy.net.nic.v1 {
     /// Event, driver to client: something needs the client's attention.
     /// `events` is a bitmap: bit *n* is set for the `NotifyBit` with ordinal
     /// *n*. Reserved bits are zero; a client ignores them.
-    method Notify(ring: U32 = 1, events: U32 = 2) -> () oneway;
+    method Notify(ring: U32 = 1, events: U32 = 2) -> () event;
 
     /// Card description.
     struct NicInfo {
