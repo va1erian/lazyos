@@ -66,20 +66,13 @@ def signature(method: Method) -> str:
     return f"fn {method_fn(method)}({', '.join(params)}){ret}"
 
 
-def default_body(method: Method) -> list[str]:
-    names = ["cx"] + [p.name for p in method.params]
-    lines = [f"let _ = ({', '.join(names)},);"]
-    if not method.oneway:
-        lines.append(f"Err({FAULT}::errno(libmessenger::client::Errno::NOSYS))")
-    return lines
-
-
 def emit_trait(interface: Interface, gate: str) -> list[str]:
     lines = [
         gate,
         f"/// What a program answering `{interface.name}` implements: one function per method, with the",
         "/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.",
-        "/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.",
+        "/// Every method is required, so a missing one fails to compile: a daemon that will not serve one",
+        "/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.",
         "#[allow(clippy::too_many_arguments)]",
         "pub trait Server {",
     ]
@@ -87,9 +80,7 @@ def emit_trait(interface: Interface, gate: str) -> list[str]:
         lines += emit_doc_lines(method.doc, "    ")
         if method.oneway:
             lines += ["    ///", "    /// `oneway`: it has no reply, so it returns nothing."]
-        lines.append(f"    {signature(method)} {{")
-        lines += [f"        {line}" for line in default_body(method)]
-        lines += ["    }", ""]
+        lines += [f"    {signature(method)};", ""]
     if lines[-1] == "":
         lines.pop()
     lines.append("}")

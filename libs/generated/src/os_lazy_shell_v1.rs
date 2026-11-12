@@ -556,46 +556,32 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "shell_v1_server")]
 /// What a program answering `os.lazy.shell.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// What the shell shows right now: the taskbar's window entries (in
     /// taskbar order), the focused window, whether the start menu is open, the
     /// start-menu rows, the desktop icons and the tray items (in bar order,
     /// docs/tray-plan.md).
-    fn status(&mut self, cx: &libmessenger::server::Caller) -> Result<StatusReply, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn status(&mut self, cx: &libmessenger::server::Caller) -> Result<StatusReply, libmessenger::server::Fault>;
 
     /// Open (`open` true) or close the start menu.
-    fn show_start_menu(&mut self, cx: &libmessenger::server::Caller, open: bool) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, open,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn show_start_menu(&mut self, cx: &libmessenger::server::Caller, open: bool) -> Result<(), libmessenger::server::Fault>;
 
     /// Launch the registry app `app` through `init.Launch` in the shell's
     /// session, exactly as clicking its start-menu row would (including the
     /// launch-origin zoom). `ENOENT` when the app is unknown or not shipped.
-    fn launch(&mut self, cx: &libmessenger::server::Caller, app: alloc::string::String) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, app,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn launch(&mut self, cx: &libmessenger::server::Caller, app: alloc::string::String) -> Result<u64, libmessenger::server::Fault>;
 
     /// Re-read the start menu (`sys/ui/menu` plus installed apps) and the
     /// desktop icons (the desktop folder, `$HOME/Desktop`, or `sys/ui/desktop`
     /// without one); returns how many rows each has.
-    fn refresh(&mut self, cx: &libmessenger::server::Caller) -> Result<RefreshReply, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn refresh(&mut self, cx: &libmessenger::server::Caller) -> Result<RefreshReply, libmessenger::server::Fault>;
 
     /// Activate (restore, raise, focus) the window `surface` as a click on its
     /// taskbar entry would. `ENOENT` when the taskbar has no such entry.
-    fn activate(&mut self, cx: &libmessenger::server::Caller, surface: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn activate(&mut self, cx: &libmessenger::server::Caller, surface: u64) -> Result<(), libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "shell_v1_server")]

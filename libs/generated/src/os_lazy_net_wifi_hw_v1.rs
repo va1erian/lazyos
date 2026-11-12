@@ -1497,30 +1497,22 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "net_wifi_hw_v1_server")]
 /// What a program answering `os.lazy.net.wifi.hw.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Describe the radio: addresses, bands, ciphers, limits. Any caller the
     /// label policy lets reach the driver may ask, attached or not: it reveals
     /// only hardware facts.
-    fn info(&mut self, cx: &libmessenger::server::Caller) -> Result<HwInfo, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn info(&mut self, cx: &libmessenger::server::Caller) -> Result<HwInfo, libmessenger::server::Fault>;
 
     /// Become the radio's one client. `events` is the channel the driver
     /// sends events on. `EBUSY` when attached.
-    fn attach(&mut self, cx: &libmessenger::server::Caller, events: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, events,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn attach(&mut self, cx: &libmessenger::server::Caller, events: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// Release the radio (also implied when the owner exits). Leaves the BSS,
     /// aborts a scan and deletes every key.
-    fn detach(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn detach(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault>;
 
     /// Tell the radio which regulatory domain applies: an ISO 3166 alpha-2
     /// code, or `00` for the world domain (passive scanning only on channels
@@ -1534,10 +1526,7 @@ pub trait Server {
     /// and reported as `Deauthenticated` (reason 3). The value comes from
     /// `wlanmd`, which reads `sys/net/wifi/country`; the driver trusts nobody
     /// else for it.
-    fn set_country(&mut self, cx: &libmessenger::server::Caller, alpha2: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, alpha2,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_country(&mut self, cx: &libmessenger::server::Caller, alpha2: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// Start a scan. The reply is the id `ScanDone` and `ScanResults` name; it
     /// does not wait. Only one scan runs at a time (`EBUSY`). At most
@@ -1546,36 +1535,24 @@ pub trait Server {
     /// the radio or its domain does not have). A scan during an association
     /// is allowed and pauses traffic while the radio is on other channels:
     /// nothing is sent to the BSS from another channel (see `TxMgmt`).
-    fn scan(&mut self, cx: &libmessenger::server::Caller, request: ScanRequest) -> Result<u32, libmessenger::server::Fault> {
-        let _ = (cx, request,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn scan(&mut self, cx: &libmessenger::server::Caller, request: ScanRequest) -> Result<u32, libmessenger::server::Fault>;
 
     /// Stop the running scan early; `ScanDone` follows with `aborted` set.
     /// Not an error when none runs.
-    fn abort_scan(&mut self, cx: &libmessenger::server::Caller, scan_id: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, scan_id,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn abort_scan(&mut self, cx: &libmessenger::server::Caller, scan_id: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// One page of a finished (or running) scan's results, in the order the
     /// radio heard them, from entry `first`; at most `max` entries (capped at
     /// 64). `more` says whether a later page holds entries. Each entry is the
     /// raw management frame, **unparsed**: parsing it is `wlanmd`'s job.
     /// An unknown `scan_id` is `ENOENT`.
-    fn scan_results(&mut self, cx: &libmessenger::server::Caller, scan_id: u32, first: u32, max: u32) -> Result<ScanResultsReply, libmessenger::server::Fault> {
-        let _ = (cx, scan_id, first, max,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn scan_results(&mut self, cx: &libmessenger::server::Caller, scan_id: u32, first: u32, max: u32) -> Result<ScanResultsReply, libmessenger::server::Fault>;
 
     /// Tune to the BSS's channel and filter to its address so `TxMgmt` and
     /// `RxMgmt` carry the authentication and association exchange. Leaves any
     /// previous BSS first. The reply means the radio is on the channel, not
     /// that anything was heard.
-    fn join(&mut self, cx: &libmessenger::server::Caller, request: JoinRequest) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, request,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn join(&mut self, cx: &libmessenger::server::Caller, request: JoinRequest) -> Result<(), libmessenger::server::Fault>;
 
     /// Send a management or EAPOL frame `wlanmd` built, as is. `kind` is a
     /// `FrameKind` ordinal; for `Mgmt` the frame is a complete 802.11
@@ -1592,10 +1569,7 @@ pub trait Server {
     /// full transmit queue is `EBUSY`. A frame goes out under the keys in
     /// force when it was queued: message 4 of the 4-way handshake is queued
     /// just before the pairwise key is installed and must leave unencrypted.
-    fn tx_mgmt(&mut self, cx: &libmessenger::server::Caller, kind: u32, frame: alloc::vec::Vec<u8>) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, kind, frame,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn tx_mgmt(&mut self, cx: &libmessenger::server::Caller, kind: u32, frame: alloc::vec::Vec<u8>) -> Result<(), libmessenger::server::Fault>;
 
     /// Move the radio's association state: a `StaState` ordinal. `Associated`
     /// carries the association id the AP assigned; `Authorized` opens the
@@ -1606,10 +1580,7 @@ pub trait Server {
     /// element is never open, `EINVAL`). Going to a lower state is always
     /// allowed and takes the link down; below `Associated` it deletes every
     /// key.
-    fn set_state(&mut self, cx: &libmessenger::server::Caller, state: u32, aid: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, state, aid,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_state(&mut self, cx: &libmessenger::server::Caller, state: u32, aid: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Install a key in a hardware slot. `kind` is a `KeyKind` ordinal,
     /// `index` the key id (pairwise 0, group 1 to 3, IGTK 4 to 5), `cipher`
@@ -1622,39 +1593,25 @@ pub trait Server {
     /// it over. `EINVAL` for a length or index that does not fit, `ENOSPC`
     /// for no free slot; when the radio refuses a key, the slot is left
     /// empty.
-    fn set_key(&mut self, cx: &libmessenger::server::Caller, kind: u32, index: u32, cipher: u32, key: alloc::vec::Vec<u8>, rsc: alloc::vec::Vec<u8>, addr: alloc::vec::Vec<u8>) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, kind, index, cipher, key, rsc, addr,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_key(&mut self, cx: &libmessenger::server::Caller, kind: u32, index: u32, cipher: u32, key: alloc::vec::Vec<u8>, rsc: alloc::vec::Vec<u8>, addr: alloc::vec::Vec<u8>) -> Result<(), libmessenger::server::Fault>;
 
     /// Remove a key; not an error when the slot is empty.
-    fn del_key(&mut self, cx: &libmessenger::server::Caller, kind: u32, index: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, kind, index,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn del_key(&mut self, cx: &libmessenger::server::Caller, kind: u32, index: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Leave the BSS: a `Deauthentication` with this IEEE 802.11 reason code
     /// is sent if the radio can, every key is deleted, the NIC's link goes
     /// down and the radio returns to idle. Not an error when not joined.
-    fn leave(&mut self, cx: &libmessenger::server::Caller, reason: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, reason,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn leave(&mut self, cx: &libmessenger::server::Caller, reason: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Counters since the driver started.
-    fn stats(&mut self, cx: &libmessenger::server::Caller) -> Result<HwStats, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn stats(&mut self, cx: &libmessenger::server::Caller) -> Result<HwStats, libmessenger::server::Fault>;
 
     /// Event, driver to client: the scan finished (`aborted` false) or was
     /// stopped (`aborted` true, or the radio could not finish); its results
     /// are readable with `ScanResults` until the next `Scan`.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn scan_done(&mut self, cx: &libmessenger::server::Caller, scan_id: u32, aborted: bool) {
-        let _ = (cx, scan_id, aborted,);
-    }
+    fn scan_done(&mut self, cx: &libmessenger::server::Caller, scan_id: u32, aborted: bool);
 
     /// Event, driver to client: a management or EAPOL frame addressed to this
     /// station arrived from the joined BSS, and the client can be waiting for
@@ -1668,17 +1625,13 @@ pub trait Server {
     /// EAPOL PDU), decrypted. The bytes are unparsed and hostile.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn rx_mgmt(&mut self, cx: &libmessenger::server::Caller, kind: u32, rssi_dbm: i32, frame: alloc::vec::Vec<u8>) {
-        let _ = (cx, kind, rssi_dbm, frame,);
-    }
+    fn rx_mgmt(&mut self, cx: &libmessenger::server::Caller, kind: u32, rssi_dbm: i32, frame: alloc::vec::Vec<u8>);
 
     /// Event, driver to client: the radio stopped hearing the AP (the
     /// firmware's missed-beacon threshold). The client decides what to do.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn beacon_loss(&mut self, cx: &libmessenger::server::Caller) {
-        let _ = (cx,);
-    }
+    fn beacon_loss(&mut self, cx: &libmessenger::server::Caller);
 
     /// Event, driver to client: the AP deauthenticated or disassociated us.
     /// `reason` is the IEEE 802.11 reason code, taken from the frame by the
@@ -1686,9 +1639,7 @@ pub trait Server {
     /// itself is also delivered as `RxMgmt`).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn deauthenticated(&mut self, cx: &libmessenger::server::Caller, reason: u32) {
-        let _ = (cx, reason,);
-    }
+    fn deauthenticated(&mut self, cx: &libmessenger::server::Caller, reason: u32);
 }
 
 #[cfg(feature = "net_wifi_hw_v1_server")]

@@ -734,33 +734,25 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "logind_v1_server")]
 /// What a program answering `os.lazy.logind.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Snapshot the session table, oldest session first.
-    fn sessions(&mut self, cx: &libmessenger::server::Caller) -> Result<SessionsReply, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn sessions(&mut self, cx: &libmessenger::server::Caller) -> Result<SessionsReply, libmessenger::server::Fault>;
 
     /// Log in from the graphical login screen (issue #623): authenticate
     /// `user` with `secret` and open their desktop session, the same path a
     /// built-in autologin takes. Only the login screen's own identity (the
     /// `_greeter` system uid, unlabelled) may call it; a refused password is
     /// `EACCES` after the failed-login delay, a session already open `EBUSY`.
-    fn login(&mut self, cx: &libmessenger::server::Caller, user: alloc::string::String, secret: alloc::string::String) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, user, secret,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn login(&mut self, cx: &libmessenger::server::Caller, user: alloc::string::String, secret: alloc::string::String) -> Result<u64, libmessenger::server::Fault>;
 
     /// End the caller's graphical session (issue #623): `init` stops every
     /// task stamped with that session, and the login screen comes back. Only
     /// a task of the active graphical session may call it (`EPERM`
     /// otherwise).
-    fn logout(&mut self, cx: &libmessenger::server::Caller) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn logout(&mut self, cx: &libmessenger::server::Caller) -> Result<u64, libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "logind_v1_server")]

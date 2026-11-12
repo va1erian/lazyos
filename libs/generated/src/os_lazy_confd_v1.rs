@@ -773,42 +773,28 @@ impl From<ServiceError> for libmessenger::server::Fault {
 #[cfg(feature = "confd_v1_server")]
 /// What a program answering `os.lazy.confd.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Read the value at `path`. An absent path has an empty `value`.
     /// A path the caller may not read fails with `Denied`.
-    fn get(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<core::option::Option<Value>, libmessenger::server::Fault> {
-        let _ = (cx, path,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn get(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<core::option::Option<Value>, libmessenger::server::Fault>;
 
     /// Create or overwrite `path`; the change is persisted before the reply.
-    fn set(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String, value: Value) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, path, value,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String, value: Value) -> Result<(), libmessenger::server::Fault>;
 
     /// Remove `path`; deleting an absent path succeeds.
-    fn delete(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, path,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn delete(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// Every path the caller may read under `prefix`, in sorted order.
-    fn list(&mut self, cx: &libmessenger::server::Caller, prefix: alloc::string::String) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault> {
-        let _ = (cx, prefix,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn list(&mut self, cx: &libmessenger::server::Caller, prefix: alloc::string::String) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault>;
 
     /// Where the store lives: the directory confd chose and whether it
     /// survives a reboot (`/conf`; `false` when it fell back to the ramfs
     /// `/transient/conf`).
     /// Not restricted by path, so any caller may ask.
-    fn info(&mut self, cx: &libmessenger::server::Caller) -> Result<InfoReply, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn info(&mut self, cx: &libmessenger::server::Caller) -> Result<InfoReply, libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "confd_v1_server")]

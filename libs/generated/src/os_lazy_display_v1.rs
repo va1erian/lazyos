@@ -3166,7 +3166,8 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "display_v1_server")]
 /// What a program answering `os.lazy.display.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Create a surface of `width` x `height` pixels titled `title`. `role` is
@@ -3178,112 +3179,76 @@ pub trait Server {
     /// the one-shot token the shell granted this task with `AllowPopup`
     /// (`EACCES` without a valid one). `events` is the event endpoint the
     /// compositor sends input on.
-    fn create_surface(&mut self, cx: &libmessenger::server::Caller, width: u32, height: u32, title: alloc::string::String, role: u32, popup: core::option::Option<u64>, events: u64) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, width, height, title, role, popup, events,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn create_surface(&mut self, cx: &libmessenger::server::Caller, width: u32, height: u32, title: alloc::string::String, role: u32, popup: core::option::Option<u64>, events: u64) -> Result<u64, libmessenger::server::Fault>;
 
     /// Attach (or replace) `surface`'s pixel buffer with the parcel's shared
     /// buffer. Only the surface's creator may attach. Refused with `EBUSY`
     /// once the surface has used `Present`, which owns slot ownership from
     /// then on.
-    fn attach_buffer(&mut self, cx: &libmessenger::server::Caller, surface: u64, pixels: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface, pixels,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn attach_buffer(&mut self, cx: &libmessenger::server::Caller, surface: u64, pixels: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault>;
 
     /// Signal that the damage rectangle of `surface` (content-relative) is
     /// ready to present.
-    fn commit(&mut self, cx: &libmessenger::server::Caller, surface: u64, x: u32, y: u32, w: u32, h: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface, x, y, w, h,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn commit(&mut self, cx: &libmessenger::server::Caller, surface: u64, x: u32, y: u32, w: u32, h: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Drop a surface; the compositor forgets it and repaints.
-    fn destroy_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn destroy_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// Event: the pointer moved to `(x, y)`, relative to the focused surface.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn pointer_move(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32) {
-        let _ = (cx, x, y,);
-    }
+    fn pointer_move(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32);
 
     /// Event: pointer button `button` went down at `(x, y)`, relative to the
     /// surface.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn pointer_down(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, button: u32) {
-        let _ = (cx, x, y, button,);
-    }
+    fn pointer_down(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, button: u32);
 
     /// Event: pointer button `button` went up at `(x, y)`, relative to the
     /// surface.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn pointer_up(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, button: u32) {
-        let _ = (cx, x, y, button,);
-    }
+    fn pointer_up(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, button: u32);
 
     /// Event: key `key` was pressed (a character or a non-printable code).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn key_down(&mut self, cx: &libmessenger::server::Caller, key: u32) {
-        let _ = (cx, key,);
-    }
+    fn key_down(&mut self, cx: &libmessenger::server::Caller, key: u32);
 
     /// Event: key `key` was released.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn key_up(&mut self, cx: &libmessenger::server::Caller, key: u32) {
-        let _ = (cx, key,);
-    }
+    fn key_up(&mut self, cx: &libmessenger::server::Caller, key: u32);
 
     /// Event: the window manager closed this surface (the X button or Alt+F4).
     /// The app is expected to exit or re-create it.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn window_close(&mut self, cx: &libmessenger::server::Caller) {
-        let _ = (cx,);
-    }
+    fn window_close(&mut self, cx: &libmessenger::server::Caller);
 
     /// Begin a compositor-mediated drag from `surface` carrying clipboard
     /// `token` of type `mime`. Only the surface's creator may start one, while
     /// a pointer button is held; one drag at a time.
-    fn drag_start(&mut self, cx: &libmessenger::server::Caller, surface: u64, token: u64, mime: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface, token, mime,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn drag_start(&mut self, cx: &libmessenger::server::Caller, surface: u64, token: u64, mime: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// Cancel the drag that started at `surface`.
-    fn drag_cancel(&mut self, cx: &libmessenger::server::Caller, surface: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn drag_cancel(&mut self, cx: &libmessenger::server::Caller, surface: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// Event: a drag carrying `mime` entered this surface at `(x, y)`.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn drag_enter(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, mime: alloc::string::String) {
-        let _ = (cx, x, y, mime,);
-    }
+    fn drag_enter(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, mime: alloc::string::String);
 
     /// Event: a drag moved inside this surface to `(x, y)`.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn drag_over(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32) {
-        let _ = (cx, x, y,);
-    }
+    fn drag_over(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32);
 
     /// Event: a drag left this surface.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn drag_leave(&mut self, cx: &libmessenger::server::Caller) {
-        let _ = (cx,);
-    }
+    fn drag_leave(&mut self, cx: &libmessenger::server::Caller);
 
     /// Event: a drag was released over this surface at `(x, y)`; the target
     /// pastes `token` of type `mime` through the clipboard service.
@@ -3294,32 +3259,22 @@ pub trait Server {
     /// Both are absent from an older compositor.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn drop(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, token: u64, mime: alloc::string::String, modifiers: core::option::Option<u32>, source: core::option::Option<u64>) {
-        let _ = (cx, x, y, token, mime, modifiers, source,);
-    }
+    fn drop(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, token: u64, mime: alloc::string::String, modifiers: core::option::Option<u32>, source: core::option::Option<u64>);
 
     /// Event to the drag's source: the drag ended (`dropped`) or was cancelled.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn drag_ended(&mut self, cx: &libmessenger::server::Caller, dropped: bool) {
-        let _ = (cx, dropped,);
-    }
+    fn drag_ended(&mut self, cx: &libmessenger::server::Caller, dropped: bool);
 
     /// Every surface in z-order (bottom first), including the desktop and
     /// panels. Shell-only (the `shell` subscriber's task, uid 0 or
     /// `CAP_SETUID`).
-    fn list_surfaces(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<SurfaceRow>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn list_surfaces(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<SurfaceRow>, libmessenger::server::Fault>;
 
     /// The rectangle available to windows: what the shell set with
     /// `SetWorkArea`, or the whole screen (xuid paints no desktop UI of its
     /// own since issue #157).
-    fn get_work_area(&mut self, cx: &libmessenger::server::Caller) -> Result<GetWorkAreaReply, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn get_work_area(&mut self, cx: &libmessenger::server::Caller) -> Result<GetWorkAreaReply, libmessenger::server::Fault>;
 
     /// Register this task as a subscriber under `subscriber_role`; `events`
     /// is the event endpoint for the shell events. The role `shell`
@@ -3332,52 +3287,37 @@ pub trait Server {
     /// that requires uid 0 or `CAP_SETUID` and never replaces the shell
     /// (issue #447). Registering again replaces the caller's previous
     /// endpoint.
-    fn subscribe(&mut self, cx: &libmessenger::server::Caller, subscriber_role: alloc::string::String, events: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, subscriber_role, events,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn subscribe(&mut self, cx: &libmessenger::server::Caller, subscriber_role: alloc::string::String, events: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// The compositor's chrome palette as `0xRRGGBB` colours. `text` is the
     /// ink on the inactive title bar. `mode` is the desktop preset (`dark` or
     /// `light`, the `sys/ui/mode` setting) and `accent` the accent colour in
     /// effect, so an app can match its own widgets to the desktop.
-    fn get_theme(&mut self, cx: &libmessenger::server::Caller) -> Result<GetThemeReply, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn get_theme(&mut self, cx: &libmessenger::server::Caller) -> Result<GetThemeReply, libmessenger::server::Fault>;
 
     /// Shell event: surface `surface` changed. `kind` is a `Change` value;
     /// `title` is set on `Created` and `Title`. `role` is a `Role` value.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn surface_changed(&mut self, cx: &libmessenger::server::Caller, surface: u64, kind: u32, x: i32, y: i32, w: i32, h: i32, minimized: bool, focused: bool, title: core::option::Option<alloc::string::String>, role: u32, maximized: bool) {
-        let _ = (cx, surface, kind, x, y, w, h, minimized, focused, title, role, maximized,);
-    }
+    fn surface_changed(&mut self, cx: &libmessenger::server::Caller, surface: u64, kind: u32, x: i32, y: i32, w: i32, h: i32, minimized: bool, focused: bool, title: core::option::Option<alloc::string::String>, role: u32, maximized: bool);
 
     /// Shell event: the focused surface changed; absent when nothing is
     /// focused.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn focus_changed(&mut self, cx: &libmessenger::server::Caller, surface: core::option::Option<u64>) {
-        let _ = (cx, surface,);
-    }
+    fn focus_changed(&mut self, cx: &libmessenger::server::Caller, surface: core::option::Option<u64>);
 
     /// Shell event: the global start-menu hotkey (Ctrl+Esc or Super) fired.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn start_menu(&mut self, cx: &libmessenger::server::Caller) {
-        let _ = (cx,);
-    }
+    fn start_menu(&mut self, cx: &libmessenger::server::Caller);
 
     /// Register a pixel buffer (`pixels`, at least `width * height * 4`
     /// bytes) as buffer slot `slot` (0-3) of `surface`.
     /// The compositor only reads the *current* slot, so attaching to any
     /// other slot is tear-free; attaching to the current slot fails with
     /// `EBUSY`. Only the surface's creator may attach.
-    fn attach_buffer_slot(&mut self, cx: &libmessenger::server::Caller, surface: u64, slot: u32, pixels: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface, slot, pixels,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn attach_buffer_slot(&mut self, cx: &libmessenger::server::Caller, surface: u64, slot: u32, pixels: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault>;
 
     /// Pipelined present (no reply): make `slot` the surface's current buffer
     /// and composite `damage` (content-relative, clipped to the content; an
@@ -3392,25 +3332,19 @@ pub trait Server {
     /// present from a task that does not own `surface` is dropped silently.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn present(&mut self, cx: &libmessenger::server::Caller, surface: u64, slot: u32, seq: u64, damage: alloc::vec::Vec<Rect>) {
-        let _ = (cx, surface, slot, seq, damage,);
-    }
+    fn present(&mut self, cx: &libmessenger::server::Caller, surface: u64, slot: u32, seq: u64, damage: alloc::vec::Vec<Rect>);
 
     /// Event: the compositor no longer reads `slot` of `surface`; the client
     /// may write it again. Only sent to surfaces that use `Present`.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn buffer_release(&mut self, cx: &libmessenger::server::Caller, surface: u64, slot: u32) {
-        let _ = (cx, surface, slot,);
-    }
+    fn buffer_release(&mut self, cx: &libmessenger::server::Caller, surface: u64, slot: u32);
 
     /// Event: the compositor consumed the `Present` numbered `seq`. Frames
     /// complete in submission order.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn frame_done(&mut self, cx: &libmessenger::server::Caller, surface: u64, seq: u64) {
-        let _ = (cx, surface, seq,);
-    }
+    fn frame_done(&mut self, cx: &libmessenger::server::Caller, surface: u64, seq: u64);
 
     /// Rename `surface`'s window (its title bar, taskbar entry and switcher
     /// row) to `title`, so a document window can show the file it holds. Only
@@ -3421,10 +3355,7 @@ pub trait Server {
     /// overflow its own chrome. A change sends the shell a `SurfaceChanged`
     /// event of kind `Title`. Clients that never call it keep the
     /// `CreateSurface` title, so old clients are unaffected.
-    fn set_title(&mut self, cx: &libmessenger::server::Caller, surface: u64, title: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface, title,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_title(&mut self, cx: &libmessenger::server::Caller, surface: u64, title: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// Hint where the *next* `CreateSurface` from this task should open from:
     /// a rectangle `(x, y, w, h)` relative to the content origin of `surface`
@@ -3439,10 +3370,7 @@ pub trait Server {
     /// `CreateSurface` from that task, or expires after about two seconds.
     /// Minimize and restore keep using the taskbar entry. A compositor that
     /// predates the method answers `EINVAL`, which callers ignore.
-    fn hint_open_origin(&mut self, cx: &libmessenger::server::Caller, surface: u64, x: i32, y: i32, w: u32, h: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface, x, y, w, h,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn hint_open_origin(&mut self, cx: &libmessenger::server::Caller, surface: u64, x: i32, y: i32, w: u32, h: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Event: the mouse wheel rolled `delta` notches over this surface's
     /// content at `(x, y)` (relative to the content origin). Positive scrolls
@@ -3451,9 +3379,7 @@ pub trait Server {
     /// focused one, and never to the title bar or an area outside every window.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn pointer_wheel(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, delta: i32) {
-        let _ = (cx, x, y, delta,);
-    }
+    fn pointer_wheel(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, delta: i32);
 
     /// Declare `surface` resizable within these content-size bounds (pixels).
     /// Only the creator may call it (`EACCES`; `ENOENT` for an unknown
@@ -3463,10 +3389,7 @@ pub trait Server {
     /// window is fixed-size: no resize edges and no maximize button, so old
     /// clients are unaffected. The bounds apply to the content size (the
     /// decorated window is `BORDER` wider and `TITLE_H + BORDER` taller).
-    fn set_size_hints(&mut self, cx: &libmessenger::server::Caller, surface: u64, min_w: u32, min_h: u32, max_w: u32, max_h: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface, min_w, min_h, max_w, max_h,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_size_hints(&mut self, cx: &libmessenger::server::Caller, surface: u64, min_w: u32, min_h: u32, max_w: u32, max_h: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Event: the window manager changed the surface's content size to
     /// `width` x `height` (`state` is a `WindowState`). The client should
@@ -3475,9 +3398,7 @@ pub trait Server {
     /// Until it does the compositor shows the old buffer cropped or padded.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn configure(&mut self, cx: &libmessenger::server::Caller, surface: u64, width: u32, height: u32, state: u32) {
-        let _ = (cx, surface, width, height, state,);
-    }
+    fn configure(&mut self, cx: &libmessenger::server::Caller, surface: u64, width: u32, height: u32, state: u32);
 
     /// Ask the compositor to change `surface`'s content size to `width` x
     /// `height`, keeping its top-left corner (a compact/expanded toggle). Only
@@ -3487,10 +3408,7 @@ pub trait Server {
     /// bounds and to the screen; the compositor answers by sending a
     /// `Configure` with the size it actually applied (also when that equals
     /// the current size), which is the only confirmation the client needs.
-    fn request_size(&mut self, cx: &libmessenger::server::Caller, surface: u64, width: u32, height: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface, width, height,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn request_size(&mut self, cx: &libmessenger::server::Caller, surface: u64, width: u32, height: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Event: a liveness probe. The compositor sends it to each window's
     /// event endpoint about once a second; a send that fails with `EPIPE`
@@ -3499,72 +3417,50 @@ pub trait Server {
     /// event), so there is nothing to answer.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn ping(&mut self, cx: &libmessenger::server::Caller) {
-        let _ = (cx,);
-    }
+    fn ping(&mut self, cx: &libmessenger::server::Caller);
 
     /// Move a `Panel` surface so its top-left corner is at screen `(x, y)`.
     /// Only the surface's creator may call it (`EACCES`), only for a panel
     /// (`EINVAL` for any other role; `ENOENT` for an unknown surface). The
     /// position is clamped so the panel stays on screen. A new panel opens at
     /// `(0, 0)`, so a shell places it before its first `Commit`.
-    fn place_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64, x: i32, y: i32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface, x, y,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn place_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64, x: i32, y: i32) -> Result<(), libmessenger::server::Fault>;
 
     /// Shell-only: restore `surface` if minimized, raise it and give it focus
     /// (a taskbar entry click). `ENOENT` for an unknown surface, `EINVAL` for
     /// a desktop or panel.
-    fn activate_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn activate_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// Shell-only: minimize `surface` (a click on the focused taskbar entry).
     /// The zoom animation flies to the rectangle `SetIconGeometry` gave for
     /// it. `ENOENT` for an unknown surface, `EINVAL` for a desktop or panel.
-    fn minimize_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn minimize_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// Shell-only: the rectangle windows may occupy (the screen minus the
     /// shell's taskbar). Clamped to the screen; an empty result is `EINVAL`.
     /// Maximized windows are re-fitted to it. When the shell goes away the
     /// work area returns to the whole screen.
-    fn set_work_area(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, w: i32, h: i32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, x, y, w, h,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_work_area(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, w: i32, h: i32) -> Result<(), libmessenger::server::Fault>;
 
     /// Shell-only: where `surface`'s taskbar entry is on screen, so the
     /// minimize/restore zoom flies to and from it. A window without one zooms
     /// to a small rectangle at the bottom-left of the screen. `ENOENT` for an
     /// unknown surface; an empty rectangle forgets the geometry.
-    fn set_icon_geometry(&mut self, cx: &libmessenger::server::Caller, surface: u64, x: i32, y: i32, w: i32, h: i32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface, x, y, w, h,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_icon_geometry(&mut self, cx: &libmessenger::server::Caller, surface: u64, x: i32, y: i32, w: i32, h: i32) -> Result<(), libmessenger::server::Fault>;
 
     /// Shell-only: the next window *any* task creates within about two seconds
     /// zooms open from this screen rectangle (the start-menu row or desktop
     /// icon the user just activated) instead of from its taskbar entry. The
     /// shell sends it right before asking `init` to launch an app. A task's
     /// own `HintOpenOrigin` wins over it. An empty rectangle is ignored.
-    fn hint_launch_origin(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, w: u32, h: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, x, y, w, h,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn hint_launch_origin(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, w: u32, h: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Shell event: a pointer button went down outside every `Panel` surface
     /// (on a window, the desktop or the bare background), so the shell closes
     /// any open popup panel such as the start menu.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn dismiss(&mut self, cx: &libmessenger::server::Caller) {
-        let _ = (cx,);
-    }
+    fn dismiss(&mut self, cx: &libmessenger::server::Caller);
 
     /// The screen in physical pixels and the desktop's integer UI scale
     /// (`1` or `2`; docs/hidpi-plan.md). Every size and coordinate on this
@@ -3576,20 +3472,14 @@ pub trait Server {
     /// follow, as under QEMU). A client presents at most that often
     /// (xui paces its windows to it): a frame between two refreshes is
     /// never seen, and composing it only costs the next one time.
-    fn get_output(&mut self, cx: &libmessenger::server::Caller) -> Result<GetOutputReply, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn get_output(&mut self, cx: &libmessenger::server::Caller) -> Result<GetOutputReply, libmessenger::server::Fault>;
 
     /// Shell-only: let task `task` create one `Popup` surface with `token`
     /// within about two seconds, placed against the screen rectangle
     /// `(x, y, w, h)` (the tray icon the user clicked; docs/tray-plan.md
     /// section 7.3). A token works once and only for that task. A compositor
     /// without flyouts answers `EINVAL`.
-    fn allow_popup(&mut self, cx: &libmessenger::server::Caller, task: u64, token: u64, x: i32, y: i32, w: u32, h: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, task, token, x, y, w, h,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn allow_popup(&mut self, cx: &libmessenger::server::Caller, task: u64, token: u64, x: i32, y: i32, w: u32, h: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Shell-only: take the keyboard for the shell's panel menus (issue
     /// #648; the start menu, its submenus, a tray menu, the tray). While
@@ -3600,26 +3490,19 @@ pub trait Server {
     /// meanwhile (`NoteKeysHeld` on `os.lazy.input.shell.v1`). It ends
     /// with `GrabPanelKeys(false)`, when the shell's subscription goes away,
     /// or under a client's keyboard grab or the trusted prompt, which win.
-    fn grab_panel_keys(&mut self, cx: &libmessenger::server::Caller, grab: bool) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, grab,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn grab_panel_keys(&mut self, cx: &libmessenger::server::Caller, grab: bool) -> Result<(), libmessenger::server::Fault>;
 
     /// Shell event: a key went down while the shell holds the panel keys
     /// (`GrabPanelKeys`), with the held modifiers OR-ed in like `KeyDown`.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn panel_key(&mut self, cx: &libmessenger::server::Caller, key: u32) {
-        let _ = (cx, key,);
-    }
+    fn panel_key(&mut self, cx: &libmessenger::server::Caller, key: u32);
 
     /// Shell event: Super+B (Win+B) went down: move the keyboard to the
     /// tray. Super pressed and released alone still sends `StartMenu`.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn tray_keys(&mut self, cx: &libmessenger::server::Caller) {
-        let _ = (cx,);
-    }
+    fn tray_keys(&mut self, cx: &libmessenger::server::Caller);
 
     /// Ask the compositor to keep `surface` when the window manager closes it
     /// (the X button, Alt+F4, the taskbar): `WindowClose` is still sent, but
@@ -3634,10 +3517,7 @@ pub trait Server {
     /// only a close more than 30 s after the last one is passed on again.
     /// Calling `SetCloseMode` again changes nothing about that. A shutdown or
     /// logout never depends on it: `init` kills what is left.
-    fn set_close_mode(&mut self, cx: &libmessenger::server::Caller, surface: u64, ask: bool) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface, ask,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_close_mode(&mut self, cx: &libmessenger::server::Caller, surface: u64, ask: bool) -> Result<(), libmessenger::server::Fault>;
 
     /// Shell-only: restore, raise and focus every window created by a program
     /// running under the package label `label` in `session`, the one that was
@@ -3649,10 +3529,7 @@ pub trait Server {
     /// its window still comes forward. An unlabelled program has no label to
     /// name (`EINVAL`); `ENOENT` when the app owns no window. Desktops and
     /// panels are never touched.
-    fn activate_app(&mut self, cx: &libmessenger::server::Caller, label: u32, session: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, label, session,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn activate_app(&mut self, cx: &libmessenger::server::Caller, label: u32, session: u64) -> Result<(), libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "display_v1_server")]

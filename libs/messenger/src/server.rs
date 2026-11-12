@@ -94,6 +94,13 @@ impl Fault {
         Fault::new(errno.number().unsigned_abs() as u32, errno.describe())
     }
 
+    /// The refusal of a required method the program does not serve (`ENOSYS`):
+    /// every generated method must be implemented, so a daemon that serves
+    /// part of an interface says so here.
+    pub fn unserved() -> Fault {
+        Fault::errno(Errno::NOSYS)
+    }
+
     /// `errno` with the service's own sentence.
     pub fn refuse(errno: Errno, message: &str) -> Fault {
         Fault::new(errno.number().unsigned_abs() as u32, message)

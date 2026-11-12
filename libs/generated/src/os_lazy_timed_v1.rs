@@ -540,20 +540,15 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "timed_v1_server")]
 /// What a program answering `os.lazy.timed.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// The current instant and its local-time parameters.
-    fn now(&mut self, cx: &libmessenger::server::Caller) -> Result<NowReply, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn now(&mut self, cx: &libmessenger::server::Caller) -> Result<NowReply, libmessenger::server::Fault>;
 
     /// The configured zone name (`UTC` when none is set).
-    fn get_zone(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::string::String, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn get_zone(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::string::String, libmessenger::server::Fault>;
 
     /// Switch to the built-in zone `name` and persist it to `confd`.
     /// An unknown name fails with `EINVAL`. A machine setting, like the
@@ -561,10 +556,7 @@ pub trait Server {
     /// `CAP_SYS_TIME`, or the caller be `elevd`; anyone else gets `EPERM`
     /// (a session asks `elevd` to write `sys/time/zone`, which `timed`
     /// follows).
-    fn set_zone(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, name,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_zone(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// Step the wall clock to `unix_secs` (UTC). The caller's kernel-stamped
     /// credentials must hold `CAP_SYS_TIME`, or the caller be `elevd` (once
@@ -572,10 +564,7 @@ pub trait Server {
     /// before the build's floor (`sntp::CLOCK_FLOOR_UNIX`, 2026-01-01) or past
     /// 2200 fails with `EINVAL`: the service would lift an earlier clock again
     /// the next time it starts.
-    fn set_time(&mut self, cx: &libmessenger::server::Caller, unix_secs: i64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, unix_secs,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_time(&mut self, cx: &libmessenger::server::Caller, unix_secs: i64) -> Result<(), libmessenger::server::Fault>;
 
     /// The state of the network time client (docs/ntp-plan.md): whether it is
     /// switched on (`sys/time/ntp/enabled`), what it is doing (`state`, an
@@ -583,10 +572,7 @@ pub trait Server {
     /// everyone. Times are UTC seconds, 0 when there is none yet;
     /// `offset_ms` and `delay_ms` are the last accepted exchange's server
     /// minus local clock and round trip.
-    fn ntp_status(&mut self, cx: &libmessenger::server::Caller) -> Result<NtpStatusReply, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn ntp_status(&mut self, cx: &libmessenger::server::Caller) -> Result<NtpStatusReply, libmessenger::server::Fault>;
 
     /// Ask the network time client to query a server now. Open to everyone,
     /// and rate-limited like the schedule: it fails with `EAGAIN` when a
@@ -596,10 +582,7 @@ pub trait Server {
     /// no network and `ENODEV` when the client is off. Whatever the server
     /// says is still judged by the same clock-step policy as a scheduled
     /// exchange, so a caller cannot choose the time, only when to ask.
-    fn sync_now(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn sync_now(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "timed_v1_server")]

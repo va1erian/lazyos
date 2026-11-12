@@ -1350,61 +1350,38 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "keyd_v1_server")]
 /// What a program answering `os.lazy.keyd.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Check a username/password pair against the stored Argon2id verifier.
     /// Accepted only from the accounts service (the `_accounts` system uid,
     /// unlabelled), which slows password guessing (`Authenticate`); anyone
     /// else gets `EPERM`. The plaintext `secret` crosses the channel.
-    fn verify(&mut self, cx: &libmessenger::server::Caller, user: alloc::string::String, secret: alloc::string::String) -> Result<bool, libmessenger::server::Fault> {
-        let _ = (cx, user, secret,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn verify(&mut self, cx: &libmessenger::server::Caller, user: alloc::string::String, secret: alloc::string::String) -> Result<bool, libmessenger::server::Fault>;
 
     /// HMAC-SHA256 `digest` under the caller's stored key `key`; returns the tag.
-    fn sign(&mut self, cx: &libmessenger::server::Caller, key: u64, digest: alloc::vec::Vec<u8>) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault> {
-        let _ = (cx, key, digest,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn sign(&mut self, cx: &libmessenger::server::Caller, key: u64, digest: alloc::vec::Vec<u8>) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault>;
 
     /// Seal `plaintext` under the caller's stored key `key`; returns an
     /// authenticated blob.
-    fn wrap(&mut self, cx: &libmessenger::server::Caller, key: u64, plaintext: alloc::vec::Vec<u8>) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault> {
-        let _ = (cx, key, plaintext,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn wrap(&mut self, cx: &libmessenger::server::Caller, key: u64, plaintext: alloc::vec::Vec<u8>) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault>;
 
     /// Open a `blob` produced by `Wrap` under `key`; returns the plaintext.
-    fn unwrap(&mut self, cx: &libmessenger::server::Caller, key: u64, blob: alloc::vec::Vec<u8>) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault> {
-        let _ = (cx, key, blob,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn unwrap(&mut self, cx: &libmessenger::server::Caller, key: u64, blob: alloc::vec::Vec<u8>) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault>;
 
     /// `len` cryptographically strong random bytes.
-    fn random(&mut self, cx: &libmessenger::server::Caller, len: u64) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault> {
-        let _ = (cx, len,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn random(&mut self, cx: &libmessenger::server::Caller, len: u64) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault>;
 
     /// Create a fresh random key of type `kind` (`hmac` or `wrap`); returns
     /// its opaque id.
-    fn generate(&mut self, cx: &libmessenger::server::Caller, kind: alloc::string::String) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, kind,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn generate(&mut self, cx: &libmessenger::server::Caller, kind: alloc::string::String) -> Result<u64, libmessenger::server::Fault>;
 
     /// The caller's key ids, types and use counters; never material.
-    fn list(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<KeyInfo>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn list(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<KeyInfo>, libmessenger::server::Fault>;
 
     /// Round-trip probe.
-    fn ping(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn ping(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault>;
 
     /// Install or replace an account's password verifier (docs/accounts-plan.md
     /// U1). Accepted only from the accounts service (the `_accounts` system
@@ -1413,27 +1390,18 @@ pub trait Server {
     /// answering `Verify` with it, and returns it as the account database
     /// stores it (`argon2id:<m_kib>:<t>:<p>:<salt>:<hash>`), so the account
     /// survives a reboot; the secret does not outlive the call.
-    fn provision(&mut self, cx: &libmessenger::server::Caller, user: alloc::string::String, secret: alloc::string::String) -> Result<alloc::string::String, libmessenger::server::Fault> {
-        let _ = (cx, user, secret,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn provision(&mut self, cx: &libmessenger::server::Caller, user: alloc::string::String, secret: alloc::string::String) -> Result<alloc::string::String, libmessenger::server::Fault>;
 
     /// Drop an account's verifier: it can no longer log in. Accepted only
     /// from the accounts service, like `Provision`.
-    fn forget(&mut self, cx: &libmessenger::server::Caller, user: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, user,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn forget(&mut self, cx: &libmessenger::server::Caller, user: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// Put back a verifier the account database holds
     /// (`argon2id:<m_kib>:<t>:<p>:<salt>:<hash>`), replacing what `keyd` has
     /// for `user`: `accountsd` undoes a `Provision` whose database write
     /// failed, so `keyd` never answers for a password the database lost.
     /// Accepted only from the accounts service, like `Provision`.
-    fn restore(&mut self, cx: &libmessenger::server::Caller, user: alloc::string::String, verifier: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, user, verifier,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn restore(&mut self, cx: &libmessenger::server::Caller, user: alloc::string::String, verifier: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// Keep `secret` (1..=256 bytes, a Wi-Fi passphrase) under `name`
     /// (1..=64 of letters, digits and `. _ - :`), replacing one of that name
@@ -1446,25 +1414,16 @@ pub trait Server {
     /// scope, name or secret; `ENOSPC` when the caller (or the table) holds
     /// as many as it may; `EIO` when it could not be made durable (nothing
     /// changed). No method ever returns a secret.
-    fn store_secret(&mut self, cx: &libmessenger::server::Caller, scope: alloc::string::String, name: alloc::string::String, secret: alloc::vec::Vec<u8>) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, scope, name, secret,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn store_secret(&mut self, cx: &libmessenger::server::Caller, scope: alloc::string::String, name: alloc::string::String, secret: alloc::vec::Vec<u8>) -> Result<(), libmessenger::server::Fault>;
 
     /// Forget the secret `name` of `scope` (the same rules as `StoreSecret`;
     /// `ENOENT` when there is none).
-    fn delete_secret(&mut self, cx: &libmessenger::server::Caller, scope: alloc::string::String, name: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, scope, name,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn delete_secret(&mut self, cx: &libmessenger::server::Caller, scope: alloc::string::String, name: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// The names of the caller's `user` secrets, or of the `system` ones
     /// (any caller may list those: they name the machine's networks). Names
     /// only, never material.
-    fn list_secrets(&mut self, cx: &libmessenger::server::Caller, scope: alloc::string::String) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault> {
-        let _ = (cx, scope,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn list_secrets(&mut self, cx: &libmessenger::server::Caller, scope: alloc::string::String) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault>;
 
     /// The WPA2 pairwise master key of the passphrase `name` of `scope` for
     /// `ssid` (PBKDF2-HMAC-SHA1, 4096 rounds, IEEE 802.11 Annex J.4; a
@@ -1479,10 +1438,7 @@ pub trait Server {
     /// `ENOENT` for no such secret, `EINVAL` for a secret that is not a
     /// passphrase (8 to 63 octets of UTF-8 without control characters) or
     /// raw PSK, or an SSID outside 1..=32 octets.
-    fn wifi_pmk(&mut self, cx: &libmessenger::server::Caller, scope: alloc::string::String, name: alloc::string::String, ssid: alloc::vec::Vec<u8>, owner: u32) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault> {
-        let _ = (cx, scope, name, ssid, owner,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn wifi_pmk(&mut self, cx: &libmessenger::server::Caller, scope: alloc::string::String, name: alloc::string::String, ssid: alloc::vec::Vec<u8>, owner: u32) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault>;
 
     /// Keep `secret` under `name` for the user `owner` (scope `user`).
     /// Answered only to `wlanmd` (the `_wlan` system uid, unlabelled, outside
@@ -1491,17 +1447,11 @@ pub trait Server {
     /// a Wi-Fi profile id (`w` and 12 lowercase hex digits); everyone else,
     /// any other name and the `system` scope (written by `elevd` alone) get
     /// `EPERM`. Otherwise the rules of `StoreSecret`.
-    fn store_secret_for(&mut self, cx: &libmessenger::server::Caller, scope: alloc::string::String, name: alloc::string::String, secret: alloc::vec::Vec<u8>, owner: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, scope, name, secret, owner,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn store_secret_for(&mut self, cx: &libmessenger::server::Caller, scope: alloc::string::String, name: alloc::string::String, secret: alloc::vec::Vec<u8>, owner: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Forget the secret `name` of `owner` in `scope` (the rules of
     /// `StoreSecretFor`; `ENOENT` when there is none).
-    fn delete_secret_for(&mut self, cx: &libmessenger::server::Caller, scope: alloc::string::String, name: alloc::string::String, owner: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, scope, name, owner,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn delete_secret_for(&mut self, cx: &libmessenger::server::Caller, scope: alloc::string::String, name: alloc::string::String, owner: u32) -> Result<(), libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "keyd_v1_server")]

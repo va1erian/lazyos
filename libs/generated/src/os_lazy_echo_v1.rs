@@ -280,27 +280,20 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "echo_v1_server")]
 /// What a program answering `os.lazy.echo.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Reply with `text` and the number of bytes received.
-    fn echo(&mut self, cx: &libmessenger::server::Caller, text: alloc::string::String, count: u32) -> Result<alloc::string::String, libmessenger::server::Fault> {
-        let _ = (cx, text, count,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn echo(&mut self, cx: &libmessenger::server::Caller, text: alloc::string::String, count: u32) -> Result<alloc::string::String, libmessenger::server::Fault>;
 
     /// Health probe.
-    fn ping(&mut self, cx: &libmessenger::server::Caller) -> Result<bool, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn ping(&mut self, cx: &libmessenger::server::Caller) -> Result<bool, libmessenger::server::Fault>;
 
     /// Broadcast an event; no reply is expected.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn notify(&mut self, cx: &libmessenger::server::Caller, event: Event) {
-        let _ = (cx, event,);
-    }
+    fn notify(&mut self, cx: &libmessenger::server::Caller, event: Event);
 }
 
 #[cfg(feature = "echo_v1_server")]

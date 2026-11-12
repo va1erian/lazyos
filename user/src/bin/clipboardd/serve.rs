@@ -169,4 +169,9 @@ impl proto::Server for Handler<'_> {
     fn ping(&mut self, _: &Caller) -> Result<(), Fault> {
         Ok(())
     }
+
+    /// The service asks an offer's owner for a lazy MIME; it is never asked.
+    fn serialize(&mut self, _: &Caller, _: u64, _: String) -> Result<Vec<u8>, Fault> {
+        Err(Fault::unserved())
+    }
 }

@@ -194,45 +194,36 @@ pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
 #[cfg(feature = "shell_tray_events_v1_server")]
 /// What a program answering `os.lazy.shell.tray.events.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Primary click. `anchor` is the icon in screen pixels; `popup` a
     /// one-shot token for a flyout (0 when flyouts are unavailable).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn activate(&mut self, cx: &libmessenger::server::Caller, anchor: Rect, popup: u64) {
-        let _ = (cx, anchor, popup,);
-    }
+    fn activate(&mut self, cx: &libmessenger::server::Caller, anchor: Rect, popup: u64);
 
     /// Secondary click on an item without a menu.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn secondary_activate(&mut self, cx: &libmessenger::server::Caller, anchor: Rect) {
-        let _ = (cx, anchor,);
-    }
+    fn secondary_activate(&mut self, cx: &libmessenger::server::Caller, anchor: Rect);
 
     /// The user picked menu row `id`; `checked` is a check or radio row's
     /// new state (the app sends `Update` to show it).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn menu_item(&mut self, cx: &libmessenger::server::Caller, id: u32, checked: bool) {
-        let _ = (cx, id, checked,);
-    }
+    fn menu_item(&mut self, cx: &libmessenger::server::Caller, id: u32, checked: bool);
 
     /// The wheel rolled `delta` notches over the icon (positive: up).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn scroll(&mut self, cx: &libmessenger::server::Caller, delta: i32) {
-        let _ = (cx, delta,);
-    }
+    fn scroll(&mut self, cx: &libmessenger::server::Caller, delta: i32);
 
     /// Liveness probe; nothing to answer.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn ping(&mut self, cx: &libmessenger::server::Caller) {
-        let _ = (cx,);
-    }
+    fn ping(&mut self, cx: &libmessenger::server::Caller);
 }
 
 #[cfg(feature = "shell_tray_events_v1_server")]

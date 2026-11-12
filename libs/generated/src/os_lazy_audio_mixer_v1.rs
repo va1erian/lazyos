@@ -607,47 +607,30 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "audio_mixer_v1_server")]
 /// What a program answering `os.lazy.audio.mixer.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Every open stream, in opening order.
-    fn list_streams(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<StreamStatus>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn list_streams(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<StreamStatus>, libmessenger::server::Fault>;
 
     /// Set one stream's gain and mute flag, whoever owns it.
-    fn set_stream_volume(&mut self, cx: &libmessenger::server::Caller, stream: u32, gain_q16: u32, mute: bool) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, stream, gain_q16, mute,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_stream_volume(&mut self, cx: &libmessenger::server::Caller, stream: u32, gain_q16: u32, mute: bool) -> Result<(), libmessenger::server::Fault>;
 
     /// The master gain, the mute flag and what the card runs at.
-    fn get_master(&mut self, cx: &libmessenger::server::Caller) -> Result<Master, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn get_master(&mut self, cx: &libmessenger::server::Caller) -> Result<Master, libmessenger::server::Fault>;
 
     /// Set the master gain and mute flag, applied after mixing.
-    fn set_master(&mut self, cx: &libmessenger::server::Caller, gain_q16: u32, mute: bool) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, gain_q16, mute,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_master(&mut self, cx: &libmessenger::server::Caller, gain_q16: u32, mute: bool) -> Result<(), libmessenger::server::Fault>;
 
     /// Every sound output a driver serves now (a built-in codec, a USB
     /// headset, an HDMI display), the one playing first.
-    fn list_outputs(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<Output>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn list_outputs(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<Output>, libmessenger::server::Fault>;
 
     /// Play through output `id` from now on, and prefer it whenever it is
     /// present. Streams keep playing across the switch. `ENOENT` for an
     /// output that is not present.
-    fn select_output(&mut self, cx: &libmessenger::server::Caller, id: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, id,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn select_output(&mut self, cx: &libmessenger::server::Caller, id: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "audio_mixer_v1_server")]

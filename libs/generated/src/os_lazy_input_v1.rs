@@ -1164,7 +1164,8 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "input_v1_server")]
 /// What a program answering `os.lazy.input.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Open an input session bound to the calling task (the kernel-stamped
@@ -1177,23 +1178,14 @@ pub trait Server {
     /// second holder `EBUSY`), and it receives keys only while no compositor
     /// is attached. `events` is the event endpoint that receives every
     /// event below. A task may hold several sessions, one per surface.
-    fn open(&mut self, cx: &libmessenger::server::Caller, surface: core::option::Option<u64>, events: u64) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, surface, events,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn open(&mut self, cx: &libmessenger::server::Caller, surface: core::option::Option<u64>, events: u64) -> Result<u64, libmessenger::server::Fault>;
 
     /// End a session. Only the task that opened it may.
-    fn close(&mut self, cx: &libmessenger::server::Caller, session: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, session,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn close(&mut self, cx: &libmessenger::server::Caller, session: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// The current layout name, modifier and lock bits (`mods` as in
     /// `KeyEvent`) and the key-repeat timing in milliseconds.
-    fn get_state(&mut self, cx: &libmessenger::server::Caller) -> Result<GetStateReply, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn get_state(&mut self, cx: &libmessenger::server::Caller) -> Result<GetStateReply, libmessenger::server::Fault>;
 
     /// Ask for a grab of kind `kind` (a `GrantKind`) for `session`, which
     /// must be the caller's and have keyboard focus (`EACCES` otherwise;
@@ -1203,17 +1195,11 @@ pub trait Server {
     /// until the session releases it, loses focus or closes, or the user
     /// presses the reserved escape chord (Ctrl+Alt+Esc), which nobody can
     /// grab or register and which always reverts the grab.
-    fn request_grant(&mut self, cx: &libmessenger::server::Caller, session: u64, kind: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, session, kind,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn request_grant(&mut self, cx: &libmessenger::server::Caller, session: u64, kind: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Give up the grab (or a pending request) `session` holds. Only its
     /// owner may; releasing nothing is not an error.
-    fn release_grant(&mut self, cx: &libmessenger::server::Caller, session: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, session,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn release_grant(&mut self, cx: &libmessenger::server::Caller, session: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// Liveness and freshness for the caller's own `session`: echoes `token`
     /// and returns `seq`, the raw sequence number of the newest key edge
@@ -1221,10 +1207,7 @@ pub trait Server {
     /// otherwise, so a session cannot watch typing aimed at another window),
     /// so a client polling its key-state page can tell the page is current
     /// (`KeyStateSeq >= seq`). `EACCES` for another task's session.
-    fn ping(&mut self, cx: &libmessenger::server::Caller, session: u64, token: u64) -> Result<PingReply, libmessenger::server::Fault> {
-        let _ = (cx, session, token,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn ping(&mut self, cx: &libmessenger::server::Caller, session: u64, token: u64) -> Result<PingReply, libmessenger::server::Fault>;
 
     /// Attach a key-state page to `session` (the caller's): `state`, a
     /// shared buffer the client created (one page is plenty). While the
@@ -1234,10 +1217,7 @@ pub trait Server {
     /// HID usages); the moment focus leaves it clears the page, before
     /// `KeyboardLeave` is sent. `inputd` only ever writes the page. Attaching
     /// again replaces the previous page.
-    fn attach_key_state(&mut self, cx: &libmessenger::server::Caller, session: u64, state: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, session, state,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn attach_key_state(&mut self, cx: &libmessenger::server::Caller, session: u64, state: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault>;
 
     /// Attach a gamepad-state page to `session` (the caller's): `state`, a
     /// shared buffer the client created (one page is plenty). While the
@@ -1255,10 +1235,7 @@ pub trait Server {
     /// stick wiggled under an app that ignores pads must not be able to
     /// overflow it). The opt-in lasts until the session closes; a session that
     /// attaches while it holds the keyboard is sent `GamepadEnter` once.
-    fn attach_gamepad_state(&mut self, cx: &libmessenger::server::Caller, session: u64, state: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, session, state,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn attach_gamepad_state(&mut self, cx: &libmessenger::server::Caller, session: u64, state: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault>;
 
     /// Event: a key changed state. `code` is the physical key, `sym` its
     /// keysym under the active layout (a Unicode scalar for character keys,
@@ -1270,47 +1247,35 @@ pub trait Server {
     /// number. Auto-repeat is always flagged `Repeat`, never `Down`.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn key_event(&mut self, cx: &libmessenger::server::Caller, code: u32, sym: u32, mods: u32, state: u32, ts_ns: u64, seq: u64) {
-        let _ = (cx, code, sym, mods, state, ts_ns, seq,);
-    }
+    fn key_event(&mut self, cx: &libmessenger::server::Caller, code: u32, sym: u32, mods: u32, state: u32, ts_ns: u64, seq: u64);
 
     /// Event: composed text (UTF-8) for a character-producing press or repeat.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn text_input(&mut self, cx: &libmessenger::server::Caller, utf8: alloc::string::String) {
-        let _ = (cx, utf8,);
-    }
+    fn text_input(&mut self, cx: &libmessenger::server::Caller, utf8: alloc::string::String);
 
     /// Event: keyboard focus arrived. `down` lists the physical keys held right
     /// now, so the client seeds its key state.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn keyboard_enter(&mut self, cx: &libmessenger::server::Caller, down: alloc::vec::Vec<u32>) {
-        let _ = (cx, down,);
-    }
+    fn keyboard_enter(&mut self, cx: &libmessenger::server::Caller, down: alloc::vec::Vec<u32>);
 
     /// Event: keyboard focus left. The client **must release every key** it
     /// believes is down; `inputd` also cancels repeat.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn keyboard_leave(&mut self, cx: &libmessenger::server::Caller) {
-        let _ = (cx,);
-    }
+    fn keyboard_leave(&mut self, cx: &libmessenger::server::Caller);
 
     /// Event: the layout changed (a `confd` write, live).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn layout_changed(&mut self, cx: &libmessenger::server::Caller, layout: alloc::string::String) {
-        let _ = (cx, layout,);
-    }
+    fn layout_changed(&mut self, cx: &libmessenger::server::Caller, layout: alloc::string::String);
 
     /// Event: the session's grab of kind `kind` started (`active`) or ended;
     /// `reason` is a `GrantReason`.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn grant_changed(&mut self, cx: &libmessenger::server::Caller, kind: u32, active: bool, reason: u32) {
-        let _ = (cx, kind, active, reason,);
-    }
+    fn grant_changed(&mut self, cx: &libmessenger::server::Caller, kind: u32, active: bool, reason: u32);
 
     /// Event: a gamepad axis changed (only the focused session that attached
     /// a pad page receives it).
@@ -1323,9 +1288,7 @@ pub trait Server {
     /// per drain: one event per axis, the newest value.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn gamepad_axis(&mut self, cx: &libmessenger::server::Caller, device: u32, code: u32, value: i32, ts_ns: u64, seq: u64) {
-        let _ = (cx, device, code, value, ts_ns, seq,);
-    }
+    fn gamepad_axis(&mut self, cx: &libmessenger::server::Caller, device: u32, code: u32, value: i32, ts_ns: u64, seq: u64);
 
     /// Event: a gamepad button changed (only the focused session that
     /// attached a pad page receives it). `code` is the HID button usage `1..=32`, or `33` d-pad up, `34`
@@ -1333,9 +1296,7 @@ pub trait Server {
     /// diagonals press two). Edges are never merged.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn gamepad_button(&mut self, cx: &libmessenger::server::Caller, device: u32, code: u32, pressed: bool, ts_ns: u64, seq: u64) {
-        let _ = (cx, device, code, pressed, ts_ns, seq,);
-    }
+    fn gamepad_button(&mut self, cx: &libmessenger::server::Caller, device: u32, code: u32, pressed: bool, ts_ns: u64, seq: u64);
 
     /// Event: gamepad input arrived with this session's focus: read the
     /// state page to seed. Sent to a session that attached a pad page
@@ -1343,9 +1304,7 @@ pub trait Server {
     /// already has focus, and right after a `GamepadLeave` that was a resync.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn gamepad_enter(&mut self, cx: &libmessenger::server::Caller) {
-        let _ = (cx,);
-    }
+    fn gamepad_enter(&mut self, cx: &libmessenger::server::Caller);
 
     /// Event: focus left, or events were lost. The client **must release
     /// every pad button** it believes is down and centre the axes; the page
@@ -1355,9 +1314,7 @@ pub trait Server {
     /// the Leave and restored before the Enter either way.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn gamepad_leave(&mut self, cx: &libmessenger::server::Caller) {
-        let _ = (cx,);
-    }
+    fn gamepad_leave(&mut self, cx: &libmessenger::server::Caller);
 }
 
 #[cfg(feature = "input_v1_server")]

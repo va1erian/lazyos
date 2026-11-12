@@ -1214,7 +1214,8 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "webd_light_v1_server")]
 /// What a program answering `os.lazy.webd.light.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Make a view of `width` x `height` pixels and return its id (non-zero,
@@ -1223,106 +1224,75 @@ pub trait Server {
     /// a blank page until `LoadHtml`. webd derives the web process group from
     /// the caller's kernel-stamped label: the views of one app share a web
     /// process, the views of two apps never do.
-    fn create_view(&mut self, cx: &libmessenger::server::Caller, config: LightConfig, width: u32, height: u32, events: u64) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, config, width, height, events,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn create_view(&mut self, cx: &libmessenger::server::Caller, config: LightConfig, width: u32, height: u32, events: u64) -> Result<u64, libmessenger::server::Fault>;
 
     /// End the view, its page and its event endpoint. Slots the app still
     /// holds stay its own memory. Not an error for a view that is already gone.
-    fn destroy_view(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn destroy_view(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// Register `pixels` as slot `slot` (0 to 2) of `view`; it starts free.
     /// The buffer must hold at least `width * height * 4` bytes of the view's
     /// current size after its `offset`. Replaces a free slot of that number
     /// (`EBUSY` while webd has handed it out), so a slot is re-attached only
     /// after `ReleaseSlot`.
-    fn attach_slot(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32, pixels: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, slot, pixels,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn attach_slot(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32, pixels: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault>;
 
     /// The app is done reading `slot`; webd may paint into it again. A slot
     /// that is not busy, or a view that is not the caller's, is ignored.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn release_slot(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32) {
-        let _ = (cx, view, slot,);
-    }
+    fn release_slot(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32);
 
     /// Change the view's size. Every slot is detached (attach new ones of the
     /// new size); the next frame has the new size.
-    fn resize(&mut self, cx: &libmessenger::server::Caller, view: u64, width: u32, height: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, width, height,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn resize(&mut self, cx: &libmessenger::server::Caller, view: u64, width: u32, height: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// A view that is not visible gets no paints (its page still runs).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn set_visible(&mut self, cx: &libmessenger::server::Caller, view: u64, visible: bool) {
-        let _ = (cx, view, visible,);
-    }
+    fn set_visible(&mut self, cx: &libmessenger::server::Caller, view: u64, visible: bool);
 
     /// Ask for a whole frame (the app lost or discarded its picture).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn refresh(&mut self, cx: &libmessenger::server::Caller, view: u64) {
-        let _ = (cx, view,);
-    }
+    fn refresh(&mut self, cx: &libmessenger::server::Caller, view: u64);
 
     /// Replace the page with `html` (UTF-8, the buffer's range) at the base
     /// URL `base_url`: empty, `about:blank`, `about:...` or a `data:` URL; a
     /// network or `file:` base is `EINVAL`. webd copies the bytes before it
     /// replies, so the app may reuse the buffer.
-    fn load_html(&mut self, cx: &libmessenger::server::Caller, view: u64, html: libmessenger::Buffer, base_url: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, html, base_url,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn load_html(&mut self, cx: &libmessenger::server::Caller, view: u64, html: libmessenger::Buffer, base_url: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// Input, as the display protocol delivers it, in view pixels. `kind` is a
     /// `MouseKind`, `button` 0 left, 1 middle, 2 right (-1 none: a move with no
     /// button held); `mods` bit 0 shift, 1 control, 2 alt, 3 meta.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn mouse(&mut self, cx: &libmessenger::server::Caller, view: u64, kind: u32, button: i32, x: i32, y: i32, mods: u32) {
-        let _ = (cx, view, kind, button, x, y, mods,);
-    }
+    fn mouse(&mut self, cx: &libmessenger::server::Caller, view: u64, kind: u32, button: i32, x: i32, y: i32, mods: u32);
 
     /// A wheel turn of `ticks_x` / `ticks_y` notches at `(x, y)`. `seq` numbers
     /// the turns of a full view for `WheelDone` (the full interface); 0 asks
     /// for no answer, and a light view is never answered.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn wheel(&mut self, cx: &libmessenger::server::Caller, view: u64, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32, seq: u64) {
-        let _ = (cx, view, x, y, ticks_x, ticks_y, mods, seq,);
-    }
+    fn wheel(&mut self, cx: &libmessenger::server::Caller, view: u64, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32, seq: u64);
 
     /// A key edge: `keysym` is the X11 keysym the display protocol carries,
     /// `text` the character it types (empty for none).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn key(&mut self, cx: &libmessenger::server::Caller, view: u64, press: bool, keysym: u32, text: alloc::string::String, mods: u32) {
-        let _ = (cx, view, press, keysym, text, mods,);
-    }
+    fn key(&mut self, cx: &libmessenger::server::Caller, view: u64, press: bool, keysym: u32, text: alloc::string::String, mods: u32);
 
     /// The view gained or lost keyboard focus.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn focus(&mut self, cx: &libmessenger::server::Caller, view: u64, focused: bool) {
-        let _ = (cx, view, focused,);
-    }
+    fn focus(&mut self, cx: &libmessenger::server::Caller, view: u64, focused: bool);
 
     /// Event: slot `slot` of `view` holds frame number `seq` (counting from 1)
     /// of `width` x `height` pixels. The slot is the app's until `ReleaseSlot`.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn frame(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32, seq: u64, width: u32, height: u32) {
-        let _ = (cx, view, slot, seq, width, height,);
-    }
+    fn frame(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32, seq: u64, width: u32, height: u32);
 
     /// Event: what the page says about itself. `loading` while a load is in
     /// progress; `finished` counts the loads that have finished (so the first
@@ -1330,48 +1300,36 @@ pub trait Server {
     /// empty or a short reason a load failed. Texts are cut at 48 KiB.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn state(&mut self, cx: &libmessenger::server::Caller, view: u64, title: alloc::string::String, loading: bool, finished: u32, error: alloc::string::String) {
-        let _ = (cx, view, title, loading, finished, error,);
-    }
+    fn state(&mut self, cx: &libmessenger::server::Caller, view: u64, title: alloc::string::String, loading: bool, finished: u32, error: alloc::string::String);
 
     /// Event: the page scrolled to `(x, y)` in document pixels; `at_bottom`
     /// when it cannot scroll further.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn scroll(&mut self, cx: &libmessenger::server::Caller, view: u64, x: i32, y: i32, at_bottom: bool) {
-        let _ = (cx, view, x, y, at_bottom,);
-    }
+    fn scroll(&mut self, cx: &libmessenger::server::Caller, view: u64, x: i32, y: i32, at_bottom: bool);
 
     /// Event: a link was clicked, a form submitted or a meta refresh fired,
     /// and nothing loaded. `url` is absolute.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn link_clicked(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String) {
-        let _ = (cx, view, url,);
-    }
+    fn link_clicked(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String);
 
     /// Event: the user copied `text` out of the page.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn clipboard_write(&mut self, cx: &libmessenger::server::Caller, view: u64, text: alloc::string::String) {
-        let _ = (cx, view, text,);
-    }
+    fn clipboard_write(&mut self, cx: &libmessenger::server::Caller, view: u64, text: alloc::string::String);
 
     /// Event: the view cannot go on (`reason` is a `LostReason`). The id stays
     /// the app's to `DestroyView`; the app makes a new view and loads again.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn view_lost(&mut self, cx: &libmessenger::server::Caller, view: u64, reason: u32) {
-        let _ = (cx, view, reason,);
-    }
+    fn view_lost(&mut self, cx: &libmessenger::server::Caller, view: u64, reason: u32);
 
     /// Event: liveness probe, about once a second; nothing to answer. `EPIPE`
     /// on the endpoint tells webd the app is gone and ends its views.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn ping(&mut self, cx: &libmessenger::server::Caller) {
-        let _ = (cx,);
-    }
+    fn ping(&mut self, cx: &libmessenger::server::Caller);
 }
 
 #[cfg(feature = "webd_light_v1_server")]

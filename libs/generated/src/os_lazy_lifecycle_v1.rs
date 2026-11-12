@@ -58,15 +58,14 @@ pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
 #[cfg(feature = "lifecycle_v1_server")]
 /// What a program answering `os.lazy.lifecycle.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Persist and exit. `reason` is the shutdown's reason text, for the log.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn shutdown(&mut self, cx: &libmessenger::server::Caller, reason: alloc::string::String) {
-        let _ = (cx, reason,);
-    }
+    fn shutdown(&mut self, cx: &libmessenger::server::Caller, reason: alloc::string::String);
 }
 
 #[cfg(feature = "lifecycle_v1_server")]

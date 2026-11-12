@@ -702,63 +702,43 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "accounts_v1_server")]
 /// What a program answering `os.lazy.accounts.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Find a user by `name` or, when `name` is absent, by `uid`.
     /// `found` is false (and `user` empty) when no account matches.
-    fn lookup(&mut self, cx: &libmessenger::server::Caller, name: core::option::Option<alloc::string::String>, uid: core::option::Option<u32>) -> Result<LookupReply, libmessenger::server::Fault> {
-        let _ = (cx, name, uid,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn lookup(&mut self, cx: &libmessenger::server::Caller, name: core::option::Option<alloc::string::String>, uid: core::option::Option<u32>) -> Result<LookupReply, libmessenger::server::Fault>;
 
     /// Verify `secret` against the stored verifier of `name`. After three
     /// failures in a row for a name or from a caller, further attempts are
     /// refused with `EAGAIN` for a delay that doubles from 1 s to 60 s.
-    fn authenticate(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, secret: alloc::string::String) -> Result<bool, libmessenger::server::Fault> {
-        let _ = (cx, name, secret,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn authenticate(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, secret: alloc::string::String) -> Result<bool, libmessenger::server::Fault>;
 
     /// Create the account `name` with the password `secret` (an
     /// administrator when `admin`): the next free uid, a 0700 home made from
     /// the skeleton. From `elevd`, or from the login screen while the machine
     /// has no account (the owner, who must be an admin). `EEXIST` for a taken
     /// name, `EINVAL` for a bad one, `EPERM` for any other caller.
-    fn create(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, secret: alloc::string::String, admin: bool) -> Result<User, libmessenger::server::Fault> {
-        let _ = (cx, name, secret, admin,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn create(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, secret: alloc::string::String, admin: bool) -> Result<User, libmessenger::server::Fault>;
 
     /// Delete the account `name` (from `elevd` only). `home` says what
     /// happens to its home: `keep`, `archive` (moved aside, root-only) or
     /// `remove`. The last administrator cannot be deleted (`EBUSY`).
-    fn delete(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, home: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, name, home,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn delete(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, home: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// Set `name`'s password to `secret`. A user may change their own with
     /// the current one in `old` (checked and slowed like `Authenticate`,
     /// `EACCES` when wrong); `elevd` may set anyone's without it.
-    fn set_password(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, old: core::option::Option<alloc::string::String>, secret: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, name, old, secret,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_password(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, old: core::option::Option<alloc::string::String>, secret: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// Make `name` an administrator or not (from `elevd` only). Taking it
     /// from the last administrator is `EBUSY`.
-    fn set_admin(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, admin: bool) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, name, admin,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_admin(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, admin: bool) -> Result<(), libmessenger::server::Fault>;
 
     /// Every account, in database order. `setup` is true while the machine
     /// has no account (the login screen then asks for its owner).
-    fn list_users(&mut self, cx: &libmessenger::server::Caller) -> Result<ListUsersReply, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn list_users(&mut self, cx: &libmessenger::server::Caller) -> Result<ListUsersReply, libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "accounts_v1_server")]

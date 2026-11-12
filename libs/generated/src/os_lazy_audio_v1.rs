@@ -1106,88 +1106,56 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "audio_v1_server")]
 /// What a program answering `os.lazy.audio.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Describe the card: stream count and the formats, rates and channel
     /// counts it accepts.
-    fn info(&mut self, cx: &libmessenger::server::Caller) -> Result<AudioInfo, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn info(&mut self, cx: &libmessenger::server::Caller) -> Result<AudioInfo, libmessenger::server::Fault>;
 
     /// Open a stream. `dir` and `format` are `Direction` and `Format`
     /// ordinals (enums travel as `U32`). The reply carries the stream index and
     /// the granted parameters. The stream is idle until a ring is attached and
     /// it is started.
-    fn open_stream(&mut self, cx: &libmessenger::server::Caller, dir: u32, format: u32, rate: u32, channels: u32, period_bytes: u32) -> Result<StreamGrant, libmessenger::server::Fault> {
-        let _ = (cx, dir, format, rate, channels, period_bytes,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn open_stream(&mut self, cx: &libmessenger::server::Caller, dir: u32, format: u32, rate: u32, channels: u32, period_bytes: u32) -> Result<StreamGrant, libmessenger::server::Fault>;
 
     /// Attach the stream's sample ring: `ring`, a shared buffer at least
     /// `periods * period_bytes` bytes long. Fails with `EINVAL` when it is
     /// shorter and `EBUSY` when a ring is already attached.
-    fn attach_ring(&mut self, cx: &libmessenger::server::Caller, stream: u32, ring: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, stream, ring,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn attach_ring(&mut self, cx: &libmessenger::server::Caller, stream: u32, ring: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault>;
 
     /// Announce that the client has written up to `written_frames` (a total,
     /// see the interface notes). Replies with the frames the driver has
     /// consumed so far.
-    fn commit(&mut self, cx: &libmessenger::server::Caller, stream: u32, written_frames: u64) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, stream, written_frames,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn commit(&mut self, cx: &libmessenger::server::Caller, stream: u32, written_frames: u64) -> Result<u64, libmessenger::server::Fault>;
 
     /// Start (or restart) transfer on a stream with an attached ring.
-    fn start(&mut self, cx: &libmessenger::server::Caller, stream: u32) -> Result<bool, libmessenger::server::Fault> {
-        let _ = (cx, stream,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn start(&mut self, cx: &libmessenger::server::Caller, stream: u32) -> Result<bool, libmessenger::server::Fault>;
 
     /// Stop transfer; committed periods not yet queued to the device are
     /// discarded. The stream can be started again.
-    fn stop(&mut self, cx: &libmessenger::server::Caller, stream: u32) -> Result<bool, libmessenger::server::Fault> {
-        let _ = (cx, stream,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn stop(&mut self, cx: &libmessenger::server::Caller, stream: u32) -> Result<bool, libmessenger::server::Fault>;
 
     /// Play everything committed, then stop. Replies once drained.
-    fn drain(&mut self, cx: &libmessenger::server::Caller, stream: u32) -> Result<bool, libmessenger::server::Fault> {
-        let _ = (cx, stream,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn drain(&mut self, cx: &libmessenger::server::Caller, stream: u32) -> Result<bool, libmessenger::server::Fault>;
 
     /// Frames the device has played since the last `Start`.
-    fn position(&mut self, cx: &libmessenger::server::Caller, stream: u32) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, stream,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn position(&mut self, cx: &libmessenger::server::Caller, stream: u32) -> Result<u64, libmessenger::server::Fault>;
 
     /// Close a stream and release its ring. Also implied when the owner exits.
-    fn close_stream(&mut self, cx: &libmessenger::server::Caller, stream: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, stream,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn close_stream(&mut self, cx: &libmessenger::server::Caller, stream: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Scale the stream by `gain_q16` (16.16 fixed point: 65536 is unity, 0
     /// silent, at most 262144, four times unity); larger values fail with
     /// `EINVAL`. Samples are scaled as they are copied out of the ring and
     /// saturate instead of wrapping. A driver that cannot scale the granted
     /// format fails with `ENOTSUP`.
-    fn set_volume(&mut self, cx: &libmessenger::server::Caller, stream: u32, gain_q16: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, stream, gain_q16,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_volume(&mut self, cx: &libmessenger::server::Caller, stream: u32, gain_q16: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Silence the stream (`mute`) or restore its volume, without losing it.
     /// A muted stream keeps consuming and its position keeps moving.
-    fn set_mute(&mut self, cx: &libmessenger::server::Caller, stream: u32, mute: bool) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, stream, mute,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_mute(&mut self, cx: &libmessenger::server::Caller, stream: u32, mute: bool) -> Result<(), libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "audio_v1_server")]

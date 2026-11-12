@@ -127,37 +127,30 @@ pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
 #[cfg(feature = "notify_events_v1_server")]
 /// What a program answering `os.lazy.notify.events.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// The user clicked the toast's body.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn activated(&mut self, cx: &libmessenger::server::Caller, id: u64) {
-        let _ = (cx, id,);
-    }
+    fn activated(&mut self, cx: &libmessenger::server::Caller, id: u64);
 
     /// The user pressed action `action` of toast `id`; the toast closes.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn action_invoked(&mut self, cx: &libmessenger::server::Caller, id: u64, action: u32) {
-        let _ = (cx, id, action,);
-    }
+    fn action_invoked(&mut self, cx: &libmessenger::server::Caller, id: u64, action: u32);
 
     /// The toast is gone; `reason` is a `CloseReason` value. It is sent once
     /// per toast, also for one that was never shown (`Muted`).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn closed(&mut self, cx: &libmessenger::server::Caller, id: u64, reason: u32) {
-        let _ = (cx, id, reason,);
-    }
+    fn closed(&mut self, cx: &libmessenger::server::Caller, id: u64, reason: u32);
 
     /// Liveness probe; nothing to answer.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn ping(&mut self, cx: &libmessenger::server::Caller) {
-        let _ = (cx,);
-    }
+    fn ping(&mut self, cx: &libmessenger::server::Caller);
 }
 
 #[cfg(feature = "notify_events_v1_server")]

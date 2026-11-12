@@ -1485,17 +1485,15 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "pkgd_v1_server")]
 /// What a program answering `os.lazy.pkgd.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Open and validate the `.lzp` at `path` without changing anything. Root
     /// may name any absolute path; anyone else a file under `/transient` or
     /// their own home folder (the path is normalised first). `problems` is empty for a package that
     /// could be installed; otherwise it lists every reason it cannot be.
-    fn inspect(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<PackageInfo, libmessenger::server::Fault> {
-        let _ = (cx, path,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn inspect(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<PackageInfo, libmessenger::server::Fault>;
 
     /// Install the package at `path` (the same source rule as `Inspect`):
     /// extract it to its install directory under `/apps`, copy its
@@ -1504,31 +1502,19 @@ pub trait Server {
     /// `system/events/pkg/install`. Fails if the same `system_name` is already
     /// installed at this version and digest. Needs the caller to be the
     /// session owner or root; `pkgd` audits who asked.
-    fn install(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<Installed, libmessenger::server::Fault> {
-        let _ = (cx, path,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn install(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<Installed, libmessenger::server::Fault>;
 
     /// Remove `system_name`: stop its running instances, unregister its MIME
     /// verbs, revoke its policy, delete its install directory and its
     /// documentation, then publish `system/events/pkg/remove`. User data
     /// under `/home` is kept.
-    fn remove(&mut self, cx: &libmessenger::server::Caller, system_name: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, system_name,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn remove(&mut self, cx: &libmessenger::server::Caller, system_name: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// Every installed app, in install order.
-    fn list(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<Installed>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn list(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<Installed>, libmessenger::server::Fault>;
 
     /// One installed app by `system_name`, if present.
-    fn installed(&mut self, cx: &libmessenger::server::Caller, system_name: alloc::string::String) -> Result<core::option::Option<Installed>, libmessenger::server::Fault> {
-        let _ = (cx, system_name,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn installed(&mut self, cx: &libmessenger::server::Caller, system_name: alloc::string::String) -> Result<core::option::Option<Installed>, libmessenger::server::Fault>;
 
     /// The name of the policy label with the kernel id `label_id`
     /// (`app:<system_name>`, `tool:<system_name>`, ...). Reading a label's
@@ -1537,20 +1523,14 @@ pub trait Server {
     /// lets an administrator's approval stand (`libs/elevpolicy`,
     /// `approvals`). Answered to `elevd` alone; `ENOENT` for an id the
     /// kernel does not know.
-    fn label_name(&mut self, cx: &libmessenger::server::Caller, label_id: u32) -> Result<alloc::string::String, libmessenger::server::Fault> {
-        let _ = (cx, label_id,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn label_name(&mut self, cx: &libmessenger::server::Caller, label_id: u32) -> Result<alloc::string::String, libmessenger::server::Fault>;
 
     /// Whether this start's core package provisioning is finished, and what
     /// it did (`docs/packages.md`, core packages). `pkgd` answers it while it
     /// provisions, so a client such as `init`'s autostart can wait for it
     /// without blocking; `Install` and `Remove` are refused with `EAGAIN`
     /// until `done`.
-    fn provisioned(&mut self, cx: &libmessenger::server::Caller) -> Result<ProvisionState, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn provisioned(&mut self, cx: &libmessenger::server::Caller) -> Result<ProvisionState, libmessenger::server::Fault>;
 
     /// Approve a development run of the package at `path` (the same source
     /// rule as `Inspect`; issue #529): validate it, compile its permissions and
@@ -1565,19 +1545,13 @@ pub trait Server {
     /// only, are dropped (and the label's rules revoked) when the session that
     /// gave them logs out, and every one is audited as
     /// `system/events/pkg/develop`.
-    fn develop(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String, confirm: bool) -> Result<DevelopReply, libmessenger::server::Fault> {
-        let _ = (cx, path, confirm,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn develop(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String, confirm: bool) -> Result<DevelopReply, libmessenger::server::Fault>;
 
     /// The user declined the development consent for the package at `path`
     /// (same caller and source rules as `Develop`). Nothing is loaded; the
     /// refusal is audited and published as `system/events/pkg/denied` under
     /// the package's `system_name`, so the IDE waiting for the approval stops.
-    fn develop_declined(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, path,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn develop_declined(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// `elevd`'s install of a package an administrator approved on the
     /// trusted prompt (docs/accounts-plan.md U2, review of #659); refused
@@ -1593,10 +1567,7 @@ pub trait Server {
     /// developer-tool package is installed only when it is `true` and any
     /// other package only when it is `false`, so a tool is never installed
     /// from a prompt that did not warn about it.
-    fn install_approved(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String, digest: alloc::string::String, core: bool, devtool: bool) -> Result<Installed, libmessenger::server::Fault> {
-        let _ = (cx, path, digest, core, devtool,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn install_approved(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String, digest: alloc::string::String, core: bool, devtool: bool) -> Result<Installed, libmessenger::server::Fault>;
 
     /// `dbgd`'s install of a package a developer uploaded to a box built for
     /// remote control (docs/dbgd-plan.md, v2 app swapping): accepted from
@@ -1606,10 +1577,7 @@ pub trait Server {
     /// the bytes must hash to `digest` (SHA-256, hex), as for
     /// `InstallApproved`. Unlike every other install it may replace a core
     /// app, which is what a developer iterating on one needs.
-    fn install_debug(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String, digest: alloc::string::String) -> Result<Installed, libmessenger::server::Fault> {
-        let _ = (cx, path, digest,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn install_debug(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String, digest: alloc::string::String) -> Result<Installed, libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "pkgd_v1_server")]

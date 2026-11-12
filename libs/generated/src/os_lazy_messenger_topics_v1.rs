@@ -990,61 +990,38 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "messenger_topics_v1_server")]
 /// What a program answering `os.lazy.messenger.topics.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Publish `payload` under the literal `topic`; `retained` also remembers
     /// it as the topic's retained value. Returns how many subscriptions the
     /// event reached.
-    fn publish(&mut self, cx: &libmessenger::server::Caller, topic: alloc::string::String, payload: alloc::vec::Vec<u8>, retained: bool) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, topic, payload, retained,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn publish(&mut self, cx: &libmessenger::server::Caller, topic: alloc::string::String, payload: alloc::vec::Vec<u8>, retained: bool) -> Result<u64, libmessenger::server::Fault>;
 
     /// Create a subscription for `filter`. `qos` is a `Qos` value; `depth` is
     /// the queue depth for `Buffered` (clamped to 1..=64) and ignored by the
     /// other policies, which use fixed depths. Retained values are replayed.
-    fn subscribe(&mut self, cx: &libmessenger::server::Caller, filter: alloc::string::String, qos: u32, depth: u32) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, filter, qos, depth,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn subscribe(&mut self, cx: &libmessenger::server::Caller, filter: alloc::string::String, qos: u32, depth: u32) -> Result<u64, libmessenger::server::Fault>;
 
     /// Drop a subscription; later publishes stop matching it.
-    fn unsubscribe(&mut self, cx: &libmessenger::server::Caller, subscription: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, subscription,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn unsubscribe(&mut self, cx: &libmessenger::server::Caller, subscription: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// Wait for (or, with an expired deadline, poll) the next event of a
     /// subscription. A `Reliable` subscription redelivers its head until acked.
-    fn next_event(&mut self, cx: &libmessenger::server::Caller, subscription: u64) -> Result<Event, libmessenger::server::Fault> {
-        let _ = (cx, subscription,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn next_event(&mut self, cx: &libmessenger::server::Caller, subscription: u64) -> Result<Event, libmessenger::server::Fault>;
 
     /// Retire every event up to `sequence` on a `Reliable` subscription.
-    fn ack(&mut self, cx: &libmessenger::server::Caller, subscription: u64, sequence: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, subscription, sequence,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn ack(&mut self, cx: &libmessenger::server::Caller, subscription: u64, sequence: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// Topics the broker has seen, with live subscriber counts.
-    fn list_topics(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<TopicInfo>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn list_topics(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<TopicInfo>, libmessenger::server::Fault>;
 
     /// Queue and drop counters of one subscription.
-    fn stats(&mut self, cx: &libmessenger::server::Caller, subscription: u64) -> Result<Stats, libmessenger::server::Fault> {
-        let _ = (cx, subscription,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn stats(&mut self, cx: &libmessenger::server::Caller, subscription: u64) -> Result<Stats, libmessenger::server::Fault>;
 
     /// Round-trip probe used to detect a live broker.
-    fn ping(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn ping(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault>;
 
     /// Give a subscription a doorbell (docs/performance-plan.md P7.2): the
     /// broker sends one `os.lazy.messenger.topics.bell.v1` `Ready` on `bell`
@@ -1053,10 +1030,7 @@ pub trait Server {
     /// parks on the other end beside its own endpoints (`wait_any`) and
     /// drains with expired-deadline `NextEvent`s on each ring, instead of
     /// polling. Owner only; a second bell replaces the first.
-    fn bell(&mut self, cx: &libmessenger::server::Caller, subscription: u64, bell: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, subscription, bell,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn bell(&mut self, cx: &libmessenger::server::Caller, subscription: u64, bell: u64) -> Result<(), libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "messenger_topics_v1_server")]

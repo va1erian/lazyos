@@ -149,17 +149,15 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "init_app_v1_server")]
 /// What a program answering `os.lazy.init.app.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Ask for this instance's lifecycle events; replaces an earlier channel.
     /// `Reopen`s queued before the first `Watch` (at most 16, the oldest
     /// dropped first) are sent on it at once, in order; a `Stop` pending at
     /// that moment sends `Quit` with the grace remaining.
-    fn watch(&mut self, cx: &libmessenger::server::Caller, events: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, events,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn watch(&mut self, cx: &libmessenger::server::Caller, events: u64) -> Result<(), libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "init_app_v1_server")]

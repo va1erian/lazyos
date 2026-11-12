@@ -134,7 +134,8 @@ pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
 #[cfg(feature = "display_prompt_v1_server")]
 /// What a program answering `os.lazy.display.prompt.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Show the prompt for `summary` (what would change), asked by the task
@@ -144,10 +145,7 @@ pub trait Server {
     /// retry after a refused password). The reply comes when they answer:
     /// `outcome` is a `PromptOutcome`, with `name` and `secret` when
     /// approved.
-    fn prompt(&mut self, cx: &libmessenger::server::Caller, summary: alloc::string::String, uid: u32, user: alloc::string::String, label_id: u32, admin: alloc::string::String, error: alloc::string::String) -> Result<PromptReply, libmessenger::server::Fault> {
-        let _ = (cx, summary, uid, user, label_id, admin, error,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn prompt(&mut self, cx: &libmessenger::server::Caller, summary: alloc::string::String, uid: u32, user: alloc::string::String, label_id: u32, admin: alloc::string::String, error: alloc::string::String) -> Result<PromptReply, libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "display_prompt_v1_server")]

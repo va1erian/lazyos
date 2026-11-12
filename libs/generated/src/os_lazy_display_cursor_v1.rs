@@ -161,7 +161,8 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "display_cursor_v1_server")]
 /// What a program answering `os.lazy.display.cursor.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Set the shape shown while the pointer is over `surface`'s content. The
@@ -169,10 +170,7 @@ pub trait Server {
     /// `ENOENT` and a `shape` that is not a `CursorShape` value is `EINVAL`.
     /// The shape stays until the next call or until the surface goes away;
     /// `Default` restores the arrow.
-    fn set_cursor(&mut self, cx: &libmessenger::server::Caller, surface: u64, shape: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface, shape,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_cursor(&mut self, cx: &libmessenger::server::Caller, surface: u64, shape: u32) -> Result<(), libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "display_cursor_v1_server")]

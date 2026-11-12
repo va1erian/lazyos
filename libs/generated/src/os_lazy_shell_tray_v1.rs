@@ -748,31 +748,23 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "shell_tray_v1_server")]
 /// What a program answering `os.lazy.shell.tray.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Show the app's item, replacing its current one (custom or default).
     /// `events` is the channel the shell sends the item's events
     /// on; the shell `Ping`s it on its heartbeat and drops the custom item
     /// when the channel is gone (`EPIPE`).
-    fn set(&mut self, cx: &libmessenger::server::Caller, item: Item, events: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, item, events,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set(&mut self, cx: &libmessenger::server::Caller, item: Item, events: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// Replace the given parts of the app's item; absent fields are kept
     /// (an empty `badge` removes the badge). `ENOENT` before `Set`.
-    fn update(&mut self, cx: &libmessenger::server::Caller, icon: core::option::Option<Icon>, tooltip: core::option::Option<alloc::string::String>, status: core::option::Option<u32>, badge: core::option::Option<alloc::string::String>, menu: core::option::Option<Menu>) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, icon, tooltip, status, badge, menu,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn update(&mut self, cx: &libmessenger::server::Caller, icon: core::option::Option<Icon>, tooltip: core::option::Option<alloc::string::String>, status: core::option::Option<u32>, badge: core::option::Option<alloc::string::String>, menu: core::option::Option<Menu>) -> Result<(), libmessenger::server::Fault>;
 
     /// Drop the app's custom item: a running resident app goes back to its
     /// default item, any other app leaves the tray. Not an error without one.
-    fn clear(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn clear(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "shell_tray_v1_server")]

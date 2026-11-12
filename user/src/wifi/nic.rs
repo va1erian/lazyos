@@ -292,6 +292,9 @@ impl<R: Radio> wire::Server for NicService<R> {
             let _ = self.engine.kick(cx.sender, ring);
         }
     }
+
+    // `Notify` travels driver to client; one sent to the driver is ignored.
+    fn notify(&mut self, _: &Caller, _: u32, _: u32) {}
 }
 
 impl<R: Radio> NicService<R> {

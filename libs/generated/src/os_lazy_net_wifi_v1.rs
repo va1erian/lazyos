@@ -1038,33 +1038,25 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "net_wifi_v1_server")]
 /// What a program answering `os.lazy.net.wifi.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// The wireless interfaces `wlanmd` manages, by name (`wlan0`).
-    fn interfaces(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn interfaces(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault>;
 
     /// Ask for a fresh scan; returns at once, the results arrive on
     /// `system/net/{ifname}/wifi/scan`. `ssids` are hidden networks to probe
     /// for (at most 4); empty is a wildcard scan. A scan is refused while one
     /// is under way (`EBUSY`) and may be skipped while the link is busy with
     /// the handshake.
-    fn scan(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String, ssids: alloc::vec::Vec<alloc::string::String>) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, ifname, ssids,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn scan(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String, ssids: alloc::vec::Vec<alloc::string::String>) -> Result<(), libmessenger::server::Fault>;
 
     /// The current scan results merged with the known profiles: one entry per
     /// network (SSID and security), strongest BSS first, with the profile id
     /// when the caller may use a known network. Profiles of other users are
     /// not shown. At most 128 entries.
-    fn networks(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String) -> Result<alloc::vec::Vec<Network>, libmessenger::server::Fault> {
-        let _ = (cx, ifname,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn networks(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String) -> Result<alloc::vec::Vec<Network>, libmessenger::server::Fault>;
 
     /// Remember a network; `scope` is a `Scope` ordinal. Scope `User`: the
     /// caller's network and its secret; `profile.id` must be empty (the
@@ -1079,10 +1071,7 @@ pub trait Server {
     /// passphrase, or a name that matches several heard networks; `EPERM` for
     /// scope `System` from anyone but `elevd`; `ENOSPC` past 32 networks for
     /// one owner.
-    fn add_network(&mut self, cx: &libmessenger::server::Caller, profile: Profile, passphrase: core::option::Option<alloc::string::String>) -> Result<alloc::string::String, libmessenger::server::Fault> {
-        let _ = (cx, profile, passphrase,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn add_network(&mut self, cx: &libmessenger::server::Caller, profile: Profile, passphrase: core::option::Option<alloc::string::String>) -> Result<alloc::string::String, libmessenger::server::Fault>;
 
     /// Join the network `id` on `ifname`: leave the current one, scan if the
     /// SSID is not in the results, pick the best BSS, authenticate, associate
@@ -1090,32 +1079,20 @@ pub trait Server {
     /// outcome is on `system/net/{ifname}/wifi/state` (`Connected` or
     /// `Failed` with a reason). A user network belongs to its owner: another
     /// user gets `EPERM`.
-    fn connect(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String, id: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, ifname, id,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn connect(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String, id: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// Leave the current network and do not reconnect until asked (auto-
     /// connect is suspended for this interface until the next `Connect`).
     /// Not an error when not connected.
-    fn disconnect(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, ifname,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn disconnect(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// Delete a profile and its secret. Disconnects first if it is the
     /// current network. Not an error for an id that is gone.
-    fn forget(&mut self, cx: &libmessenger::server::Caller, id: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, id,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn forget(&mut self, cx: &libmessenger::server::Caller, id: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// The interface's state now: the same value the retained `state` topic
     /// carries, for a client that does not subscribe.
-    fn status(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String) -> Result<WifiState, libmessenger::server::Fault> {
-        let _ = (cx, ifname,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn status(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String) -> Result<WifiState, libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "net_wifi_v1_server")]

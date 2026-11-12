@@ -1311,112 +1311,68 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "net_socket_v1_server")]
 /// What a program answering `os.lazy.net.socket.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Make a socket of `kind` (a `SockKind` ordinal). The reply is the id
     /// every other call names.
-    fn open(&mut self, cx: &libmessenger::server::Caller, kind: u32) -> Result<u32, libmessenger::server::Fault> {
-        let _ = (cx, kind,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn open(&mut self, cx: &libmessenger::server::Caller, kind: u32) -> Result<u32, libmessenger::server::Fault>;
 
     /// Choose the local address and port. `addr.addr` must be all zeros (any)
     /// or the interface's own address; port 0 picks an ephemeral one.
-    fn bind(&mut self, cx: &libmessenger::server::Caller, sock: u32, addr: SockAddr) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, sock, addr,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn bind(&mut self, cx: &libmessenger::server::Caller, sock: u32, addr: SockAddr) -> Result<(), libmessenger::server::Fault>;
 
     /// Stream: open a connection to `addr`; parks until it is established or
     /// refused. Datagram: fix the peer `Send`/`Recv` use (never parks).
-    fn connect(&mut self, cx: &libmessenger::server::Caller, sock: u32, addr: SockAddr, timeout_ms: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, sock, addr, timeout_ms,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn connect(&mut self, cx: &libmessenger::server::Caller, sock: u32, addr: SockAddr, timeout_ms: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Stream only: accept connections on the bound port. `backlog` (1 to 8)
     /// is how many connections may complete before `Accept` collects them.
-    fn listen(&mut self, cx: &libmessenger::server::Caller, sock: u32, backlog: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, sock, backlog,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn listen(&mut self, cx: &libmessenger::server::Caller, sock: u32, backlog: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Stream only: take one established connection off a listener as a new
     /// socket owned by the caller; parks until one is there.
-    fn accept(&mut self, cx: &libmessenger::server::Caller, sock: u32, timeout_ms: u32) -> Result<AcceptReply, libmessenger::server::Fault> {
-        let _ = (cx, sock, timeout_ms,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn accept(&mut self, cx: &libmessenger::server::Caller, sock: u32, timeout_ms: u32) -> Result<AcceptReply, libmessenger::server::Fault>;
 
     /// Queue `data` (at most 16384 bytes) on a connected socket. Returns how
     /// many bytes were taken (possibly fewer than sent); parks while no byte
     /// would fit.
-    fn send(&mut self, cx: &libmessenger::server::Caller, sock: u32, data: alloc::vec::Vec<u8>, timeout_ms: u32) -> Result<u32, libmessenger::server::Fault> {
-        let _ = (cx, sock, data, timeout_ms,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn send(&mut self, cx: &libmessenger::server::Caller, sock: u32, data: alloc::vec::Vec<u8>, timeout_ms: u32) -> Result<u32, libmessenger::server::Fault>;
 
     /// Take up to `max` (1 to 16384) bytes from a connected socket; parks
     /// until at least one is there. An empty reply is the end of the stream.
-    fn recv(&mut self, cx: &libmessenger::server::Caller, sock: u32, max: u32, timeout_ms: u32) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault> {
-        let _ = (cx, sock, max, timeout_ms,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn recv(&mut self, cx: &libmessenger::server::Caller, sock: u32, max: u32, timeout_ms: u32) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault>;
 
     /// Datagram: send `data` (at most 1472 bytes) to `addr`. Never parks: a
     /// full send queue is `EAGAIN`.
-    fn send_to(&mut self, cx: &libmessenger::server::Caller, sock: u32, addr: SockAddr, data: alloc::vec::Vec<u8>) -> Result<u32, libmessenger::server::Fault> {
-        let _ = (cx, sock, addr, data,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn send_to(&mut self, cx: &libmessenger::server::Caller, sock: u32, addr: SockAddr, data: alloc::vec::Vec<u8>) -> Result<u32, libmessenger::server::Fault>;
 
     /// Datagram: take the next datagram, cut to `max` bytes (1 to 16384), and
     /// where it came from; parks until one is there.
-    fn recv_from(&mut self, cx: &libmessenger::server::Caller, sock: u32, max: u32, timeout_ms: u32) -> Result<RecvFromReply, libmessenger::server::Fault> {
-        let _ = (cx, sock, max, timeout_ms,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn recv_from(&mut self, cx: &libmessenger::server::Caller, sock: u32, max: u32, timeout_ms: u32) -> Result<RecvFromReply, libmessenger::server::Fault>;
 
     /// Wait until any bit of `interest` (a bitmap of `Ready` ordinals) is
     /// ready; the reply is the bitmap of what is. `Closed` and `Error` are
     /// always of interest. Parks until then.
-    fn poll(&mut self, cx: &libmessenger::server::Caller, sock: u32, interest: u32, timeout_ms: u32) -> Result<u32, libmessenger::server::Fault> {
-        let _ = (cx, sock, interest, timeout_ms,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn poll(&mut self, cx: &libmessenger::server::Caller, sock: u32, interest: u32, timeout_ms: u32) -> Result<u32, libmessenger::server::Fault>;
 
     /// Stream: end one or both directions (a `Shutdown` ordinal). `Write`
     /// sends FIN after the queued bytes; the socket stays open for reading.
-    fn shutdown(&mut self, cx: &libmessenger::server::Caller, sock: u32, how: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, sock, how,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn shutdown(&mut self, cx: &libmessenger::server::Caller, sock: u32, how: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// The socket's own address and port (`EINVAL` before `Bind`/`Connect`).
-    fn local_addr(&mut self, cx: &libmessenger::server::Caller, sock: u32) -> Result<SockAddr, libmessenger::server::Fault> {
-        let _ = (cx, sock,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn local_addr(&mut self, cx: &libmessenger::server::Caller, sock: u32) -> Result<SockAddr, libmessenger::server::Fault>;
 
     /// The peer's address and port (`ENOTCONN` when there is none).
-    fn peer_addr(&mut self, cx: &libmessenger::server::Caller, sock: u32) -> Result<SockAddr, libmessenger::server::Fault> {
-        let _ = (cx, sock,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn peer_addr(&mut self, cx: &libmessenger::server::Caller, sock: u32) -> Result<SockAddr, libmessenger::server::Fault>;
 
     /// Release the socket. A stream closes gracefully (FIN); a parked call on
     /// it is answered with `EBADF`.
-    fn close(&mut self, cx: &libmessenger::server::Caller, sock: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, sock,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn close(&mut self, cx: &libmessenger::server::Caller, sock: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Counters since `netd` started; anyone may read them.
-    fn stats(&mut self, cx: &libmessenger::server::Caller) -> Result<SocketStats, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn stats(&mut self, cx: &libmessenger::server::Caller) -> Result<SocketStats, libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "net_socket_v1_server")]

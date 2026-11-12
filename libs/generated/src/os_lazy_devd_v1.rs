@@ -276,14 +276,12 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "devd_v1_server")]
 /// What a program answering `os.lazy.devd.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Every device the kernel enumerated, with its match and state.
-    fn devices(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<DeviceState>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn devices(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<DeviceState>, libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "devd_v1_server")]

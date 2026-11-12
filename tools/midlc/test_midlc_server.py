@@ -49,8 +49,13 @@ class ServerTests(unittest.TestCase):
 
     def test_a_oneway_method_returns_nothing(self) -> None:
         text = server_text("os.lazy.demo.v1")
-        self.assertIn("fn fire(&mut self, cx: &libmessenger::server::Caller, code: u32) {", text)
+        self.assertIn("fn fire(&mut self, cx: &libmessenger::server::Caller, code: u32);", text)
         self.assertNotIn("encode_fire_reply", text)
+
+    def test_every_method_is_required(self) -> None:
+        text = server_text("os.lazy.demo.v1")
+        self.assertNotIn("NOSYS", text.split("pub fn dispatch")[0])
+        self.assertIn("fn pair(&mut self, cx: &libmessenger::server::Caller) -> Result<PairReply, libmessenger::server::Fault>;", text)
 
     def test_declared_errors_become_faults(self) -> None:
         text = server_text("os.lazy.demo.v1")

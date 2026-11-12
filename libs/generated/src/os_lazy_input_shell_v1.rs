@@ -1251,80 +1251,54 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "input_shell_v1_server")]
 /// What a program answering `os.lazy.input.shell.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Become the shell client; `events` is the endpoint that receives the
     /// shell events below, and on which the compositor makes every later
     /// call. Attaching again replaces it.
-    fn attach(&mut self, cx: &libmessenger::server::Caller, events: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, events,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn attach(&mut self, cx: &libmessenger::server::Caller, events: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// Move keyboard focus to `surface` (absent: nobody is focused and no key
     /// content is delivered). The previous holder gets `KeyboardLeave`, the new
     /// one `KeyboardEnter`; repeat is cancelled.
-    fn set_focus(&mut self, cx: &libmessenger::server::Caller, surface: core::option::Option<u64>) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_focus(&mut self, cx: &libmessenger::server::Caller, surface: core::option::Option<u64>) -> Result<(), libmessenger::server::Fault>;
 
     /// Declare that `owner` (a task slot, as the compositor stamps in
     /// `Surface.owner`) created `surface`, so `inputd` can match that task's
     /// `Open` to the window. `owner` 0 (never a client's slot) names the
     /// compositor itself: a surface of its own, such as the trusted prompt's
     /// (docs/accounts-plan.md U2), whose session only the compositor opens.
-    fn register_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64, owner: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface, owner,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn register_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64, owner: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// Forget a destroyed surface; its sessions are closed.
-    fn unregister_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, surface,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn unregister_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// Register a chord: `code` (HID usage) with exactly the Shift/Ctrl/Alt/
     /// Super bits of `mods`. A match is consumed (its press and release are
     /// never delivered to a client) and reported as `HotkeyFired`, except
     /// while a session holds a keyboard grab. The reserved escape chord
     /// (Escape with Ctrl+Alt) is refused with `EACCES`.
-    fn register_hotkey(&mut self, cx: &libmessenger::server::Caller, code: u32, mods: u32) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, code, mods,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn register_hotkey(&mut self, cx: &libmessenger::server::Caller, code: u32, mods: u32) -> Result<u64, libmessenger::server::Fault>;
 
     /// Drop a chord.
-    fn unregister_hotkey(&mut self, cx: &libmessenger::server::Caller, id: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, id,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn unregister_hotkey(&mut self, cx: &libmessenger::server::Caller, id: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// Answer a `GrantRequested`. `allow` starts the grab, provided the
     /// session still has keyboard focus (otherwise it is denied); either way
     /// the client gets `GrantChanged`. `ENOENT` when no request of that
     /// session is pending.
-    fn approve_grant(&mut self, cx: &libmessenger::server::Caller, session: u64, allow: bool) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, session, allow,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn approve_grant(&mut self, cx: &libmessenger::server::Caller, session: u64, allow: bool) -> Result<(), libmessenger::server::Fault>;
 
     /// The screen size the cursor is clamped to (each side `1..=16384`, else
     /// `EINVAL`). `inputd` re-clamps the cursor at once and, if that moved it,
     /// sends a `PointerEvent`. It replaces the kernel's own cursor bounds.
-    fn set_bounds(&mut self, cx: &libmessenger::server::Caller, width: u32, height: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, width, height,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_bounds(&mut self, cx: &libmessenger::server::Caller, width: u32, height: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// The cursor position and held `buttons` (as in `PointerEvent`), to seed
     /// the compositor's cursor after `Attach`.
-    fn get_pointer(&mut self, cx: &libmessenger::server::Caller) -> Result<GetPointerReply, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn get_pointer(&mut self, cx: &libmessenger::server::Caller) -> Result<GetPointerReply, libmessenger::server::Fault>;
 
     /// One-way `SetFocus`: the compositor's main loop never waits on `inputd`
     /// (docs/performance-plan.md P3.6). Requests on the compositor's channel
@@ -1334,23 +1308,17 @@ pub trait Server {
     /// The trusted prompt never relies on a note: it waits for `SetFocus`.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn note_focus(&mut self, cx: &libmessenger::server::Caller, surface: core::option::Option<u64>) {
-        let _ = (cx, surface,);
-    }
+    fn note_focus(&mut self, cx: &libmessenger::server::Caller, surface: core::option::Option<u64>);
 
     /// One-way `RegisterSurface` (see `NoteFocus`).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn note_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64, owner: u64) {
-        let _ = (cx, surface, owner,);
-    }
+    fn note_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64, owner: u64);
 
     /// One-way `UnregisterSurface` (see `NoteFocus`).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn forget_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64) {
-        let _ = (cx, surface,);
-    }
+    fn forget_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64);
 
     /// One-way: the compositor has handled every `PointerEvent` up to `seq`
     /// and already noted the focus they led to. A click can move focus, so
@@ -1361,9 +1329,7 @@ pub trait Server {
     /// click left.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn note_input_done(&mut self, cx: &libmessenger::server::Caller, seq: u64) {
-        let _ = (cx, seq,);
-    }
+    fn note_input_done(&mut self, cx: &libmessenger::server::Caller, seq: u64);
 
     /// One-way: the shell's panel menu has the keyboard (`held`), or no
     /// longer has it. Focus does not move, so the focused session sees no
@@ -1375,9 +1341,7 @@ pub trait Server {
     /// (`inputmap::hold`, issue #648).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn note_keys_held(&mut self, cx: &libmessenger::server::Caller, held: bool) {
-        let _ = (cx, held,);
-    }
+    fn note_keys_held(&mut self, cx: &libmessenger::server::Caller, held: bool);
 
     /// One-way: the logged-in user's own keyboard layout (`confd`'s
     /// `user/<uid>/input/layout`, which `inputd` may not read), or absent to
@@ -1386,50 +1350,38 @@ pub trait Server {
     /// It ends with the compositor (`inputmap::session_layout`).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn note_session_layout(&mut self, cx: &libmessenger::server::Caller, layout: core::option::Option<alloc::string::String>) {
-        let _ = (cx, layout,);
-    }
+    fn note_session_layout(&mut self, cx: &libmessenger::server::Caller, layout: core::option::Option<alloc::string::String>);
 
     /// Shell event: a registered chord was pressed.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn hotkey_fired(&mut self, cx: &libmessenger::server::Caller, id: u64) {
-        let _ = (cx, id,);
-    }
+    fn hotkey_fired(&mut self, cx: &libmessenger::server::Caller, id: u64);
 
     /// Shell event: the client owning `surface` asked for a grab of `kind`
     /// (a `GrantKind`) for `session`; answer with `ApproveGrant`. The
     /// request is withdrawn if focus moves first.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn grant_requested(&mut self, cx: &libmessenger::server::Caller, session: u64, kind: u32, surface: u64) {
-        let _ = (cx, session, kind, surface,);
-    }
+    fn grant_requested(&mut self, cx: &libmessenger::server::Caller, session: u64, kind: u32, surface: u64);
 
     /// Shell event: the reserved escape chord (Ctrl+Alt+Esc) was pressed. It
     /// reverted any grab (`GrabChanged` follows when one was held) and is
     /// never delivered to a client.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn escape_chord(&mut self, cx: &libmessenger::server::Caller) {
-        let _ = (cx,);
-    }
+    fn escape_chord(&mut self, cx: &libmessenger::server::Caller);
 
     /// Shell event: `surface` now receives keys through an input session, so
     /// the compositor must stop synthesising legacy `KeyDown`/`KeyUp` for it.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn session_opened(&mut self, cx: &libmessenger::server::Caller, surface: u64) {
-        let _ = (cx, surface,);
-    }
+    fn session_opened(&mut self, cx: &libmessenger::server::Caller, surface: u64);
 
     /// Shell event: the last input session of `surface` ended; legacy key
     /// delivery applies again.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn session_closed(&mut self, cx: &libmessenger::server::Caller, surface: u64) {
-        let _ = (cx, surface,);
-    }
+    fn session_closed(&mut self, cx: &libmessenger::server::Caller, surface: u64);
 
     /// Shell event: the pointer changed. One cursor for every pointing device
     /// (`docs/usb-hid-plan.md`): `x`, `y` are screen pixels inside the bounds,
@@ -1441,18 +1393,14 @@ pub trait Server {
     /// its decision. `ts_ns`/`seq` are the newest raw record's.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn pointer_event(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, buttons: u32, wheel: i32, wheel_h: i32, ts_ns: u64, seq: u64) {
-        let _ = (cx, x, y, buttons, wheel, wheel_h, ts_ns, seq,);
-    }
+    fn pointer_event(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, buttons: u32, wheel: i32, wheel_h: i32, ts_ns: u64, seq: u64);
 
     /// Shell event: `surface` now holds the keyboard grab (absent: nobody
     /// does). While a grab is held the compositor must not act on its own
     /// chords from the kernel key stream either: they belong to the grabber.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn grab_changed(&mut self, cx: &libmessenger::server::Caller, surface: core::option::Option<u64>) {
-        let _ = (cx, surface,);
-    }
+    fn grab_changed(&mut self, cx: &libmessenger::server::Caller, surface: core::option::Option<u64>);
 
     /// Shell event: a key went down on some keyboard (PS/2 or USB; sent after
     /// `inputd` handled it, so a key held back while the shell asked for the
@@ -1461,9 +1409,7 @@ pub trait Server {
     /// timer and to wake a blank screen.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn key_activity(&mut self, cx: &libmessenger::server::Caller) {
-        let _ = (cx,);
-    }
+    fn key_activity(&mut self, cx: &libmessenger::server::Caller);
 }
 
 #[cfg(feature = "input_shell_v1_server")]

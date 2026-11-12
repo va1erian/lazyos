@@ -341,7 +341,8 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "elevd_v1_server")]
 /// What a program answering `os.lazy.elevd.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Perform `operation` (a row of the operation table, e.g.
@@ -353,16 +354,10 @@ pub trait Server {
     /// `Release`. `detail` describes what was done,
     /// `values` carries the operation's results (`conf.list`'s paths,
     /// `conf.get`'s kind and value).
-    fn request(&mut self, cx: &libmessenger::server::Caller, operation: alloc::string::String, args: alloc::vec::Vec<alloc::string::String>) -> Result<RequestReply, libmessenger::server::Fault> {
-        let _ = (cx, operation, args,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn request(&mut self, cx: &libmessenger::server::Caller, operation: alloc::string::String, args: alloc::vec::Vec<alloc::string::String>) -> Result<RequestReply, libmessenger::server::Fault>;
 
     /// End the caller's standing approvals now (an elevated editor closing).
-    fn release(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn release(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "elevd_v1_server")]

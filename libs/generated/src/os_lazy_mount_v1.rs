@@ -645,7 +645,8 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "mount_v1_server")]
 /// What a program answering `os.lazy.mount.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// The mount's name: it is served at `path`, `/mnt/<name>`.
@@ -670,24 +671,15 @@ pub trait Server {
     /// control character, and a `password` only with a `user`. An SMB
     /// password reaches `smbfuse` through its environment, never its
     /// arguments. `path` is the mount point the daemon will serve.
-    fn mount(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, host: alloc::string::String, port: u32, user: alloc::string::String, password: alloc::string::String, kind: alloc::string::String, share: alloc::string::String) -> Result<alloc::string::String, libmessenger::server::Fault> {
-        let _ = (cx, name, host, port, user, password, kind, share,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn mount(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, host: alloc::string::String, port: u32, user: alloc::string::String, password: alloc::string::String, kind: alloc::string::String, share: alloc::string::String) -> Result<alloc::string::String, libmessenger::server::Fault>;
 
     /// Stop the mount `name` and forget it (a failed one is just forgotten).
     /// The daemon is stopped at once; the kernel takes the dead mount out of
     /// `/mnt` within a few seconds, and until then it fails every call.
-    fn unmount(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, name,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn unmount(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// Every mount the service knows about, in the order they were asked for.
-    fn list(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<MountInfo>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn list(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<MountInfo>, libmessenger::server::Fault>;
 
     /// The disk, `usb<n>`: what `Eject` names.
     /// The mount's name, the volume's label made safe for a path; empty
@@ -703,10 +695,7 @@ pub trait Server {
     /// The removable volumes of the caller (all of them for root), oldest
     /// plug first. An ended volume stays listed until its stick is pulled,
     /// so its outcome can be read.
-    fn volumes(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<VolumeInfo>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn volumes(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<VolumeInfo>, libmessenger::server::Fault>;
 
     /// Eject the volume on `disk` (`usb<n>`): flush, close and unmount it,
     /// then let the stick be pulled. Answers at once; the answer's `state`
@@ -717,10 +706,7 @@ pub trait Server {
     /// request itself are `ENOENT` (no such disk), `EPERM` (another user's
     /// volume), `EINVAL` (not a disk name) and `EAGAIN` (still starting:
     /// ask again in a moment).
-    fn eject(&mut self, cx: &libmessenger::server::Caller, disk: alloc::string::String, force: bool) -> Result<EjectReply, libmessenger::server::Fault> {
-        let _ = (cx, disk, force,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn eject(&mut self, cx: &libmessenger::server::Caller, disk: alloc::string::String, force: bool) -> Result<EjectReply, libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "mount_v1_server")]

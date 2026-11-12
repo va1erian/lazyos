@@ -1871,14 +1871,12 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "init_v1_server")]
 /// What a program answering `os.lazy.init.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Snapshot the supervision table.
-    fn services(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<ServiceStatus>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn services(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<ServiceStatus>, libmessenger::server::Fault>;
 
     /// Launch an app as a session child. `session` 0 means the caller's own
     /// session; only the session's owner (or root) may launch into it. `args`
@@ -1888,19 +1886,13 @@ pub trait Server {
     /// (`AppInfo.resident`) already running in that session starts nothing:
     /// `init` sends its instance `Reopen(args)` (`os.lazy.init.app.events.v1`)
     /// and answers `existing` true with that instance's pid.
-    fn launch(&mut self, cx: &libmessenger::server::Caller, app: alloc::string::String, args: alloc::string::String, session: u64) -> Result<LaunchReply, libmessenger::server::Fault> {
-        let _ = (cx, app, args, session,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn launch(&mut self, cx: &libmessenger::server::Caller, app: alloc::string::String, args: alloc::string::String, session: u64) -> Result<LaunchReply, libmessenger::server::Fault>;
 
     /// Enumerate the app registry: the built-in apps first, then the apps the
     /// package manager installed (`AppInfo.installed`; the core packages
     /// first, then the others by `system_name`), read afresh from the
     /// configuration registry on every call. `hidden` is the caller's own.
-    fn list_apps(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<AppInfo>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn list_apps(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<AppInfo>, libmessenger::server::Fault>;
 
     /// Stop every running instance of the app `app` (the app id, as `Launch`
     /// takes it), retiring its supervision row without a restart: an
@@ -1912,10 +1904,7 @@ pub trait Server {
     /// `CAP_SETUID` (the package manager) or the session owner may stop; an
     /// owner reaches only instances in their own session. Unknown or idle apps
     /// are not an error, `stopped` is just 0.
-    fn stop(&mut self, cx: &libmessenger::server::Caller, app: alloc::string::String) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, app,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn stop(&mut self, cx: &libmessenger::server::Caller, app: alloc::string::String) -> Result<u64, libmessenger::server::Fault>;
 
     /// Begin an orderly shutdown (docs/shutdown.md): `mode` is a `PowerMode`
     /// value. The reply is immediate; `init` then stops the session apps, the
@@ -1926,10 +1915,7 @@ pub trait Server {
     /// while a shutdown is already running is not an error: `accepted` is true
     /// and `phase` is the current phase. `force` skips the graceful stop: every
     /// remaining child is killed at once and the machine stops.
-    fn shutdown(&mut self, cx: &libmessenger::server::Caller, mode: u32, reason: alloc::string::String, force: bool) -> Result<ShutdownReply, libmessenger::server::Fault> {
-        let _ = (cx, mode, reason, force,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn shutdown(&mut self, cx: &libmessenger::server::Caller, mode: u32, reason: alloc::string::String, force: bool) -> Result<ShutdownReply, libmessenger::server::Fault>;
 
     /// Start the driver row `driver` for device `device` (issue #497,
     /// docs/driver-plan.md section 3.6). Only the running task of the `devd`
@@ -1946,10 +1932,7 @@ pub trait Server {
     /// names an interface another card holds, is `EINVAL`. An unknown row is
     /// `ENOENT`, any other caller `EPERM`, and a request during a shutdown
     /// `EBUSY`.
-    fn start_driver(&mut self, cx: &libmessenger::server::Caller, driver: alloc::string::String, device: u64, ifname: alloc::string::String) -> Result<StartDriverReply, libmessenger::server::Fault> {
-        let _ = (cx, driver, device, ifname,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn start_driver(&mut self, cx: &libmessenger::server::Caller, driver: alloc::string::String, device: u64, ifname: alloc::string::String) -> Result<StartDriverReply, libmessenger::server::Fault>;
 
     /// A supervised service tells `init` it is serving (docs/performance-plan.md
     /// P7.3): its name is registered and requests are answered. Rows that
@@ -1958,9 +1941,7 @@ pub trait Server {
     /// anything else is ignored.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn ready(&mut self, cx: &libmessenger::server::Caller) {
-        let _ = (cx,);
-    }
+    fn ready(&mut self, cx: &libmessenger::server::Caller);
 
     /// A launched app says why it is about to fail (issue #549), so the
     /// desktop's "stopped unexpectedly" notice can show more than an exit
@@ -1970,9 +1951,7 @@ pub trait Server {
     /// one, and every new run starts with none.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn report_failure(&mut self, cx: &libmessenger::server::Caller, reason: alloc::string::String) {
-        let _ = (cx, reason,);
-    }
+    fn report_failure(&mut self, cx: &libmessenger::server::Caller, reason: alloc::string::String);
 
     /// Make or retire an account's home (docs/accounts-plan.md U1). Accepted
     /// from the accounts service alone (the `_accounts` system uid,
@@ -1982,10 +1961,7 @@ pub trait Server {
     /// `/home/.archived/<name>-<uid>`, root-only) or `remove`. `uid` must be a
     /// human account's (1000 or more) and `name` a login name. The reply
     /// comes once the change is done; a failed change is `EIO`.
-    fn home(&mut self, cx: &libmessenger::server::Caller, op: alloc::string::String, name: alloc::string::String, uid: u32, gid: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, op, name, uid, gid,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn home(&mut self, cx: &libmessenger::server::Caller, op: alloc::string::String, name: alloc::string::String, uid: u32, gid: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Restart the system service `name` (docs/accounts-plan.md U2): its
     /// running task is killed and the supervisor starts it again as after a
@@ -1994,10 +1970,7 @@ pub trait Server {
     /// `elevd`, `logind`, `accountsd`, `keyd`, `confd`, `logd` or `init`'s
     /// own fabric): any other name is `EPERM`, an app or an unknown row
     /// `ENOENT`, a row not running `EAGAIN`.
-    fn restart_service(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, name,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn restart_service(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String) -> Result<u64, libmessenger::server::Fault>;
 
     /// Hot-reload the system service `name` (docs/dbgd-plan.md, v2): accepted
     /// from `dbgd` alone, and only when `/boot/lazyos.cfg` says
@@ -2012,18 +1985,12 @@ pub trait Server {
     /// `EPERM` for another caller or a refused name, `ENOENT` for no such
     /// manifest row, `EAGAIN` for a row still waiting for its dependencies or
     /// a shutdown, `EINVAL` for a bad file or a digest that does not match.
-    fn reload_service(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, binary: alloc::string::String, sha256: alloc::string::String, trial_ms: u32) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, name, binary, sha256, trial_ms,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn reload_service(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, binary: alloc::string::String, sha256: alloc::string::String, trial_ms: u32) -> Result<u64, libmessenger::server::Fault>;
 
     /// Put the image's binary back for a hot-reloaded service and restart
     /// it. Same callers and refusals as `ReloadService`; a service that was
     /// never reloaded is just restarted.
-    fn revert_service(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, name,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn revert_service(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String) -> Result<u64, libmessenger::server::Fault>;
 
     /// Restart a running app after `pkgd.InstallDebug` replaced it
     /// (docs/dbgd-plan.md, v2 app swapping): every running instance of the
@@ -2032,17 +1999,11 @@ pub trait Server {
     /// install. Same callers as `ReloadService`. `stopped` counts the
     /// instances killed, `started` the ones launched again; an app that is
     /// not running is not an error (both 0).
-    fn relaunch_app(&mut self, cx: &libmessenger::server::Caller, app: alloc::string::String) -> Result<RelaunchAppReply, libmessenger::server::Fault> {
-        let _ = (cx, app,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn relaunch_app(&mut self, cx: &libmessenger::server::Caller, app: alloc::string::String) -> Result<RelaunchAppReply, libmessenger::server::Fault>;
 
     /// The hot reloads since boot, one row per service that had one.
     /// Read-only: any caller.
-    fn reloads(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<ReloadState>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn reloads(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<ReloadState>, libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "init_v1_server")]

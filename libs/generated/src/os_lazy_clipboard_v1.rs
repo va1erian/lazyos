@@ -1072,17 +1072,15 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "clipboard_v1_server")]
 /// What a program answering `os.lazy.clipboard.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Publish typed payloads for the caller's session and return the new
     /// offer token. An eager offer fills `data` (one bounded copy is kept); a
     /// lazy offer sets `sink`, the registry name of the endpoint where the
     /// owner serves `Serialize`, and leaves `data` empty.
-    fn offer(&mut self, cx: &libmessenger::server::Caller, owner: alloc::string::String, sink: core::option::Option<alloc::string::String>, mimes: alloc::vec::Vec<alloc::string::String>, data: alloc::vec::Vec<Payload>) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, owner, sink, mimes, data,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn offer(&mut self, cx: &libmessenger::server::Caller, owner: alloc::string::String, sink: core::option::Option<alloc::string::String>, mimes: alloc::vec::Vec<alloc::string::String>, data: alloc::vec::Vec<Payload>) -> Result<u64, libmessenger::server::Fault>;
 
     /// Publish one large payload (more than the inline cap of 8 KiB, at most
     /// 16 MiB) for the caller's session. The range `data.offset .. + data.len`
@@ -1093,10 +1091,7 @@ pub trait Server {
     /// retained-bytes budget (64 MiB; the oldest offers are evicted past it).
     /// Travels on this interface's own id, not a scope id: the kernel's
     /// declared-object gate keys on the header's interface.
-    fn offer_buffer(&mut self, cx: &libmessenger::server::Caller, owner: alloc::string::String, mime: alloc::string::String, data: libmessenger::Buffer) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, owner, mime, data,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn offer_buffer(&mut self, cx: &libmessenger::server::Caller, owner: alloc::string::String, mime: alloc::string::String, data: libmessenger::Buffer) -> Result<u64, libmessenger::server::Fault>;
 
     /// Read one MIME of an offer. `token` 0 selects the newest offer in the
     /// caller's session that lists `mime`; another session's token fails with
@@ -1104,40 +1099,25 @@ pub trait Server {
     /// payload's length. A payload up to the inline cap rides in `bytes`; a
     /// larger one leaves `bytes` empty and is read with `Fetch`, using the
     /// reply's `token`.
-    fn request(&mut self, cx: &libmessenger::server::Caller, token: u64, mime: alloc::string::String) -> Result<RequestReply, libmessenger::server::Fault> {
-        let _ = (cx, token, mime,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn request(&mut self, cx: &libmessenger::server::Caller, token: u64, mime: alloc::string::String) -> Result<RequestReply, libmessenger::server::Fault>;
 
     /// Copy a large payload (see `Request`) into the caller's buffer: the
     /// bytes of `token`'s `mime` go to `into`'s range, which must be at least
     /// `size` long (`E2BIG` otherwise). `token` must be an exact token (0 is
     /// `EINVAL`), authorised like `Request` (another session's is `EACCES` and
     /// audited). Replies with the number of bytes written.
-    fn fetch(&mut self, cx: &libmessenger::server::Caller, token: u64, mime: alloc::string::String, into: libmessenger::Buffer) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, token, mime, into,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn fetch(&mut self, cx: &libmessenger::server::Caller, token: u64, mime: alloc::string::String, into: libmessenger::Buffer) -> Result<u64, libmessenger::server::Fault>;
 
     /// Serialize one MIME of a lazy offer on demand. The service calls this on
     /// the offer owner's `sink` endpoint when a paste happens.
-    fn serialize(&mut self, cx: &libmessenger::server::Caller, token: u64, mime: alloc::string::String) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault> {
-        let _ = (cx, token, mime,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn serialize(&mut self, cx: &libmessenger::server::Caller, token: u64, mime: alloc::string::String) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault>;
 
     /// Liveness probe.
-    fn ping(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn ping(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault>;
 
     /// Metadata of the caller session's newest offer, never content; empty
     /// when no offer is live.
-    fn current(&mut self, cx: &libmessenger::server::Caller) -> Result<core::option::Option<OfferMeta>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn current(&mut self, cx: &libmessenger::server::Caller) -> Result<core::option::Option<OfferMeta>, libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "clipboard_v1_server")]

@@ -683,37 +683,26 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "mimed_v1_server")]
 /// What a program answering `os.lazy.mimed.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// MIME type for `path` from the database; a path the database has no
     /// entry for reports `application/octet-stream`.
-    fn guess(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<alloc::string::String, libmessenger::server::Fault> {
-        let _ = (cx, path,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn guess(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<alloc::string::String, libmessenger::server::Fault>;
 
     /// The app registered for `mime` and `verb`; an empty `app` means none is.
-    fn lookup(&mut self, cx: &libmessenger::server::Caller, mime: alloc::string::String, verb: alloc::string::String) -> Result<core::option::Option<alloc::string::String>, libmessenger::server::Fault> {
-        let _ = (cx, mime, verb,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn lookup(&mut self, cx: &libmessenger::server::Caller, mime: alloc::string::String, verb: alloc::string::String) -> Result<core::option::Option<alloc::string::String>, libmessenger::server::Fault>;
 
     /// Verbs registered for `mime` (`open`, `edit`, `reveal`, ...), in
     /// registration order.
-    fn verbs(&mut self, cx: &libmessenger::server::Caller, mime: alloc::string::String) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault> {
-        let _ = (cx, mime,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn verbs(&mut self, cx: &libmessenger::server::Caller, mime: alloc::string::String) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault>;
 
     /// Guess the type of `path`, resolve the app for `verb` (falling back to
     /// `open`), ask `init` to launch it and publish the launch event.
     /// `published` reports whether the event went out, `launched` whether
     /// `init` accepted the launch request.
-    fn open(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String, verb: alloc::string::String) -> Result<OpenReply, libmessenger::server::Fault> {
-        let _ = (cx, path, verb,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn open(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String, verb: alloc::string::String) -> Result<OpenReply, libmessenger::server::Fault>;
 
     /// Add or replace the app registered for `mime` and `verb`; the registry
     /// keeps the latest registration for each pair. Only a system service (the
@@ -726,10 +715,7 @@ pub trait Server {
     /// administrator installed for everyone: `Open` skips a registration whose
     /// owner is neither `0` nor the uid that opens, so one user's package never
     /// takes a type over for the next user.
-    fn register(&mut self, cx: &libmessenger::server::Caller, mime: alloc::string::String, app: alloc::string::String, verb: alloc::string::String, owner: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, mime, app, verb, owner,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn register(&mut self, cx: &libmessenger::server::Caller, mime: alloc::string::String, app: alloc::string::String, verb: alloc::string::String, owner: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Withdraw `app`'s registration for `mime` and `verb`, so removing an
     /// installed app leaves no dangling handler. Only the caller's root
@@ -738,10 +724,7 @@ pub trait Server {
     /// another app is never undone, and the registration `app` had replaced
     /// takes over again. Withdrawing a registration that is not there is not
     /// an error.
-    fn unregister(&mut self, cx: &libmessenger::server::Caller, mime: alloc::string::String, app: alloc::string::String, verb: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, mime, app, verb,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn unregister(&mut self, cx: &libmessenger::server::Caller, mime: alloc::string::String, app: alloc::string::String, verb: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "mimed_v1_server")]

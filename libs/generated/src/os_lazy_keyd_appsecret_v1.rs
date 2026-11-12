@@ -313,33 +313,22 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "keyd_appsecret_v1_server")]
 /// What a program answering `os.lazy.keyd.appsecret.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Keep `secret` under `name` for the calling app and user, replacing one
     /// of that name.
-    fn put(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, secret: alloc::vec::Vec<u8>) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, name, secret,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn put(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, secret: alloc::vec::Vec<u8>) -> Result<(), libmessenger::server::Fault>;
 
     /// The calling app's secret `name` (`ENOENT` when there is none).
-    fn get(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault> {
-        let _ = (cx, name,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn get(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault>;
 
     /// Forget the calling app's secret `name` (`ENOENT` when there is none).
-    fn delete(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, name,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn delete(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// The names of the calling app's secrets, sorted. Names only.
-    fn list(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn list(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "keyd_appsecret_v1_server")]

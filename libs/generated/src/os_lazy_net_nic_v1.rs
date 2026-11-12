@@ -769,62 +769,44 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "net_nic_v1_server")]
 /// What a program answering `os.lazy.net.nic.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Describe the card: MAC, MTU, link state and the negotiated feature set.
-    fn info(&mut self, cx: &libmessenger::server::Caller) -> Result<NicInfo, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn info(&mut self, cx: &libmessenger::server::Caller) -> Result<NicInfo, libmessenger::server::Fault>;
 
     /// Choose which received frames reach the client: an `RxMode` ordinal.
     /// The reply says whether the driver applied it (a device without a
     /// filter table treats `Filtered` as `Promiscuous` and answers `false`).
     /// Only the attached client may change it.
-    fn set_rx_mode(&mut self, cx: &libmessenger::server::Caller, mode: u32) -> Result<bool, libmessenger::server::Fault> {
-        let _ = (cx, mode,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_rx_mode(&mut self, cx: &libmessenger::server::Caller, mode: u32) -> Result<bool, libmessenger::server::Fault>;
 
     /// Attach the client's rings and notify endpoint (see the interface
     /// notes for what the parcel carries). `slots` is the slot count of both
     /// rings. The reply is the ring id later calls name.
-    fn attach_ring(&mut self, cx: &libmessenger::server::Caller, slots: u32, rings: libmessenger::Buffer, notify: u64) -> Result<u32, libmessenger::server::Fault> {
-        let _ = (cx, slots, rings, notify,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn attach_ring(&mut self, cx: &libmessenger::server::Caller, slots: u32, rings: libmessenger::Buffer, notify: u64) -> Result<u32, libmessenger::server::Fault>;
 
     /// Release the rings; the driver stops reading and writing them. Also
     /// implied when the owner exits or its notify endpoint reports the peer
     /// gone.
-    fn detach_ring(&mut self, cx: &libmessenger::server::Caller, ring: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, ring,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn detach_ring(&mut self, cx: &libmessenger::server::Caller, ring: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Frame and error counters since the driver started.
-    fn stats(&mut self, cx: &libmessenger::server::Caller) -> Result<NicStats, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn stats(&mut self, cx: &libmessenger::server::Caller) -> Result<NicStats, libmessenger::server::Fault>;
 
     /// Event, client to driver: the client queued frames in the transmit ring
     /// of `ring`. Ignored from anyone but the owner.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn kick(&mut self, cx: &libmessenger::server::Caller, ring: u32) {
-        let _ = (cx, ring,);
-    }
+    fn kick(&mut self, cx: &libmessenger::server::Caller, ring: u32);
 
     /// Event, driver to client: something needs the client's attention.
     /// `events` is a bitmap: bit *n* is set for the `NotifyBit` with ordinal
     /// *n*. Reserved bits are zero; a client ignores them.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn notify(&mut self, cx: &libmessenger::server::Caller, ring: u32, events: u32) {
-        let _ = (cx, ring, events,);
-    }
+    fn notify(&mut self, cx: &libmessenger::server::Caller, ring: u32, events: u32);
 }
 
 #[cfg(feature = "net_nic_v1_server")]

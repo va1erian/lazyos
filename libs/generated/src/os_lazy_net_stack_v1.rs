@@ -1107,43 +1107,29 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "net_stack_v1_server")]
 /// What a program answering `os.lazy.net.stack.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// The interfaces the stack drives, one per attached card.
-    fn interfaces(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<InterfaceInfo>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn interfaces(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<InterfaceInfo>, libmessenger::server::Fault>;
 
     /// The addresses configured on every interface.
-    fn addresses(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<AddressInfo>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn addresses(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<AddressInfo>, libmessenger::server::Fault>;
 
     /// The routing table: every interface's on-link route and default route,
     /// the default routes ordered by metric (the lowest wins).
-    fn routes(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<RouteInfo>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn routes(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<RouteInfo>, libmessenger::server::Fault>;
 
     /// Stack counters since it started.
-    fn stats(&mut self, cx: &libmessenger::server::Caller) -> Result<StackStats, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn stats(&mut self, cx: &libmessenger::server::Caller) -> Result<StackStats, libmessenger::server::Fault>;
 
     /// Send one ICMP echo request to `dst` (four octets) with `payload_len`
     /// bytes of payload (0 to 1400) and wait for its reply. `timeout_ms`
     /// (10 to 60000) bounds the wait. Fails with `EINVAL` for a bad argument,
     /// `ENETUNREACH` when there is no address or route yet, `EAGAIN` when this
     /// caller has 4 pings outstanding or all callers together have 8, and `ETIMEDOUT` when no reply came.
-    fn ping(&mut self, cx: &libmessenger::server::Caller, dst: alloc::vec::Vec<u8>, payload_len: u32, timeout_ms: u32) -> Result<EchoResult, libmessenger::server::Fault> {
-        let _ = (cx, dst, payload_len, timeout_ms,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn ping(&mut self, cx: &libmessenger::server::Caller, dst: alloc::vec::Vec<u8>, payload_len: u32, timeout_ms: u32) -> Result<EchoResult, libmessenger::server::Fault>;
 
     /// Look `name` up (A records) at the resolvers DHCP or the static
     /// configuration gave. `name` is a host name of at most 253 bytes made of
@@ -1154,24 +1140,15 @@ pub trait Server {
     /// resolver says the name has no address, and `ETIMEDOUT` when no answer
     /// came. The reply lists the addresses found, four octets each. A dotted
     /// quad needs no query and is answered at once.
-    fn resolve(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, timeout_ms: u32) -> Result<alloc::vec::Vec<alloc::vec::Vec<u8>>, libmessenger::server::Fault> {
-        let _ = (cx, name, timeout_ms,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn resolve(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, timeout_ms: u32) -> Result<alloc::vec::Vec<alloc::vec::Vec<u8>>, libmessenger::server::Fault>;
 
     /// Ask for a fresh DHCP lease (drops the current one). Gated by the ACL.
-    fn renew(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn renew(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault>;
 
     /// Drop the attachment to the NIC driver and establish it again, as after
     /// a driver restart: the stack keeps its lease and timers. A recovery and
     /// test call; gated by the ACL.
-    fn reattach(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn reattach(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "net_stack_v1_server")]

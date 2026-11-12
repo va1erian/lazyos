@@ -478,44 +478,30 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "logd_v1_server")]
 /// What a program answering `os.lazy.logd.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Return the newest `count` records; an absent `count` means `10`.
-    fn tail(&mut self, cx: &libmessenger::server::Caller, count: core::option::Option<u64>) -> Result<alloc::vec::Vec<LogRecord>, libmessenger::server::Fault> {
-        let _ = (cx, count,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn tail(&mut self, cx: &libmessenger::server::Caller, count: core::option::Option<u64>) -> Result<alloc::vec::Vec<LogRecord>, libmessenger::server::Fault>;
 
     /// Return the number of records appended since boot.
-    fn count(&mut self, cx: &libmessenger::server::Caller) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn count(&mut self, cx: &libmessenger::server::Caller) -> Result<u64, libmessenger::server::Fault>;
 
     /// Recompute the hash chain and report `ok`/first bad `index` (the record
     /// count when the chain is intact).
-    fn verify(&mut self, cx: &libmessenger::server::Caller) -> Result<VerifyReply, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn verify(&mut self, cx: &libmessenger::server::Caller) -> Result<VerifyReply, libmessenger::server::Fault>;
 
     /// The sources that have a persisted journal (`/logs/<source>.log`),
     /// sorted; empty when the store is absent. Served to uid 0 only, like
     /// `TailFile`: the journals carry every user's activity.
-    fn sources(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn sources(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault>;
 
     /// The newest `count` lines of `/logs/<source>.log` (records of earlier
     /// boots included), oldest first. Served to uid 0 only (`EACCES`
     /// otherwise); a source outside `[a-z0-9_-]{1,32}` fails with `EINVAL`
     /// and one without a journal with `ENOENT`.
-    fn tail_file(&mut self, cx: &libmessenger::server::Caller, source: alloc::string::String, count: u64) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault> {
-        let _ = (cx, source, count,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn tail_file(&mut self, cx: &libmessenger::server::Caller, source: alloc::string::String, count: u64) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "logd_v1_server")]

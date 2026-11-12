@@ -551,7 +551,8 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "notify_v1_server")]
 /// What a program answering `os.lazy.notify.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Show a toast and return its id. With `replaces_id` naming a live
@@ -564,26 +565,17 @@ pub trait Server {
     /// Success 5 s), 0 until dismissed, otherwise 1 s to 60 s. Warn and
     /// Error never time out, and neither does a toast whose `progress` is
     /// below 100. `actions` is empty for none; `progress` absent for none.
-    fn notify(&mut self, cx: &libmessenger::server::Caller, level: u32, title: alloc::string::String, body: alloc::string::String, icon: core::option::Option<Icon>, actions: alloc::vec::Vec<Action>, progress: core::option::Option<u32>, replaces_id: core::option::Option<u64>, timeout: core::option::Option<u32>) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, level, title, body, icon, actions, progress, replaces_id, timeout,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn notify(&mut self, cx: &libmessenger::server::Caller, level: u32, title: alloc::string::String, body: alloc::string::String, icon: core::option::Option<Icon>, actions: alloc::vec::Vec<Action>, progress: core::option::Option<u32>, replaces_id: core::option::Option<u64>, timeout: core::option::Option<u32>) -> Result<u64, libmessenger::server::Fault>;
 
     /// Close the sender's toast `id` (`Closed` with reason `Sender`). Not an
     /// error when it is already gone, or is not this sender's.
-    fn close(&mut self, cx: &libmessenger::server::Caller, id: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, id,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn close(&mut self, cx: &libmessenger::server::Caller, id: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// Ask for this app's events: `Activated`, `ActionInvoked` and `Closed`
     /// are sent on `events`, which replaces an earlier channel. The shell
     /// `Ping`s it and forgets it when it is gone (`EPIPE`). A sender that
     /// does not care about the outcome never calls it.
-    fn listen(&mut self, cx: &libmessenger::server::Caller, events: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, events,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn listen(&mut self, cx: &libmessenger::server::Caller, events: u64) -> Result<(), libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "notify_v1_server")]

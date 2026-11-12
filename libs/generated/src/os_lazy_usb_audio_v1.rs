@@ -583,61 +583,38 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "usb_audio_v1_server")]
 /// What a program answering `os.lazy.usb.audio.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Periods played (or dropped by a stop) since `Configure`.
     /// Times the isochronous ring ran dry (`usbd` was starved).
     /// Service intervals the controller missed.
-    fn describe(&mut self, cx: &libmessenger::server::Caller) -> Result<Device, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn describe(&mut self, cx: &libmessenger::server::Caller) -> Result<Device, libmessenger::server::Fault>;
 
     /// Share the staging buffer periods are submitted from. Replaces an
     /// earlier one (a restarted `sndd`), stopping any stream.
-    fn attach(&mut self, cx: &libmessenger::server::Caller, staging: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, staging,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn attach(&mut self, cx: &libmessenger::server::Caller, staging: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault>;
 
     /// Pick the alternate setting and rate for a stereo stream at `rate` Hz
     /// (the closest the device has), switch the device to it and reset the
     /// counters. Returns the rate it runs at.
-    fn configure(&mut self, cx: &libmessenger::server::Caller, rate: u32) -> Result<u32, libmessenger::server::Fault> {
-        let _ = (cx, rate,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn configure(&mut self, cx: &libmessenger::server::Caller, rate: u32) -> Result<u32, libmessenger::server::Fault>;
 
     /// Start sending; until periods arrive the device hears silence.
-    fn start(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn start(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault>;
 
     /// Stop sending; every queued period counts as completed.
-    fn stop(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn stop(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault>;
 
     /// Stop and switch the device to its zero-bandwidth alternate.
-    fn release(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn release(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault>;
 
     /// Queue one period: `len` bytes at `offset` of the staging buffer.
     /// `slot` is the caller's tag, echoed nowhere; periods complete in order.
-    fn submit(&mut self, cx: &libmessenger::server::Caller, slot: u32, offset: u32, len: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, slot, offset, len,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn submit(&mut self, cx: &libmessenger::server::Caller, slot: u32, offset: u32, len: u32) -> Result<(), libmessenger::server::Fault>;
 
-    fn reap(&mut self, cx: &libmessenger::server::Caller) -> Result<Progress, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn reap(&mut self, cx: &libmessenger::server::Caller) -> Result<Progress, libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "usb_audio_v1_server")]

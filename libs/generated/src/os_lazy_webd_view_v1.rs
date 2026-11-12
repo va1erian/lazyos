@@ -3769,102 +3769,64 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "webd_view_v1_server")]
 /// What a program answering `os.lazy.webd.view.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Make a view (see `os.lazy.webd.light.v1.CreateView`). Through this
     /// interface the view has no network: `config.scheme_policy` must be
     /// `DataOnly`, `config.profile` `""`, `config.handoff` not `Browser`,
     /// and `downloads` and `blocking` false (`EACCES` otherwise).
-    fn create_view(&mut self, cx: &libmessenger::server::Caller, config: ViewConfig, width: u32, height: u32, events: u64) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, config, width, height, events,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn create_view(&mut self, cx: &libmessenger::server::Caller, config: ViewConfig, width: u32, height: u32, events: u64) -> Result<u64, libmessenger::server::Fault>;
 
     /// End the view; not an error for a view that is gone.
-    fn destroy_view(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn destroy_view(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// Register `pixels` as slot `slot`: 0 to 2 are frame slots (at least
     /// `width * height * 4` bytes), 3 and 4 band slots of a view with deltas
     /// (at least `width * min(height, 1024) * 4` bytes). `EBUSY` while webd has it out.
-    fn attach_slot(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32, pixels: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, slot, pixels,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn attach_slot(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32, pixels: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault>;
 
     /// The app is done reading `slot`.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn release_slot(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32) {
-        let _ = (cx, view, slot,);
-    }
+    fn release_slot(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32);
 
     /// Change the view's size; every slot is detached.
-    fn resize(&mut self, cx: &libmessenger::server::Caller, view: u64, width: u32, height: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, width, height,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn resize(&mut self, cx: &libmessenger::server::Caller, view: u64, width: u32, height: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// A view that is not visible gets no paints.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn set_visible(&mut self, cx: &libmessenger::server::Caller, view: u64, visible: bool) {
-        let _ = (cx, view, visible,);
-    }
+    fn set_visible(&mut self, cx: &libmessenger::server::Caller, view: u64, visible: bool);
 
     /// Ask for a whole frame.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn refresh(&mut self, cx: &libmessenger::server::Caller, view: u64) {
-        let _ = (cx, view,);
-    }
+    fn refresh(&mut self, cx: &libmessenger::server::Caller, view: u64);
 
     /// Load `url` in the view: it must pass the view's scheme policy (`EACCES`
     /// otherwise; `file:` never does), at most 8 KiB.
-    fn load(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, url,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn load(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// Replace the page with `html` (UTF-8, at most 8 MiB) at `base_url`:
     /// empty, `about:` or `data:`, or with a network scheme policy an `http:`
     /// or `https:` address the policy allows (relative addresses resolve
     /// against it). Never `file:`.
-    fn load_html(&mut self, cx: &libmessenger::server::Caller, view: u64, html: libmessenger::Buffer, base_url: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, html, base_url,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn load_html(&mut self, cx: &libmessenger::server::Caller, view: u64, html: libmessenger::Buffer, base_url: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// Load the page again; `bypass_blocking` loads it once without the
     /// content blocker.
-    fn reload(&mut self, cx: &libmessenger::server::Caller, view: u64, bypass_blocking: bool) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, bypass_blocking,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn reload(&mut self, cx: &libmessenger::server::Caller, view: u64, bypass_blocking: bool) -> Result<(), libmessenger::server::Fault>;
 
-    fn stop(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn stop(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<(), libmessenger::server::Fault>;
 
-    fn back(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn back(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<(), libmessenger::server::Fault>;
 
-    fn forward(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn forward(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// Save `url` as a download (Save Page As): a view with `downloads` only.
-    fn download(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, url,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn download(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// The page's process does not answer (the app got `Responsive(false)`) and
     /// the person chose a way out (LazyWeb, P4): the view's web process is
@@ -3873,107 +3835,66 @@ pub trait Server {
     /// which is `ViewLost` with reason `Other`, and the app makes a new view.
     /// The engine refuses (and does nothing) while other views share the
     /// process; the service does not know.
-    fn recover(&mut self, cx: &libmessenger::server::Caller, view: u64, reload: bool) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, reload,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn recover(&mut self, cx: &libmessenger::server::Caller, view: u64, reload: bool) -> Result<(), libmessenger::server::Fault>;
 
     /// Input, as on the light interface.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn mouse(&mut self, cx: &libmessenger::server::Caller, view: u64, kind: u32, button: i32, x: i32, y: i32, mods: u32) {
-        let _ = (cx, view, kind, button, x, y, mods,);
-    }
+    fn mouse(&mut self, cx: &libmessenger::server::Caller, view: u64, kind: u32, button: i32, x: i32, y: i32, mods: u32);
 
     /// A wheel turn; a non-zero `seq` (rising) is answered by `WheelDone`.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn wheel(&mut self, cx: &libmessenger::server::Caller, view: u64, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32, seq: u64) {
-        let _ = (cx, view, x, y, ticks_x, ticks_y, mods, seq,);
-    }
+    fn wheel(&mut self, cx: &libmessenger::server::Caller, view: u64, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32, seq: u64);
 
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn key(&mut self, cx: &libmessenger::server::Caller, view: u64, press: bool, keysym: u32, text: alloc::string::String, mods: u32) {
-        let _ = (cx, view, press, keysym, text, mods,);
-    }
+    fn key(&mut self, cx: &libmessenger::server::Caller, view: u64, press: bool, keysym: u32, text: alloc::string::String, mods: u32);
 
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn focus(&mut self, cx: &libmessenger::server::Caller, view: u64, focused: bool) {
-        let _ = (cx, view, focused,);
-    }
+    fn focus(&mut self, cx: &libmessenger::server::Caller, view: u64, focused: bool);
 
     /// The answer to `Dialog` `dialog`: `accepted` is OK, `value` a prompt's text.
-    fn dialog_reply(&mut self, cx: &libmessenger::server::Caller, view: u64, dialog: u64, accepted: bool, value: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, dialog, accepted, value,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn dialog_reply(&mut self, cx: &libmessenger::server::Caller, view: u64, dialog: u64, accepted: bool, value: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// The answer to `NavigationRequested` `request`: `allow` loads it.
-    fn navigation_answer(&mut self, cx: &libmessenger::server::Caller, view: u64, request: u64, allow: bool) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, request, allow,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn navigation_answer(&mut self, cx: &libmessenger::server::Caller, view: u64, request: u64, allow: bool) -> Result<(), libmessenger::server::Fault>;
 
     /// The answer to `NotifyPermissionRequest` for `origin` (a `PermissionAnswer`):
     /// kept for the view's profile while webd runs.
-    fn notify_permission(&mut self, cx: &libmessenger::server::Caller, view: u64, origin: alloc::string::String, answer: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, origin, answer,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn notify_permission(&mut self, cx: &libmessenger::server::Caller, view: u64, origin: alloc::string::String, answer: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Stop download `download`; its `.part` file is removed.
-    fn download_cancel(&mut self, cx: &libmessenger::server::Caller, view: u64, download: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, download,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn download_cancel(&mut self, cx: &libmessenger::server::Caller, view: u64, download: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// Content blocking on or off for the view's profile, and the hosts it is
     /// off for. A view made with `blocking` only.
-    fn set_blocking(&mut self, cx: &libmessenger::server::Caller, view: u64, enabled: bool, exceptions: alloc::vec::Vec<alloc::string::String>) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, enabled, exceptions,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_blocking(&mut self, cx: &libmessenger::server::Caller, view: u64, enabled: bool, exceptions: alloc::vec::Vec<alloc::string::String>) -> Result<(), libmessenger::server::Fault>;
 
     /// Compile `rules` (a WebKit content rule list, JSON, at most 32 MiB) as
     /// list `list` into the profile's store and attach it; the result comes as
     /// `BlockingList`.
-    fn blocking_compile(&mut self, cx: &libmessenger::server::Caller, view: u64, list: alloc::string::String, rules: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, list, rules,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn blocking_compile(&mut self, cx: &libmessenger::server::Caller, view: u64, list: alloc::string::String, rules: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault>;
 
     /// Attach list `list` from the profile's store (compiled earlier).
-    fn blocking_load(&mut self, cx: &libmessenger::server::Caller, view: u64, list: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, list,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn blocking_load(&mut self, cx: &libmessenger::server::Caller, view: u64, list: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// Detach list `list` and remove it from the store.
-    fn blocking_forget(&mut self, cx: &libmessenger::server::Caller, view: u64, list: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, list,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn blocking_forget(&mut self, cx: &libmessenger::server::Caller, view: u64, list: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// Forget the profile's decision about `origin` (LazyWeb, P4): the page's
     /// `Notification.permission` is `default` again and its next request is
     /// asked again (`NotifyPermissionRequest`). A view made with
     /// `notifications` only; `origin` is checked as in `NotifyPermission`.
-    fn notify_forget(&mut self, cx: &libmessenger::server::Caller, view: u64, origin: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, origin,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn notify_forget(&mut self, cx: &libmessenger::server::Caller, view: u64, origin: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// What became of notification `notification` that `NotifyShow` gave a
     /// view made with `notify_in_client` (a `NotifyStateKind`): the app's toast
     /// is on screen, was clicked (the page's click handler runs) or went away.
     /// `ESRCH` for a notification webd did not give this view or that is over;
     /// `EACCES` for a view without `notify_in_client`.
-    fn notify_state(&mut self, cx: &libmessenger::server::Caller, view: u64, notification: u64, state: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, notification, state,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn notify_state(&mut self, cx: &libmessenger::server::Caller, view: u64, notification: u64, state: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Like `Recover` without a reload, for a view that shares its web process
     /// with others (tabs of one site, `ViewConfig.process_key`): the process
@@ -3981,10 +3902,7 @@ pub trait Server {
     /// by request (`ViewLost` with reason `Other`). Each app makes its views
     /// again. Ids 40 to 43 are kept for the data and credential calls of
     /// docs/lazyweb-plan.md section 8.
-    fn recover_group(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn recover_group(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<(), libmessenger::server::Fault>;
 
     /// Detach every slot of the view, as `Resize` does, without resizing it
     /// and without costing the page a layout: a view that is not on screen
@@ -3994,10 +3912,7 @@ pub trait Server {
     /// `Frame` webd sent for the view (0 for none): frames numbered up to it
     /// were painted into slots that are gone, and may still be queued for the
     /// app; it ignores them rather than copy from a slot attached later.
-    fn detach_slots(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<u64, libmessenger::server::Fault> {
-        let _ = (cx, view,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn detach_slots(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<u64, libmessenger::server::Fault>;
 
     /// Change the user agent the page's requests and `navigator.userAgent`
     /// show, from the next load on (a tab asking for the desktop site). The
@@ -4006,10 +3921,7 @@ pub trait Server {
     /// site quirks, which put a fixed agent on every request, are off for such
     /// a view only). `user_agent` is printable ASCII, at most 256 bytes; ""
     /// restores the agent the view was made with.
-    fn set_user_agent(&mut self, cx: &libmessenger::server::Caller, view: u64, user_agent: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, view, user_agent,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn set_user_agent(&mut self, cx: &libmessenger::server::Caller, view: u64, user_agent: alloc::string::String) -> Result<(), libmessenger::server::Fault>;
 
     /// Event: slot `slot` holds frame `seq`. `whole`: every pixel is new.
     /// Otherwise the app moves its picture by `shift` (when present) and then
@@ -4018,9 +3930,7 @@ pub trait Server {
     /// scroll further down from there.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn frame(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32, seq: u64, width: u32, height: u32, whole: bool, shift: core::option::Option<Shift>, rects: alloc::vec::Vec<Rect>, offset_x: i32, offset_y: i32, at_bottom: bool) {
-        let _ = (cx, view, slot, seq, width, height, whole, shift, rects, offset_x, offset_y, at_bottom,);
-    }
+    fn frame(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32, seq: u64, width: u32, height: u32, whole: bool, shift: core::option::Option<Shift>, rects: alloc::vec::Vec<Rect>, offset_x: i32, offset_y: i32, at_bottom: bool);
 
     /// Event: what the page says about itself. `url` is the address on show,
     /// `committed_url` the page on screen; `progress` in thousandths;
@@ -4031,160 +3941,116 @@ pub trait Server {
     /// Texts are cut at 48 KiB.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn state(&mut self, cx: &libmessenger::server::Caller, view: u64, title: alloc::string::String, loading: bool, finished: u32, error: alloc::string::String, url: alloc::string::String, committed_url: alloc::string::String, can_back: bool, can_forward: bool, progress: u32, secure: bool, commits: u32) {
-        let _ = (cx, view, title, loading, finished, error, url, committed_url, can_back, can_forward, progress, secure, commits,);
-    }
+    fn state(&mut self, cx: &libmessenger::server::Caller, view: u64, title: alloc::string::String, loading: bool, finished: u32, error: alloc::string::String, url: alloc::string::String, committed_url: alloc::string::String, can_back: bool, can_forward: bool, progress: u32, secure: bool, commits: u32);
 
     /// Event: the page scrolled (as on the light interface).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn scroll(&mut self, cx: &libmessenger::server::Caller, view: u64, x: i32, y: i32, at_bottom: bool) {
-        let _ = (cx, view, x, y, at_bottom,);
-    }
+    fn scroll(&mut self, cx: &libmessenger::server::Caller, view: u64, x: i32, y: i32, at_bottom: bool);
 
     /// Event: as on the light interface (a full view's navigation is not
     /// locked, so webd does not send it today).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn link_clicked(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String) {
-        let _ = (cx, view, url,);
-    }
+    fn link_clicked(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String);
 
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn clipboard_write(&mut self, cx: &libmessenger::server::Caller, view: u64, text: alloc::string::String) {
-        let _ = (cx, view, text,);
-    }
+    fn clipboard_write(&mut self, cx: &libmessenger::server::Caller, view: u64, text: alloc::string::String);
 
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn view_lost(&mut self, cx: &libmessenger::server::Caller, view: u64, reason: u32) {
-        let _ = (cx, view, reason,);
-    }
+    fn view_lost(&mut self, cx: &libmessenger::server::Caller, view: u64, reason: u32);
 
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn ping(&mut self, cx: &libmessenger::server::Caller) {
-        let _ = (cx,);
-    }
+    fn ping(&mut self, cx: &libmessenger::server::Caller);
 
     /// Event: band slot `slot` holds `height` rows of the page from document
     /// row `doc_y`, painted at horizontal offset `doc_x`, `width` wide.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn band(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32, doc_x: i32, doc_y: i32, width: u32, height: u32) {
-        let _ = (cx, view, slot, doc_x, doc_y, width, height,);
-    }
+    fn band(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32, doc_x: i32, doc_y: i32, width: u32, height: u32);
 
     /// Event: the pointer is over a link (its address) or no longer ("").
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn hover(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String) {
-        let _ = (cx, view, url,);
-    }
+    fn hover(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String);
 
     /// Event: the page wants this pointer shape (a `CursorShape`).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn cursor(&mut self, cx: &libmessenger::server::Caller, view: u64, shape: u32) {
-        let _ = (cx, view, shape,);
-    }
+    fn cursor(&mut self, cx: &libmessenger::server::Caller, view: u64, shape: u32);
 
     /// Event: the page asked for a new window (`target=_blank`,
     /// `window.open`); nothing opened. `gesture`: a click or key started it.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn new_window_requested(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String, gesture: bool) {
-        let _ = (cx, view, url, gesture,);
-    }
+    fn new_window_requested(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String, gesture: bool);
 
     /// Event: a navigation outside the view's policy is held (`Handoff.Ask`);
     /// answer with `NavigationAnswer` within 10 seconds or it is refused.
     /// `kind` is a `NavigationKind`.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn navigation_requested(&mut self, cx: &libmessenger::server::Caller, view: u64, request: u64, url: alloc::string::String, kind: u32, gesture: bool) {
-        let _ = (cx, view, request, url, kind, gesture,);
-    }
+    fn navigation_requested(&mut self, cx: &libmessenger::server::Caller, view: u64, request: u64, url: alloc::string::String, kind: u32, gesture: bool);
 
     /// Event: the page opened a JavaScript dialog (a `DialogKind`) and waits
     /// for `DialogReply`.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn dialog(&mut self, cx: &libmessenger::server::Caller, view: u64, dialog: u64, kind: u32, message: alloc::string::String, default_value: alloc::string::String) {
-        let _ = (cx, view, dialog, kind, message, default_value,);
-    }
+    fn dialog(&mut self, cx: &libmessenger::server::Caller, view: u64, dialog: u64, kind: u32, message: alloc::string::String, default_value: alloc::string::String);
 
     /// Event: a download began, into the person's Downloads folder under a
     /// `.part` name. `total` is the announced size or -1.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn download_started(&mut self, cx: &libmessenger::server::Caller, view: u64, download: u64, url: alloc::string::String, name: alloc::string::String, total: i64) {
-        let _ = (cx, view, download, url, name, total,);
-    }
+    fn download_started(&mut self, cx: &libmessenger::server::Caller, view: u64, download: u64, url: alloc::string::String, name: alloc::string::String, total: i64);
 
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn download_progress(&mut self, cx: &libmessenger::server::Caller, view: u64, download: u64, received: i64, total: i64) {
-        let _ = (cx, view, download, received, total,);
-    }
+    fn download_progress(&mut self, cx: &libmessenger::server::Caller, view: u64, download: u64, received: i64, total: i64);
 
     /// Event: every byte is in `name` (a file of the Downloads folder).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn download_done(&mut self, cx: &libmessenger::server::Caller, view: u64, download: u64, name: alloc::string::String) {
-        let _ = (cx, view, download, name,);
-    }
+    fn download_done(&mut self, cx: &libmessenger::server::Caller, view: u64, download: u64, name: alloc::string::String);
 
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn download_failed(&mut self, cx: &libmessenger::server::Caller, view: u64, download: u64, reason: alloc::string::String) {
-        let _ = (cx, view, download, reason,);
-    }
+    fn download_failed(&mut self, cx: &libmessenger::server::Caller, view: u64, download: u64, reason: alloc::string::String);
 
     /// Event: a page asked to show notifications for `origin`.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn notify_permission_request(&mut self, cx: &libmessenger::server::Caller, view: u64, origin: alloc::string::String) {
-        let _ = (cx, view, origin,);
-    }
+    fn notify_permission_request(&mut self, cx: &libmessenger::server::Caller, view: u64, origin: alloc::string::String);
 
     /// Event: the person clicked notification `notification` (webd posted it
     /// as a toast titled with the site); the page's click handler ran.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn notify_clicked(&mut self, cx: &libmessenger::server::Caller, view: u64, notification: u64) {
-        let _ = (cx, view, notification,);
-    }
+    fn notify_clicked(&mut self, cx: &libmessenger::server::Caller, view: u64, notification: u64);
 
     /// Event: what became of rule list `list` (a `BlockingStatus`).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn blocking_list(&mut self, cx: &libmessenger::server::Caller, view: u64, list: alloc::string::String, status: u32) {
-        let _ = (cx, view, list, status,);
-    }
+    fn blocking_list(&mut self, cx: &libmessenger::server::Caller, view: u64, list: alloc::string::String, status: u32);
 
     /// Event: the number of loads the lists blocked on the page on show.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn blocked(&mut self, cx: &libmessenger::server::Caller, view: u64, count: u32) {
-        let _ = (cx, view, count,);
-    }
+    fn blocked(&mut self, cx: &libmessenger::server::Caller, view: u64, count: u32);
 
     /// Event: the page's process stopped answering, or answers again.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn responsive(&mut self, cx: &libmessenger::server::Caller, view: u64, responsive: bool) {
-        let _ = (cx, view, responsive,);
-    }
+    fn responsive(&mut self, cx: &libmessenger::server::Caller, view: u64, responsive: bool);
 
     /// Event: webd gave `url` to the program the person chose for it
     /// (`Handoff.Browser`).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn handed_off(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String) {
-        let _ = (cx, view, url,);
-    }
+    fn handed_off(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String);
 
     /// Event (a view made with `notify_in_client`): the page asked to show
     /// notification `notification` and its profile allowed `origin`; the app
@@ -4193,24 +4059,18 @@ pub trait Server {
     /// page's tag; the texts are the page's own and are cut at 16 KiB each.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn notify_show(&mut self, cx: &libmessenger::server::Caller, view: u64, notification: u64, origin: alloc::string::String, page_url: alloc::string::String, title: alloc::string::String, body: alloc::string::String, tag: alloc::string::String) {
-        let _ = (cx, view, notification, origin, page_url, title, body, tag,);
-    }
+    fn notify_show(&mut self, cx: &libmessenger::server::Caller, view: u64, notification: u64, origin: alloc::string::String, page_url: alloc::string::String, title: alloc::string::String, body: alloc::string::String, tag: alloc::string::String);
 
     /// Event: the page closed notification `notification` itself.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn notify_cancel(&mut self, cx: &libmessenger::server::Caller, view: u64, notification: u64) {
-        let _ = (cx, view, notification,);
-    }
+    fn notify_cancel(&mut self, cx: &libmessenger::server::Caller, view: u64, notification: u64);
 
     /// Event: the page's object for `notification` is gone (its document went
     /// away); the toast is the person's now and a click reaches no script.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn notify_gone(&mut self, cx: &libmessenger::server::Caller, view: u64, notification: u64) {
-        let _ = (cx, view, notification,);
-    }
+    fn notify_gone(&mut self, cx: &libmessenger::server::Caller, view: u64, notification: u64);
 
     /// Event: the page has answered every wheel turn up to `seq` (`Wheel`), and
     /// its main frame is scrolled to `(x, y)` now, before the frame that shows
@@ -4221,9 +4081,7 @@ pub trait Server {
     /// process ended answers everything at once.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn wheel_done(&mut self, cx: &libmessenger::server::Caller, view: u64, seq: u64, x: i32, y: i32) {
-        let _ = (cx, view, seq, x, y,);
-    }
+    fn wheel_done(&mut self, cx: &libmessenger::server::Caller, view: u64, seq: u64, x: i32, y: i32);
 }
 
 #[cfg(feature = "webd_view_v1_server")]

@@ -90,7 +90,8 @@ pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
 #[cfg(feature = "init_app_events_v1_server")]
 /// What a program answering `os.lazy.init.app.events.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// The app was launched again in this session (the start menu, a
@@ -100,9 +101,7 @@ pub trait Server {
     /// `--background` in its argv instead (no window until this arrives).
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn reopen(&mut self, cx: &libmessenger::server::Caller, args: alloc::string::String) {
-        let _ = (cx, args,);
-    }
+    fn reopen(&mut self, cx: &libmessenger::server::Caller, args: alloc::string::String);
 
     /// The user, a logout or the package manager asked the app to quit:
     /// save and exit within `grace_ms`, after which `init` kills it. The
@@ -110,9 +109,7 @@ pub trait Server {
     /// is left of it.
     ///
     /// `oneway`: it has no reply, so it returns nothing.
-    fn quit(&mut self, cx: &libmessenger::server::Caller, grace_ms: u32) {
-        let _ = (cx, grace_ms,);
-    }
+    fn quit(&mut self, cx: &libmessenger::server::Caller, grace_ms: u32);
 }
 
 #[cfg(feature = "init_app_events_v1_server")]

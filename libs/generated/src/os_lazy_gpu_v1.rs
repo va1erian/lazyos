@@ -583,7 +583,8 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "gpu_v1_server")]
 /// What a program answering `os.lazy.gpu.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// A running pipe was found and decoded; the pipe fields below
@@ -603,17 +604,11 @@ pub trait Server {
     /// The link is in HDMI mode, so HDMI audio (stage G2) needs no
     /// mode set.
     /// The state `gpud` adopted when it started.
-    fn get_state(&mut self, cx: &libmessenger::server::Caller) -> Result<State, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn get_state(&mut self, cx: &libmessenger::server::Caller) -> Result<State, libmessenger::server::Fault>;
 
     /// The adopted pipe's beam, read now. `ENODEV` when no pipe was
     /// adopted.
-    fn get_beam(&mut self, cx: &libmessenger::server::Caller) -> Result<Beam, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn get_beam(&mut self, cx: &libmessenger::server::Caller) -> Result<Beam, libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "gpu_v1_server")]

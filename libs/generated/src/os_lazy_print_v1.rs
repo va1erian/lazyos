@@ -571,46 +571,29 @@ impl<T: libmessenger::client::Transport> Client<T> {
 #[cfg(feature = "print_v1_server")]
 /// What a program answering `os.lazy.print.v1` implements: one function per method, with the
 /// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
-/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+/// Every method is required, so a missing one fails to compile: a daemon that will not serve one
+/// says so by answering it with a refusal. [`dispatch`] does the framing, so a body only decides.
 #[allow(clippy::too_many_arguments)]
 pub trait Server {
     /// Open a job for the printer at `printer` (`192.168.1.89`,
     /// `host:port` or an `ipp://` URI). `user` is the `requesting-user-name`
     /// the printer shows, a label only.
-    fn open(&mut self, cx: &libmessenger::server::Caller, printer: alloc::string::String, user: alloc::string::String, ticket: Ticket) -> Result<u32, libmessenger::server::Fault> {
-        let _ = (cx, printer, user, ticket,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn open(&mut self, cx: &libmessenger::server::Caller, printer: alloc::string::String, user: alloc::string::String, ticket: Ticket) -> Result<u32, libmessenger::server::Fault>;
 
     /// Append `bytes` to an open job's document (at most 256 KiB a call).
-    fn write(&mut self, cx: &libmessenger::server::Caller, job: u32, bytes: alloc::vec::Vec<u8>) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, job, bytes,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn write(&mut self, cx: &libmessenger::server::Caller, job: u32, bytes: alloc::vec::Vec<u8>) -> Result<(), libmessenger::server::Fault>;
 
     /// The document is complete: queue the job for its printer.
-    fn close(&mut self, cx: &libmessenger::server::Caller, job: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, job,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn close(&mut self, cx: &libmessenger::server::Caller, job: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// Stop a job wherever it is; one the printer has is canceled there.
-    fn cancel(&mut self, cx: &libmessenger::server::Caller, job: u32) -> Result<(), libmessenger::server::Fault> {
-        let _ = (cx, job,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn cancel(&mut self, cx: &libmessenger::server::Caller, job: u32) -> Result<(), libmessenger::server::Fault>;
 
     /// What a job is doing.
-    fn status(&mut self, cx: &libmessenger::server::Caller, job: u32) -> Result<JobInfo, libmessenger::server::Fault> {
-        let _ = (cx, job,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn status(&mut self, cx: &libmessenger::server::Caller, job: u32) -> Result<JobInfo, libmessenger::server::Fault>;
 
     /// The caller's jobs (every job for root), oldest first.
-    fn jobs(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<JobInfo>, libmessenger::server::Fault> {
-        let _ = (cx,);
-        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
-    }
+    fn jobs(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<JobInfo>, libmessenger::server::Fault>;
 }
 
 #[cfg(feature = "print_v1_server")]

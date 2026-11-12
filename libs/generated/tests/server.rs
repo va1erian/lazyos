@@ -68,6 +68,11 @@ fn error_of(reply: &Parcel) -> (u32, String) {
     }
 }
 
+/// What a handler that will not serve a method answers.
+fn refused<T>() -> Result<T, Fault> {
+    Err(Fault::unserved())
+}
+
 #[derive(Default)]
 struct Clock {
     zone: String,
@@ -75,6 +80,15 @@ struct Clock {
 }
 
 impl timed::Server for Clock {
+    fn set_time(&mut self, _: &Caller, _: i64) -> Result<(), Fault> {
+        refused()
+    }
+    fn ntp_status(&mut self, _: &Caller) -> Result<timed::NtpStatusReply, Fault> {
+        refused()
+    }
+    fn sync_now(&mut self, _: &Caller) -> Result<(), Fault> {
+        refused()
+    }
     fn now(&mut self, cx: &Caller) -> Result<timed::NowReply, Fault> {
         self.seen.push(*cx);
         Ok(timed::NowReply {
@@ -184,19 +198,21 @@ fn a_fault_carries_its_code_message_and_detail() {
     assert!(reply.body.len() > 8 && ERROR_FIELD == 15);
 }
 
-#[test]
-fn an_unimplemented_method_answers_enosys() {
-    let mut clock = Clock::default();
-    let reply = timed::dispatch(
-        &mut clock,
-        &timed_request(timed::METHOD_SYNCNOW, Vec::new()),
-    );
-    assert_eq!(error_of(&reply).0 as i64, Errno::NOSYS.number());
-}
-
 struct Store;
 
 impl confd::Server for Store {
+    fn set(&mut self, _: &Caller, _: String, _: confd::Value) -> Result<(), Fault> {
+        refused()
+    }
+    fn delete(&mut self, _: &Caller, _: String) -> Result<(), Fault> {
+        refused()
+    }
+    fn list(&mut self, _: &Caller, _: String) -> Result<Vec<String>, Fault> {
+        refused()
+    }
+    fn info(&mut self, _: &Caller) -> Result<confd::InfoReply, Fault> {
+        refused()
+    }
     fn get(&mut self, _: &Caller, path: String) -> Result<Option<confd::Value>, Fault> {
         match path.as_str() {
             "denied" => Err(confd::ServiceError::Denied.into()),
@@ -229,6 +245,28 @@ struct Pasteboard {
 }
 
 impl clipboard::Server for Pasteboard {
+    fn offer(
+        &mut self,
+        _: &Caller,
+        _: String,
+        _: Option<String>,
+        _: Vec<String>,
+        _: Vec<clipboard::Payload>,
+    ) -> Result<u64, Fault> {
+        refused()
+    }
+    fn offer_buffer(&mut self, _: &Caller, _: String, _: String, _: Buffer) -> Result<u64, Fault> {
+        refused()
+    }
+    fn serialize(&mut self, _: &Caller, _: u64, _: String) -> Result<Vec<u8>, Fault> {
+        refused()
+    }
+    fn ping(&mut self, _: &Caller) -> Result<(), Fault> {
+        refused()
+    }
+    fn current(&mut self, _: &Caller) -> Result<Option<clipboard::OfferMeta>, Fault> {
+        refused()
+    }
     fn fetch(&mut self, _: &Caller, token: u64, _mime: String, into: Buffer) -> Result<u64, Fault> {
         self.fetched = Some(into);
         Ok(token + 1)
@@ -321,6 +359,12 @@ struct Listener {
 }
 
 impl echo::Server for Listener {
+    fn echo(&mut self, _: &Caller, _: String, _: u32) -> Result<String, Fault> {
+        refused()
+    }
+    fn ping(&mut self, _: &Caller) -> Result<bool, Fault> {
+        refused()
+    }
     fn notify(&mut self, _: &Caller, event: echo::Event) {
         self.heard.push(event.topic);
     }
