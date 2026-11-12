@@ -12,7 +12,7 @@ use libmessenger::client::{CallError, Connection, Deadline};
 use messenger_generated::os_lazy_messenger_topics_publish_v1 as publish_scope;
 use messenger_generated::os_lazy_messenger_topics_v1 as wire;
 
-use super::client::{resolve_waiting, Held};
+use super::client::{resolve_within, Held};
 use super::endpoint::{encode, syscall};
 use super::{op, Endpoint, Error, MsgArgs, MsgResult, Result};
 
@@ -46,10 +46,16 @@ pub fn client_of(endpoint: Endpoint) -> Client {
     Client::from_connection(Connection::new(Held::nested(endpoint), NAME))
 }
 
-/// A [`Client`] for a program that may start before `messengerd`: waits the
-/// runtime's connect bound for the name to register.
+/// How long [`connect`] waits for `messengerd` to register: a moment, not
+/// the runtime's connect bound. Most callers are daemon loops that try again
+/// on their next pass (`if bus.is_none() { bus = Bus::connect().ok() }`) and
+/// must not stall for seconds when the broker is late or not in the image.
+const CONNECT_BRIEF: Deadline = Deadline::ticks(8);
+
+/// A [`Client`] for a program that may start just before `messengerd`: waits
+/// [`CONNECT_BRIEF`] for the name to register.
 pub fn connect() -> Result<Client> {
-    Ok(client_of(resolve_waiting(NAME)?))
+    Ok(client_of(resolve_within(NAME, CONNECT_BRIEF)?))
 }
 
 /// A failed broker call as the Messenger error callers match on: the

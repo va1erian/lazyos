@@ -67,8 +67,8 @@ pub struct Bus {
 }
 
 impl Bus {
-    /// Resolve the broker, waiting the runtime's connect bound while
-    /// `messengerd` registers its name at boot.
+    /// Resolve the broker, waiting a moment (80 ms) while `messengerd`
+    /// registers its name at boot; a daemon loop tries again on its next pass.
     pub fn connect() -> Result<Bus> {
         Ok(Bus::new(topics_client::connect()?))
     }
