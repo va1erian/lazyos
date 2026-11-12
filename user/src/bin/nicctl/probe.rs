@@ -198,7 +198,8 @@ pub(super) fn run() -> Result<u32, String> {
     checks.refused(
         "an unknown method",
         raw(&client, 0xDEAD_BEEF, Vec::new(), Vec::new()),
-        errno::EINVAL,
+        // The generated `dispatch` refuses a method the interface lacks.
+        errno::ENOSYS,
     )?;
     checks.refused(
         "SetRxMode with nothing attached",
