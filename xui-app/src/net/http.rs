@@ -259,7 +259,7 @@ mod tests {
     fn bad_urls_are_refused_with_a_reason() {
         assert!(parse_url("https://example.com")
             .unwrap_err()
-            .contains("TLS"));
+            .contains("plain http"));
         for bad in [
             "",
             "ftp://x",
