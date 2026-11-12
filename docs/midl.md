@@ -79,13 +79,20 @@ has a stable identifier.
   rejects malformed bytes;
 * `publish_<name>(publisher, <segments>, value)` — encodes and publishes
   through a `topics::Publish` transport;
-* `subscribe_<name>(subscriber, <segments>)` — builds a filter (`+` and a
-  trailing `#` are allowed) and subscribes through a `topics::Subscribe`
-  transport.
+* `filter_<name>(<segments>)` — builds a subscription filter (`+` and a
+  trailing `#` are allowed), as `name_<name>` builds a concrete name;
+* `subscribe_<name>(subscriber, <segments>)` — builds that filter and
+  subscribes through a `topics::Subscribe` transport. It returns a typed
+  `topics::Subscription<Handle, Payload>`: `next()` reads one queued event
+  without waiting and decodes the declared payload (`Event { topic, retained,
+  publisher, value }`; a payload that does not decode is `Err(NextError::Decode)`
+  and is consumed), so no consumer decodes a payload by hand. The transport's
+  handle implements `topics::Events` and says how a reader learns that an event
+  is queued (a doorbell), never a timer.
 
 The transport traits keep the generated crate transport-agnostic (`libs/generated`
 depends only on `libmessenger`); `user` implements them for
-`user::central::Bus`. The crate-level `DECLARED_TOPICS` table and
+`user::central::Bus` (native) and `xui_app::fabric::Watch` (xui and LazyRAD). The crate-level `DECLARED_TOPICS` table and
 `declared_topic()` let `messengerctl topics` annotate each live topic with its
 declared payload type.
 

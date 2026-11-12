@@ -74,7 +74,8 @@ Services wrapped more than twice: `confd` (user `Client`, xui `ConfdStore`,
 `shell/services.rs`, `term/conf.rs`, LazyWeb), `init` (six wrappers), topics
 (eight subscription clients, three of them inside `xui-app`: the bell-driven
 `fabric::Subscriber`, used only by the Playground; `platform::topic_feed`,
-which polls `NextEvent` with an expired deadline; and `shell/failures.rs`).
+which polls `NextEvent` with an expired deadline; and `shell/failures.rs`;
+all three are one mechanism since C5, section 3.5).
 Seven separate `Transport` traits exist as test seams (`audioclient`,
 `trayclient`, `lazyrad-os`, `fabric/subscribe`, `webd-client`, clipboard,
 `svcpolicy`).
@@ -271,9 +272,9 @@ hand-framed, and why:
   interface). They hold a `Connection` of their own (`Connection::named`) and
   call `Connection::call`/`send`; moving them to generated clients is a change
   of those libraries' `Transport` traits, not of the xui side.
-* The topic subscriptions (`fabric`, `platform::topic_feed`,
-  `shell::failures`, the LazyRAD handoff): C5. Their `Subscribe`/`NextEvent`
-  calls already use the generated client, but the pull loops stay.
+* The topic subscriptions: C5 (section 3.5). `platform::topic_feed`, the
+  failures poller and the LazyRAD handoff's `NextEvent` poll are gone;
+  `fabric::Follow` replaces them.
 * The LazyRAD handoff's `Transport` seam (`lazyrad-os/src/transport.rs`):
   its 426 lines of tests script that trait, and the crate does not build on
   this tree's xui pin (its `lazyrad-ide` git dependency is older than the xui
@@ -350,6 +351,58 @@ already has, which is right and under-used). `platform::topic_feed`, the
 `user::messenger::router` (after moving `init` and `healthd` to the central
 broker) are deleted. The undeclared topics in section 1.4 get declarations
 or are removed.
+
+As built (C5):
+
+* **The typed stream is in the generated crate and knows no transport.**
+  `topics::Subscribe::Subscription` is a transport handle that implements
+  `topics::Events` (`next_event()`: one queued `RawEvent {topic, retained,
+  publisher, payload}`, never waiting). `subscribe_<topic>(..)` returns
+  `topics::Subscription<Handle, Payload>`, whose `next()` decodes the declared
+  payload into `topics::Event<Payload> {topic, retained, publisher, value}`
+  (`Err(NextError::Decode)` consumes the bad event; `Transport` is the
+  transport's own error). `filter_<topic>(..)` builds a subscribe filter beside
+  `name_<topic>(..)`, so no consumer types a topic string a `.midl` declares.
+  The wildcard state topics (`system/events/service/+`, `system/health/+`,
+  login `session/+` and `end`, `system/net/+/{link,addr,wifi/state}`) are
+  `qos=buffered` and the helpers take the broker's deepest queue: a `latest`
+  slot would keep one sibling's value and lose the others'.
+* **Native: one client.** `user::central::Bus` implements `Publish` and
+  `Subscribe` (a `central::Subscription` is the `Events` handle).
+  `central::Feed<T>` is the service-side recipe: the generated helper, one
+  registry lookup (never a wait), every call bounded, the doorbell, the replay
+  read of a new stream, and a reconnect; a loop parks on `Feed::bell()` beside
+  its endpoints (`init`, `healthd`, `logd`), a service that reads at moments
+  of its own asks the bell (`Feed::drain_rung`: a local queue, never the
+  broker). `central::Publisher` is what `init`, `healthd` and `logind`
+  publish through: bounded, with a cooldown after a timeout, and the retained
+  values of a broker that is not up yet (`messengerd` is `init`'s child) kept,
+  one per topic, and sent by the next publish or `flush`. `init` reads the
+  login records and `pkgd`'s provisioning progress off the broker and checks
+  the kernel-stamped `publisher` slot of every record against the manifest row
+  it must be. `user::messenger::router`, its `*b"os.topic"` ids and fields and
+  `svcpolicy`'s `Roster` and `Sink` are deleted.
+* **xui: one subscriber.** `fabric::Follow` is a handle on one filter; one
+  watcher thread per process owns the `Subscriber`, parks on every doorbell,
+  drains and reconnects. The UI thread only empties an in-memory queue
+  (`Follow::take`, or the typed `fabric::pull`), so no topic read waits on the
+  broker and the `UI:STALL` lines of `topic_feed::poll_waiting` cannot come
+  back. A `Follow` wakes its reader through a `Sink<()>` (an xui window's
+  proxy) or its own doorbell (`Follow::bell`, parked on beside other endpoints
+  by `Resident::idle_with`). `fabric::Watch` is the runtime's
+  `topics::Subscribe`, so `subscribe_<topic>(&mut Watch, ..)` gives a typed
+  `fabric::Feed<Payload>`. Moved: `netstatus`, the Terminal's change feed, the
+  tray generation (`TrayIcon` and the shell), the shell's resident-apps and
+  failure feeds, and the LazyRAD handoff's install wait (a `PkgEvents` seam,
+  scripted by the handoff tests). The first read of a retained value no longer
+  waits: the shell follows its generation topic from its start, and the item
+  `Set` of a `TrayIcon` goes ahead with the generation it knows (a newer one
+  re-registers it).
+* **Declared or named.** `demo/waitany`, `topics/depth` and
+  `system/events/selftest/forbidden` are probe topics declared in
+  `idl/topics.midl`. `system/events/security/denial` and
+  `system/events/audit/overflow` are journal keys `logd` appends under (not
+  topics anything publishes): `logstore::source` constants.
 
 ### 3.6 Generated crate layout
 
@@ -517,7 +570,7 @@ leaves `main` green.
 | C2b | **Built.** Rust client generation over C1's `Transport` (blocking forms; `_begin` waits for an asynchronous transport call); host tests through `Mock` (`libs/generated/tests/client.rs`); `timed` and `notify` migrated as proof | (enables C3) |
 | C3 | Migrate clients interface by interface (confd, init, topics, clipboard first: the most duplicated); `user::messenger::*` and `xui_app::platform::*` keep only domain adapters. **Native half built for** confd, mimed, pkgd, accountsd, keyd, logind, mountd, devd, gpud, usb audio, init, healthd, logd, sysmond and the clipboard (`user/src/messenger/<svc>.rs` is `pub type Client = wire::Client<Native>` plus domain meaning; slow calls keep `Deadline::Never`, `Nested` carries the clipboard's `ALLOW_NESTED`). Not yet: `net`/`netstack`/`netsock`/`netstd`, `wifi`, `display`, `input`, the `audioclient`/`trayclient` seams, and the xui lane | per-module `fn header`/`fn parcel`/`error_code`, `Service::call_*` |
 | C4 | Server generation and `dispatch`; migrate daemons, starting with small ones (`timed`, `mimed`, `pkgd`) then `xuid`, `netd`, `inputd` | 469 dispatch arms, 16 `error_reply`, `xui-app/src/server.rs` |
-| C5 | Typed bell subscriptions; move `init`/`healthd` off the interim router; declare or drop the undeclared topics | `topic_feed`, `router`, three ad hoc pollers |
+| C5 | **Built.** Typed bell subscriptions (generated `subscribe_<topic>` returns a decoding stream; `central::Feed` natively, `fabric::Follow` and its watcher thread in xui); `init`, `healthd` and their readers moved off the interim router; the undeclared topics declared or named | `topic_feed`, `router` (422 + 132 lines), `Roster`/`Sink` (588), the shell failures poller, the handoff poller |
 | C6 | `check_handrolled.py --ratchet` in CI | (keeps it from coming back) |
 | X1 | `xui_app::app(..)` builder, `.opens`, panic hook, `finish`; new template; migrate every bin | `themed.rs`, outboxes, seven launch paths |
 | X2 | `AppContext`: settings, dirs, recent, dialogs, error, files | four `Host` structs, `format!` confd keys, `$HOME` lookups |

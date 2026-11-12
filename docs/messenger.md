@@ -336,12 +336,19 @@ known topics and `tail <filter> [count]` streams. Under `LAZYOS_SERVICES=1`,
 `messengerd` runs a boot-time `soak=4096` request/reply self-test
 (`MSGRD:SOAK:PASS`, `MSGRD:TOPICS:PASS`; issue #169).
 
-**Central routing (issue #169).** The platform services publish and subscribe
-through this broker, not per-service brokers (`sysmond`'s `system/stats/*`,
-`clipboardd`'s per-session changed topic, `mimed`'s
-`system/events/open/<app>`, all through `user::central`; `logd` subscribes to
-`system/events/#`). `init` and `healthd` still serve their local topic
-brokers for the supervision and health paths.
+**Central routing (issue #169).** Every service publishes and subscribes
+through this broker; the per-service topic router (`os.lazy.local.topics.v1`)
+is gone (`docs/client-api-plan.md` 3.5). `init` publishes service state,
+`system/power/state`, app failures and resident apps, and `healthd` its
+retained rows, through `user::central::Publisher`, which keeps the retained
+values it cannot send while `messengerd` (a child of `init`) is not up yet.
+`logd` subscribes to `system/events/#` and `system/health/+`; `init` reads the
+login records and `pkgd`'s provisioning events and checks each event's
+kernel-stamped `publisher` slot against the manifest row it must be; `elevd`,
+`xuid`, `pkgd` and the `Logins` follower read through `central::Feed`. A native
+reader parks on the feed's doorbell or asks it locally, and an xui app or
+LazyRAD reads through `fabric::Follow` (one watcher thread per process); none
+of them polls the broker on a timer.
 
 **Supervision services (S2, issue #93).** `system/events/service/<name>`
 carries a service's state, `system/health/<name>` and `system/health/summary`
