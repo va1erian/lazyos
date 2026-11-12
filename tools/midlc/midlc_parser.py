@@ -172,7 +172,7 @@ class Parser:
         self.expect("->")
         returns = self.parse_params()
         method_id = fnv1a32(name.text)
-        oneway = False
+        oneway = event = False
         attrs = Method(name.text, params, returns, method_id, oneway, doc)
         while self.peek() and self.peek().text != ";":
             token = self.next()
@@ -187,8 +187,10 @@ class Parser:
                 method_id = int(number.text)
             elif token.text == "oneway":
                 oneway = True
+            elif token.text == "event":
+                oneway = event = True
             elif token.text == "sync":
-                oneway = False
+                oneway = event = False
             elif token.text == "transfers":
                 raise MidlError(
                     "the `transfers (...)` clause is gone: declare a Channel<interface>, "
@@ -200,7 +202,7 @@ class Parser:
         self.expect(";")
         self.assign_field_ids(params, f"{name.text} (args)")
         self.assign_field_ids(returns, f"{name.text} (reply)", reply=True)
-        attrs.method_id, attrs.oneway = method_id, oneway
+        attrs.method_id, attrs.oneway, attrs.event = method_id, oneway, event
         return attrs
 
     def parse_struct(self) -> Struct:

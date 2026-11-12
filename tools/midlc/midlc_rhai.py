@@ -138,7 +138,7 @@ def callable_methods(interface: Interface) -> list[Method]:
     gate-only method is not reachable over the daemon a script talks to."""
     return [
         m
-        for m in interface.methods
+        for m in interface.calls
         if not m.objects and (interface.name, m.name) not in GATE_ONLY
     ]
 
@@ -240,7 +240,7 @@ class ModuleWriter:
                 docs += ["///", "/// One-way: returns `()` once the message is queued."]
             body = f"{self.connect_expr()}.invoke({rhai_str(method.name)}, [{', '.join(params)}])"
             self.fn(docs, snake_case(method.name), params, body)
-        skipped = [m.name for m in self.interface.methods if m.objects]
+        skipped = [m.name for m in self.interface.methods if m.objects and not m.event]
         if skipped:
             self.lines += [
                 "// Not callable from a script (the request carries a channel, buffer",

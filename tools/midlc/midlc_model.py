@@ -160,6 +160,10 @@ class Method:
     # The deadline and resend policy of a call; once the interface is
     # validated, its `default` line is folded in.
     policy: CallPolicy = field(default_factory=CallPolicy)
+    # A server-to-client message (`event` in the `.midl`): it is `oneway` on the
+    # wire, but the server sends it and clients receive it, so neither side's
+    # generated callable surface (server trait, client, script API) has it.
+    event: bool = False
 
     @property
     def scope_id(self) -> int | None:
@@ -281,6 +285,11 @@ class Interface:
     services: list[Service] = field(default_factory=list)
     # The interface's `default deadline=.. retry=..;` line, or None.
     default_policy: CallPolicy | None = None
+
+    @property
+    def calls(self) -> list[Method]:
+        """The methods a client sends and a server answers: all but the events."""
+        return [m for m in self.methods if not m.event]
 
     @property
     def service(self) -> Service | None:

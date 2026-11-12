@@ -35,7 +35,7 @@ def has_client(interface: Interface) -> bool:
     parcel (no service answers it), and an interface that no `service` serves
     (a callback channel) is reached through the channel its owner handed out,
     not through a name."""
-    return interface.name not in KERNEL_SCOPES and bool(interface.methods) and bool(interface.services)
+    return interface.name not in KERNEL_SCOPES and bool(interface.calls) and bool(interface.services)
 
 
 def client_feature(interface: Interface) -> str:
@@ -87,7 +87,7 @@ def option_param(ty: Type) -> tuple[str, str]:
 def check_names(interface: Interface) -> None:
     """Refuse a name that would collide in the generated client."""
     seen: dict[str, str] = {}
-    for method in interface.methods:
+    for method in interface.calls:
         name = method_fn(method)
         for taken in (name, f"{name}_within"):
             if taken in seen:
@@ -105,7 +105,7 @@ def check_names(interface: Interface) -> None:
 def check_policies(interface: Interface) -> None:
     """A client needs every two-way method's deadline from the IDL: refuse
     one that neither states `deadline=` nor gets one from a `default`."""
-    for method in interface.methods:
+    for method in interface.calls:
         if not method.oneway and not method.policy.has_deadline:
             raise MidlError(
                 f"{interface.name}.{method.name}: no deadline; state `deadline=<n>ms|<n>s|never` "
@@ -295,7 +295,7 @@ def emit_client(interface: Interface) -> list[str]:
         "        }",
         "",
     ]
-    for method in interface.methods:
+    for method in interface.calls:
         lines += emit_method(interface, method)
     if lines[-1] == "":
         lines.pop()
