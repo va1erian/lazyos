@@ -410,9 +410,12 @@ serves both runtimes:
   call answers what the hand-written `error_reply` did.
 * A method returns `Result<T, Fault>`: `()` for no reply field, the field's
   type for one, the `XxxReply` struct for several (the shapes the client
-  returns). A `oneway` method returns `()`. Every method has a default body
-  that answers `ENOSYS`, so a daemon that serves part of an interface
-  implements that part.
+  returns). A `oneway` method returns `()`. **Every method is required** (C4b):
+  there is no default body, so a daemon that leaves one out does not compile.
+  A daemon that serves part of an interface refuses the rest on purpose
+  (`Fault::unserved()`, `ENOSYS`), and an interface that carries events in
+  both directions (wifi hw, nic, input, input shell, init app, echo) needs a
+  one-line empty body for the events only a client receives.
 * `dispatch(&mut S, &impl Incoming) -> Parcel` answers `EINVAL` for another
   interface (or a scoped method on the wrong scope id), `ENOSYS` for an
   undeclared method, `EINVAL` for a body that does not decode (objects stay
@@ -428,15 +431,34 @@ serves both runtimes:
 Migrated (native `user`): `timed`, `mimed`, `pkgd`, `confd`, `mountd`,
 `accountsd`, `logd`, `sysmond`, `devd`, `gpud`, `elevd`, `keyd` (both of its
 interfaces), `clipboardd`, `sndd`, `usbd` (audio function), `netdrv`, `wlanmd`
-(the wifi interface) and the radio runtime (`user::wifi`: hw and nic); std
-(`xui-app`): `printd`, the shell, notify and tray services. Not migrated, and
-why: `init`, `healthd` (they also serve the topics router, stage C5), `netd`
-(replies parked until a socket is ready), `xuid` (compositor requests that
-answer later and carry surface state), `inputd` (two interfaces with one-way
-twins and a hub that owns the compositor link), `audiod` and `libs/audiomix`
-(the pure `Outcome::DrainPending` layer its host tests drive), `logind`
-(`After` actions beyond the reply) and `webd` (the quota and slot checks sit
-between decode and act; a generated dispatch must not move them).
+(the wifi interface), the radio runtime (`user::wifi`: hw and nic) and, in C4b,
+`healthd`, `logind` (console and graphical), `inputd` (both interfaces),
+`netd` (stack and socket) and `init` (control and app lifecycle); std
+(`xui-app`): `printd`, the shell, notify and tray services.
+
+As built (C4b), replies that come later: the generated `dispatch` returns a
+`Parcel`, and a method that answers when something else happens (a `Stop` when
+its targets exit, a `Home` when its helper does, a parked `netd` socket call or
+ping) keeps the deferral in the daemon over the generated decode and encode.
+The handler is built per request with the message's transaction
+(`Handler { txn, held, .. }`, or `netd`'s `Netd::call`); a deferring method
+hands the transaction to the table that answers it, sets `held` and returns
+`Fault::unserved()`, and the loop sends the parcel only when `held` is clear.
+The later answer is encoded with the generated `encode_<m>_reply` and
+`libmessenger::server::fault_reply` (netd's `Done` enum is the typed result a
+parked call finishes with). No generator change: a held reply handle in the
+trait would have made every handler pay for what three daemons need, and the
+flag is the only thing the loop has to look at. `logind`'s `After` is the same
+idea in the other direction: the method leaves what must follow the reply in a
+field the loop reads.
+
+Not migrated, and why: `xuid` (the display and cursor interfaces, the trusted
+prompt's deferred reply and the compositor's own shell checks are one large
+request path whose helpers decode the message themselves; its ~25 methods are
+the next slice), `audiod` and `libs/audiomix` (the pure `Outcome` layer its host
+tests drive decodes bodies itself; it moves with its 479 lines of tests) and
+`webd` (the quota and slot checks sit between decode and act; a generated
+dispatch must not move them).
 
 ### 3.4 One transport, one connection, one error type
 
@@ -824,7 +846,7 @@ leaves `main` green.
 | C2b | **Built.** Rust client generation over C1's `Transport` (blocking forms; `_begin` waits for an asynchronous transport call); host tests through `Mock` (`libs/generated/tests/client.rs`); `timed` and `notify` migrated as proof | (enables C3) |
 | C3 | Migrate clients interface by interface (confd, init, topics, clipboard first: the most duplicated); `user::messenger::*` and `xui_app::platform::*` keep only domain adapters. **Native half built for** confd, mimed, pkgd, accountsd, keyd, logind, mountd, devd, gpud, usb audio, init, healthd, logd, sysmond and the clipboard (`user/src/messenger/<svc>.rs` is `pub type Client = wire::Client<Native>` plus domain meaning; slow calls keep `Deadline::Never`, `Nested` carries the clipboard's `ALLOW_NESTED`). **Also built:** `net` (NIC), `netstack`, `netsock`/`netstd`, `wifi`, `display`, `input`, `logind`'s console session, and the `audioclient`/`trayclient` seams (see the "as built (C3, the rest)" note). Left: `webd`, `audio_events` (a topic publisher, C5) and the hostile-input probes | per-module `fn header`/`fn parcel`/`error_code`, `Service::call_*` |
 | C5 | **Built.** Typed bell subscriptions (generated `subscribe_<topic>` returns a decoding stream; `central::Feed` natively, `fabric::Follow` and its per-thread hub in xui); `init`, `healthd` and their readers moved off the interim router; the undeclared topics declared or named | `topic_feed`, `router` (422 + 132 lines), `Roster`/`Sink` (588), the shell failures poller, the handoff poller |
-| C4 | **Generator and 22 servers built** (section 3.3 lists what is migrated and what is not): `Server` and `dispatch` per interface over `libmessenger::server`; `xuid`, `netd`, `inputd`, `init`, `healthd`, `audiod`, `logind` and `webd` still hand-write theirs | dispatch arms 469 to 347 (the rest are event decoders and the unmigrated servers), `error_reply` helpers, `xui-app`'s `reply_parcel`/`error_parcel` |
+| C4 | **Generator and 27 servers built** (section 3.3 lists what is migrated and what is not): `Server` and `dispatch` per interface over `libmessenger::server`, every method required; `xuid`, `audiod` and `webd` still hand-write theirs | dispatch arms 469 to 347 (the rest are event decoders and the unmigrated servers), `error_reply` helpers, `xui-app`'s `reply_parcel`/`error_parcel` |
 | C6 | **Built.** `tools/midlc/check_handrolled.py --ratchet` in CI (the `trace` job; baseline `handrolled_baseline.json`, self-test `test_check_handrolled.py`); baseline 355 hits in 86 files | (keeps it from coming back) |
 | X1 | `xui_app::app(..)` builder, `.opens`, panic hook, `finish`; new template; migrate every bin | `themed.rs`, outboxes, seven launch paths |
 | X2 | **Built** (section 4.2, "As built"); LazySky's TOML and four more dialog chains wait | four `Host` structs, `format!` confd keys, `$HOME` lookups |

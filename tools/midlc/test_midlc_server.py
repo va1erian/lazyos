@@ -54,7 +54,7 @@ class ServerTests(unittest.TestCase):
 
     def test_every_method_is_required(self) -> None:
         text = server_text("os.lazy.demo.v1")
-        self.assertNotIn("NOSYS", text.split("pub fn dispatch")[0])
+        self.assertNotIn("NOSYS", text.split("pub trait Server")[1].split("#[cfg")[0])
         self.assertIn("fn pair(&mut self, cx: &libmessenger::server::Caller) -> Result<PairReply, libmessenger::server::Fault>;", text)
 
     def test_declared_errors_become_faults(self) -> None:
