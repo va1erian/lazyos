@@ -133,6 +133,25 @@ fn a_queue_serves_in_order_and_the_latest_skips_a_burst() {
     let got: Vec<u32> = (0..3).map(|_| rx.recv_timeout(WAIT).unwrap()).collect();
     assert_eq!(got, [2, 4, 6]);
 
+    let (gate_tx, gate_rx) = channel::<()>();
+    let (entered_tx, entered_rx) = channel::<()>();
+    let (gate, entered) = (Mutex::new(gate_rx), Mutex::new(entered_tx));
+    let latest = Queue::start_latest(&sink, "t-latest", move |n: u32| {
+        if n == 0 {
+            entered.lock().unwrap().send(()).unwrap();
+            gate.lock().unwrap().recv().unwrap();
+        }
+        n
+    })
+    .unwrap();
+    latest.send(0);
+    entered_rx.recv_timeout(WAIT).unwrap();
+    latest.send(1);
+    latest.send(2);
+    latest.send(3);
+    gate_tx.send(()).unwrap();
+    assert_eq!(rx.recv_timeout(WAIT).unwrap(), 0);
+    assert_eq!(rx.recv_timeout(WAIT).unwrap(), 3);
 }
 
 #[test]

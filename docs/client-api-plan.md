@@ -904,8 +904,9 @@ like the tests they serve (`xui-app/src/fabric/subscribe/test_fake.rs`,
   `Held` and `Observed` transports no longer repeat it.
 * Deleted, with no caller anywhere (found by counting every identifier in
   the tree, docs and scripts included): `Settings::on_saved` and its
-  `Arc<Mutex<Option<Sink>>>`, `ErrorDialog::show_while/show_titled`,
-  `Queue::start_latest`, `atomicfile::write_with`, `AppContext::settings_key`,
+  `Arc<Mutex<Option<Sink>>>`, `ErrorDialog::show_while/show_titled` (`Queue::start_latest` was
+  removed too, then restored: the Docs loader in `xui-app/docs` uses it),
+  `atomicfile::write_with`, `AppContext::settings_key`,
   `xui_host::testing::MemHost/MemFs`, `StdHost::on_launch/shared_lines`,
   `user::messenger::services::drivers`, `resolve_service`,
   `TcpStream::wait_readable`, `global_stats/global_totals`, timed
