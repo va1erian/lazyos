@@ -117,10 +117,14 @@ impl Drop for Post {
     }
 }
 
-/// Empty a channel's queue (the doorbell's messages carry nothing).
+/// Empty a channel's queue (the doorbell's messages carry nothing). It asks
+/// the counters first: an expired-deadline `recv` on an empty queue parks
+/// until the next tick, which the UI thread must not do.
 fn drain_bell(handle: u64) {
     let mut sink = [0u8; 256];
-    while sys::msg_recv(handle, &mut sink, sys::EXPIRED_DEADLINE).is_ok() {}
+    while sys::msg_queued(handle).is_ok_and(|queued| queued > 0)
+        && sys::msg_recv(handle, &mut sink, sys::EXPIRED_DEADLINE).is_ok()
+    {}
 }
 
 /// The process's watcher, started by the first feed; `None` when the kernel

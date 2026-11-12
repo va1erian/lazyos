@@ -51,6 +51,9 @@ pub struct Event {
     pub publisher: u64,
 }
 
+/// Most doorbell messages one [`Subscription::rung`] consumes.
+const MAX_RINGS: usize = 16;
+
 /// A connection to `messengerd`'s central broker.
 pub struct Bus {
     endpoint: Endpoint,
@@ -356,11 +359,22 @@ impl Subscription {
         let Some(bell) = self.bell else {
             return false;
         };
+        // The counters first: an expired-deadline `recv` on an empty queue
+        // parks until the next tick.
+        match lazyos_sys::msg::queued(bell.handle()) {
+            Ok(0) => return false,
+            Ok(_) => {}
+            // A dead peer: the next read finds out.
+            Err(_) => return true,
+        }
         let mut buf = [0u8; 512];
-        !matches!(
-            bell.recv_with(&mut buf, Some(EXPIRED_DEADLINE)),
-            Err(Error::Errno(code)) if code == -errno::ETIMEDOUT
-        )
+        for _ in 0..MAX_RINGS {
+            if !matches!(lazyos_sys::msg::queued(bell.handle()), Ok(queued) if queued > 0) {
+                break;
+            }
+            let _ = bell.recv_with(&mut buf, Some(EXPIRED_DEADLINE));
+        }
+        true
     }
 
     /// Consume the `Ready` the doorbell holds (the wait said one is there).

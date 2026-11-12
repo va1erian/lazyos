@@ -127,7 +127,19 @@ impl<T> Feed<T> {
     /// Read what is queued when `rang` (the wait said the doorbell has a
     /// message) or the stream is fresh, handing each decoded event to
     /// `apply`. A payload that does not decode is skipped.
-    pub fn drain(&mut self, rang: bool, mut apply: impl FnMut(Event<T>)) {
+    pub fn drain(&mut self, rang: bool, apply: impl FnMut(Event<T>)) {
+        if rang {
+            if let Some(stream) = &self.stream {
+                // The wait said a message is there, so this does not park.
+                stream.handle().take_ring(&mut [0u8; BELL_BUFFER]);
+            }
+        }
+        self.read(rang, apply);
+    }
+
+    /// Read to the end when `rang` or the stream is fresh (the ring, if any,
+    /// is already consumed).
+    fn read(&mut self, rang: bool, mut apply: impl FnMut(Event<T>)) {
         let Some(stream) = &mut self.stream else {
             return;
         };
@@ -135,9 +147,6 @@ impl<T> Feed<T> {
             return;
         }
         self.fresh = false;
-        if rang {
-            stream.handle().take_ring(&mut [0u8; BELL_BUFFER]);
-        }
         loop {
             match stream.next() {
                 Ok(Some(event)) => apply(event),
@@ -159,7 +168,7 @@ impl<T> Feed<T> {
             // No doorbell to ask: read anyway rather than never.
             !attached || stream.handle().rung()
         });
-        self.drain(rang, apply);
+        self.read(rang, apply);
     }
 
     /// Every event of a drain, collected (for a caller that must act on the
