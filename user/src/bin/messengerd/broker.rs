@@ -9,10 +9,14 @@ use user::messenger::{self, errno, topics_client};
 
 use super::filter::{is_system_topic, Filter};
 
-/// Largest number of live subscriptions the broker keeps.
-pub(super) const MAX_SUBSCRIPTIONS: usize = 64;
-/// Largest number of distinct topics tracked for [`Broker::list`].
-const MAX_TOPICS: usize = 64;
+/// Largest number of live subscriptions the broker keeps: every service and
+/// app follows its topics through it (the per-service routers are gone).
+pub(super) const MAX_SUBSCRIPTIONS: usize = 256;
+/// Largest number of distinct topics tracked for [`Broker::list`], and of
+/// retained values kept: a retained value dropped for want of a slot is a
+/// late subscriber's replay that never comes (the supervisors' per-service
+/// rows alone are a hundred).
+const MAX_TOPICS: usize = 1024;
 /// Largest number of parked `NextEvent` transactions.
 pub(super) const MAX_PENDING: usize = 64;
 
