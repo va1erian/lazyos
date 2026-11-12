@@ -49,7 +49,7 @@ impl wire::Server for Hub {
     }
 
     fn request_grant(&mut self, cx: &Caller, session: u64, kind: u32) -> Result<(), Fault> {
-        Ok(self.request_keyboard_grant(session, kind, cx.sender)?)
+        self.request_keyboard_grant(session, kind, cx.sender)
     }
 
     fn release_grant(&mut self, cx: &Caller, session: u64) -> Result<(), Fault> {

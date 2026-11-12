@@ -60,8 +60,8 @@ impl Hub {
                 self.shell_event(
                     shell_wire::METHOD_GRANTREQUESTED,
                     shell_wire::encode_grant_requested_args(&shell_wire::GrantRequestedArgs {
-                        session: session,
-                        kind: kind,
+                        session,
+                        kind,
                         surface,
                     }),
                 );

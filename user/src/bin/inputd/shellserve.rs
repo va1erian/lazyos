@@ -92,7 +92,7 @@ impl shell_wire::Server for Hub {
         allow: bool,
     ) -> core::result::Result<(), Fault> {
         self.require_compositor(cx)?;
-        Ok(self.approve(session, allow)?)
+        self.approve(session, allow)
     }
 
     fn set_bounds(
