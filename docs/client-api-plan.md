@@ -497,7 +497,7 @@ send.
   check and the `/transient` fallback. Paint, NES (now `fhs::app_data_dir`),
   the Terminal, LazyWeb's profile and the desktop folder use them.
 * 289 `println!` markers moved to `trace::pass!`/`fail!`/`line!` with the same
-  text on the wire; the baseline lost 285 prints. Left: Settings, Writer,
+  text on the wire; the baseline fell from 319 to 30 prints in `xui-app` and `lazyrad-os`. Left: Settings, Writer,
   confd-editor and pdfview (portable crates `xui-app` depends on, no seam yet),
   `shell/failures.rs`, and LazyWeb's host-build fallback print.
 
