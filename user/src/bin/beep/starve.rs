@@ -12,9 +12,10 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use audioclient::{Params, PlaybackStream};
+use audioclient::Params;
 use messenger_generated::os_lazy_audio_v1 as wire;
 use pcm::tone::Tone;
+use user::audio::PlaybackStream;
 use user::central::Bus;
 use user::messenger::{topics_client, DEFAULT_BUFFER, EXPIRED_DEADLINE};
 use user::sys;
@@ -47,7 +48,7 @@ pub(super) fn run() -> Result<String, String> {
         .map_err(|error| format!("subscribe: {error:?}"))?;
     let audio = connect()?;
     let params = Params::new(48000, 2).period_bytes(4096);
-    let mut out = PlaybackStream::open(&audio, params).map_err(fail("open"))?;
+    let mut out = user::audio::open(audio, params).map_err(fail("open"))?;
     let stream = out.grant().stream;
     let rate = out.rate();
     let mut buffer = alloc::vec![0u8; DEFAULT_BUFFER];
@@ -78,11 +79,7 @@ pub(super) fn run() -> Result<String, String> {
 }
 
 /// Queue `TONE_MS` of `freq` Hz.
-fn write_tone<T: audioclient::Transport>(
-    out: &mut PlaybackStream<T>,
-    freq: u32,
-    rate: u32,
-) -> Result<(), String> {
+fn write_tone(out: &mut PlaybackStream, freq: u32, rate: u32) -> Result<(), String> {
     let frames = u64::from(rate) * TONE_MS / 1000;
     let mut tone = Tone::new(freq, rate, 16000);
     let mut samples = Vec::with_capacity(2 * frames as usize);

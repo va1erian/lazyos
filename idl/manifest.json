@@ -170,42 +170,42 @@
         "name": "ListStreams",
         "id": 711680798,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 2000,
         "retry": "safe"
       },
       {
         "name": "SetStreamVolume",
         "id": 953940373,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 2000,
         "retry": "safe"
       },
       {
         "name": "GetMaster",
         "id": 1362695053,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 2000,
         "retry": "safe"
       },
       {
         "name": "SetMaster",
         "id": 301176513,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 2000,
         "retry": "safe"
       },
       {
         "name": "ListOutputs",
         "id": 124559009,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 2000,
         "retry": "safe"
       },
       {
         "name": "SelectOutput",
         "id": 234575836,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 2000,
         "retry": "safe"
       }
     ],

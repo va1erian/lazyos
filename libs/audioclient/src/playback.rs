@@ -9,10 +9,8 @@
 //! dry, or at [`PlaybackStream::drain`] for sounds shorter than the ring.
 
 use crate::wire::{DIRECTION_PLAYBACK, FORMAT_S16_LE};
-use crate::{Client, Error, Grant, Result, RingBuffer, Transport, TICK_HZ};
-
-/// `EINVAL`: a write that is not a whole number of frames.
-const EINVAL: i64 = 22;
+use crate::TICK_HZ;
+use crate::{Client, Deadline, Errno, Error, Grant, Result, RingBuffer, Runtime, Transport};
 
 /// Samples converted per piece when copying into the ring.
 const PIECE_SAMPLES: usize = 512;
@@ -53,10 +51,11 @@ impl Params {
     }
 }
 
-pub struct PlaybackStream<T: Transport> {
+pub struct PlaybackStream<T: Transport, R: Runtime> {
     client: Client<T>,
+    runtime: R,
     grant: Grant,
-    ring: T::Ring,
+    ring: R::Ring,
     ring_frames: u64,
     channels: usize,
     written: u64,
@@ -66,11 +65,10 @@ pub struct PlaybackStream<T: Transport> {
     stall_ticks: u64,
 }
 
-impl<T: Transport> PlaybackStream<T> {
+impl<T: Transport, R: Runtime> PlaybackStream<T, R> {
     /// Open an `S16Le` playback stream and attach a fresh ring to it. Fails
     /// with [`Error::Unsupported`] when the service would not grant `S16Le`.
-    pub fn open(transport: T, params: Params) -> Result<PlaybackStream<T>> {
-        let client = Client::new(transport);
+    pub fn open(client: Client<T>, runtime: R, params: Params) -> Result<PlaybackStream<T, R>> {
         let grant = client.open_stream(
             DIRECTION_PLAYBACK,
             FORMAT_S16_LE,
@@ -93,13 +91,16 @@ impl<T: Transport> PlaybackStream<T> {
         {
             return Err(close(Error::Unsupported));
         }
-        let ring = client.transport().create_ring(ring_bytes).map_err(close)?;
+        let ring = runtime
+            .create_ring(ring_bytes)
+            .map_err(|errno| close(Error::transport(errno)))?;
         client
-            .attach_ring(grant.stream, ring.share())
-            .map_err(close)?;
+            .attach_ring(grant.stream, ring.share().buffer())
+            .map_err(|error| close(error.into()))?;
         Ok(PlaybackStream {
             ring_frames: (ring_bytes / frame_bytes) as u64,
             client,
+            runtime,
             grant,
             ring,
             channels,
@@ -150,7 +151,7 @@ impl<T: Transport> PlaybackStream<T> {
     /// returns the frames written.
     pub fn try_write(&mut self, samples: &[i16]) -> Result<usize> {
         if !samples.len().is_multiple_of(self.channels) {
-            return Err(Error::Errno(EINVAL));
+            return Err(Error::transport(Errno::INVAL));
         }
         let free = (self.ring_frames - (self.written - self.consumed)) as usize;
         let frames = free.min(samples.len() / self.channels);
@@ -170,12 +171,12 @@ impl<T: Transport> PlaybackStream<T> {
     /// ring is full.
     pub fn write(&mut self, samples: &[i16]) -> Result<()> {
         let mut rest = samples;
-        let mut progress_at = self.client.transport().now();
+        let mut progress_at = self.runtime.now();
         while !rest.is_empty() {
             let frames = self.try_write(rest)?;
             if frames > 0 {
                 rest = &rest[frames * self.channels..];
-                progress_at = self.client.transport().now();
+                progress_at = self.runtime.now();
                 continue;
             }
             // The ring is full. A stream that has not started yet never
@@ -183,10 +184,10 @@ impl<T: Transport> PlaybackStream<T> {
             if !self.started {
                 self.start()?;
             }
-            self.client.transport().sleep();
+            self.runtime.sleep();
             let before = self.consumed;
             self.refresh()?;
-            let now = self.client.transport().now();
+            let now = self.runtime.now();
             if self.consumed > before {
                 progress_at = now;
             } else if now.saturating_sub(progress_at) > self.stall_ticks {
@@ -224,16 +225,16 @@ impl<T: Transport> PlaybackStream<T> {
 
     /// Scale this stream: 16.16 fixed point, 65536 is unity.
     pub fn set_volume(&mut self, gain_q16: u32) -> Result<()> {
-        self.client.set_volume(self.grant.stream, gain_q16)
+        Ok(self.client.set_volume(self.grant.stream, gain_q16)?)
     }
 
     pub fn set_mute(&mut self, mute: bool) -> Result<()> {
-        self.client.set_mute(self.grant.stream, mute)
+        Ok(self.client.set_mute(self.grant.stream, mute)?)
     }
 
     /// Frames actually played.
     pub fn position(&self) -> Result<u64> {
-        self.client.position(self.grant.stream)
+        Ok(self.client.position(self.grant.stream)?)
     }
 
     /// Play everything written, then return the frames played. The stream
@@ -244,18 +245,17 @@ impl<T: Transport> PlaybackStream<T> {
         }
         let left = self.written.saturating_sub(self.position()?);
         let nominal = left * TICK_HZ / u64::from(self.grant.rate).max(1);
-        let deadline = self.client.transport().now() + nominal + self.stall_ticks;
-        self.drain_until(deadline)
+        self.drain_within(Deadline::ticks(nominal + self.stall_ticks))
     }
 
-    /// Like [`drain`](Self::drain) with an absolute `deadline` (a transport
-    /// tick) of the caller's choosing; fails with `ETIMEDOUT` at it.
-    pub fn drain_until(&mut self, deadline: u64) -> Result<u64> {
+    /// Like [`drain`](Self::drain) with a bound of the caller's choosing;
+    /// fails with `ETIMEDOUT` when it passes.
+    pub fn drain_within(&mut self, within: Deadline) -> Result<u64> {
         if !self.started {
             self.start()?;
         }
-        self.client.drain(self.grant.stream, Some(deadline))?;
-        self.position()
+        self.client.drain_within(self.grant.stream, within)?;
+        Ok(self.position()?)
     }
 
     /// Drain, then close; returns the frames played.
@@ -276,11 +276,11 @@ impl<T: Transport> PlaybackStream<T> {
             return Ok(());
         }
         self.open = false;
-        self.client.close_stream(self.grant.stream)
+        Ok(self.client.close_stream(self.grant.stream)?)
     }
 }
 
-impl<T: Transport> Drop for PlaybackStream<T> {
+impl<T: Transport, R: Runtime> Drop for PlaybackStream<T, R> {
     fn drop(&mut self) {
         // A stream dropped after a failure must still be given back.
         let _ = self.close_now();

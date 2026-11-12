@@ -4,7 +4,7 @@
 
 use audioclient::UNITY_GAIN;
 use emusic_lazyaudio::output::{Error, Output, OutputFactory, Result};
-use xui_app::platform::audio::{Audio, Params, PlaybackStream};
+use xui_app::platform::audio::{self, Params, PlaybackStream};
 
 /// The loudest gain `audiod` takes: four times unity.
 const MAX_GAIN_Q16: u32 = 4 * UNITY_GAIN;
@@ -15,10 +15,10 @@ pub struct Audiod;
 impl OutputFactory for Audiod {
     fn open(&self, rate: u32, channels: u16) -> Result<Box<dyn Output>> {
         tracing::debug!(rate, channels, "opening an audiod stream");
-        let transport = Audio::try_connect().ok_or_else(|| Error("no sound card".into()))?;
+        let client = audio::try_connect().ok_or_else(|| Error("no sound card".into()))?;
         tracing::debug!("audiod resolved");
-        let stream = PlaybackStream::open(transport, Params::new(rate, u32::from(channels)))
-            .map_err(failed)?;
+        let stream =
+            audio::open(client, Params::new(rate, u32::from(channels))).map_err(failed)?;
         let grant = stream.grant();
         tracing::debug!(?grant, "audiod stream open");
         let frame_bytes = 2 * grant.channels.max(1);
@@ -35,7 +35,7 @@ impl OutputFactory for Audiod {
 
 /// One `audiod` stream.
 struct AudiodOutput {
-    stream: PlaybackStream<Audio>,
+    stream: PlaybackStream,
     period_frames: u64,
     /// Frames the stream's ring holds: it starts itself once that many are
     /// written.
@@ -97,5 +97,5 @@ impl Output for AudiodOutput {
 
 fn failed(error: audioclient::Error) -> Error {
     tracing::warn!(?error, "audiod call failed");
-    Error(format!("{error:?}"))
+    Error(format!("{error}"))
 }

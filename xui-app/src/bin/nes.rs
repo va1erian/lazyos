@@ -19,7 +19,7 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use xui_app::platform::audio::{Audio, Params, PlaybackStream};
+use xui_app::platform::audio::{self, Params, PlaybackStream};
 use xui_app::trace::{self, Channel};
 use xui_nes::host::{Host, Report};
 use xui_nes::{Msg, NesApp, Session, WINDOW};
@@ -43,7 +43,7 @@ struct Platform {
 
 /// An open mixer stream, converted to whatever the mixer granted.
 struct Stream {
-    stream: PlaybackStream<Audio>,
+    stream: PlaybackStream,
     channels: u32,
     rate: u32,
     /// The mono-to-stereo scratch when the mixer granted two channels.
@@ -59,12 +59,12 @@ impl Platform {
             dir,
             muted: false,
         };
-        let Some(audio) = Audio::try_connect() else {
+        let Some(audio) = audio::try_connect() else {
             trace::fail!(Channel::Nes, "SOUND", "no mixer");
             return platform;
         };
         let params = Params::new(RATE_HZ, 1).period_bytes(PERIOD_BYTES);
-        match PlaybackStream::open(audio, params) {
+        match audio::open(audio, params) {
             Ok(stream) => {
                 let rate = stream.rate();
                 let channels = stream.channels();

@@ -11,15 +11,19 @@ use std::vec::Vec;
 use audiomix::service::{self, Outcome, Request};
 use audiomix::{Config, Mixer};
 
+use libmessenger::client::{CallFailure, Connection, Deadline, Errno, Handle, Retry, Transport};
+use libmessenger::{Encoder, Parcel};
+
 use crate::{
-    Error, MixerControl, Object, Params, PlaybackStream, Result, RingBuffer, RingRef, Transport,
+    wire, CallError, Client, Error, MixerControl, Params, Result, RingBuffer, RingRef, Runtime,
     UNITY_GAIN,
 };
+
+type PlaybackStream = crate::PlaybackStream<Fake, Fake>;
 
 const PERIOD: usize = 1024;
 const LEAD: u64 = 3 * PERIOD as u64;
 const FRAMES_PER_TICK: u64 = 480;
-const ETIMEDOUT: i64 = 110;
 
 /// A ring the client writes and the mixer reads.
 #[derive(Clone)]
@@ -70,11 +74,14 @@ pub(crate) struct State {
     pub(crate) sender: u64,
 }
 
-pub(crate) struct Fake(pub(crate) RefCell<State>);
+/// The mixer behind a cheap handle: the same one is the client's transport and
+/// the stream's runtime.
+#[derive(Clone)]
+pub(crate) struct Fake(pub(crate) Rc<RefCell<State>>);
 
 impl Fake {
     pub(crate) fn new() -> Fake {
-        Fake(RefCell::new(State {
+        Fake(Rc::new(RefCell::new(State {
             mixer: Mixer::new(Config::new(48000, PERIOD)),
             rings: BTreeMap::new(),
             next_handle: 1,
@@ -85,7 +92,20 @@ impl Fake {
             out: Vec::new(),
             frozen: false,
             sender: 1,
-        }))
+        })))
+    }
+
+    /// A client of the stream interface over this mixer.
+    fn client(&self) -> Client<Fake> {
+        Client::from_connection(Connection::new(self.clone(), crate::NAME))
+    }
+
+    fn control(&self) -> MixerControl<Fake> {
+        MixerControl::from_connection(Connection::new(self.clone(), crate::NAME))
+    }
+
+    fn open(&self, params: Params) -> Result<PlaybackStream> {
+        PlaybackStream::open(self.client(), self.clone(), params)
     }
 
     /// One tick of the virtual card: keep it a few periods ahead, play.
@@ -110,56 +130,96 @@ impl Fake {
     }
 }
 
+/// The reply the service sends for a refusal: the standard error field.
+fn refusal(errno: i64) -> Parcel {
+    let mut body = Encoder::new();
+    body.error(libmessenger::client::ERROR_FIELD, errno as u32, "refused")
+        .unwrap();
+    Parcel {
+        body: body.finish(),
+        ..Parcel::default()
+    }
+}
+
 impl Transport for Fake {
-    type Ring = SharedRing;
+    fn connect_bound(&self) -> Deadline {
+        Deadline::secs(1)
+    }
+
+    fn call_flags(&self) -> u16 {
+        0
+    }
+
+    fn resolve(&self, _name: &str, _until: Deadline) -> core::result::Result<Handle, Errno> {
+        Ok(1)
+    }
 
     fn call(
         &self,
-        interface: u64,
-        method: u32,
-        body: Vec<u8>,
-        objects: Vec<Object>,
-        deadline: Option<u64>,
-    ) -> Result<Vec<u8>> {
-        let outcome = {
+        _handle: Handle,
+        request: &Parcel,
+        until: Deadline,
+        _retry: Retry,
+    ) -> core::result::Result<Parcel, CallFailure> {
+        let (interface, method) = (request.header.interface_id, request.header.method);
+        let (body, objects) = (&request.body, &request.objects);
+        let (deadline, outcome) = {
             let mut state = self.0.borrow_mut();
             // The ring the request carries: the decoded field names its
             // object, whose range the receiver checks against the ring.
-            let ring = crate::wire::decode_attach_ring_args(&body, &objects)
+            let ring = wire::decode_attach_ring_args(body, objects)
                 .ok()
                 .and_then(|args| {
                     let ring = state.rings.get(&args.ring.handle)?.clone();
                     let fits = args.ring.fits(ring.bytes.borrow().len() as u64);
                     fits.then_some(ring)
                 });
-            let request = Request {
+            let service_request = Request {
                 interface,
                 method,
-                body: &body,
+                body,
                 sender: state.sender,
                 ring,
                 now: state.clock,
             };
-            service::handle(Some(&mut state.mixer), request)
+            let deadline = until.absolute_ticks(state.clock);
+            (
+                deadline,
+                service::handle(Some(&mut state.mixer), service_request),
+            )
+        };
+        let reply = |body: Vec<u8>| Parcel {
+            body,
+            ..Parcel::default()
         };
         match outcome {
-            Outcome::Reply(body) => Ok(body),
-            Outcome::Refuse(errno) => Err(Error::Errno(errno)),
+            Outcome::Reply(body) => Ok(reply(body)),
+            Outcome::Refuse(errno) => Ok(refusal(errno)),
             Outcome::DrainPending(stream) => loop {
                 self.tick();
                 let mut state = self.0.borrow_mut();
                 if let Some(at) = state.drained.iter().position(|&id| id == stream) {
                     state.drained.remove(at);
-                    return Ok(service::drained_reply());
+                    return Ok(reply(service::drained_reply()));
                 }
-                if deadline.is_some_and(|d| state.clock > d) {
-                    return Err(Error::Errno(ETIMEDOUT));
+                if state.clock > deadline {
+                    return Err(CallFailure::delivered(Errno::TIMEDOUT));
                 }
             },
         }
     }
 
-    fn create_ring(&self, bytes: usize) -> Result<SharedRing> {
+    fn send(&self, _handle: Handle, _request: &Parcel) -> core::result::Result<(), Errno> {
+        Ok(())
+    }
+
+    fn release(&self, _handle: Handle) {}
+}
+
+impl Runtime for Fake {
+    type Ring = SharedRing;
+
+    fn create_ring(&self, bytes: usize) -> core::result::Result<SharedRing, Errno> {
         let mut state = self.0.borrow_mut();
         let handle = state.next_handle;
         state.next_handle += 1;
@@ -192,7 +252,7 @@ fn pattern(frames: usize, seed: i16) -> Vec<i16> {
 #[test]
 fn every_sample_written_comes_out_in_order() {
     let fake = Fake::new();
-    let mut stream = PlaybackStream::open(&fake, Params::new(48000, 2)).unwrap();
+    let mut stream = fake.open(Params::new(48000, 2)).unwrap();
     let samples = pattern(48000, 3);
     // Odd chunk sizes, so writes straddle the ring end everywhere.
     let mut at = 0;
@@ -217,7 +277,7 @@ fn every_sample_written_comes_out_in_order() {
 #[test]
 fn a_sound_shorter_than_the_ring_starts_at_drain() {
     let fake = Fake::new();
-    let mut stream = PlaybackStream::open(&fake, Params::new(48000, 2)).unwrap();
+    let mut stream = fake.open(Params::new(48000, 2)).unwrap();
     stream.write(&pattern(100, 0)).unwrap();
     assert_eq!(stream.finish().unwrap(), 100);
 }
@@ -225,15 +285,15 @@ fn a_sound_shorter_than_the_ring_starts_at_drain() {
 #[test]
 fn volume_mute_and_master_reach_the_output() {
     let fake = Fake::new();
-    let mut stream = PlaybackStream::open(&fake, Params::new(48000, 2)).unwrap();
+    let mut stream = fake.open(Params::new(48000, 2)).unwrap();
     stream.set_volume(UNITY_GAIN / 2).unwrap();
     stream.write(&vec![8000i16; 2 * 4096]).unwrap();
     stream.finish().unwrap();
     assert!(fake.0.borrow().out[..2 * 4096].iter().all(|&s| s == 4000));
 
-    let control = MixerControl::new(&fake);
+    let control = fake.control();
     control.set_master(UNITY_GAIN / 4, false).unwrap();
-    let mut muted = PlaybackStream::open(&fake, Params::new(48000, 2)).unwrap();
+    let mut muted = fake.open(Params::new(48000, 2)).unwrap();
     muted.set_mute(true).unwrap();
     muted.write(&vec![8000i16; 2 * 4096]).unwrap();
     assert_eq!(
@@ -241,17 +301,17 @@ fn volume_mute_and_master_reach_the_output() {
         4096,
         "muted streams still play out"
     );
-    let master = control.master().unwrap();
+    let master = control.get_master().unwrap();
     assert_eq!((master.gain_q16, master.mute), (UNITY_GAIN / 4, false));
 }
 
 #[test]
 fn two_streams_are_mixed() {
     let fake = Fake::new();
-    let mut a = PlaybackStream::open(&fake, Params::new(48000, 2)).unwrap();
-    let mut b = PlaybackStream::open(&fake, Params::new(48000, 2)).unwrap();
+    let mut a = fake.open(Params::new(48000, 2)).unwrap();
+    let mut b = fake.open(Params::new(48000, 2)).unwrap();
     assert_ne!(a.grant().stream, b.grant().stream);
-    let listed = MixerControl::new(&fake).streams().unwrap();
+    let listed = fake.control().list_streams().unwrap();
     assert_eq!(listed.len(), 2);
     // Fill both rings, then let them play together.
     let frames = a.free_frames().unwrap() as usize;
@@ -266,7 +326,7 @@ fn two_streams_are_mixed() {
 #[test]
 fn a_mono_stream_at_another_rate_plays_out() {
     let fake = Fake::new();
-    let mut stream = PlaybackStream::open(&fake, Params::new(22050, 1)).unwrap();
+    let mut stream = fake.open(Params::new(22050, 1)).unwrap();
     assert_eq!((stream.rate(), stream.channels()), (22050, 1));
     stream.write(&vec![500i16; 22050]).unwrap();
     assert_eq!(stream.finish().unwrap(), 22050);
@@ -278,15 +338,18 @@ fn a_mono_stream_at_another_rate_plays_out() {
 #[test]
 fn bad_writes_and_limits_are_reported() {
     let fake = Fake::new();
-    let mut stream = PlaybackStream::open(&fake, Params::new(48000, 2)).unwrap();
-    assert_eq!(stream.write(&[1, 2, 3]), Err(Error::Errno(22)));
+    let mut stream = fake.open(Params::new(48000, 2)).unwrap();
+    assert_eq!(
+        stream.write(&[1, 2, 3]),
+        Err(Error::transport(Errno::INVAL))
+    );
     let more: Vec<_> = (0..3)
-        .map(|_| PlaybackStream::open(&fake, Params::new(48000, 2)).unwrap())
+        .map(|_| fake.open(Params::new(48000, 2)).unwrap())
         .collect();
     // Four per client.
     assert!(matches!(
-        PlaybackStream::open(&fake, Params::new(48000, 2)),
-        Err(Error::Errno(16))
+        fake.open(Params::new(48000, 2)),
+        Err(Error::Call(CallError::Remote { code: 16, .. }))
     ));
     drop(more);
     drop(stream);
@@ -297,15 +360,17 @@ fn bad_writes_and_limits_are_reported() {
 fn a_frozen_card_stalls_writes_and_drains_instead_of_hanging() {
     let fake = Fake::new();
     fake.0.borrow_mut().frozen = true;
-    let mut stream = PlaybackStream::open(&fake, Params::new(48000, 2).stall_ticks(50)).unwrap();
+    let mut stream = fake.open(Params::new(48000, 2).stall_ticks(50)).unwrap();
     let frames = stream.free_frames().unwrap() as usize;
     assert_eq!(
         stream.write(&vec![1i16; 2 * (frames + 1)]),
         Err(Error::Stalled)
     );
-    assert_eq!(stream.drain(), Err(Error::Errno(ETIMEDOUT)));
-    let soon = fake.now() + 5;
-    assert_eq!(stream.drain_until(soon), Err(Error::Errno(ETIMEDOUT)));
+    assert_eq!(stream.drain(), Err(Error::transport(Errno::TIMEDOUT)));
+    assert_eq!(
+        stream.drain_within(Deadline::ticks(5)),
+        Err(Error::transport(Errno::TIMEDOUT))
+    );
 }
 
 #[test]
@@ -315,7 +380,7 @@ fn seeded_write_patterns_play_exactly_what_was_written() {
         let channels = 1 + rng.below(2) as u32;
         let period = 64 * (1 + rng.below(64) as u32);
         let params = Params::new(48000, channels).period_bytes(period);
-        let mut stream = PlaybackStream::open(&fake, params).unwrap();
+        let mut stream = fake.open(params).unwrap();
         let mut expected = Vec::new();
         let total = rng.range(1, 20000) as usize;
         let mut sent = 0;
