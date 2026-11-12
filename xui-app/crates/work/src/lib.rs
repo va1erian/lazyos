@@ -12,6 +12,8 @@
 //! * [`Queue`]: one long-lived worker serving requests in order.
 //! * [`inbox`]: a queue of small results the UI drains in batches, behind one
 //!   doorbell message.
+//! * [`Once`]: a result that is not `Clone`, carried in a message and taken
+//!   once.
 //! * [`Sink`]: a handle that posts values of one type, for a crate that does
 //!   not name the app's message type (a pool of render threads, a doorbell).
 //!
@@ -21,6 +23,7 @@
 //! host tests and the desktop runner get the message.)
 
 mod inbox;
+mod once;
 mod queue;
 mod sink;
 
@@ -32,6 +35,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub use inbox::{inbox, inbox_with, Inbox};
+pub use once::Once;
 pub use queue::Queue;
 pub use sink::{Mailbox, Sink};
 

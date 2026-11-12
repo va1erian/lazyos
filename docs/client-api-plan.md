@@ -703,7 +703,6 @@ generated client:
 * `cx.settings::<T>()`: a typed per-app store over `confd` at
   `user/<uid>/<app id>/..` (serde), with a change subscription. Replaces the
   `format!` keys, LazySky's TOML and NES's `recent.txt`.
-* `cx.dirs()`: home, documents, app data, transient, all from `libs/fhs`.
 * `cx.recent()`: recent files, stored through `settings`.
 * `cx.open_dialog(filter)` / `cx.save_dialog(..)`: the `FileDialog` preset
   (file system, start directory, "All files", cancel) with the recent list.
@@ -733,22 +732,22 @@ is a tiny crate, `xui-app/crates/host` (`xui-host`, depends on `xui-core`,
 * `dialogs::{open_dialog, save_dialog, preset}` and `ErrorDialog`:
   `cx.open_dialog(ui, title, filters, on_cancel)` is the file system, the
   start folder, the filters, "All files" last and `require_existing`;
-  `cx.save_dialog` the same without the forced "All files"; `cx.error(ui,
+  `cx.save_dialog` the same without the forced "All files"; `ErrorDialog::new(ui,
   title, on_close)` builds a message dialog whose `show` takes anything that
   displays, so a `CallError` renders as the service's sentence plus hint.
 * `settings::Settings<T>` (`cx.settings::<T>()`): serde struct to one `confd`
   key per leaf under `user/<uid>/<settings id>/` (the channel prefix in lower
-  case, or `.settings_id(..)`; `volume` keeps `audio`); read once at open (a
-  missing or mistyped key is the field's default), saved by field diff on a
-  worker thread, `on_saved(Sink<()>)` rings when a save landed. Floats and
-  lists are stored as JSON text in a string key; maps are not supported. With
+  case); read once at open (a missing or mistyped key is the field's default,
+  a key whose read failed is left alone), saved by field diff on a worker
+  thread that `xui_host::settings::flush` waits for at exit. Floats and
+  lists are stored as JSON text in a string key; maps and `Option<struct>`
+  are not supported. With
   `confd` not registered yet the settings live in memory (no start-up wait).
   `cx.settings_key(name)` / `user_key(uid, app, name)` build the key for a
   per-name setting that is not a struct field (term, volume, LazyWeb).
 * `recent::Recent` (`cx.recent()`): at most 10 files, newest first, kept
   through settings; `cx.open_dialog` opens in the newest one's folder when the
-  app asked for the list. `cx.dirs()`: home, start, documents, downloads,
-  app data (`.system_name(..)`), transient, tmp.
+  app asked for the list.
 * **Evidence.** A marker site with a host in reach calls `report!(host,
   "OPEN:PASS:{path}")`; the line is the text after the channel prefix and the
   host writes it as `trace::line!(channel, ..)`, so the bytes on the serial

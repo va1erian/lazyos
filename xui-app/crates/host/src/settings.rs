@@ -10,9 +10,21 @@
 //! Loading happens once, when the store is opened (before the first frame,
 //! one bounded `confd` read per field). Saving never does I/O on the caller's
 //! thread: only the fields that changed are queued to a worker
-//! ([`Saver::Worker`]). Scalars (bool, integers, strings) are native `confd`
-//! values; a float or a list is stored as its JSON text in a string key. A
-//! map field is not supported (its keys are not known up front).
+//! ([`Saver::Worker`]); a process that exits calls [`flush`] first.
+//! Scalars (bool, integers, strings) are native `confd` values; a float or a
+//! list is stored as its JSON text in a string key, also inside an `Option`.
+//! A map field and an `Option<struct>` are not supported (their keys are not
+//! known up front, and data must not name `confd` keys): saving one is a
+//! debug assertion.
+//!
+//! A read that fails (a `confd` that times out) is not a missing key: the
+//! field keeps its default for this run and the default is never written over
+//! the real value; a field the user changed meanwhile is. A value that does
+//! not fit its field costs that field only.
+//!
+//! Two instances of an app share one subtree and neither follows the other's
+//! changes: each writes only the fields it changed, so the last writer of a
+//! field wins and a field the other never touched is safe.
 
 use std::cell::{Ref, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
