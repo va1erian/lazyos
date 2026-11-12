@@ -42,9 +42,9 @@ standard error field (id 15, `docs/midl.md`).
 
 | Method | Scope interface | Scope id | Deadline | Retry |
 |---|---|---|---|---|
-| Set | this interface | - | 5000 ms | never |
-| Update | this interface | - | 5000 ms | never |
-| Clear | this interface | - | 5000 ms | never |
+| Set | this interface | - | 1000 ms | never |
+| Update | this interface | - | 1000 ms | never |
+| Clear | this interface | - | 1000 ms | never |
 
 ## Objects
 

@@ -209,8 +209,8 @@ fn run(res: &Rc<Resident>) {
     first.menu = volume.menu();
     // Before the shell serves the tray the item is set when it announces
     // itself (`xui_app::tray`), so a refusal here is not fatal.
-    if let Err(code) = res.tray.borrow_mut().set(first) {
-        trace::line!(Channel::Volume, "TRAY:LATER err={}", -code);
+    if let Err(error) = res.tray.borrow_mut().set(first) {
+        trace::line!(Channel::Volume, "TRAY:LATER err={}", -error.code());
     }
     trace::line!(
         Channel::Volume,

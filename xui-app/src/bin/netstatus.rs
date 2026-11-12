@@ -241,8 +241,8 @@ fn run(res: &Rc<Resident>) {
     first.status = net.status();
     // Before the shell serves the tray the item is set when it announces
     // itself (`xui_app::tray`), so a refusal here is not fatal.
-    if let Err(code) = res.tray.borrow_mut().set(first) {
-        trace::line!(Channel::Netstatus, "TRAY:LATER err={}", -code);
+    if let Err(error) = res.tray.borrow_mut().set(first) {
+        trace::line!(Channel::Netstatus, "TRAY:LATER err={}", -error.code());
     }
     trace::pass!(Channel::Netstatus, "UP");
     let mut shown = (net.tooltip(), net.bars());

@@ -2582,7 +2582,7 @@
         "name": "Set",
         "id": 1,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 1000,
         "objects": [
           {
             "name": "events",
@@ -2596,13 +2596,13 @@
         "name": "Update",
         "id": 2,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 1000
       },
       {
         "name": "Clear",
         "id": 3,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 1000
       }
     ],
     "topics": [

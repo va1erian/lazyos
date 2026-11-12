@@ -395,22 +395,22 @@ pub fn decode_generation(body: &[u8]) -> Result<Generation, Error> {
 
 /// `Set` method id.
 pub const METHOD_SET: u32 = 1;
-/// How long a client waits for `Set`'s reply: at most 5000 ms (`deadline` in the `.midl`).
-pub const METHOD_SET_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// How long a client waits for `Set`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_SET_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
 /// Whether a client resends `Set` to a restarted service after the peer died
 /// handling it (`retry` in the `.midl`; `Never` unless stated).
 pub const METHOD_SET_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Update` method id.
 pub const METHOD_UPDATE: u32 = 2;
-/// How long a client waits for `Update`'s reply: at most 5000 ms (`deadline` in the `.midl`).
-pub const METHOD_UPDATE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// How long a client waits for `Update`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_UPDATE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
 /// Whether a client resends `Update` to a restarted service after the peer died
 /// handling it (`retry` in the `.midl`; `Never` unless stated).
 pub const METHOD_UPDATE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Clear` method id.
 pub const METHOD_CLEAR: u32 = 3;
-/// How long a client waits for `Clear`'s reply: at most 5000 ms (`deadline` in the `.midl`).
-pub const METHOD_CLEAR_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// How long a client waits for `Clear`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_CLEAR_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
 /// Whether a client resends `Clear` to a restarted service after the peer died
 /// handling it (`retry` in the `.midl`; `Never` unless stated).
 pub const METHOD_CLEAR_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
@@ -686,7 +686,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// on; the shell `Ping`s it on its heartbeat and drops the custom item
     /// when the channel is gone (`EPIPE`).
     ///
-    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set(&self, item: &Item, events: u64) -> Result<(), ClientError> {
         self.set_within(item, events, METHOD_SET_DEADLINE)
     }
@@ -704,7 +704,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Replace the given parts of the app's item; absent fields are kept
     /// (an empty `badge` removes the badge). `ENOENT` before `Set`.
     ///
-    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn update(&self, icon: core::option::Option<&Icon>, tooltip: core::option::Option<&str>, status: core::option::Option<u32>, badge: core::option::Option<&str>, menu: core::option::Option<&Menu>) -> Result<(), ClientError> {
         self.update_within(icon, tooltip, status, badge, menu, METHOD_UPDATE_DEADLINE)
     }
@@ -723,7 +723,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Drop the app's custom item: a running resident app goes back to its
     /// default item, any other app leaves the tray. Not an error without one.
     ///
-    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn clear(&self) -> Result<(), ClientError> {
         self.clear_within(METHOD_CLEAR_DEADLINE)
     }

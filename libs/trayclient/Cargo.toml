@@ -18,3 +18,5 @@ libmessenger = { path = "../messenger" }
 
 [dev-dependencies]
 fuzzkit = { path = "../fuzzkit" }
+# `Mock`, the scripted transport the tests run the tray against.
+libmessenger = { path = "../messenger", features = ["mock"] }

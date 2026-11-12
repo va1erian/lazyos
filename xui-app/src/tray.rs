@@ -16,18 +16,15 @@
 //! app needs `os.lazy.shell.tray.v1` and `subscribe:session/+/shell/tray` in
 //! its manifest (both implied by `resident` from stage T3).
 
-use libmessenger::client::{Connection, Deadline, Retry};
+use libmessenger::client::{CallError, Connection, Errno};
 use libmessenger::Parcel;
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;
-use trayclient::{wire, Event, Transport, Tray};
+use trayclient::{wire, Channels, Event, Tray};
 
-use crate::platform::messenger::{Conn, Observed};
+use crate::platform::messenger::Observed;
 use crate::platform::topic_feed::TopicFeed;
-use crate::sys::{self, errno};
+use crate::sys;
 
-/// Ticks (100 Hz) one tray call may take: the shell answers from its
-/// heartbeat, about every 30 ms.
-const CALL_TICKS: u64 = 100;
 /// Ticks between looks at the generation topic.
 const GENERATION_TICKS: u64 = 50;
 /// How long the first look at the generation may wait for its retained
@@ -39,44 +36,14 @@ const PER_POLL: usize = 16;
 /// bytes).
 const EVENT_BYTES: usize = 512;
 
-/// [`trayclient::Transport`] over this task's Messenger syscalls. `libs/trayclient` frames its own
-/// requests (its `Transport` takes the method id, body and objects), so the shell is reached
-/// through a raw [`Conn`], not a generated client.
-struct XuiTransport {
-    shell: Conn,
-}
+/// [`trayclient::Channels`] over this task's Messenger syscalls. The shell is
+/// reached through the generated client over the xui transport; only the
+/// event channel pairs come from here.
+struct XuiChannels;
 
-impl XuiTransport {
-    fn new() -> XuiTransport {
-        XuiTransport {
-            shell: Connection::named(Observed::default(), trayclient::NAME.to_owned()),
-        }
-    }
-}
-
-impl Transport for XuiTransport {
-    fn create_pair(&mut self) -> trayclient::Result<(u64, u64)> {
-        sys::msg_create_pair()
-    }
-
-    fn call(
-        &mut self,
-        method: u32,
-        body: Vec<u8>,
-        objects: Vec<trayclient::Object>,
-    ) -> trayclient::Result<Vec<u8>> {
-        self.shell.try_connect().map_err(|_| -errno::ENOENT)?;
-        self.shell
-            .call(
-                wire::INTERFACE_ID,
-                method,
-                body,
-                objects,
-                Deadline::ticks(CALL_TICKS),
-                Retry::Never,
-            )
-            .map(|reply| reply.body)
-            .map_err(i64::from)
+impl Channels for XuiChannels {
+    fn create_pair(&mut self) -> Result<(u64, u64), Errno> {
+        sys::msg_create_pair().map_err(Errno::from_syscall)
     }
 
     fn close(&mut self, handle: u64) {
@@ -86,7 +53,7 @@ impl Transport for XuiTransport {
 
 /// This app's tray item.
 pub struct TrayIcon {
-    tray: Tray<XuiTransport>,
+    tray: Tray<Observed, XuiChannels>,
     /// The shell's generation topic for this session (`None` when the
     /// session is unknown: then the item is never set again by itself).
     generation: Option<TopicFeed>,
@@ -109,7 +76,13 @@ impl TrayIcon {
             .and_then(|session| wire::name_session_shell_tray(&session.to_string()).ok())
             .map(|topic| TopicFeed::new(topic, topics::QOS_LATEST, 1, GENERATION_TICKS));
         TrayIcon {
-            tray: Tray::new(XuiTransport::new()),
+            tray: Tray::new(
+                wire::Client::from_connection(Connection::named(
+                    Observed::default(),
+                    trayclient::NAME.to_owned(),
+                )),
+                XuiChannels,
+            ),
             generation,
             next_retry: 0,
             buf: vec![0; EVENT_BYTES],
@@ -118,7 +91,7 @@ impl TrayIcon {
 
     /// Show `item` (replacing the app's current one). On failure (no shell
     /// yet) the item is kept and set when the shell announces itself.
-    pub fn set(&mut self, item: wire::Item) -> Result<(), i64> {
+    pub fn set(&mut self, item: wire::Item) -> Result<(), CallError> {
         // Learn the current generation first, so the item is registered
         // with it and not set twice when the retained value arrives.
         self.follow_generation(true);
@@ -132,12 +105,12 @@ impl TrayIcon {
     }
 
     /// Change the given parts of the item.
-    pub fn update(&mut self, patch: wire::UpdateArgs) -> Result<(), i64> {
+    pub fn update(&mut self, patch: wire::UpdateArgs) -> Result<(), CallError> {
         self.tray.update(patch)
     }
 
     /// Remove the item.
-    pub fn clear(&mut self) -> Result<(), i64> {
+    pub fn clear(&mut self) -> Result<(), CallError> {
         self.tray.clear()
     }
 
@@ -185,8 +158,8 @@ impl TrayIcon {
         if !now && tick >= self.next_retry {
             // A `Set` a restarting shell refused is tried again.
             self.next_retry = tick.saturating_add(GENERATION_TICKS);
-            if let Some(Err(code)) = self.tray.retry() {
-                println!("TRAY:RESET:RETRY err={}", -code);
+            if let Some(Err(error)) = self.tray.retry() {
+                println!("TRAY:RESET:RETRY err={}", -error.code());
             }
         }
         let events = if now {
@@ -196,8 +169,8 @@ impl TrayIcon {
         };
         for event in events {
             if let Ok(value) = wire::decode_session_shell_tray(&event.payload) {
-                if let Some(Err(code)) = self.tray.generation(value.generation) {
-                    println!("TRAY:RESET:FAIL err={}", -code);
+                if let Some(Err(error)) = self.tray.generation(value.generation) {
+                    println!("TRAY:RESET:FAIL err={}", -error.code());
                 }
             }
         }
