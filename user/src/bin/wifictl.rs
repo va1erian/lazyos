@@ -177,7 +177,7 @@ fn wait_scan(
     ifname: &str,
     ssids: Vec<String>,
 ) -> core::result::Result<(), String> {
-    let mut bus = Bus::connect().ok();
+    let mut bus = Bus::connect_waiting().ok();
     let subscription = bus.as_mut().and_then(|bus| {
         let filter = api::name_system_net_wifi_scan(ifname).ok()?;
         bus.subscribe(&filter).ok()

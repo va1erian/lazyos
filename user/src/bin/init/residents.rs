@@ -126,7 +126,7 @@ impl Residents {
         let topic = wire::name_session_apps_resident(&session).map_err(|_| -22i64)?;
         let payload = wire::encode_session_apps_resident(value).map_err(|_| -22i64)?;
         if self.bus.is_none() {
-            self.bus = Some(central::Bus::lookup().map_err(|error| error.errno().unwrap_or(-5))?);
+            self.bus = Some(central::Bus::connect().map_err(|error| error.errno().unwrap_or(-5))?);
         }
         let bus = self.bus.as_mut().ok_or(-1)?;
         bus.publish_within(

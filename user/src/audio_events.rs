@@ -105,7 +105,7 @@ impl EventPublisher {
                 return None;
             }
             self.next_connect = now + RETRY_TICKS;
-            self.bus = Some(central::Bus::lookup().ok()?);
+            self.bus = Some(central::Bus::connect().ok()?);
         }
         let bus = self.bus.as_mut()?;
         match bus.publish_within(

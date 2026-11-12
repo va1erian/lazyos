@@ -12,7 +12,7 @@ use super::commands::report;
 /// `topics`: list the topics the broker has seen, with subscriber counts and
 /// whether a retained value is held.
 pub(crate) fn print_topics() {
-    let mut bus = match Bus::connect() {
+    let mut bus = match Bus::connect_waiting() {
         Ok(bus) => bus,
         Err(error) => return report(error.message()),
     };
@@ -57,7 +57,7 @@ pub(crate) fn tail(rest: &str) {
         },
         None => 5,
     };
-    let mut bus = match Bus::connect() {
+    let mut bus = match Bus::connect_waiting() {
         Ok(bus) => bus,
         Err(error) => return report(error.message()),
     };

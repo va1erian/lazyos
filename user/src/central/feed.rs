@@ -90,7 +90,7 @@ impl<T> Feed<T> {
         self.next_try = now + RETRY_TICKS;
         if self.bus.is_none() {
             // One lookup, never a wait: the broker may not be up yet.
-            let Ok(bus) = Bus::lookup() else {
+            let Ok(bus) = Bus::connect() else {
                 return false;
             };
             self.bus = Some(bus.bounded(BOUND_TICKS));

@@ -112,7 +112,7 @@ impl Notices {
         if self.bus.is_none() {
             // A resolve is one registry lookup: no retry loop that could
             // hold the supervisor while `messengerd` is away.
-            self.bus = Some(central::Bus::lookup().map_err(errno)?);
+            self.bus = Some(central::Bus::connect().map_err(errno)?);
         }
         let bus = self.bus.as_mut().ok_or(-1)?;
         bus.publish_within(

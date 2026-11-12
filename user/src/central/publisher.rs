@@ -81,7 +81,7 @@ impl Publisher {
         if self.bus.is_none() {
             // One registry lookup: no retry loop that could hold the
             // supervisor while `messengerd` is away.
-            self.bus = Some(Bus::lookup()?);
+            self.bus = Some(Bus::connect()?);
         }
         let Some(bus) = self.bus.as_mut() else {
             return Err(Error::Errno(-errno::ENOENT));

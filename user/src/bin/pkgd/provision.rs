@@ -41,7 +41,7 @@ use super::store;
 fn announce(event: &PkgEvent) {
     for _ in 0..ANNOUNCE_ATTEMPTS {
         // One lookup, not a wait: the broker may be restarting.
-        if let Ok(mut bus) = Bus::lookup() {
+        if let Ok(mut bus) = Bus::connect() {
             let sent = wire::publish_system_events_pkg(&mut bus, &event.op, event).is_ok();
             if sent {
                 return;

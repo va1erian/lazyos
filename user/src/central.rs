@@ -30,7 +30,7 @@ use messenger_generated::os_lazy_messenger_topics_v1 as wire;
 use messenger_generated::topics;
 
 use crate::messenger::topics_client::{self, lift};
-use crate::messenger::{create_pair, errno, registry, Endpoint, Error, Result, EXPIRED_DEADLINE};
+use crate::messenger::{create_pair, errno, Endpoint, Error, Result, EXPIRED_DEADLINE};
 
 /// One delivered event: its topic, the publisher's payload with the bus
 /// envelope taken off, whether it replays a retained value, the broker's
@@ -67,8 +67,8 @@ pub struct Bus {
 }
 
 impl Bus {
-    /// Resolve the broker, waiting a moment (80 ms) while `messengerd`
-    /// registers its name at boot; a daemon loop tries again on its next pass.
+    /// The broker by one registry lookup, never a wait: a daemon loop tries
+    /// again on its next pass.
     pub fn connect() -> Result<Bus> {
         Ok(Bus::new(topics_client::connect()?))
     }
@@ -77,12 +77,6 @@ impl Bus {
     /// never tries again: waits the runtime's connect bound (10 s).
     pub fn connect_waiting() -> Result<Bus> {
         Ok(Bus::new(topics_client::connect_waiting()?))
-    }
-
-    /// One registry lookup of the broker, never a wait: for a caller that
-    /// tries again later (a service that may start before `messengerd`).
-    pub fn lookup() -> Result<Bus> {
-        Ok(Bus::from_endpoint(registry::resolve(topics_client::NAME)?))
     }
 
     /// Wrap an already-resolved broker endpoint.

@@ -15,9 +15,11 @@ use super::topic_tests::{
 };
 
 /// The boot-time topic conformance markers (issue #92). Silent when no broker
-/// is reachable, so the plain `LAZYOS_MESSENGERCTL=1` demo is unchanged.
+/// registers within the connect bound, so the plain `LAZYOS_MESSENGERCTL=1`
+/// demo is unchanged (it waits that bound once for a broker that is not
+/// there).
 pub(crate) fn topic_selftest() {
-    let Ok(mut bus) = Bus::connect() else {
+    let Ok(mut bus) = Bus::connect_waiting() else {
         return;
     };
     sys::write_str("messengerctl: topics broker detected; running selftest\n");
@@ -84,7 +86,7 @@ fn selftest_security() -> Result<(), String> {
 /// prevented running the check at all, which must not be mistaken for a
 /// pass). Never returns.
 pub(crate) fn run_forbidden_publish_probe() -> ! {
-    let denied = match (Bus::connect(), test_payload("forbidden")) {
+    let denied = match (Bus::connect_waiting(), test_payload("forbidden")) {
         (Ok(mut bus), Ok(payload)) => matches!(
             bus.publish(topics_wire::TOPIC_SYSTEM_EVENTS_SELFTEST_FORBIDDEN, &payload, false),
             Err(error) if error.errno() == Some(-messenger::errno::EACCES)

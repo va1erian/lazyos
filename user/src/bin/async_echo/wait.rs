@@ -128,7 +128,7 @@ fn many_check() -> Check {
 /// wakes it on the subscription's bit only. Skipped when the image runs no
 /// topics broker (no `messengerd`).
 fn topic_check() -> Check {
-    let Ok(mut bus) = Bus::connect() else {
+    let Ok(mut bus) = Bus::connect_waiting() else {
         trace::line!(trace::Channel::Async, "WAIT:TOPIC:SKIP");
         return Ok(());
     };

@@ -90,12 +90,11 @@ impl Publisher {
 
     /// Publish whatever changed since the last call.
     pub(super) fn sync(&mut self, net: &Net, ports: &Ports) {
-        // One lookup, never a wait: this runs on every pass of the event loop,
-        // and `Bus::connect` parks a brief while for a broker that is not
-        // there (80 ms a pass on an image without `messengerd`, which
-        // stretched every socket call to a loop period).
+        // `Bus::connect` is one lookup, never a wait: this runs on every pass
+        // of the event loop, and a wait for an absent `messengerd` stretched
+        // every socket call to a loop period.
         if self.bus.is_none() {
-            self.bus = central::Bus::lookup().ok();
+            self.bus = central::Bus::connect().ok();
         }
         self.retire_removed(net);
         for (slot, unit) in net.units() {

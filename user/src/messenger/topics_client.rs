@@ -46,16 +46,12 @@ pub fn client_of(endpoint: Endpoint) -> Client {
     Client::from_connection(Connection::new(Held::nested(endpoint), NAME))
 }
 
-/// How long [`connect`] waits for `messengerd` to register: a moment, not
-/// the runtime's connect bound. Most callers are daemon loops that try again
-/// on their next pass (`if bus.is_none() { bus = Bus::connect().ok() }`) and
-/// must not stall for seconds when the broker is late or not in the image.
-const CONNECT_BRIEF: Deadline = Deadline::ticks(8);
-
-/// A [`Client`] for a program that may start just before `messengerd`: waits
-/// [`CONNECT_BRIEF`] for the name to register.
+/// A [`Client`] of the broker by one registry lookup, never a wait: what a
+/// daemon loop wants (`if bus.is_none() { bus = Bus::connect().ok() }` tries
+/// again on its next pass, and must not stall the pass when `messengerd` is
+/// late or not in the image).
 pub fn connect() -> Result<Client> {
-    Ok(client_of(resolve_within(NAME, CONNECT_BRIEF)?))
+    Ok(client_of(resolve_within(NAME, Deadline::Poll)?))
 }
 
 /// [`connect`] for a one-shot program that cannot do without the broker and
