@@ -1088,3 +1088,120 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(())
     }
 }
+
+#[cfg(feature = "net_stack_v1_server")]
+/// What a program answering `os.lazy.net.stack.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// The interfaces the stack drives, one per attached card.
+    fn interfaces(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<InterfaceInfo>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The addresses configured on every interface.
+    fn addresses(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<AddressInfo>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The routing table: every interface's on-link route and default route,
+    /// the default routes ordered by metric (the lowest wins).
+    fn routes(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<RouteInfo>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Stack counters since it started.
+    fn stats(&mut self, cx: &libmessenger::server::Caller) -> Result<StackStats, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Send one ICMP echo request to `dst` (four octets) with `payload_len`
+    /// bytes of payload (0 to 1400) and wait for its reply. `timeout_ms`
+    /// (10 to 60000) bounds the wait. Fails with `EINVAL` for a bad argument,
+    /// `ENETUNREACH` when there is no address or route yet, `EAGAIN` when this
+    /// caller has 4 pings outstanding or all callers together have 8, and `ETIMEDOUT` when no reply came.
+    fn ping(&mut self, cx: &libmessenger::server::Caller, dst: alloc::vec::Vec<u8>, payload_len: u32, timeout_ms: u32) -> Result<EchoResult, libmessenger::server::Fault> {
+        let _ = (cx, dst, payload_len, timeout_ms,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Look `name` up (A records) at the resolvers DHCP or the static
+    /// configuration gave. `name` is a host name of at most 253 bytes made of
+    /// dot-separated labels of 1 to 63 letters, digits and hyphens (`EINVAL`
+    /// otherwise); `timeout_ms` is 10 to 60000. Fails with `ENETUNREACH` when
+    /// there is no address or no resolver, `EAGAIN` when this caller has 4
+    /// lookups outstanding or all callers together have 8, `ENOENT` when the
+    /// resolver says the name has no address, and `ETIMEDOUT` when no answer
+    /// came. The reply lists the addresses found, four octets each. A dotted
+    /// quad needs no query and is answered at once.
+    fn resolve(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, timeout_ms: u32) -> Result<alloc::vec::Vec<alloc::vec::Vec<u8>>, libmessenger::server::Fault> {
+        let _ = (cx, name, timeout_ms,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Ask for a fresh DHCP lease (drops the current one). Gated by the ACL.
+    fn renew(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Drop the attachment to the NIC driver and establish it again, as after
+    /// a driver restart: the stack keeps its lease and timers. A recovery and
+    /// test call; gated by the ACL.
+    fn reattach(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "net_stack_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_INTERFACES if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.interfaces(&cx), |value| encode_interfaces_reply(&InterfacesReply { list: value }))
+        }
+        METHOD_ADDRESSES if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.addresses(&cx), |value| encode_addresses_reply(&AddressesReply { list: value }))
+        }
+        METHOD_ROUTES if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.routes(&cx), |value| encode_routes_reply(&RoutesReply { list: value }))
+        }
+        METHOD_STATS if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.stats(&cx), |value| encode_stats_reply(&StatsReply { stats: value }))
+        }
+        METHOD_PING if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_ping_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.ping(&cx, args.dst, args.payload_len, args.timeout_ms), |value| encode_ping_reply(&PingReply { result: value }))
+        }
+        METHOD_RESOLVE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_resolve_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.resolve(&cx, args.name, args.timeout_ms), |value| encode_resolve_reply(&ResolveReply { addrs: value }))
+        }
+        METHOD_RENEW if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.renew(&cx), |()| Ok(Vec::new()))
+        }
+        METHOD_REATTACH if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.reattach(&cx), |()| Ok(Vec::new()))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

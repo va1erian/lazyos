@@ -1,12 +1,12 @@
-//! Request dispatch for `os.lazy.timed.v1`.
+//! The handler of `os.lazy.timed.v1`: the six method bodies of the generated
+//! [`Server`]. Framing, decoding and the interface check are `dispatch`'s.
 
 use alloc::string::String;
-use alloc::vec::Vec;
 
-use libmessenger::client::Connection;
-use user::messenger::client::Native;
-use user::messenger::timed::{self as api, wire};
-use user::messenger::{confd, errno, services, Error, Message, Parcel, Result};
+use libmessenger::client::Errno;
+use libmessenger::server::{Caller, Fault};
+use user::messenger::timed::wire;
+use user::messenger::{confd, errno, Error};
 use user::sys;
 
 use crate::ntp::Ntp;
@@ -21,77 +21,73 @@ const MAX_SET_SECS: i64 = sntp::policy::MAX_UNIX_SECS;
 /// another reason cannot pass as the policy holding.
 const DENIED: &str = "only an administrator, through elevd, may change the clock or the time zone";
 
-/// Route one inbound message. `Ok(parcel)` is the reply; `Err` becomes the
-/// structured error reply the caller sees.
-pub(super) fn dispatch(state: &mut State, ntp: &mut Ntp, message: &Message) -> Result<Parcel> {
-    if message.interface_id() != api::INTERFACE {
-        return Err(Error::Errno(-errno::EINVAL));
+/// The service's state, answering requests.
+pub(super) struct Handler<'a> {
+    pub(super) state: &'a mut State,
+    pub(super) ntp: &'a mut Ntp,
+}
+
+impl Handler<'_> {
+    /// Refuse a caller that may not change the clock or the zone.
+    fn authorize(cx: &Caller) -> Result<(), Fault> {
+        if authorized(cx) {
+            Ok(())
+        } else {
+            Err(Fault::refuse(Errno::PERM, DENIED))
+        }
     }
-    let method = message.method();
-    if matches!(method, wire::METHOD_SETZONE | wire::METHOD_SETTIME) && !authorized(message) {
-        return Ok(services::refusal(
-            api::INTERFACE,
-            method,
-            errno::EPERM,
-            DENIED,
-        ));
-    }
-    let body = match method {
-        wire::METHOD_NOW => now_reply(state)?,
-        wire::METHOD_GETZONE => wire::encode_get_zone_reply(&wire::GetZoneReply {
-            name: String::from(state.zone.name),
+}
+
+impl wire::Server for Handler<'_> {
+    fn now(&mut self, _: &Caller) -> Result<wire::NowReply, Fault> {
+        let (secs, centis) = now();
+        let local = self.state.local(secs);
+        Ok(wire::NowReply {
+            unix_ms: secs * 1000 + i64::from(centis) * 10,
+            tz_offset_s: local.offset,
+            tz_name: String::from(self.state.zone.name),
+            dst: local.dst,
         })
-        .map_err(Error::Parcel)?,
-        wire::METHOD_SETZONE => {
-            let args = wire::decode_set_zone_args(&message.parcel.body).map_err(Error::Parcel)?;
-            set_zone(state, &args.name)?;
-            Vec::new()
-        }
-        wire::METHOD_SETTIME => {
-            let args = wire::decode_set_time_args(&message.parcel.body).map_err(Error::Parcel)?;
-            set_time(state, ntp, args.unix_secs)?;
-            Vec::new()
-        }
-        wire::METHOD_NTPSTATUS => {
-            let (unix, _) = now();
-            wire::encode_ntp_status_reply(&ntp.status(unix)).map_err(Error::Parcel)?
-        }
-        wire::METHOD_SYNCNOW => {
-            ntp.sync_now().map_err(|code| Error::Errno(-code))?;
-            Vec::new()
-        }
-        _ => return Err(Error::Errno(-errno::EINVAL)),
-    };
-    // The reply carries the request's interface and method; the generated
-    // server (`docs/client-api-plan.md` 3.3) will build it.
-    Ok(Connection::<Native>::request(
-        api::INTERFACE,
-        method,
-        0,
-        body,
-        Vec::new(),
-    ))
-}
+    }
 
-fn now_reply(state: &State) -> Result<Vec<u8>> {
-    let (secs, centis) = now();
-    let local = state.local(secs);
-    wire::encode_now_reply(&wire::NowReply {
-        unix_ms: secs * 1000 + i64::from(centis) * 10,
-        tz_offset_s: local.offset,
-        tz_name: String::from(state.zone.name),
-        dst: local.dst,
-    })
-    .map_err(Error::Parcel)
-}
+    fn get_zone(&mut self, _: &Caller) -> Result<String, Fault> {
+        Ok(String::from(self.state.zone.name))
+    }
 
-/// Validate against the built-in table, persist, then republish the tick so
-/// the retained value never shows a stale zone.
-fn set_zone(state: &mut State, name: &str) -> Result<()> {
-    let zone = timezone::find(name).ok_or(Error::Errno(-errno::EINVAL))?;
-    state.store_zone(zone).map_err(confd::lower)?;
-    state.next_tick = 0;
-    Ok(())
+    fn set_zone(&mut self, cx: &Caller, name: String) -> Result<(), Fault> {
+        Self::authorize(cx)?;
+        // Validate against the built-in table, persist, then republish the
+        // tick so the retained value never shows a stale zone.
+        let zone = timezone::find(&name).ok_or(Error::Errno(-errno::EINVAL))?;
+        self.state.store_zone(zone).map_err(confd::lower)?;
+        self.state.next_tick = 0;
+        Ok(())
+    }
+
+    fn set_time(&mut self, cx: &Caller, unix_secs: i64) -> Result<(), Fault> {
+        Self::authorize(cx)?;
+        // Below the floor `timed` would lift the clock again at its next
+        // start (`ntp::floor_clock`): refuse it now rather than accept and
+        // undo it.
+        if !(sntp::CLOCK_FLOOR_UNIX..MAX_SET_SECS).contains(&unix_secs) {
+            return Err(Error::Errno(-errno::EINVAL).into());
+        }
+        sys::wall_set_centis(unix_secs as u64 * 100).map_err(Error::Errno)?;
+        self.state.next_tick = 0;
+        self.ntp.clock_stepped();
+        Ok(())
+    }
+
+    fn ntp_status(&mut self, _: &Caller) -> Result<wire::NtpStatusReply, Fault> {
+        let (unix, _) = now();
+        Ok(self.ntp.status(unix))
+    }
+
+    fn sync_now(&mut self, _: &Caller) -> Result<(), Fault> {
+        self.ntp
+            .sync_now()
+            .map_err(|code| Fault::from(Error::Errno(-code)))
+    }
 }
 
 /// Whether the requester may change the clock or the zone, both machine
@@ -101,21 +97,15 @@ fn set_zone(state: &mut State, name: &str) -> Result<()> {
 /// the trusted prompt; anyone else gets `EPERM` and [`DENIED`]. A session's
 /// zone change reaches `timed` as `elevd`'s write of the confd key it
 /// follows.
-fn authorized(message: &Message) -> bool {
-    let cred = message.caller();
-    cred.caps & sys::CAP_SYS_TIME != 0
-        || elevpolicy::is_elevd(cred.uid, cred.label_id, cred.session)
+fn authorized(cx: &Caller) -> bool {
+    cx.caps & sys::CAP_SYS_TIME != 0 || elevpolicy::is_elevd(cx.uid, cx.label_id, cx.session)
 }
 
-/// Step the wall clock (the caller is [`authorized`]).
-fn set_time(state: &mut State, ntp: &mut Ntp, unix_secs: i64) -> Result<()> {
-    // Below the floor `timed` would lift the clock again at its next start
-    // (`ntp::floor_clock`): refuse it now rather than accept and undo it.
-    if !(sntp::CLOCK_FLOOR_UNIX..MAX_SET_SECS).contains(&unix_secs) {
-        return Err(Error::Errno(-errno::EINVAL));
-    }
-    sys::wall_set_centis(unix_secs as u64 * 100).map_err(Error::Errno)?;
-    state.next_tick = 0;
-    ntp.clock_stepped();
-    Ok(())
+/// Answer one inbound message.
+pub(super) fn dispatch(
+    state: &mut State,
+    ntp: &mut Ntp,
+    message: &user::messenger::Message,
+) -> libmessenger::Parcel {
+    wire::dispatch(&mut Handler { state, ntp }, message)
 }

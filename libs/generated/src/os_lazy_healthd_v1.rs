@@ -380,3 +380,48 @@ impl<T: libmessenger::client::Transport> Client<T> {
         decode_status_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
 }
+
+#[cfg(feature = "healthd_v1_server")]
+/// What a program answering `os.lazy.healthd.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Publish `health/<name>` with `status`/`detail`.
+    fn report(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, status: alloc::string::String, detail: alloc::string::String) -> Result<ReportReply, libmessenger::server::Fault> {
+        let _ = (cx, name, status, detail,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Snapshot retained health rows plus the aggregate.
+    fn status(&mut self, cx: &libmessenger::server::Caller) -> Result<StatusReply, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "healthd_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_REPORT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_report_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.report(&cx, args.name, args.status, args.detail), |value| encode_report_reply(&value))
+        }
+        METHOD_STATUS if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.status(&cx), |value| encode_status_reply(&value))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

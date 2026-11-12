@@ -807,3 +807,140 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(())
     }
 }
+
+#[cfg(feature = "messenger_topics_v1_server")]
+/// What a program answering `os.lazy.messenger.topics.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Publish `payload` under the literal `topic`; `retained` also remembers
+    /// it as the topic's retained value. Returns how many subscriptions the
+    /// event reached.
+    fn publish(&mut self, cx: &libmessenger::server::Caller, topic: alloc::string::String, payload: alloc::vec::Vec<u8>, retained: bool) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, topic, payload, retained,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Create a subscription for `filter`. `qos` is a `Qos` value; `depth` is
+    /// the queue depth for `Buffered` (clamped to 1..=64) and ignored by the
+    /// other policies, which use fixed depths. Retained values are replayed.
+    fn subscribe(&mut self, cx: &libmessenger::server::Caller, filter: alloc::string::String, qos: u32, depth: u32) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, filter, qos, depth,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Drop a subscription; later publishes stop matching it.
+    fn unsubscribe(&mut self, cx: &libmessenger::server::Caller, subscription: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, subscription,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Wait for (or, with an expired deadline, poll) the next event of a
+    /// subscription. A `Reliable` subscription redelivers its head until acked.
+    fn next_event(&mut self, cx: &libmessenger::server::Caller, subscription: u64) -> Result<Event, libmessenger::server::Fault> {
+        let _ = (cx, subscription,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Retire every event up to `sequence` on a `Reliable` subscription.
+    fn ack(&mut self, cx: &libmessenger::server::Caller, subscription: u64, sequence: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, subscription, sequence,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Topics the broker has seen, with live subscriber counts.
+    fn list_topics(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<TopicInfo>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Queue and drop counters of one subscription.
+    fn stats(&mut self, cx: &libmessenger::server::Caller, subscription: u64) -> Result<Stats, libmessenger::server::Fault> {
+        let _ = (cx, subscription,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Round-trip probe used to detect a live broker.
+    fn ping(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Give a subscription a doorbell (docs/performance-plan.md P7.2): the
+    /// broker sends one `os.lazy.messenger.topics.bell.v1` `Ready` on `bell`
+    /// when the subscription has an event nobody is pulling, and no more
+    /// until a `NextEvent` from its owner finds the queue empty. The owner
+    /// parks on the other end beside its own endpoints (`wait_any`) and
+    /// drains with expired-deadline `NextEvent`s on each ring, instead of
+    /// polling. Owner only; a second bell replaces the first.
+    fn bell(&mut self, cx: &libmessenger::server::Caller, subscription: u64, bell: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, subscription, bell,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "messenger_topics_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_PUBLISH if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_publish_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.publish(&cx, args.topic, args.payload, args.retained), |value| encode_publish_reply(&PublishReply { matched: value }))
+        }
+        METHOD_SUBSCRIBE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_subscribe_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.subscribe(&cx, args.filter, args.qos, args.depth), |value| encode_subscribe_reply(&SubscribeReply { subscription: value }))
+        }
+        METHOD_UNSUBSCRIBE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_unsubscribe_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.unsubscribe(&cx, args.subscription), |()| Ok(Vec::new()))
+        }
+        METHOD_NEXTEVENT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_next_event_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.next_event(&cx, args.subscription), |value| encode_next_event_reply(&NextEventReply { event: value }))
+        }
+        METHOD_ACK if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_ack_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.ack(&cx, args.subscription, args.sequence), |()| Ok(Vec::new()))
+        }
+        METHOD_LISTTOPICS if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.list_topics(&cx), |value| encode_list_topics_reply(&ListTopicsReply { topics: value }))
+        }
+        METHOD_STATS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_stats_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.stats(&cx, args.subscription), |value| encode_stats_reply(&StatsReply { stats: value }))
+        }
+        METHOD_PING if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.ping(&cx), |()| Ok(Vec::new()))
+        }
+        METHOD_BELL if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_bell_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.bell(&cx, args.subscription, args.bell), |()| Ok(Vec::new()))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

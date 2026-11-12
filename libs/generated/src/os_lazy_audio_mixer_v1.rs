@@ -603,3 +603,93 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(())
     }
 }
+
+#[cfg(feature = "audio_mixer_v1_server")]
+/// What a program answering `os.lazy.audio.mixer.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Every open stream, in opening order.
+    fn list_streams(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<StreamStatus>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Set one stream's gain and mute flag, whoever owns it.
+    fn set_stream_volume(&mut self, cx: &libmessenger::server::Caller, stream: u32, gain_q16: u32, mute: bool) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, stream, gain_q16, mute,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The master gain, the mute flag and what the card runs at.
+    fn get_master(&mut self, cx: &libmessenger::server::Caller) -> Result<Master, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Set the master gain and mute flag, applied after mixing.
+    fn set_master(&mut self, cx: &libmessenger::server::Caller, gain_q16: u32, mute: bool) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, gain_q16, mute,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Every sound output a driver serves now (a built-in codec, a USB
+    /// headset, an HDMI display), the one playing first.
+    fn list_outputs(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<Output>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Play through output `id` from now on, and prefer it whenever it is
+    /// present. Streams keep playing across the switch. `ENOENT` for an
+    /// output that is not present.
+    fn select_output(&mut self, cx: &libmessenger::server::Caller, id: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, id,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "audio_mixer_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_LISTSTREAMS if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.list_streams(&cx), |value| encode_list_streams_reply(&ListStreamsReply { streams: value }))
+        }
+        METHOD_SETSTREAMVOLUME if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_stream_volume_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set_stream_volume(&cx, args.stream, args.gain_q16, args.mute), |()| Ok(Vec::new()))
+        }
+        METHOD_GETMASTER if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.get_master(&cx), |value| encode_get_master_reply(&GetMasterReply { master: value }))
+        }
+        METHOD_SETMASTER if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_master_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set_master(&cx, args.gain_q16, args.mute), |()| Ok(Vec::new()))
+        }
+        METHOD_LISTOUTPUTS if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.list_outputs(&cx), |value| encode_list_outputs_reply(&ListOutputsReply { outputs: value }))
+        }
+        METHOD_SELECTOUTPUT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_select_output_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.select_output(&cx, args.id), |()| Ok(Vec::new()))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

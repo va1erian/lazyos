@@ -531,3 +531,109 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(())
     }
 }
+
+#[cfg(feature = "timed_v1_server")]
+/// What a program answering `os.lazy.timed.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// The current instant and its local-time parameters.
+    fn now(&mut self, cx: &libmessenger::server::Caller) -> Result<NowReply, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The configured zone name (`UTC` when none is set).
+    fn get_zone(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::string::String, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Switch to the built-in zone `name` and persist it to `confd`.
+    /// An unknown name fails with `EINVAL`. A machine setting, like the
+    /// clock: the caller's kernel-stamped credentials must hold
+    /// `CAP_SYS_TIME`, or the caller be `elevd`; anyone else gets `EPERM`
+    /// (a session asks `elevd` to write `sys/time/zone`, which `timed`
+    /// follows).
+    fn set_zone(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, name,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Step the wall clock to `unix_secs` (UTC). The caller's kernel-stamped
+    /// credentials must hold `CAP_SYS_TIME`, or the caller be `elevd` (once
+    /// an administrator approved `time.set`); anyone else gets `EPERM`. A time
+    /// before the build's floor (`sntp::CLOCK_FLOOR_UNIX`, 2026-01-01) or past
+    /// 2200 fails with `EINVAL`: the service would lift an earlier clock again
+    /// the next time it starts.
+    fn set_time(&mut self, cx: &libmessenger::server::Caller, unix_secs: i64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, unix_secs,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The state of the network time client (docs/ntp-plan.md): whether it is
+    /// switched on (`sys/time/ntp/enabled`), what it is doing (`state`, an
+    /// `NtpState` ordinal), and the last exchange that was accepted. Open to
+    /// everyone. Times are UTC seconds, 0 when there is none yet;
+    /// `offset_ms` and `delay_ms` are the last accepted exchange's server
+    /// minus local clock and round trip.
+    fn ntp_status(&mut self, cx: &libmessenger::server::Caller) -> Result<NtpStatusReply, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Ask the network time client to query a server now. Open to everyone,
+    /// and rate-limited like the schedule: it fails with `EAGAIN` when a
+    /// query went out less than 15 seconds ago or is still in flight, or a
+    /// server asked to be left alone (`RATE`) and its hold has not passed,
+    /// `ENETUNREACH` when there is
+    /// no network and `ENODEV` when the client is off. Whatever the server
+    /// says is still judged by the same clock-step policy as a scheduled
+    /// exchange, so a caller cannot choose the time, only when to ask.
+    fn sync_now(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "timed_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_NOW if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.now(&cx), |value| encode_now_reply(&value))
+        }
+        METHOD_GETZONE if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.get_zone(&cx), |value| encode_get_zone_reply(&GetZoneReply { name: value }))
+        }
+        METHOD_SETZONE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_zone_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set_zone(&cx, args.name), |()| Ok(Vec::new()))
+        }
+        METHOD_SETTIME if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_time_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set_time(&cx, args.unix_secs), |()| Ok(Vec::new()))
+        }
+        METHOD_NTPSTATUS if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.ntp_status(&cx), |value| encode_ntp_status_reply(&value))
+        }
+        METHOD_SYNCNOW if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.sync_now(&cx), |()| Ok(Vec::new()))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

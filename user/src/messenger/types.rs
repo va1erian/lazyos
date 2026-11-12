@@ -47,6 +47,16 @@ impl From<messenger_generated::topics::TopicError> for Error {
     }
 }
 
+impl From<Error> for libmessenger::server::Fault {
+    /// What a handler gets for `?` on a Messenger call: the errno-style code
+    /// (a malformed parcel is `EINVAL`) and the friendly text, as every
+    /// service's hand-written `error_reply` answered.
+    fn from(error: Error) -> Self {
+        let code = error.errno().map(|code| -code).unwrap_or(errno::EINVAL);
+        libmessenger::server::Fault::new(code as u32, error.message())
+    }
+}
+
 impl Error {
     /// The negative errno the kernel returned, if this is a kernel error.
     pub fn errno(self) -> Option<i64> {

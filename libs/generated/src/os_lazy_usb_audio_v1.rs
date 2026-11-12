@@ -579,3 +579,113 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(reply.progress)
     }
 }
+
+#[cfg(feature = "usb_audio_v1_server")]
+/// What a program answering `os.lazy.usb.audio.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Periods played (or dropped by a stop) since `Configure`.
+    /// Times the isochronous ring ran dry (`usbd` was starved).
+    /// Service intervals the controller missed.
+    fn describe(&mut self, cx: &libmessenger::server::Caller) -> Result<Device, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Share the staging buffer periods are submitted from. Replaces an
+    /// earlier one (a restarted `sndd`), stopping any stream.
+    fn attach(&mut self, cx: &libmessenger::server::Caller, staging: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, staging,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Pick the alternate setting and rate for a stereo stream at `rate` Hz
+    /// (the closest the device has), switch the device to it and reset the
+    /// counters. Returns the rate it runs at.
+    fn configure(&mut self, cx: &libmessenger::server::Caller, rate: u32) -> Result<u32, libmessenger::server::Fault> {
+        let _ = (cx, rate,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Start sending; until periods arrive the device hears silence.
+    fn start(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Stop sending; every queued period counts as completed.
+    fn stop(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Stop and switch the device to its zero-bandwidth alternate.
+    fn release(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Queue one period: `len` bytes at `offset` of the staging buffer.
+    /// `slot` is the caller's tag, echoed nowhere; periods complete in order.
+    fn submit(&mut self, cx: &libmessenger::server::Caller, slot: u32, offset: u32, len: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, slot, offset, len,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    fn reap(&mut self, cx: &libmessenger::server::Caller) -> Result<Progress, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "usb_audio_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_DESCRIBE if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.describe(&cx), |value| encode_describe_reply(&DescribeReply { device: value }))
+        }
+        METHOD_ATTACH if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_attach_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.attach(&cx, args.staging), |()| Ok(Vec::new()))
+        }
+        METHOD_CONFIGURE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_configure_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.configure(&cx, args.rate), |value| encode_configure_reply(&ConfigureReply { granted: value }))
+        }
+        METHOD_START if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.start(&cx), |()| Ok(Vec::new()))
+        }
+        METHOD_STOP if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.stop(&cx), |()| Ok(Vec::new()))
+        }
+        METHOD_RELEASE if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.release(&cx), |()| Ok(Vec::new()))
+        }
+        METHOD_SUBMIT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_submit_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.submit(&cx, args.slot, args.offset, args.len), |()| Ok(Vec::new()))
+        }
+        METHOD_REAP if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.reap(&cx), |value| encode_reap_reply(&ReapReply { progress: value }))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

@@ -1160,3 +1160,325 @@ impl<T: libmessenger::client::Transport> Client<T> {
             .send(INTERFACE_ID, METHOD_GAMEPADLEAVE, wire_body, wire_objects)
     }
 }
+
+#[cfg(feature = "input_v1_server")]
+/// What a program answering `os.lazy.input.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Open an input session bound to the calling task (the kernel-stamped
+    /// sender). `surface` names the window it wants keys for: it must be a
+    /// surface the compositor registered as owned by this same task, so a
+    /// client can never claim someone else's window (`EACCES`; `ENOENT` when
+    /// the compositor has not registered it). An absent `surface` opens the
+    /// login console's session (issue #396): only the task holding the
+    /// kernel's console claim may (`logind`; anyone else gets `EACCES`, a
+    /// second holder `EBUSY`), and it receives keys only while no compositor
+    /// is attached. `events` is the event endpoint that receives every
+    /// event below. A task may hold several sessions, one per surface.
+    fn open(&mut self, cx: &libmessenger::server::Caller, surface: core::option::Option<u64>, events: u64) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, surface, events,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// End a session. Only the task that opened it may.
+    fn close(&mut self, cx: &libmessenger::server::Caller, session: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, session,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The current layout name, modifier and lock bits (`mods` as in
+    /// `KeyEvent`) and the key-repeat timing in milliseconds.
+    fn get_state(&mut self, cx: &libmessenger::server::Caller) -> Result<GetStateReply, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Ask for a grab of kind `kind` (a `GrantKind`) for `session`, which
+    /// must be the caller's and have keyboard focus (`EACCES` otherwise;
+    /// `EINVAL` for an unknown kind). The compositor decides: the answer
+    /// arrives later as `GrantChanged`. A keyboard grab sends the session
+    /// every key, the compositor's own chords (Alt+Tab, Ctrl+Esc) included,
+    /// until the session releases it, loses focus or closes, or the user
+    /// presses the reserved escape chord (Ctrl+Alt+Esc), which nobody can
+    /// grab or register and which always reverts the grab.
+    fn request_grant(&mut self, cx: &libmessenger::server::Caller, session: u64, kind: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, session, kind,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Give up the grab (or a pending request) `session` holds. Only its
+    /// owner may; releasing nothing is not an error.
+    fn release_grant(&mut self, cx: &libmessenger::server::Caller, session: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, session,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Liveness and freshness for the caller's own `session`: echoes `token`
+    /// and returns `seq`, the raw sequence number of the newest key edge
+    /// `inputd` has processed *while that session has keyboard focus* (`0`
+    /// otherwise, so a session cannot watch typing aimed at another window),
+    /// so a client polling its key-state page can tell the page is current
+    /// (`KeyStateSeq >= seq`). `EACCES` for another task's session.
+    fn ping(&mut self, cx: &libmessenger::server::Caller, session: u64, token: u64) -> Result<PingReply, libmessenger::server::Fault> {
+        let _ = (cx, session, token,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Attach a key-state page to `session` (the caller's): `state`, a
+    /// shared buffer the client created (one page is plenty). While the
+    /// session has keyboard focus `inputd` writes the
+    /// keys held right now into it (layout: `inputmap::keystate`, a seqlock
+    /// word, the newest raw `seq`, a focused flag and a 256-bit bitmap of
+    /// HID usages); the moment focus leaves it clears the page, before
+    /// `KeyboardLeave` is sent. `inputd` only ever writes the page. Attaching
+    /// again replaces the previous page.
+    fn attach_key_state(&mut self, cx: &libmessenger::server::Caller, session: u64, state: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, session, state,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Attach a gamepad-state page to `session` (the caller's): `state`, a
+    /// shared buffer the client created (one page is plenty). While the
+    /// session has keyboard focus `inputd` writes every connected pad's
+    /// current state into it (layout: `inputmap::gamepad`, a seqlock word,
+    /// the newest raw `seq`, a focused flag, the pad count and up to four
+    /// slots of device id, 32 button bits, the d-pad hat and eight `i16`
+    /// axes, deadzone already applied); the moment focus leaves it clears the
+    /// page, before `GamepadLeave` is sent. `inputd` only ever writes the
+    /// page. Attaching again replaces the previous page; same contract as
+    /// `AttachKeyState`. **Attaching is also how a session opts in to pad
+    /// events**: `GamepadAxis`, `GamepadButton`, `GamepadEnter` and
+    /// `GamepadLeave` go only to a focused session that attached a page (they
+    /// share the session's 64-message endpoint with its keystrokes, and a
+    /// stick wiggled under an app that ignores pads must not be able to
+    /// overflow it). The opt-in lasts until the session closes; a session that
+    /// attaches while it holds the keyboard is sent `GamepadEnter` once.
+    fn attach_gamepad_state(&mut self, cx: &libmessenger::server::Caller, session: u64, state: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, session, state,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Event: a key changed state. `code` is the physical key, `sym` its
+    /// keysym under the active layout (a Unicode scalar for character keys,
+    /// an X11-style `0xFFxx` value otherwise, `0` when the key has no meaning
+    /// on the current level), `mods` the modifier and lock bits in force after
+    /// this event (`1` Shift, `2` Ctrl, `4` Alt, `8` Super, `0x10` AltGr,
+    /// `0x20` CapsLock, `0x40` NumLock, `0x80` ScrollLock), `state` a
+    /// `KeyState`, `ts_ns` the kernel timestamp and `seq` the raw sequence
+    /// number. Auto-repeat is always flagged `Repeat`, never `Down`.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn key_event(&mut self, cx: &libmessenger::server::Caller, code: u32, sym: u32, mods: u32, state: u32, ts_ns: u64, seq: u64) {
+        let _ = (cx, code, sym, mods, state, ts_ns, seq,);
+    }
+
+    /// Event: composed text (UTF-8) for a character-producing press or repeat.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn text_input(&mut self, cx: &libmessenger::server::Caller, utf8: alloc::string::String) {
+        let _ = (cx, utf8,);
+    }
+
+    /// Event: keyboard focus arrived. `down` lists the physical keys held right
+    /// now, so the client seeds its key state.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn keyboard_enter(&mut self, cx: &libmessenger::server::Caller, down: alloc::vec::Vec<u32>) {
+        let _ = (cx, down,);
+    }
+
+    /// Event: keyboard focus left. The client **must release every key** it
+    /// believes is down; `inputd` also cancels repeat.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn keyboard_leave(&mut self, cx: &libmessenger::server::Caller) {
+        let _ = (cx,);
+    }
+
+    /// Event: the layout changed (a `confd` write, live).
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn layout_changed(&mut self, cx: &libmessenger::server::Caller, layout: alloc::string::String) {
+        let _ = (cx, layout,);
+    }
+
+    /// Event: the session's grab of kind `kind` started (`active`) or ended;
+    /// `reason` is a `GrantReason`.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn grant_changed(&mut self, cx: &libmessenger::server::Caller, kind: u32, active: bool, reason: u32) {
+        let _ = (cx, kind, active, reason,);
+    }
+
+    /// Event: a gamepad axis changed (only the focused session that attached
+    /// a pad page receives it).
+    /// `device` is the pad's id (as in the state page), `code` the Generic
+    /// Desktop usage (`0x30` X, `0x31` Y, `0x32` Z, `0x33` Rx, `0x34` Ry,
+    /// `0x35` Rz, `0x36` Slider, `0x37` Dial), `value` `-32768..=32767` with
+    /// `0` the axis's rest, the deadzone already applied (Y and Ry are
+    /// positive down). The hat is not an axis event: it arrives as the
+    /// d-pad buttons (`GamepadButton` codes 33..=36). Changes are coalesced
+    /// per drain: one event per axis, the newest value.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn gamepad_axis(&mut self, cx: &libmessenger::server::Caller, device: u32, code: u32, value: i32, ts_ns: u64, seq: u64) {
+        let _ = (cx, device, code, value, ts_ns, seq,);
+    }
+
+    /// Event: a gamepad button changed (only the focused session that
+    /// attached a pad page receives it). `code` is the HID button usage `1..=32`, or `33` d-pad up, `34`
+    /// down, `35` left, `36` right (the hat, one edge per direction;
+    /// diagonals press two). Edges are never merged.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn gamepad_button(&mut self, cx: &libmessenger::server::Caller, device: u32, code: u32, pressed: bool, ts_ns: u64, seq: u64) {
+        let _ = (cx, device, code, pressed, ts_ns, seq,);
+    }
+
+    /// Event: gamepad input arrived with this session's focus: read the
+    /// state page to seed. Sent to a session that attached a pad page
+    /// whenever keyboard focus enters it, when it attaches one while it
+    /// already has focus, and right after a `GamepadLeave` that was a resync.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn gamepad_enter(&mut self, cx: &libmessenger::server::Caller) {
+        let _ = (cx,);
+    }
+
+    /// Event: focus left, or events were lost. The client **must release
+    /// every pad button** it believes is down and centre the axes; the page
+    /// was cleared first. After a dropped-events resync (the keyboard's
+    /// `KeyboardLeave` + `KeyboardEnter` pair) it is followed at once by a
+    /// `GamepadEnter` with the page live again; the page is cleared before
+    /// the Leave and restored before the Enter either way.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn gamepad_leave(&mut self, cx: &libmessenger::server::Caller) {
+        let _ = (cx,);
+    }
+}
+
+#[cfg(feature = "input_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_OPEN if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_open_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.open(&cx, args.surface, args.events), |value| encode_open_reply(&OpenReply { session: value }))
+        }
+        METHOD_CLOSE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_close_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.close(&cx, args.session), |()| Ok(Vec::new()))
+        }
+        METHOD_GETSTATE if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.get_state(&cx), |value| encode_get_state_reply(&value))
+        }
+        METHOD_REQUESTGRANT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_request_grant_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.request_grant(&cx, args.session, args.kind), |()| Ok(Vec::new()))
+        }
+        METHOD_RELEASEGRANT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_release_grant_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.release_grant(&cx, args.session), |()| Ok(Vec::new()))
+        }
+        METHOD_PING if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_ping_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.ping(&cx, args.session, args.token), |value| encode_ping_reply(&value))
+        }
+        METHOD_ATTACHKEYSTATE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_attach_key_state_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.attach_key_state(&cx, args.session, args.state), |()| Ok(Vec::new()))
+        }
+        METHOD_ATTACHGAMEPADSTATE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_attach_gamepad_state_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.attach_gamepad_state(&cx, args.session, args.state), |()| Ok(Vec::new()))
+        }
+        METHOD_KEYEVENT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_key_event_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.key_event(&cx, args.code, args.sym, args.mods, args.state, args.ts_ns, args.seq);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_TEXTINPUT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_text_input_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.text_input(&cx, args.utf8);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_KEYBOARDENTER if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_keyboard_enter_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.keyboard_enter(&cx, args.down);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_KEYBOARDLEAVE if id == INTERFACE_ID => {
+            server.keyboard_leave(&cx);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_LAYOUTCHANGED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_layout_changed_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.layout_changed(&cx, args.layout);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_GRANTCHANGED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_grant_changed_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.grant_changed(&cx, args.kind, args.active, args.reason);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_GAMEPADAXIS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_gamepad_axis_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.gamepad_axis(&cx, args.device, args.code, args.value, args.ts_ns, args.seq);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_GAMEPADBUTTON if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_gamepad_button_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.gamepad_button(&cx, args.device, args.code, args.pressed, args.ts_ns, args.seq);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_GAMEPADENTER if id == INTERFACE_ID => {
+            server.gamepad_enter(&cx);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_GAMEPADLEAVE if id == INTERFACE_ID => {
+            server.gamepad_leave(&cx);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

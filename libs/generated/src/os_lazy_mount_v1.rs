@@ -641,3 +641,125 @@ impl<T: libmessenger::client::Transport> Client<T> {
         decode_eject_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
 }
+
+#[cfg(feature = "mount_v1_server")]
+/// What a program answering `os.lazy.mount.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// The mount's name: it is served at `path`, `/mnt/<name>`.
+    /// The filesystem daemon's protocol (`ftp` or `smb`).
+    /// The server's host name or address, as given.
+    /// The server's TCP port.
+    /// The account it logs in as (`anonymous` when none was given).
+    /// Where it is mounted.
+    /// `connecting`, `mounted` or `failed`.
+    /// Why a mount failed, empty otherwise.
+    /// The requester's uid: the files' owner.
+    /// The SMB share, empty for an FTP mount.
+    /// Mount a server at `/mnt/<name>`, logged in as `user` with `password`.
+    /// `kind` is `ftp` (or empty) for the FTP server `host:port`, where an
+    /// empty `user` is the anonymous login, or `smb` for the SMB 2.1 share
+    /// `\\host\share`, which needs a `user` (the NTLM domain comes from the
+    /// server). `name` is 1 to 32 of `a-z`, `0-9`, `-` and `_`; `host` 1 to
+    /// 253 of letters, digits, `.` and `-`, not starting with `-` and with no
+    /// `:` (the port goes in `port`, 1 to 65535, 0 meaning 21 for FTP and 445
+    /// for SMB); `share` (SMB only) 1 to 80 characters with none of
+    /// `\ / : * ? " < > |`; `user` and `password` at most 128 bytes with no
+    /// control character, and a `password` only with a `user`. An SMB
+    /// password reaches `smbfuse` through its environment, never its
+    /// arguments. `path` is the mount point the daemon will serve.
+    fn mount(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, host: alloc::string::String, port: u32, user: alloc::string::String, password: alloc::string::String, kind: alloc::string::String, share: alloc::string::String) -> Result<alloc::string::String, libmessenger::server::Fault> {
+        let _ = (cx, name, host, port, user, password, kind, share,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Stop the mount `name` and forget it (a failed one is just forgotten).
+    /// The daemon is stopped at once; the kernel takes the dead mount out of
+    /// `/mnt` within a few seconds, and until then it fails every call.
+    fn unmount(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, name,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Every mount the service knows about, in the order they were asked for.
+    fn list(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<MountInfo>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The disk, `usb<n>`: what `Eject` names.
+    /// The mount's name, the volume's label made safe for a path; empty
+    /// until the volume is mounted.
+    /// Where it is mounted, `/media/<name>`; empty until mounted.
+    /// `starting` (a daemon is looking for a volume), `mounted`,
+    /// `ejecting`, `ejected` (flushed and unmounted: safe to pull),
+    /// `removed` (the stick was pulled while mounted), `unsupported`
+    /// (no FAT volume on it) or `failed` (see `detail`).
+    /// Why, for `failed`, `unsupported` and `removed`; empty otherwise.
+    /// The session user it belongs to: its files' owner.
+    /// The stick is not write protected.
+    /// The removable volumes of the caller (all of them for root), oldest
+    /// plug first. An ended volume stays listed until its stick is pulled,
+    /// so its outcome can be read.
+    fn volumes(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<VolumeInfo>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Eject the volume on `disk` (`usb<n>`): flush, close and unmount it,
+    /// then let the stick be pulled. Answers at once; the answer's `state`
+    /// is `ejecting` (poll `Volumes` for `ejected`), `ejected` (nothing was
+    /// mounted, or it already was), or `busy` with the holders in `detail`:
+    /// one line per program and open file or working directory. `force`
+    /// ejects anyway: open files then fail with an I/O error. Failures of the
+    /// request itself are `ENOENT` (no such disk), `EPERM` (another user's
+    /// volume), `EINVAL` (not a disk name) and `EAGAIN` (still starting:
+    /// ask again in a moment).
+    fn eject(&mut self, cx: &libmessenger::server::Caller, disk: alloc::string::String, force: bool) -> Result<EjectReply, libmessenger::server::Fault> {
+        let _ = (cx, disk, force,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "mount_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_MOUNT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_mount_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.mount(&cx, args.name, args.host, args.port, args.user, args.password, args.kind, args.share), |value| encode_mount_reply(&MountReply { path: value }))
+        }
+        METHOD_UNMOUNT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_unmount_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.unmount(&cx, args.name), |()| Ok(Vec::new()))
+        }
+        METHOD_LIST if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.list(&cx), |value| encode_list_reply(&ListReply { mounts: value }))
+        }
+        METHOD_VOLUMES if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.volumes(&cx), |value| encode_volumes_reply(&VolumesReply { volumes: value }))
+        }
+        METHOD_EJECT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_eject_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.eject(&cx, args.disk, args.force), |value| encode_eject_reply(&value))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}

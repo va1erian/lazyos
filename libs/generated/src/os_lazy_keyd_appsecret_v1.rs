@@ -309,3 +309,73 @@ impl<T: libmessenger::client::Transport> Client<T> {
         Ok(reply.names)
     }
 }
+
+#[cfg(feature = "keyd_appsecret_v1_server")]
+/// What a program answering `os.lazy.keyd.appsecret.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Keep `secret` under `name` for the calling app and user, replacing one
+    /// of that name.
+    fn put(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, secret: alloc::vec::Vec<u8>) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, name, secret,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The calling app's secret `name` (`ENOENT` when there is none).
+    fn get(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault> {
+        let _ = (cx, name,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Forget the calling app's secret `name` (`ENOENT` when there is none).
+    fn delete(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, name,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The names of the calling app's secrets, sorted. Names only.
+    fn list(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "keyd_appsecret_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_PUT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_put_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.put(&cx, args.name, args.secret), |()| Ok(Vec::new()))
+        }
+        METHOD_GET if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_get_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.get(&cx, args.name), |value| encode_get_reply(&GetReply { secret: value }))
+        }
+        METHOD_DELETE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_delete_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.delete(&cx, args.name), |()| Ok(Vec::new()))
+        }
+        METHOD_LIST if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.list(&cx), |value| encode_list_reply(&ListReply { names: value }))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}
