@@ -43,6 +43,11 @@ impl<T: Transport> Subscriber<T> {
         Ok(mine)
     }
 
+    /// Our end of `id`'s doorbell, once attached.
+    pub fn bell_of(&self, id: SubId) -> Option<u64> {
+        self.sub(id)?.bell
+    }
+
     /// Our end of every attached doorbell, for a `wait_any` beside the
     /// caller's own endpoints (the kernel allows `WAIT_MAX_ENDPOINTS` words
     /// per wait: keep the number of live subscriptions below it).

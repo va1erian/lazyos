@@ -23,7 +23,7 @@ const RESTORE_TICKS: u64 = 3000;
 pub struct Generation {
     session: Option<u64>,
     /// Follows the session's tray topic from the shell's start, so the value a
-    /// previous shell left is queued (the watcher thread reads it) by the
+    /// previous shell left is queued (the hub drains it) by the
     /// time the service serves; nothing here waits for it.
     feed: Option<Feed<wire::Generation>>,
     /// When restored items are still being reported (a PIT tick).

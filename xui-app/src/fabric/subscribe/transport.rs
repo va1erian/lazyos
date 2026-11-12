@@ -99,6 +99,13 @@ impl Transport for SysTransport {
     }
 
     fn recv(&mut self, handle: u64, buf: &mut [u8]) -> Result<Option<usize>, Errno> {
+        // The counters first: an expired-deadline `recv` on an empty queue
+        // parks until the next tick, which a UI thread must not pay on every
+        // look at a bell. (An error from the counters falls through to the
+        // `recv`, which reports a closed peer.)
+        if lazyos_sys::msg::queued(handle) == Ok(0) {
+            return Ok(None);
+        }
         match lazyos_sys::msg::recv(handle, buf, POLL_DEADLINE) {
             Ok(result) => Ok(Some(result.bytes as usize)),
             Err(code) if code == -ETIMEDOUT => Ok(None),

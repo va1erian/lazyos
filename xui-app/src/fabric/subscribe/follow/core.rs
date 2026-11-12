@@ -1,36 +1,23 @@
-//! The watcher's logic over a [`Subscriber`], with no threads and no kernel in
-//! it so the host tests drive it against the scripted broker.
+//! The hub's logic over a [`Subscriber`], with no kernel in it so the host
+//! tests drive it against the scripted broker.
 //!
-//! The watcher thread owns one [`Core`]. It takes [`Command`]s (a feed added
-//! or dropped), makes the subscriptions that are missing ([`Core::connect`]),
-//! parks on [`Core::handles`] (every doorbell) and, when one rang, reads what
-//! rang ([`Core::service`]) into each feed's [`Queue`]. Nothing here waits:
-//! the thread's park is the only place time passes.
+//! A thread's [`Core`] makes the subscriptions that are missing
+//! ([`Core::connect`]) and, when a doorbell rang, reads what rang into each
+//! feed's [`Queue`] ([`Core::service`]). Neither waits: a doorbell is a local
+//! queue, and the broker is called only to subscribe and to drain what a bell
+//! announced.
 
-use std::sync::Arc;
+use std::rc::Rc;
 
 use super::super::{Qos, SubId, Subscriber, Transport, MAX_DRAIN};
-use super::{Queue, TopicEvent, Wake};
+use super::{Queue, TopicEvent};
 
 /// Ticks (100 Hz) before a subscription the broker refused or lost is made
-/// again: the watcher is the one place a retry timer is allowed (it is not the
-/// UI thread, and it runs only while a feed is missing its subscription).
+/// again.
 const RETRY_TICKS: u64 = 100;
 
-/// What the UI side asks the watcher for.
-pub(super) enum Command {
-    /// Follow `filter` into `queue`, then call `wake`.
-    Add {
-        key: u64,
-        filter: String,
-        qos: Qos,
-        depth: u32,
-        queue: Arc<Queue>,
-        wake: Wake,
-    },
-    /// Stop following.
-    Remove(u64),
-}
+/// Looks a new subscription gets for its retained replay.
+const REPLAY_LOOKS: u8 = 3;
 
 /// One followed filter.
 struct Entry {
@@ -38,12 +25,18 @@ struct Entry {
     filter: String,
     qos: Qos,
     depth: u32,
-    queue: Arc<Queue>,
-    wake: Wake,
+    queue: Rc<Queue>,
     sub: Option<SubId>,
-    /// Made since the last drain: the broker queued the retained replay
-    /// before the doorbell existed, so it is read without a ring.
-    fresh: bool,
+    /// Made, or a ring that found nothing, since the last drain: read it
+    /// without waiting for a ring. (The broker queued the retained replay
+    /// before the doorbell existed; and a poll can miss an event a busy
+    /// broker has queued, which leaves the bell rung with nothing to ring
+    /// again.)
+    pending: bool,
+    /// Looks left for the replay a new subscription is owed: each finds the
+    /// queue empty or not (a poll the broker does not answer in its turn is
+    /// an empty one), so a few are made before giving the ring the job.
+    replay_looks: u8,
     /// The last drain stopped at its batch: the bell is not re-armed.
     more: bool,
     /// The earliest tick to try subscribing again.
@@ -64,37 +57,30 @@ impl<T: Transport> Core<T> {
         }
     }
 
-    /// Apply one command from the UI side.
-    pub(super) fn apply(&mut self, command: Command) {
-        match command {
-            Command::Add {
-                key,
-                filter,
-                qos,
-                depth,
-                queue,
-                wake,
-            } => self.entries.push(Entry {
-                key,
-                filter,
-                qos,
-                depth,
-                queue,
-                wake,
-                sub: None,
-                fresh: false,
-                more: false,
-                retry_at: 0,
-            }),
-            Command::Remove(key) => {
-                if let Some(at) = self.entries.iter().position(|entry| entry.key == key) {
-                    let entry = self.entries.remove(at);
-                    if let Some(id) = entry.sub {
-                        // A refusal leaves the record in the subscriber, whose
-                        // drop makes the last attempt.
-                        let _ = self.subscriber.unsubscribe(id);
-                    }
-                }
+    /// Follow `filter` into `queue`.
+    pub(super) fn add(&mut self, key: u64, filter: &str, qos: Qos, depth: u32, queue: Rc<Queue>) {
+        self.entries.push(Entry {
+            key,
+            filter: filter.to_owned(),
+            qos,
+            depth,
+            queue,
+            sub: None,
+            pending: false,
+            replay_looks: 0,
+            more: false,
+            retry_at: 0,
+        });
+    }
+
+    /// Stop following.
+    pub(super) fn remove(&mut self, key: u64) {
+        if let Some(at) = self.entries.iter().position(|entry| entry.key == key) {
+            let entry = self.entries.remove(at);
+            if let Some(id) = entry.sub {
+                // A refusal leaves the record in the subscriber, whose drop
+                // makes the last attempt.
+                let _ = self.subscriber.unsubscribe(id);
             }
         }
     }
@@ -118,7 +104,8 @@ impl<T: Transport> Core<T> {
             match made {
                 Ok(id) => {
                     entry.sub = Some(id);
-                    entry.fresh = true;
+                    entry.pending = true;
+                    entry.replay_looks = REPLAY_LOOKS;
                     entry.queue.set_subscribed(true);
                 }
                 Err(_) => entry.retry_at = now.saturating_add(RETRY_TICKS),
@@ -126,38 +113,22 @@ impl<T: Transport> Core<T> {
         }
     }
 
-    /// Our end of every doorbell, to park on.
-    pub(super) fn handles(&self) -> Vec<u64> {
-        self.subscriber.doorbell_handles()
+    /// The doorbell of feed `key`, once it is subscribed.
+    pub(super) fn bell_of(&self, key: u64) -> Option<u64> {
+        let id = self.entries.iter().find(|entry| entry.key == key)?.sub?;
+        self.subscriber.bell_of(id)
     }
 
-    /// The tick to wake at to make a subscription that is missing; `None` when
-    /// none is.
-    pub(super) fn retry_at(&self) -> Option<u64> {
-        self.entries
-            .iter()
-            .filter(|entry| entry.sub.is_none())
-            .map(|entry| entry.retry_at)
-            .min()
-    }
-
-    /// Whether a drain left events behind: park no longer than a poll.
-    pub(super) fn busy(&self) -> bool {
-        self.entries.iter().any(|entry| entry.more)
-    }
-
-    /// Read what rang (and what is new, or left over) into the queues. Returns
-    /// the wakes of the feeds that got events, for the caller to ring outside
-    /// any lock.
-    pub(super) fn service(&mut self, now: u64) -> Vec<Wake> {
+    /// Read what rang (and what is new, or left over) into the queues.
+    pub(super) fn service(&mut self, now: u64) {
         let rung = self.subscriber.consume_ready();
-        let mut wakes = Vec::new();
         for entry in &mut self.entries {
             let Some(id) = entry.sub else {
                 continue;
             };
             let lost = rung.lost.iter().any(|(lost, _)| *lost == id);
-            if !lost && !entry.fresh && !entry.more && !rung.ready.contains(&id) {
+            let ready = rung.ready.contains(&id);
+            if !lost && !ready && !entry.pending && !entry.more {
                 continue;
             }
             let drained = if lost {
@@ -165,9 +136,15 @@ impl<T: Transport> Core<T> {
             } else {
                 self.subscriber.drain(id, MAX_DRAIN)
             };
-            entry.fresh = false;
+            // A ring that found nothing: the poll may have missed an event.
+            let empty = drained.events.is_empty() && drained.error.is_none();
+            entry.pending = empty && (ready || entry.replay_looks > 1);
+            if !drained.events.is_empty() {
+                entry.replay_looks = 0;
+            } else {
+                entry.replay_looks = entry.replay_looks.saturating_sub(1);
+            }
             entry.more = drained.more;
-            let got = !drained.events.is_empty();
             entry.queue.push(
                 drained
                     .events
@@ -186,13 +163,27 @@ impl<T: Transport> Core<T> {
                 let _ = self.subscriber.unsubscribe(id);
                 entry.sub = None;
                 entry.more = false;
-                entry.queue.set_subscribed(false);
+                entry.pending = false;
                 entry.retry_at = now.saturating_add(RETRY_TICKS);
-            }
-            if got {
-                wakes.push(Arc::clone(&entry.wake));
+                entry.queue.set_subscribed(false);
             }
         }
-        wakes
+    }
+
+    /// The tick a missing subscription may be tried again; `None` when none is
+    /// missing.
+    #[cfg(test)]
+    pub(super) fn retry_at(&self) -> Option<u64> {
+        self.entries
+            .iter()
+            .filter(|entry| entry.sub.is_none())
+            .map(|entry| entry.retry_at)
+            .min()
+    }
+
+    /// Whether a drain left events behind.
+    #[cfg(test)]
+    pub(super) fn busy(&self) -> bool {
+        self.entries.iter().any(|entry| entry.more)
     }
 }

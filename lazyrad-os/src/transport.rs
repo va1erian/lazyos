@@ -114,7 +114,7 @@ impl Transport for MessengerTransport {
     }
 }
 
-/// The real [`PkgEvents`]: a typed [`Feed`] of the process's watcher thread,
+/// The real [`PkgEvents`]: a typed [`Feed`] of this thread's hub,
 /// waited on through its doorbell (no timer, no broker call on this thread).
 struct FollowEvents {
     feed: Option<Feed<pkgd::PkgEvent>>,
@@ -136,7 +136,8 @@ impl PkgEvents for FollowEvents {
                 return None;
             }
             match feed.handle().bell() {
-                // Park until the watcher queues something or `until` passes.
+                // Park until the doorbell rings or `until` passes (the next `pull`
+                // drains what rang).
                 Some(bell) => {
                     let _ = xui_app::sys::msg_wait_any(&[bell], until);
                 }

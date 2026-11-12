@@ -141,12 +141,20 @@ impl<T> Feed<T> {
     }
 
     /// Read what is queued now, ring or no ring, to the end (which re-arms the
-    /// doorbell). For a reader that must not act before a record it knows was
-    /// published: the broker rings its bell *after* it answers the publisher,
-    /// so a request the publisher sent next can arrive first. Costs one broker
-    /// call when nothing is queued; use it on a request, not on a timer.
-    pub fn drain_now(&mut self, apply: impl FnMut(Event<T>)) {
+    /// doorbell), the last pull waiting up to `ticks` for an event. For a
+    /// reader that must not act before a record it knows was published: the
+    /// broker rings its bell *after* it answers the publisher, so a request
+    /// the publisher sent next can arrive first, and a poll (an expired
+    /// deadline) can miss an event a busy broker has queued. Costs up to
+    /// `ticks` when nothing is queued; use it on a request, never on a timer.
+    pub fn drain_waiting(&mut self, ticks: u64, apply: impl FnMut(Event<T>)) {
+        if let Some(stream) = &mut self.stream {
+            stream.handle_mut().set_wait_ticks(ticks);
+        }
         self.read(true, apply);
+        if let Some(stream) = &mut self.stream {
+            stream.handle_mut().set_wait_ticks(0);
+        }
     }
 
     /// Read to the end when `rang` or the stream is fresh (the ring, if any,

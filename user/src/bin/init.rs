@@ -288,7 +288,7 @@ fn run() -> messenger::Result<()> {
         feeds.ensure();
         broker.flush();
         let bells = feeds.endpoints(2);
-        let ended = feeds.drain(&services, 0, false);
+        let ended = feeds.drain(&services, 0);
         end_sessions(&mut services, &mut broker, &mut logouts, ended);
         let stepping = shutdown.is_some();
         let deadline = match shutdown.as_ref() {
@@ -314,9 +314,7 @@ fn run() -> messenger::Result<()> {
         // Login records first: one was published (and its doorbell rung)
         // before the requests queued behind it were sent, and a launch needs
         // to know its session's owner.
-        // A request queued with the ring still on its way (the broker rings
-        // after it answers the publisher): read the login records for it.
-        let ended = feeds.drain(&services, ready, ready & 1 != 0);
+        let ended = feeds.drain(&services, ready);
         end_sessions(&mut services, &mut broker, &mut logouts, ended);
         // Requests next: an app's `ReportFailure` sent just before it exited
         // is queued ahead of the exit, and must reach its still-running row
@@ -331,6 +329,7 @@ fn run() -> messenger::Result<()> {
                 homes: &mut homes,
                 stops: &mut stops,
                 logouts: &mut logouts,
+                feeds: &mut feeds,
             },
             &server,
             &mut buffer,

@@ -10,7 +10,7 @@
 //!
 //! [`TrayIcon::poll`] never parks: it drains the item's event channel with
 //! the channel counters first, and follows the shell's retained
-//! `session/<s>/shell/tray` generation through a [`Follow`] (the watcher
+//! `session/<s>/shell/tray` generation through a [`Follow`] (the thread's hub
 //! thread reads it; the poll only empties a queue), setting the item again
 //! when a restarted shell publishes a new one. An app therefore
 //! keeps its icon across a shell restart without code of its own. A labelled
@@ -181,7 +181,7 @@ impl TrayIcon {
         found
     }
 
-    /// Learn the shell's generation from what the watcher queued; `set` asks
+    /// Learn the shell's generation from what the hub queued; `set` asks
     /// first so the item is registered with the generation already known.
     fn follow_generation(&mut self, now: bool) {
         let Some(stream) = self.generation.as_mut() else {

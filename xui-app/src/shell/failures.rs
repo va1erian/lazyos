@@ -3,7 +3,7 @@
 //! `init` publishes `system/events/app/<id>` on the central broker
 //! (`messengerd`) when it gives up on a launched app. The shell subscribes
 //! once the broker is there (a buffered subscription, so failures that land
-//! between two looks wait); the watcher thread (`fabric::Follow`) reads it
+//! between two looks wait); the thread's hub (`fabric::Follow`) reads it
 //! off the broker's doorbell, and the heartbeat only empties a queue, so the
 //! shell never waits on the broker. Only failures of apps in this shell's own
 //! login session are kept.
@@ -34,7 +34,7 @@ pub struct FailureFeed {
     /// This shell's login session; `None` when unknown (then nothing shows:
     /// a notice for another user's app would leak what they run).
     session: Option<u64>,
-    /// The watcher thread's follow of the topic (a buffered subscription, so
+    /// The follow of the topic (a buffered subscription, so
     /// failures that land between two looks wait); none without a session.
     follow: Option<Feed<init_wire::AppFailure>>,
     /// Whether the subscription was announced on the serial line.
@@ -55,7 +55,7 @@ impl FailureFeed {
     }
 
     /// The failures of this session's apps that arrived since the last look.
-    /// Reads a queue in memory: the watcher thread does the broker's calls.
+    /// Reads a queue in memory: the hub drains the broker only when a doorbell rang.
     pub fn poll(&mut self) -> Vec<Failure> {
         let Some(stream) = self.follow.as_mut() else {
             return Vec::new();

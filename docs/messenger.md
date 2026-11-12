@@ -347,7 +347,7 @@ login records and `pkgd`'s provisioning events and checks each event's
 kernel-stamped `publisher` slot against the manifest row it must be; `elevd`,
 `xuid`, `pkgd` and the `Logins` follower read through `central::Feed`. A native
 reader parks on the feed's doorbell or asks it locally, and an xui app or
-LazyRAD reads through `fabric::Follow` (one watcher thread per process); none
+LazyRAD reads through `fabric::Follow` (one hub per thread); none
 of them polls the broker on a timer.
 
 **Supervision services (S2, issue #93).** `system/events/service/<name>`

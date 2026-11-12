@@ -382,14 +382,19 @@ As built (C5):
   the kernel-stamped `publisher` slot of every record against the manifest row
   it must be. `user::messenger::router`, its `*b"os.topic"` ids and fields and
   `svcpolicy`'s `Roster` and `Sink` are deleted.
-* **xui: one subscriber.** `fabric::Follow` is a handle on one filter; one
-  watcher thread per process owns the `Subscriber`, parks on every doorbell,
-  drains and reconnects. The UI thread only empties an in-memory queue
-  (`Follow::take`, or the typed `fabric::pull`), so no topic read waits on the
-  broker and the `UI:STALL` lines of `topic_feed::poll_waiting` cannot come
-  back. A `Follow` wakes its reader through a `Sink<()>` (an xui window's
-  proxy) or its own doorbell (`Follow::bell`, parked on beside other endpoints
-  by `Resident::idle_with`). `fabric::Watch` is the runtime's
+* **xui: one subscriber.** `fabric::Follow` is a handle on one filter; the
+  thread's hub owns one `Subscriber` under all its follows. A follow
+  subscribes and attaches its doorbell when it is made; `Follow::take` (or the
+  typed `fabric::pull`) looks at the doorbells, which are local queues, and
+  drains a subscription only when its bell rang, so the UI thread never waits
+  on the broker (the `UI:STALL` lines of `topic_feed::poll_waiting` cannot come
+  back) and nothing polls it on a timer. A loop that wants to be woken parks on
+  `Follow::bell` beside its other endpoints (`Resident::idle_with`); one with a
+  tick of its own just takes. The hub is per thread, not a worker thread: a
+  first attempt with one watcher thread per process failed on the device,
+  because Messenger handles and an app's label (`subscribe:` permissions)
+  belong to the thread that made them (`EACCES` on the worker's subscribe,
+  `ENOENT` waiting on a handle another thread made). `fabric::Watch` is the runtime's
   `topics::Subscribe`, so `subscribe_<topic>(&mut Watch, ..)` gives a typed
   `fabric::Feed<Payload>`. Moved: `netstatus`, the Terminal's change feed, the
   tray generation (`TrayIcon` and the shell), the shell's resident-apps and
@@ -570,7 +575,7 @@ leaves `main` green.
 | C2b | **Built.** Rust client generation over C1's `Transport` (blocking forms; `_begin` waits for an asynchronous transport call); host tests through `Mock` (`libs/generated/tests/client.rs`); `timed` and `notify` migrated as proof | (enables C3) |
 | C3 | Migrate clients interface by interface (confd, init, topics, clipboard first: the most duplicated); `user::messenger::*` and `xui_app::platform::*` keep only domain adapters. **Native half built for** confd, mimed, pkgd, accountsd, keyd, logind, mountd, devd, gpud, usb audio, init, healthd, logd, sysmond and the clipboard (`user/src/messenger/<svc>.rs` is `pub type Client = wire::Client<Native>` plus domain meaning; slow calls keep `Deadline::Never`, `Nested` carries the clipboard's `ALLOW_NESTED`). Not yet: `net`/`netstack`/`netsock`/`netstd`, `wifi`, `display`, `input`, the `audioclient`/`trayclient` seams, and the xui lane | per-module `fn header`/`fn parcel`/`error_code`, `Service::call_*` |
 | C4 | Server generation and `dispatch`; migrate daemons, starting with small ones (`timed`, `mimed`, `pkgd`) then `xuid`, `netd`, `inputd` | 469 dispatch arms, 16 `error_reply`, `xui-app/src/server.rs` |
-| C5 | **Built.** Typed bell subscriptions (generated `subscribe_<topic>` returns a decoding stream; `central::Feed` natively, `fabric::Follow` and its watcher thread in xui); `init`, `healthd` and their readers moved off the interim router; the undeclared topics declared or named | `topic_feed`, `router` (422 + 132 lines), `Roster`/`Sink` (588), the shell failures poller, the handoff poller |
+| C5 | **Built.** Typed bell subscriptions (generated `subscribe_<topic>` returns a decoding stream; `central::Feed` natively, `fabric::Follow` and its per-thread hub in xui); `init`, `healthd` and their readers moved off the interim router; the undeclared topics declared or named | `topic_feed`, `router` (422 + 132 lines), `Roster`/`Sink` (588), the shell failures poller, the handoff poller |
 | C6 | `check_handrolled.py --ratchet` in CI | (keeps it from coming back) |
 | X1 | `xui_app::app(..)` builder, `.opens`, panic hook, `finish`; new template; migrate every bin | `themed.rs`, outboxes, seven launch paths |
 | X2 | `AppContext`: settings, dirs, recent, dialogs, error, files | four `Host` structs, `format!` confd keys, `$HOME` lookups |

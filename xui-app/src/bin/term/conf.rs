@@ -48,7 +48,7 @@ impl Follower {
         let store = ConfdStore::new();
         let available = store.registered();
         let uid = if available { store.uid() } else { None };
-        // Every key of the user's store; the watcher thread reads the topic.
+        // Every key of the user's store; the hub drains the topic when its doorbell rang.
         let changes = uid.and_then(|uid| {
             confd_wire::subscribe_user_confd_changed(&mut Watch, &uid.to_string(), "#").ok()
         });

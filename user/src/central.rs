@@ -202,6 +202,7 @@ impl Bus {
             bell: None,
             scratch: Vec::new(),
             bound: self.bound,
+            wait_ticks: 0,
         })
     }
 
@@ -255,6 +256,11 @@ pub struct Subscription {
     scratch: Vec<u8>,
     /// Ticks the bell request may take (the bus's bound).
     bound: Option<u64>,
+    /// Ticks an [`topics::Events::next_event`] pull waits for an event; `0`
+    /// is the poll (an expired deadline: the broker answers only if it is
+    /// parked at that instant, so a busy broker can make a poll miss a queued
+    /// event).
+    wait_ticks: u64,
 }
 
 /// The typed stream's pull: one non-waiting `NextEvent`, which also re-arms
@@ -267,7 +273,11 @@ impl topics::Events for Subscription {
             self.scratch = alloc::vec![0u8; DEFAULT_BUFFER];
         }
         let mut buf = core::mem::take(&mut self.scratch);
-        let event = self.recv_with(&mut buf, Some(EXPIRED_DEADLINE));
+        let deadline = match self.wait_ticks {
+            0 => EXPIRED_DEADLINE,
+            ticks => crate::sys::clock() + ticks,
+        };
+        let event = self.recv_with(&mut buf, Some(deadline));
         self.scratch = buf;
         Ok(event?.map(|event| topics::RawEvent {
             topic: event.topic,
@@ -333,6 +343,12 @@ impl Subscription {
         }
         self.bell = Some(mine);
         Ok(mine)
+    }
+
+    /// Let each pull of [`topics::Events::next_event`] wait up to `ticks` for
+    /// an event (`0`: poll). See [`Feed::drain_waiting`].
+    pub fn set_wait_ticks(&mut self, ticks: u64) {
+        self.wait_ticks = ticks;
     }
 
     /// Park on the doorbell until an event is queued, or `deadline` (an

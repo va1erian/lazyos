@@ -6,11 +6,11 @@
 //!
 //! An xui app or LazyRAD does not drive a [`Subscriber`] itself: it makes a
 //! [`Follow`] (or, typed, the generated `subscribe_<topic>` helper over
-//! [`Watch`]), and the one watcher thread of the process owns the
-//! subscriber, parks on every doorbell, drains and reconnects. The UI thread
-//! only empties a queue in memory, so it does no broker I/O and never waits.
-//! Driving the [`Subscriber`] directly is for the Playground's monitor,
-//! which needs per-subscription counters and acks.
+//! [`Watch`]), and the thread's hub owns the subscriber: it looks at the
+//! doorbells (local queues) and drains a subscription only when its bell
+//! rang, so the UI thread never waits on the broker. Driving the
+//! [`Subscriber`] directly is for the Playground's monitor, which needs
+//! per-subscription counters and acks.
 //!
 ////! # The contract the caller must keep
 //!

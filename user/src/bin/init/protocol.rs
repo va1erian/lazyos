@@ -74,6 +74,8 @@ pub(super) struct Supervisor<'a> {
     pub(super) stops: &'a mut Stops,
     /// The sessions being logged out, waiting for their apps to quit.
     pub(super) logouts: &'a mut Logouts,
+    /// The login records and provisioning events read off the broker.
+    pub(super) feeds: &'a mut super::feeds::Feeds,
 }
 
 /// Serve queued subscriptions and control calls without blocking.
@@ -174,6 +176,7 @@ fn dispatch_now(state: &mut Supervisor, message: &Message) -> messenger::Result<
         cache,
         shutdown,
         logouts,
+        feeds,
         ..
     } = state;
     match message.interface_id() {
@@ -233,6 +236,15 @@ fn dispatch_now(state: &mut Supervisor, message: &Message) -> messenger::Result<
                 if request.app == GREETER_APP_ID && logouts.holds_greeter() {
                     trace::line!(trace::Channel::Init, "LOGOUT:GREETER:HELD");
                     return Err(messenger::Error::Errno(-messenger::errno::EAGAIN));
+                }
+                // `logind` publishes the session's record and then sends this
+                // request, but the broker rings the feed's bell only after it
+                // answered the publisher: an owner not known yet is looked
+                // for on the broker itself before the launch is refused.
+                if request.session != 0 && super::sessions::owner(request.session).is_none() {
+                    for session in feeds.catch_up(services) {
+                        logouts.begin(services, broker, session);
+                    }
                 }
                 let caller = installed.owner_cred(actor(message)?);
                 match launch(services, broker, installed, &request, &caller, false) {

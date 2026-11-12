@@ -204,7 +204,7 @@ fn main() {
 }
 
 fn run(res: &Rc<Resident>) {
-    // The watcher thread reads the topics; this loop parks on their
+    // The hub drains a topic when its doorbell rang; this loop parks on their
     // doorbells with the tray's, so it wakes for a change and for nothing else.
     let mut wifi = wifi_wire::subscribe_system_net_wifi_state(&mut Watch, "+").ok();
     let mut addr = stack_wire::subscribe_system_net_addr(&mut Watch, "+").ok();

@@ -1,46 +1,42 @@
 //! Following a topic from a UI: the one way an xui app or LazyRAD consumes
 //! topics (`docs/client-api-plan.md` 3.5).
 //!
-//! A [`Follow`] is a handle on one topic filter. The subscription, its
-//! doorbell, the drain and the reconnect all live on **one watcher thread per
-//! process** that parks on the doorbells ([`Subscriber`]'s contract: woken by
-//! a bell, never driven by a timer). The UI thread does no broker I/O and
-//! never waits: [`Follow::take`] only empties a queue in memory.
+//! A [`Follow`] is a handle on one topic filter. The calling thread's hub owns
+//! one [`Subscriber`] under all its follows and works to its contract
+//! (woken by a doorbell, never driven by a timer):
 //!
-//! What wakes the UI when events were queued, in the order of preference:
+//! * a follow subscribes and attaches its doorbell when it is made (and again,
+//!   at most once a second, while the broker refuses or is away);
+//! * [`Follow::take`] looks at the doorbells, which are local message queues
+//!   (never a call to the broker, so looking is cheap at any rate), and only
+//!   when one rang drains the subscription: the broker answers a drain in its
+//!   own service turn, so the UI thread never waits on it;
+//! * a loop that wants to be woken parks on [`Follow::bell`] beside its other
+//!   endpoints (`Resident::idle_with`); one that has a tick of its own (a
+//!   window's heartbeat) just takes.
 //!
-//! * a [`Sink<()>`] given at creation ([`Follow::with_sink`]): the window gets
-//!   an ordinary app message through its proxy, so an idle loop stays parked
-//!   and a busy one coalesces the rings;
-//! * the follow's own doorbell ([`Follow::bell`]): a channel end to park on
-//!   beside the other endpoints of a loop that is not an xui window (the
-//!   windowless resident apps, `xui_app::resident`);
-//! * neither: the caller takes at moments of its own (a tick it already has);
-//!   that costs a mutex, not a broker call.
-//!
-//! The retained value of a state topic is replayed by the broker on every new
-//! subscription, so a feed made early has it queued by the time it is read.
+//! The hub is per thread because Messenger handles and the label that lets an
+//! app subscribe belong to the thread that made them: a follow is used from
+//! the thread that created it. The retained value of a state topic is replayed
+//! by the broker on every new subscription, so a follow made early has it by
+//! the time it is read.
 
 mod core;
 #[cfg(test)]
 mod tests;
 
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::rc::Rc;
 
 use messenger_generated::topics::{self, Event, NextError, Subscription, TopicError};
-use xui_work::Sink;
 
-use self::core::{Command, Core};
-use super::{Qos, Subscriber};
+use self::core::Core;
+use super::{Qos, Subscriber, SysTransport};
 use crate::sys;
 
 /// Most events a feed queues for a UI that does not read: the oldest go.
 const QUEUE_CAP: usize = 512;
-
-/// What a feed's wake does once events were queued.
-pub(super) type Wake = Arc<dyn Fn() + Send + Sync>;
 
 /// One event: its literal topic, whether it is a retained replay, and the
 /// payload as the publisher's codec wrote it (the bus envelope is off).
@@ -53,12 +49,12 @@ pub struct TopicEvent {
     pub payload: Vec<u8>,
 }
 
-/// The events a watcher queued for one feed.
+/// The events the hub queued for one feed.
 #[derive(Default)]
 pub(super) struct Queue {
-    events: Mutex<VecDeque<TopicEvent>>,
+    events: RefCell<VecDeque<TopicEvent>>,
     /// Whether the broker holds a subscription for the feed now.
-    subscribed: AtomicBool,
+    subscribed: Cell<bool>,
 }
 
 impl Queue {
@@ -66,7 +62,7 @@ impl Queue {
         if events.is_empty() {
             return;
         }
-        let mut queue = self.events.lock().unwrap_or_else(|e| e.into_inner());
+        let mut queue = self.events.borrow_mut();
         queue.extend(events);
         while queue.len() > QUEUE_CAP {
             queue.pop_front();
@@ -74,195 +70,77 @@ impl Queue {
     }
 
     pub(super) fn set_subscribed(&self, on: bool) {
-        self.subscribed.store(on, Ordering::Release);
+        self.subscribed.set(on);
     }
 
     fn take(&self) -> Vec<TopicEvent> {
-        let mut queue = self.events.lock().unwrap_or_else(|e| e.into_inner());
-        queue.drain(..).collect()
+        self.events.borrow_mut().drain(..).collect()
     }
 }
 
-/// The UI side's line to the watcher thread.
-struct Watcher {
-    commands: Mutex<Vec<Command>>,
-    /// The sending end of the control channel the thread parks on.
-    control: u64,
-    next_key: AtomicU64,
-}
-
-impl Watcher {
-    /// Hand the watcher a command and wake it.
-    fn send(&self, command: Command) {
-        self.commands
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(command);
-        ring(self.control);
-    }
-}
-
-/// One message on a channel: enough to wake whoever parks on its other end. A
-/// full queue already means a wake is due.
-fn ring(handle: u64) {
-    let _ = sys::msg_send(handle, &libmessenger::Parcel::default());
-}
-
-/// The watcher's end of a feed's doorbell, closed with the feed.
-struct Post(u64);
-
-impl Drop for Post {
-    fn drop(&mut self) {
-        let _ = sys::msg_close(self.0);
-    }
-}
-
-/// Empty a channel's queue (the doorbell's messages carry nothing). It asks
-/// the counters first: an expired-deadline `recv` on an empty queue parks
-/// until the next tick, which the UI thread must not do.
-fn drain_bell(handle: u64) {
-    let mut sink = [0u8; 256];
-    while sys::msg_queued(handle).is_ok_and(|queued| queued > 0)
-        && sys::msg_recv(handle, &mut sink, sys::EXPIRED_DEADLINE).is_ok()
-    {}
-}
-
-/// The process's watcher, started by the first feed; `None` when the kernel
-/// would not make its channel (no Messenger: feeds then stay empty).
-fn watcher() -> Option<&'static Watcher> {
-    static WATCHER: OnceLock<Option<&'static Watcher>> = OnceLock::new();
-    *WATCHER.get_or_init(|| {
-        let (receive, control) = sys::msg_create_pair().ok()?;
-        let watcher: &'static Watcher = Box::leak(Box::new(Watcher {
-            commands: Mutex::new(Vec::new()),
-            control,
-            next_key: AtomicU64::new(1),
-        }));
-        std::thread::Builder::new()
-            .name(String::from("topics"))
-            .spawn(move || run(watcher, receive))
-            .ok()?;
-        Some(watcher)
-    })
-}
-
-/// The watcher thread: apply commands, subscribe what is missing, park on
-/// every doorbell, read what rang.
-fn run(watcher: &'static Watcher, control: u64) {
-    let mut core = Core::new(Subscriber::new());
-    loop {
-        let commands =
-            std::mem::take(&mut *watcher.commands.lock().unwrap_or_else(|e| e.into_inner()));
-        for command in commands {
-            core.apply(command);
-        }
-        core.connect(sys::clock_ticks());
-        let mut handles = vec![control];
-        handles.extend(core.handles());
-        handles.truncate(sys::WAIT_MAX_ENDPOINTS as usize);
-        let deadline = if core.busy() {
-            sys::EXPIRED_DEADLINE
-        } else {
-            // No subscription missing: park until a bell or a command.
-            core.retry_at().unwrap_or(0)
-        };
-        match sys::msg_wait_any(&handles, deadline) {
-            Ok(ready) if ready & 1 != 0 => drain_bell(control),
-            Ok(_) => {}
-            Err(code) if code == -sys::errno::ETIMEDOUT => {}
-            // A refused wait must not spin.
-            Err(_) => sys::sleep_millis(100),
-        }
-        for wake in core.service(sys::clock_ticks()) {
-            wake();
-        }
-    }
+thread_local! {
+    /// This thread's subscriber and the feeds it serves.
+    static HUB: RefCell<Core<SysTransport>> = RefCell::new(Core::new(Subscriber::new()));
+    static NEXT_KEY: Cell<u64> = const { Cell::new(1) };
 }
 
 /// One followed topic filter (see the module docs).
 pub struct Follow {
     key: u64,
-    queue: Arc<Queue>,
-    /// Set by the watcher when it queued events, cleared by `take`: one ring
-    /// per batch.
-    rung: Arc<AtomicBool>,
-    /// Our end of the doorbell channel.
-    bell: Option<u64>,
-    /// Events [`Events::next_event`] took off the queue and not yet handed out.
+    queue: Rc<Queue>,
+    /// Events [`topics::Events::next_event`] took off the queue and not yet
+    /// handed out.
     pending: VecDeque<TopicEvent>,
 }
 
 impl Follow {
     /// Follow `filter` (`+` one segment, a trailing `#` the rest) with `qos`
-    /// and `depth` (`Buffered` only), and nothing to wake: the caller takes
-    /// at moments of its own, or parks on [`Follow::bell`].
+    /// and `depth` (`Buffered` only). Subscribes now, with one bounded call;
+    /// a broker that is away is tried again on later takes.
     pub fn new(filter: &str, qos: Qos, depth: u32) -> Follow {
-        Follow::start(filter, qos, depth, None)
-    }
-
-    /// [`Follow::new`] that also rings `sink` when events were queued: a
-    /// window's own wake (`Sink::bell(&proxy, Msg::Topics)`).
-    pub fn with_sink(filter: &str, qos: Qos, depth: u32, sink: Sink<()>) -> Follow {
-        Follow::start(filter, qos, depth, Some(sink))
-    }
-
-    fn start(filter: &str, qos: Qos, depth: u32, sink: Option<Sink<()>>) -> Follow {
-        let queue = Arc::new(Queue::default());
-        let rung = Arc::new(AtomicBool::new(false));
-        let (bell, post) = sys::msg_create_pair().map_or((None, None), |(mine, theirs)| {
-            (Some(mine), Some(Post(theirs)))
+        let key = NEXT_KEY.with(|next| {
+            let key = next.get();
+            next.set(key + 1);
+            key
         });
-        let wake: Wake = {
-            let rung = Arc::clone(&rung);
-            Arc::new(move || {
-                if rung.swap(true, Ordering::AcqRel) {
-                    return;
-                }
-                if let Some(post) = &post {
-                    ring(post.0);
-                }
-                if let Some(sink) = &sink {
-                    sink.ring();
-                }
-            })
-        };
-        let mut key = 0;
-        if let Some(watcher) = watcher() {
-            key = watcher.next_key.fetch_add(1, Ordering::Relaxed);
-            watcher.send(Command::Add {
-                key,
-                filter: filter.to_owned(),
-                qos,
-                depth,
-                queue: Arc::clone(&queue),
-                wake,
-            });
-        }
+        let queue = Rc::new(Queue::default());
+        HUB.with(|hub| {
+            let mut core = hub.borrow_mut();
+            core.add(key, filter, qos, depth, Rc::clone(&queue));
+            core.connect(sys::clock_ticks());
+        });
         Follow {
             key,
             queue,
-            rung,
-            bell,
             pending: VecDeque::new(),
         }
     }
 
-    /// The events queued since the last call, oldest first. Never waits and
-    /// does no broker call.
+    /// The events queued since the last call, oldest first. Looks at the
+    /// doorbells (local) and, for one that rang, drains its subscription;
+    /// never waits.
     pub fn take(&self) -> Vec<TopicEvent> {
-        // Clear the flag first: an event queued after the take below rings
-        // again, one queued before it is in the queue.
-        self.rung.store(false, Ordering::Release);
-        if let Some(bell) = self.bell {
-            drain_bell(bell);
-        }
+        HUB.with(|hub| {
+            // Not reentrant: a take from inside a take sees what is queued.
+            if let Ok(mut core) = hub.try_borrow_mut() {
+                let now = sys::clock_ticks();
+                core.connect(now);
+                core.service(now);
+            }
+        });
         self.queue.take()
     }
 
-    /// Whether the watcher holds a subscription for this feed at the broker
-    /// (false while the broker is away: it is made again, replay included).
+    /// Whether the broker holds a subscription for this feed (false while it
+    /// is away: it is made again, replay included).
     pub fn subscribed(&self) -> bool {
-        self.queue.subscribed.load(Ordering::Acquire)
+        self.queue.subscribed.get()
+    }
+
+    /// The doorbell to park on (`sys::msg_wait_any`) beside other endpoints:
+    /// ready when events were queued. [`Follow::take`] reads and re-arms it.
+    pub fn bell(&self) -> Option<u64> {
+        HUB.with(|hub| hub.try_borrow().ok()?.bell_of(self.key))
     }
 
     /// The next queued event in the shape the generated typed stream reads,
@@ -273,22 +151,16 @@ impl Follow {
         }
         self.pending.pop_front()
     }
-
-    /// The doorbell to park on (`sys::msg_wait_any`) beside other endpoints:
-    /// ready when events were queued; [`Follow::take`] clears it.
-    pub fn bell(&self) -> Option<u64> {
-        self.bell
-    }
 }
 
 impl Drop for Follow {
     fn drop(&mut self) {
-        if let Some(watcher) = watcher().filter(|_| self.key != 0) {
-            watcher.send(Command::Remove(self.key));
-        }
-        if let Some(bell) = self.bell.take() {
-            let _ = sys::msg_close(bell);
-        }
+        let key = self.key;
+        let _ = HUB.try_with(|hub| {
+            if let Ok(mut core) = hub.try_borrow_mut() {
+                core.remove(key);
+            }
+        });
     }
 }
 
@@ -346,8 +218,7 @@ impl topics::Events for Follow {
 pub type Feed<T> = Subscription<Follow, T>;
 
 /// Hand every event queued on `stream` to `apply`, oldest first. An event
-/// whose payload does not decode is skipped. Reads memory only: the watcher
-/// thread does the broker's calls.
+/// whose payload does not decode is skipped. Never waits on the broker.
 pub fn pull<T>(stream: &mut Feed<T>, mut apply: impl FnMut(Event<T>)) {
     loop {
         match stream.next() {

@@ -19,6 +19,10 @@ use elevpolicy::sessions::Sessions;
 use user::central::Feed;
 use user::messenger::logind;
 
+/// Ticks the last pull of a look may wait for a record (the broker may still
+/// be handling the publish a request was sent after).
+const CATCH_UP_TICKS: u64 = 2;
+
 /// Follows `system/events/login/session/+`.
 pub(crate) struct SessionFeed {
     feed: Feed<logind::wire::LoginSession>,
@@ -39,7 +43,7 @@ impl SessionFeed {
         let mut ended = Vec::new();
         self.feed.ensure();
         let sessions = &mut self.sessions;
-        self.feed.drain_now(|event| {
+        self.feed.drain_waiting(CATCH_UP_TICKS, |event| {
             // `system/events/login/session/<id>`: the id is the last segment.
             let Some(id) = event
                 .topic
