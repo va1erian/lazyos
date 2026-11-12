@@ -115,7 +115,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `THEME` | `Theme` | `theme` | user, xui-app | sessions, tools/emusic | programs |
 | `TIMECTL` | `Timectl` | `timectl` | user | tools/services | programs |
 | `TIMED` | `Timed` | `timed` | user | tools/ntp, tools/services | programs |
-| `TLS` | `Tls` | `tls` | other, xui-app | tools/net, tools/nettls | programs |
+| `TLS` | `Tls` | `tls` | other | tools/net, tools/nettls | programs |
 | `TRAY` | `Tray` | `tray` | xui-app | sessions, tools/storage, tools/tray | programs |
 | `TRAYDEMO` | `Traydemo` | `traydemo` | xui-app | sessions, tools/tray | programs |
 | `UI` | `Ui` | `ui` | user, xui-app | sessions, tools/accounts, tools/lazyweb, tools/playground, tools/screenshot, tools/tray, tools/webd, tools/webkit, tools/wifi | programs |
