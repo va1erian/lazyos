@@ -6,16 +6,15 @@
 //! retried rather than treated as fatal, and a restarted peer is re-resolved.
 
 use alloc::string::String;
-use alloc::vec::Vec;
 
-use libmessenger::client::{CallError, Errno};
+use libmessenger::client::{CallError, Deadline, Errno};
 use messenger_generated::os_lazy_confd_v1 as confd_wire;
 use timezone::{Local, Zone, DEFAULT_ZONE, ZONE_KEY};
 use user::central::{Bus, Subscription};
 use user::messenger::confd::{
     connect, watch as watch_confd, Client as Confd, ClientError, StoreError, ValueClient,
 };
-use user::messenger::{self, errno, timed as api, Endpoint, Error, EXPIRED_DEADLINE};
+use user::messenger::{errno, timed as api, Endpoint, Error};
 use user::sys;
 
 /// Ticks (100 Hz) between attempts to reach `confd` while it is unreachable.
@@ -40,8 +39,6 @@ pub(super) struct State {
     pub(super) next_tick: i64,
     /// Set once the first tick reached the broker (boot evidence).
     pub(super) announced: bool,
-    /// Reused reply buffer for the watch poll (the heap never reclaims).
-    buffer: Vec<u8>,
     /// A `sys/time/*` key changed (or was read for the first time) since the
     /// network time settings were last taken.
     ntp_dirty: bool,
@@ -67,7 +64,6 @@ impl State {
             bus: None,
             next_tick: 0,
             announced: false,
-            buffer: alloc::vec![0u8; messenger::DEFAULT_BUFFER],
             ntp_dirty: false,
             next_ntp_try: 0,
         }
@@ -154,11 +150,11 @@ impl State {
         if !rung {
             return false;
         }
-        watch.take_ring(&mut self.buffer);
+        watch.take_ring();
         let mut changed = false;
         let mut lost = false;
         loop {
-            match watch.recv_with(&mut self.buffer, Some(EXPIRED_DEADLINE)) {
+            match watch.recv(Deadline::Poll) {
                 Ok(Some(_)) => changed = true,
                 Ok(None) => break,
                 Err(_) => {

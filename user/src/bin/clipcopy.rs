@@ -21,6 +21,7 @@ extern crate alloc;
 use alloc::format;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use libmessenger::client::Deadline;
 use user::central;
 use user::messenger::clipboard::{Clipboard, Nested};
 use user::messenger::{self, clipboard, errno, registry, Endpoint, Error};
@@ -64,8 +65,7 @@ fn run() -> messenger::Result<()> {
         .map_err(lower)?;
     trace::line!(trace::Channel::Clip, "COPY:PASS token={token}");
     // Drain the changed event: the owner watches its own session too.
-    let mut changed_buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
-    let _ = changes.recv_with(&mut changed_buffer, Some(sys::clock().saturating_add(50)));
+    let _ = changes.recv(Deadline::ticks(50));
     // Release the broker-side subscription slot now that the notification is
     // drained: this demo client is about to exit, but a leaked subscription
     // would still fill the broker's bounded table on repeated runs.

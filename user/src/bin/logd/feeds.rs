@@ -12,6 +12,7 @@
 use alloc::format;
 use alloc::string::String;
 
+use libmessenger::client::Deadline;
 use user::central;
 use user::messenger::{self, services, topics_client, Endpoint};
 use user::sys;
@@ -83,12 +84,12 @@ impl Feed {
 
     /// Move every queued event into the log; the empty pull at the end
     /// re-arms the doorbell. `false` when the feed died.
-    fn drain(&mut self, log: &mut Log, buffer: &mut [u8]) -> bool {
+    fn drain(&mut self, log: &mut Log) -> bool {
         let Some(sub) = self.subscription.as_ref() else {
             return true;
         };
         loop {
-            match sub.recv_with(buffer, Some(messenger::EXPIRED_DEADLINE)) {
+            match sub.recv(Deadline::Poll) {
                 Ok(Some(event)) => log.append(
                     &event.topic,
                     &payload::describe(&event.topic, &event.payload),
@@ -106,11 +107,11 @@ impl Feed {
     /// `Buffered` queue that still overran (a burst larger than
     /// [`CENTRAL_QUEUE_DEPTH`]) leaves its own trace in the log. Drops only
     /// happen when events arrive, which rings the bell: checked there.
-    fn poll_overflow(&mut self, log: &mut Log, buffer: &mut [u8]) {
+    fn poll_overflow(&mut self, log: &mut Log) {
         let Some(subscriber) = &self.subscription else {
             return;
         };
-        let Ok(stats) = subscriber.stats_with(buffer) else {
+        let Ok(stats) = subscriber.stats() else {
             return;
         };
         if stats.drops <= self.drops {
@@ -134,10 +135,8 @@ pub(super) struct Feeds {
     health: Feed,
     central_warned: bool,
     audit: Option<(u64, u64, u64)>,
-    // Reused snapshot buffers: the user heap never reclaims large per-call
-    // buffers.
+    // Reused snapshot buffer for the fabric counters.
     stats_buffer: alloc::vec::Vec<u8>,
-    central_stats_buffer: alloc::vec::Vec<u8>,
 }
 
 impl Feeds {
@@ -152,7 +151,6 @@ impl Feeds {
             central_warned: false,
             audit: None,
             stats_buffer: alloc::vec![0u8; messenger::FabricStats::SIZE],
-            central_stats_buffer: alloc::vec![0u8; messenger::DEFAULT_BUFFER],
         }
     }
 
@@ -222,16 +220,16 @@ impl Feeds {
     }
 
     /// Take what `source` signalled into the log.
-    pub(super) fn take(&mut self, source: Source, log: &mut Log, buffer: &mut [u8]) {
+    pub(super) fn take(&mut self, source: Source, log: &mut Log) {
         let feed = match source {
             Source::Events => &mut self.events,
             Source::Health => &mut self.health,
         };
         if let Some(sub) = &feed.subscription {
-            sub.take_ring(buffer);
+            sub.take_ring();
         }
-        if feed.drain(log, buffer) {
-            feed.poll_overflow(log, &mut self.central_stats_buffer);
+        if feed.drain(log) {
+            feed.poll_overflow(log);
         } else {
             // The broker restarted: attach afresh through a new bus.
             self.central = None;
@@ -239,9 +237,9 @@ impl Feeds {
     }
 
     /// Move every queued event into the log (the shutdown's last look).
-    pub(super) fn drain_all(&mut self, log: &mut Log, buffer: &mut [u8]) {
-        self.events.drain(log, buffer);
-        self.health.drain(log, buffer);
+    pub(super) fn drain_all(&mut self, log: &mut Log) {
+        self.events.drain(log);
+        self.health.drain(log);
     }
 
     /// Append a record when the fabric audit counters advance.

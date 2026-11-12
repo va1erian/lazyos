@@ -2,8 +2,9 @@
 
 use alloc::format;
 use alloc::string::String;
+use libmessenger::client::Deadline;
 use libmessenger::{Decoder, Kind};
-use user::messenger::topics_client;
+use user::central::{Bus, Event};
 use user::sys;
 
 use super::commands::report;
@@ -11,11 +12,11 @@ use super::commands::report;
 /// `topics`: list the topics the broker has seen, with subscriber counts and
 /// whether a retained value is held.
 pub(crate) fn print_topics() {
-    let client = match topics_client::Client::connect() {
-        Ok(client) => client,
+    let mut bus = match Bus::connect() {
+        Ok(bus) => bus,
         Err(error) => return report(error.message()),
     };
-    match client.list() {
+    match bus.list() {
         Ok(entries) if entries.is_empty() => sys::write_str("topics: none seen\n"),
         Ok(entries) => {
             sys::write_str(&format!("topics: {} known\n", entries.len()));
@@ -56,24 +57,24 @@ pub(crate) fn tail(rest: &str) {
         },
         None => 5,
     };
-    let client = match topics_client::Client::connect() {
-        Ok(client) => client,
+    let mut bus = match Bus::connect() {
+        Ok(bus) => bus,
         Err(error) => return report(error.message()),
     };
-    let subscription = match client.subscribe(filter, topics_client::Qos::Latest) {
+    let subscription = match bus.subscribe(filter) {
         Ok(subscription) => subscription,
         Err(error) => return report(error.message()),
     };
     sys::write_str(&format!("tail {filter}: {count} event(s)\n"));
     for _ in 0..count {
-        match subscription.next_event(None) {
+        match subscription.recv(Deadline::Never) {
             Ok(Some(event)) => {
                 let retained = if event.retained { " retained" } else { "" };
                 sys::write_str(&format!(
                     "[{}] {} seq {}{} from slot {}: {}\n",
                     event.topic,
                     event.topic,
-                    event.sequence,
+                    event.seq,
                     retained,
                     event.publisher,
                     describe_payload(&event)
@@ -94,14 +95,12 @@ pub(crate) fn tail(rest: &str) {
 
 /// A readable one-line summary of an event payload: the first string field of
 /// the publisher's parcel, or its size when the payload is not text.
-fn describe_payload(event: &topics_client::Event) -> String {
-    if let Ok(parcel) = event.parcel() {
-        let mut decoder = Decoder::new(&parcel.body);
-        while let Ok(Some(field)) = decoder.next() {
-            if field.kind == Kind::String {
-                if let Ok(text) = field.as_str() {
-                    return String::from(text);
-                }
+fn describe_payload(event: &Event) -> String {
+    let mut decoder = Decoder::new(&event.payload);
+    while let Ok(Some(field)) = decoder.next() {
+        if field.kind == Kind::String {
+            if let Ok(text) = field.as_str() {
+                return String::from(text);
             }
         }
     }

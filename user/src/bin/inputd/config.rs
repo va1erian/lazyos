@@ -5,15 +5,12 @@
 //! link is opened lazily and dropped on the first failure: `inputd` starts
 //! beside `confd` and must keep typing working while it is not reachable.
 
-use alloc::vec::Vec;
-
 use inputmap::{Layout, LAYOUT_KEY};
-use libmessenger::client::{CallError, Errno};
+use libmessenger::client::{CallError, Deadline, Errno};
 use user::central::Subscription;
 use user::messenger::confd::{
     connect, name_system_confd_changed, watch, Client as Confd, StoreError, ValueClient,
 };
-use user::messenger::{self, EXPIRED_DEADLINE};
 use user::sys;
 
 /// Ticks (100 Hz) between attempts to reach `confd`.
@@ -32,7 +29,6 @@ pub(super) struct Config {
     watch: Option<Subscription>,
     synced: bool,
     next_try: u64,
-    buffer: Vec<u8>,
 }
 
 impl Config {
@@ -42,7 +38,6 @@ impl Config {
             watch: None,
             synced: false,
             next_try: 0,
-            buffer: alloc::vec![0u8; messenger::DEFAULT_BUFFER],
         }
     }
 
@@ -59,7 +54,7 @@ impl Config {
         let mut lost = false;
         if let Some(watch) = &self.watch {
             loop {
-                match watch.recv_with(&mut self.buffer, Some(EXPIRED_DEADLINE)) {
+                match watch.recv(Deadline::Poll) {
                     Ok(Some(_)) => changed = true,
                     Ok(None) => break,
                     Err(_) => {

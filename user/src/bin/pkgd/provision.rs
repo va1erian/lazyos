@@ -43,7 +43,6 @@ fn announce(event: &PkgEvent) {
         // One lookup, not a wait: the broker may be restarting.
         if let Ok(mut bus) = Bus::lookup() {
             let sent = wire::publish_system_events_pkg(&mut bus, &event.op, event).is_ok();
-            let _ = bus.endpoint().release();
             if sent {
                 return;
             }

@@ -147,7 +147,7 @@ fn run() -> messenger::Result<()> {
         };
         for (index, &source) in sources[..count - 1].iter().enumerate() {
             if ready & (1 << (index + 1)) != 0 {
-                feeds.take(source, &mut log, &mut buffer);
+                feeds.take(source, &mut log);
             }
         }
         if ready & 1 == 0 {
@@ -162,7 +162,7 @@ fn run() -> messenger::Result<()> {
         // still hold (the services' last stop events), make the journals
         // durable, then go.
         if let Some(reason) = lifecycle::stop_requested(&message) {
-            feeds.drain_all(&mut log, &mut buffer);
+            feeds.drain_all(&mut log);
             log.journals.sync(sys::clock());
             trace::line!(
                 trace::Channel::Logd,

@@ -6,16 +6,15 @@
 //! place and `messengerctl topics` and the fabric viewers see every topic:
 //!
 //! * publishes wrap the raw bytes in one small parcel and send it through the
-//!   [`topics_client`] wire protocol ([`Bus`] for a connection of one's own,
+//!   generated [`topics_client`] client ([`Bus`] for a connection of one's own,
 //!   [`Publisher`] for a supervisor that must never wait on the broker);
-//! * subscriptions are broker-side ids; [`Subscription::recv_with`] polls or
-//!   parks with a caller-owned buffer, so a service loop reuses one buffer and
-//!   never grows its bump heap, and [`Subscription::bell`] is the doorbell to
-//!   park on instead of a timer;
+//! * subscriptions are broker-side ids; [`Subscription::recv`] polls or parks,
+//!   and [`Subscription::bell`] is the doorbell to park on instead of a timer;
 //! * a subscription implements the generated `topics::Events`, so
 //!   `subscribe_<topic>` returns a typed stream whose `next` decodes the
 //!   declared payload (no consumer decodes one by hand).
 
+use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -25,13 +24,13 @@ mod publisher;
 pub use feed::Feed;
 pub use publisher::Publisher;
 
-use libmessenger::{envelope, Parcel};
+use libmessenger::client::Deadline;
+use libmessenger::envelope;
+use messenger_generated::os_lazy_messenger_topics_v1 as wire;
 use messenger_generated::topics;
 
-use crate::messenger::{
-    create_pair, errno, registry, topics_client, Endpoint, Error, Result, DEFAULT_BUFFER,
-    EXPIRED_DEADLINE,
-};
+use crate::messenger::topics_client::{self, lift};
+use crate::messenger::{create_pair, errno, registry, Endpoint, Error, Result, EXPIRED_DEADLINE};
 
 /// One delivered event: its topic, the publisher's payload with the bus
 /// envelope taken off, whether it replays a retained value, the broker's
@@ -54,27 +53,24 @@ pub struct Event {
 /// Most doorbell messages one [`Subscription::rung`] consumes.
 const MAX_RINGS: usize = 16;
 
+/// What a bell message needs of a buffer: one small one-way parcel.
+const BELL_BUFFER: usize = 512;
+
 /// A connection to `messengerd`'s central broker.
 pub struct Bus {
-    endpoint: Endpoint,
-    /// Reused call buffer: the user bump allocator never reclaims per-call
-    /// buffers, so one publish/subscribe/list reply buffer lives as long as
-    /// the bus.
-    scratch: Vec<u8>,
-    /// Ticks a subscribe may take; no bound waits as long as the broker does.
-    bound: Option<u64>,
+    /// Shared with the subscriptions it makes, so a subscription outlives
+    /// the bus and the broker handle is released with the last of them.
+    client: Rc<topics_client::Client>,
+    /// What a subscribe (and the bell of what it subscribes) may take; none
+    /// uses the IDL's deadline.
+    bound: Option<Deadline>,
 }
 
 impl Bus {
-    /// Resolve [`topics_client::NAME`] and wrap the broker endpoint, waiting the
-    /// runtime's connect bound while `messengerd` registers its name at boot.
+    /// Resolve the broker, waiting the runtime's connect bound while
+    /// `messengerd` registers its name at boot.
     pub fn connect() -> Result<Bus> {
-        let client = topics_client::Client::connect()?;
-        Ok(Bus {
-            endpoint: client.endpoint(),
-            scratch: Vec::new(),
-            bound: None,
-        })
+        Ok(Bus::new(topics_client::connect()?))
     }
 
     /// One registry lookup of the broker, never a wait: for a caller that
@@ -85,65 +81,50 @@ impl Bus {
 
     /// Wrap an already-resolved broker endpoint.
     pub fn from_endpoint(endpoint: Endpoint) -> Bus {
+        Bus::new(topics_client::client_of(endpoint))
+    }
+
+    fn new(client: topics_client::Client) -> Bus {
         Bus {
-            endpoint,
-            scratch: Vec::new(),
+            client: Rc::new(client),
             bound: None,
         }
-    }
-
-    /// The reply buffer, made on the first call that needs it so that a bus
-    /// that only ever fails to connect costs nothing.
-    fn reserve(&mut self) {
-        if self.scratch.is_empty() {
-            self.scratch = alloc::vec![0u8; DEFAULT_BUFFER];
-        }
-    }
-
-    /// Point this bus at a (restarted) broker, keeping its buffer.
-    pub fn set_endpoint(&mut self, endpoint: Endpoint) {
-        self.endpoint = endpoint;
     }
 
     /// This bus with every subscribe (and the bell of what it subscribes)
     /// bounded to `ticks`, for a supervisor that must not wait on a broker
     /// that stopped answering.
     pub fn bounded(mut self, ticks: u64) -> Bus {
-        self.bound = Some(ticks);
+        self.bound = Some(Deadline::ticks(ticks));
         self
     }
 
-    /// The underlying broker endpoint (diagnostics).
-    pub fn endpoint(&self) -> Endpoint {
-        self.endpoint
+    /// The generated client, for a caller that speaks the raw interface
+    /// (`messengerctl`'s hostile-input checks).
+    pub fn client(&self) -> &topics_client::Client {
+        &self.client
     }
 
     /// Publish raw payload bytes on `topic`; returns how many subscriptions
     /// matched. `retained` keeps the value for later subscribers.
     pub fn publish(&mut self, topic: &str, payload: &[u8], retained: bool) -> Result<u64> {
-        self.publish_by(topic, payload, retained, None)
+        self.publish_within(topic, payload, retained, wire::METHOD_PUBLISH_DEADLINE)
     }
 
-    /// [`Bus::publish`] that gives up at `deadline` (an absolute tick, `None`
-    /// = wait forever) with `-ETIMEDOUT`, for a publisher such as `init` that
-    /// must never stall on a broker that stopped answering.
-    pub fn publish_by(
+    /// [`Bus::publish`] that gives up after `within` with `-ETIMEDOUT`, for a
+    /// publisher such as `init` that must never stall on a broker that
+    /// stopped answering.
+    pub fn publish_within(
         &mut self,
         topic: &str,
         payload: &[u8],
         retained: bool,
-        deadline: Option<u64>,
+        within: Deadline,
     ) -> Result<u64> {
-        let wrapped = wrap(payload)?;
-        let request = topics_client::publish_request(topic, &wrapped, retained)?;
-        self.reserve();
-        let reply = self
-            .endpoint
-            .call_with(&request, &mut self.scratch, deadline)?;
-        if let Some(code) = error_code(&reply) {
-            return Err(Error::Topics(code));
-        }
-        topics_client::decode_matched(&reply)
+        let wrapped = envelope::wrap(payload).map_err(Error::Parcel)?;
+        self.client
+            .publish_within(topic, &wrapped, retained, within)
+            .map_err(lift)
     }
 
     /// Subscribe to `filter` with `latest` QoS; retained matching values are
@@ -161,46 +142,27 @@ impl Bus {
         filter: &str,
         qos: topics_client::Qos,
     ) -> Result<Subscription> {
-        let deadline = self.bound.map(|ticks| crate::sys::clock() + ticks);
-        self.subscribe_with_deadline(filter, qos, deadline)
+        let within = self.bound.unwrap_or(wire::METHOD_SUBSCRIBE_DEADLINE);
+        self.subscribe_within(filter, qos, within)
     }
 
-    /// [`Bus::subscribe_with_qos`] that gives up at `deadline` (an absolute
-    /// tick, `None` = wait forever) with `-ETIMEDOUT`, for a caller such as a
-    /// compositor that must not stall on a broker that stopped answering.
-    pub fn subscribe_with_deadline(
+    /// [`Bus::subscribe_with_qos`] that gives up after `within` with
+    /// `-ETIMEDOUT`, for a caller such as a compositor that must not stall on
+    /// a broker that stopped answering.
+    pub fn subscribe_within(
         &mut self,
         filter: &str,
         qos: topics_client::Qos,
-        deadline: Option<u64>,
+        within: Deadline,
     ) -> Result<Subscription> {
-        let request = topics_client::subscribe_request(filter, qos)?;
-        self.reserve();
-        let reply = self
-            .endpoint
-            .call_with(&request, &mut self.scratch, deadline)?;
-        if let Some(code) = error_code(&reply) {
-            return Err(Error::Topics(code));
-        }
-        let id = topics_client::decode_subscription(&reply)?;
-        // Encoded once here and reused on every poll: `Endpoint::call_with`
-        // would otherwise re-encode these fixed requests on every single
-        // `recv_with`/`stats_with` call.
-        let request = encode_request(topics_client::subscription_request(
-            topics_client::method::NEXT_EVENT,
-            id,
-        )?)?;
-        let stats_request = encode_request(topics_client::subscription_request(
-            topics_client::method::STATS,
-            id,
-        )?)?;
+        let id = self
+            .client
+            .subscribe_within(filter, qos.code(), qos.depth(), within)
+            .map_err(lift)?;
         Ok(Subscription {
-            endpoint: self.endpoint,
+            client: Rc::clone(&self.client),
             id,
-            request,
-            stats_request,
             bell: None,
-            scratch: Vec::new(),
             bound: self.bound,
             wait_ticks: 0,
         })
@@ -208,13 +170,7 @@ impl Bus {
 
     /// List the topics the broker has seen, with live subscriber counts.
     pub fn list(&mut self) -> Result<Vec<topics_client::TopicInfo>> {
-        self.reserve();
-        let request = topics_client::list_request();
-        let reply = self.endpoint.call_with(&request, &mut self.scratch, None)?;
-        if let Some(code) = error_code(&reply) {
-            return Err(Error::Topics(code));
-        }
-        topics_client::decode_topics(&reply)
+        self.client.list_topics().map_err(lift)
     }
 }
 
@@ -243,19 +199,12 @@ impl topics::Subscribe for Bus {
 
 /// A live central-broker subscription.
 pub struct Subscription {
-    endpoint: Endpoint,
+    client: Rc<topics_client::Client>,
     id: u64,
-    /// Pre-encoded `NextEvent` request, reused on every poll.
-    request: Vec<u8>,
-    /// Pre-encoded `Stats` request, reused on every [`Subscription::stats_with`] call.
-    stats_request: Vec<u8>,
     /// Our end of the doorbell, once [`Subscription::bell`] asked for one.
     bell: Option<Endpoint>,
-    /// The reply buffer of [`topics::Events::next_event`], made on first use
-    /// and kept (the user bump allocator never reclaims per-call buffers).
-    scratch: Vec<u8>,
-    /// Ticks the bell request may take (the bus's bound).
-    bound: Option<u64>,
+    /// What the bell request may take (the bus's bound).
+    bound: Option<Deadline>,
     /// Ticks an [`topics::Events::next_event`] pull waits for an event; `0`
     /// is the poll (an expired deadline: the broker answers only if it is
     /// parked at that instant, so a busy broker can make a poll miss a queued
@@ -269,17 +218,11 @@ impl topics::Events for Subscription {
     type Error = Error;
 
     fn next_event(&mut self) -> Result<Option<topics::RawEvent>> {
-        if self.scratch.is_empty() {
-            self.scratch = alloc::vec![0u8; DEFAULT_BUFFER];
-        }
-        let mut buf = core::mem::take(&mut self.scratch);
-        let deadline = match self.wait_ticks {
-            0 => EXPIRED_DEADLINE,
-            ticks => crate::sys::clock() + ticks,
+        let within = match self.wait_ticks {
+            0 => Deadline::Poll,
+            ticks => Deadline::ticks(ticks),
         };
-        let event = self.recv_with(&mut buf, Some(deadline));
-        self.scratch = buf;
-        Ok(event?.map(|event| topics::RawEvent {
+        Ok(self.recv(within)?.map(|event| topics::RawEvent {
             topic: event.topic,
             retained: event.retained,
             publisher: event.publisher,
@@ -294,29 +237,21 @@ impl Subscription {
         self.id
     }
 
-    /// Wait for the next event into `buf`; `Ok(None)` means the deadline
-    /// passed first (pass [`EXPIRED_DEADLINE`] for a non-blocking poll).
-    pub fn recv_with(&self, buf: &mut [u8], deadline: Option<u64>) -> Result<Option<Event>> {
-        match self.endpoint.call_bytes_with(&self.request, buf, deadline) {
-            Ok(reply) => {
-                if let Some(code) = error_code(&reply) {
-                    return Err(Error::Topics(code));
-                }
-                match topics_client::decode_event(&reply)? {
-                    Some(event) => Ok(Some(unwrap_event(event)?)),
-                    None => Ok(None),
-                }
-            }
-            Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => Ok(None),
-            Err(error) => Err(error),
-        }
+    /// Wait for the next event; `Ok(None)` means `within` passed first
+    /// ([`Deadline::Poll`] is a non-blocking poll).
+    ///
+    /// With `reliable` QoS the broker redelivers the head until it is
+    /// acked, so the same event can come back more than once; call
+    /// [`Subscription::ack`] once the payload is safely processed.
+    pub fn recv(&self, within: Deadline) -> Result<Option<Event>> {
+        Ok(topics_client::next(&self.client, self.id, within)?.map(unwrap_event))
     }
 
     /// The subscription's doorbell (docs/performance-plan.md P7.2): the
     /// broker sends one message on the returned endpoint when events are
     /// waiting. Park on it beside your own endpoints (`wait::wait_any`); on
     /// each wake call [`Subscription::take_ring`], then drain
-    /// [`Subscription::recv_with`] with [`EXPIRED_DEADLINE`] until it returns
+    /// [`Subscription::recv`] with [`Deadline::Poll`] until it returns
     /// `None`, which re-arms the bell. Asked once; later calls return the
     /// same end.
     pub fn bell(&mut self) -> Result<Endpoint> {
@@ -324,22 +259,13 @@ impl Subscription {
             return Ok(bell);
         }
         let (mine, theirs) = create_pair()?;
-        let deadline = self.bound.map(|ticks| crate::sys::clock() + ticks);
-        let request = topics_client::bell_request(self.id, theirs.handle())?;
-        let mut scratch = [0u8; 512];
-        let installed = self
-            .endpoint
-            .call_with(&request, &mut scratch, deadline)
-            .and_then(|reply| match error_code(&reply) {
-                Some(code) => Err(Error::Topics(code)),
-                None => Ok(()),
-            });
-        if let Err(error) = installed {
+        let within = self.bound.unwrap_or(wire::METHOD_BELL_DEADLINE);
+        if let Err(error) = self.client.bell_within(self.id, theirs.handle(), within) {
             // The transfer may not have happened: drop both ends (closing a
             // handle that already moved is a harmless `EBADF`).
             let _ = theirs.close();
             let _ = mine.close();
-            return Err(error);
+            return Err(lift(error));
         }
         self.bell = Some(mine);
         Ok(mine)
@@ -360,7 +286,7 @@ impl Subscription {
         let bell = self.bell()?;
         match crate::messenger::wait::wait_any(&[bell], 0, deadline) {
             Ok(_) => {
-                self.take_ring(&mut [0u8; 512]);
+                self.take_ring();
                 Ok(true)
             }
             Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => Ok(false),
@@ -383,36 +309,31 @@ impl Subscription {
             // A dead peer: the next read finds out.
             Err(_) => return true,
         }
-        let mut buf = [0u8; 512];
         for _ in 0..MAX_RINGS {
             if !matches!(lazyos_sys::msg::queued(bell.handle()), Ok(queued) if queued > 0) {
                 break;
             }
-            let _ = bell.recv_with(&mut buf, Some(EXPIRED_DEADLINE));
+            self.take_ring();
         }
         true
     }
 
     /// Consume the `Ready` the doorbell holds (the wait said one is there).
-    pub fn take_ring(&self, buf: &mut [u8]) {
+    pub fn take_ring(&self) {
         if let Some(bell) = self.bell {
-            let _ = bell.recv_with(buf, Some(EXPIRED_DEADLINE));
+            let mut buf = [0u8; BELL_BUFFER];
+            let _ = bell.recv_with(&mut buf, Some(EXPIRED_DEADLINE));
         }
     }
 
+    /// Retire every event up to `sequence` (drives `reliable` queues).
+    pub fn ack(&self, sequence: u64) -> Result<()> {
+        self.client.ack(self.id, sequence).map_err(lift)
+    }
+
     /// Per-subscription delivery counters, including QoS overflow drops.
-    /// Takes a caller-owned reply buffer: a long-lived poll loop must reuse
-    /// one here too, or the user bump allocator grows to fit both this and
-    /// the (also fixed) request, which is why that is pre-encoded and reused
-    /// as well.
-    pub fn stats_with(&self, buf: &mut [u8]) -> Result<topics_client::SubscriptionStats> {
-        let reply = self
-            .endpoint
-            .call_bytes_with(&self.stats_request, buf, None)?;
-        if let Some(code) = error_code(&reply) {
-            return Err(Error::Topics(code));
-        }
-        topics_client::decode_stats(&reply)
+    pub fn stats(&self) -> Result<topics_client::SubscriptionStats> {
+        self.client.stats(self.id).map_err(lift)
     }
 
     /// Drop this subscription; later publishes stop matching it.
@@ -420,45 +341,19 @@ impl Subscription {
         if let Some(bell) = self.bell {
             let _ = bell.close();
         }
-        let request =
-            topics_client::subscription_request(topics_client::method::UNSUBSCRIBE, self.id)?;
-        let mut scratch = alloc::vec![0u8; DEFAULT_BUFFER];
-        let reply = self.endpoint.call_with(&request, &mut scratch, None)?;
-        if let Some(code) = error_code(&reply) {
-            return Err(Error::Topics(code));
-        }
-        Ok(())
+        self.client.unsubscribe(self.id).map_err(lift)
     }
 }
 
-/// Build and encode a broker request parcel once, for a caller that will
-/// reuse the bytes on every subsequent call instead of re-encoding a fixed
-/// request each time.
-fn encode_request(request: Parcel) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    request.encode(&mut bytes).map_err(Error::Parcel)?;
-    Ok(bytes)
-}
-
-/// Wrap raw payload bytes in the broker's envelope (`libmessenger::envelope`).
-fn wrap(payload: &[u8]) -> Result<Vec<u8>> {
-    envelope::wrap(payload).map_err(Error::Parcel)
-}
-
-/// A broker event as [`Event`], its payload taken out of the
-/// envelope. A publisher outside the envelope (e.g. `messengerctl`'s
-/// self-test parcels) is handed through unchanged ([`envelope::unwrap`]).
-fn unwrap_event(event: topics_client::Event) -> Result<Event> {
-    Ok(Event {
+/// A broker event as [`Event`], its payload taken out of the envelope. A
+/// publisher outside the envelope (e.g. `messengerctl`'s self-test bodies) is
+/// handed through unchanged ([`envelope::unwrap`]).
+fn unwrap_event(event: topics_client::Event) -> Event {
+    Event {
         payload: envelope::unwrap(&event.payload),
         topic: event.topic,
         retained: event.retained,
         seq: event.sequence,
         publisher: event.publisher,
-    })
-}
-
-/// The positive errno of a structured broker error reply, if any.
-fn error_code(parcel: &Parcel) -> Option<i64> {
-    topics_client::error_field(parcel).ok().flatten()
+    }
 }

@@ -73,6 +73,7 @@ impl Transport for Nested {
 pub struct Held {
     handle: Handle,
     release: bool,
+    flags: u16,
 }
 
 impl Held {
@@ -81,6 +82,7 @@ impl Held {
         Held {
             handle: endpoint.handle(),
             release: false,
+            flags: 0,
         }
     }
 
@@ -89,13 +91,24 @@ impl Held {
         Held {
             handle: endpoint.handle(),
             release: true,
+            flags: 0,
+        }
+    }
+
+    /// [`Held::resolved`] with `ALLOW_NESTED` on every request, for a shared
+    /// service that parks one caller's pull while another calls it (the topics
+    /// broker); see [`Nested`].
+    pub fn nested(endpoint: Endpoint) -> Held {
+        Held {
+            flags: flags::ALLOW_NESTED,
+            ..Held::resolved(endpoint)
         }
     }
 }
 
 impl Transport for Held {
     fn call_flags(&self) -> u16 {
-        0
+        self.flags
     }
 
     fn resolve(&self, _name: &str, _until: Deadline) -> core::result::Result<Handle, Errno> {

@@ -3,10 +3,11 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use libmessenger::client::Deadline;
 use messenger_generated::topics;
 
 use super::Bus;
-use crate::messenger::{errno, registry, topics_client, Error, Result};
+use crate::messenger::{errno, Error, Result};
 
 /// Ticks (100 Hz) one [`Publisher`] publish may take.
 const PUBLISH_TICKS: u64 = 50;
@@ -55,14 +56,13 @@ impl Publisher {
 
     /// One publish with a deadline, reconnecting once to a restarted broker.
     fn send(&mut self, topic: &str, payload: &[u8], retained: bool) -> Result<u64> {
-        let now = crate::sys::clock();
-        if now < self.quiet_until {
+        if crate::sys::clock() < self.quiet_until {
             return Err(Error::Errno(-errno::ETIMEDOUT));
         }
-        let mut outcome = self.try_send(topic, payload, retained, now);
+        let mut outcome = self.try_send(topic, payload, retained);
         if outcome.is_err() {
             self.bus = None;
-            outcome = self.try_send(topic, payload, retained, now);
+            outcome = self.try_send(topic, payload, retained);
         }
         if matches!(outcome, Err(Error::Errno(code)) if code == -errno::ETIMEDOUT) {
             self.quiet_until = crate::sys::clock() + COOLDOWN_TICKS;
@@ -70,16 +70,16 @@ impl Publisher {
         outcome
     }
 
-    fn try_send(&mut self, topic: &str, payload: &[u8], retained: bool, now: u64) -> Result<u64> {
+    fn try_send(&mut self, topic: &str, payload: &[u8], retained: bool) -> Result<u64> {
         if self.bus.is_none() {
             // One registry lookup: no retry loop that could hold the
             // supervisor while `messengerd` is away.
-            self.bus = Some(Bus::from_endpoint(registry::resolve(topics_client::NAME)?));
+            self.bus = Some(Bus::lookup()?);
         }
         let Some(bus) = self.bus.as_mut() else {
             return Err(Error::Errno(-errno::ENOENT));
         };
-        bus.publish_by(topic, payload, retained, Some(now + PUBLISH_TICKS))
+        bus.publish_within(topic, payload, retained, Deadline::ticks(PUBLISH_TICKS))
     }
 
     /// Keep a retained value for later, replacing the topic's older one.

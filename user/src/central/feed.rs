@@ -25,15 +25,13 @@ use alloc::vec::Vec;
 use messenger_generated::topics::{Event, NextError, Subscription};
 
 use super::Bus;
-use crate::messenger::{registry, topics_client, Endpoint, Result};
+use crate::messenger::{Endpoint, Result};
 use crate::sys;
 
 /// Ticks (100 Hz) between attempts to make a missing stream.
 pub const RETRY_TICKS: u64 = 50;
 /// Ticks one call to the broker may take.
 const BOUND_TICKS: u64 = 50;
-/// What a bell message needs of a buffer: one small one-way parcel.
-const BELL_BUFFER: usize = 512;
 
 /// The typed stream a [`Feed`] holds.
 pub type Stream<T> = Subscription<super::Subscription, T>;
@@ -43,11 +41,9 @@ pub struct Feed<T> {
     /// The generated `subscribe_*` helper, with the topic's arguments filled.
     open: fn(&mut Bus) -> Result<Stream<T>>,
     stream: Option<Stream<T>>,
-    /// Kept between attempts: a new `Bus` costs a buffer the user bump
-    /// allocator never gives back.
+    /// The broker, once found; dropped (and so released) when a subscribe
+    /// fails, so the next attempt looks it up again.
     bus: Option<Bus>,
-    /// Whether `bus` holds a live broker endpoint.
-    connected: bool,
     /// Made since the last drain.
     fresh: bool,
     next_try: u64,
@@ -60,7 +56,6 @@ impl<T> Feed<T> {
             open,
             stream: None,
             bus: None,
-            connected: false,
             fresh: false,
             next_try: 0,
         }
@@ -80,23 +75,19 @@ impl<T> Feed<T> {
     /// it was made now.
     pub fn ensure(&mut self) -> bool {
         let now = sys::clock();
-        // Without a broker endpoint the attempt is one registry lookup, so it
-        // is made on every call (a service that just came up is found at
-        // once); the pause is for a subscribe the broker refused or timed out.
-        if self.stream.is_some() || (self.connected && now < self.next_try) {
+        // Without a broker the attempt is one registry lookup, so it is made
+        // on every call (a service that just came up is found at once); the
+        // pause is for a subscribe the broker refused or timed out.
+        if self.stream.is_some() || (self.bus.is_some() && now < self.next_try) {
             return false;
         }
         self.next_try = now + RETRY_TICKS;
-        if !self.connected {
+        if self.bus.is_none() {
             // One lookup, never a wait: the broker may not be up yet.
-            let Ok(endpoint) = registry::resolve(topics_client::NAME) else {
+            let Ok(bus) = Bus::lookup() else {
                 return false;
             };
-            match &mut self.bus {
-                Some(bus) => bus.set_endpoint(endpoint),
-                None => self.bus = Some(Bus::from_endpoint(endpoint).bounded(BOUND_TICKS)),
-            }
-            self.connected = true;
+            self.bus = Some(bus.bounded(BOUND_TICKS));
         }
         let Some(bus) = self.bus.as_mut() else {
             return false;
@@ -109,8 +100,7 @@ impl<T> Feed<T> {
             }
             Err(_) => {
                 // A stale endpoint (the broker restarted) is looked up again.
-                let _ = bus.endpoint().release();
-                self.connected = false;
+                self.bus = None;
                 false
             }
         }
@@ -134,7 +124,7 @@ impl<T> Feed<T> {
         if rang {
             if let Some(stream) = &self.stream {
                 // The wait said a message is there, so this does not park.
-                stream.handle().take_ring(&mut [0u8; BELL_BUFFER]);
+                stream.handle().take_ring();
             }
         }
         self.read(rang, apply);

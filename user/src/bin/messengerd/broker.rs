@@ -223,7 +223,7 @@ impl Broker {
             match peek(&self.subscriptions[sub_index]) {
                 Some(event) => {
                     let sequence = event.sequence;
-                    let encoded = topics_client::reply_event(event);
+                    let encoded = super::wire::reply_event(event);
                     self.pending.remove(index);
                     match encoded {
                         Ok(parcel) => {

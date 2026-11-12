@@ -19,8 +19,7 @@ use audiomix::events::{Event, Kind};
 use messenger_generated::os_lazy_audio_v1 as wire;
 
 use crate::central;
-use crate::messenger::{registry, topics_client};
-use crate::sys;
+use libmessenger::client::Deadline;
 
 /// The mixer's `{card}`: the streams applications open on `os.lazy.audio`.
 pub const MIXER_CARD: &str = "mixer";
@@ -106,15 +105,14 @@ impl EventPublisher {
                 return None;
             }
             self.next_connect = now + RETRY_TICKS;
-            let endpoint = registry::resolve(topics_client::NAME).ok()?;
-            self.bus = Some(central::Bus::from_endpoint(endpoint));
+            self.bus = Some(central::Bus::lookup().ok()?);
         }
         let bus = self.bus.as_mut()?;
-        match bus.publish_by(
+        match bus.publish_within(
             &topic,
             &payload,
             wire::TOPIC_SYSTEM_AUDIO_EVENT_RETAINED,
-            Some(sys::clock() + PUBLISH_TICKS),
+            Deadline::ticks(PUBLISH_TICKS),
         ) {
             Ok(matched) => Some(matched),
             Err(_) => {

@@ -36,7 +36,7 @@ use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use user::trace;
 
-use libmessenger::client::CallError;
+use libmessenger::client::{CallError, Deadline};
 use user::central::Bus;
 use user::messenger::client::Native;
 use user::messenger::errno;
@@ -189,11 +189,9 @@ fn wait_scan(
         Err(error) if error.code() == -errno::EBUSY || error.code() == -errno::EAGAIN => {}
         Err(error) => return Err(text(error)),
     }
-    let deadline = sys::clock() + SCAN_WAIT_TICKS;
     match subscription {
         Some(sub) => {
-            let mut buf = alloc::vec![0u8; 1024];
-            let _ = sub.recv_with(&mut buf, Some(deadline));
+            let _ = sub.recv(Deadline::ticks(SCAN_WAIT_TICKS));
             let _ = sub.unsubscribe();
         }
         // No broker: give the scan a few seconds.

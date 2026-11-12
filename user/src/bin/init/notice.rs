@@ -17,9 +17,10 @@
 use alloc::string::ToString;
 use user::trace;
 
+use libmessenger::client::Deadline;
 use svcpolicy::{clean_reason, describe_status, Cause, Outcome};
 use user::central;
-use user::messenger::{registry, services, topics_client};
+use user::messenger::services;
 use user::sys;
 
 use super::state::{Phase, Service};
@@ -111,15 +112,14 @@ impl Notices {
         if self.bus.is_none() {
             // A resolve is one registry lookup: no retry loop that could
             // hold the supervisor while `messengerd` is away.
-            let endpoint = registry::resolve(topics_client::NAME).map_err(errno)?;
-            self.bus = Some(central::Bus::from_endpoint(endpoint));
+            self.bus = Some(central::Bus::lookup().map_err(errno)?);
         }
         let bus = self.bus.as_mut().ok_or(-1)?;
-        bus.publish_by(
+        bus.publish_within(
             &topic,
             &payload,
             wire::TOPIC_SYSTEM_EVENTS_APP_RETAINED,
-            Some(sys::clock() + PUBLISH_TICKS),
+            Deadline::ticks(PUBLISH_TICKS),
         )
         .map_err(errno)
     }

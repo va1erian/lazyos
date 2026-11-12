@@ -2,7 +2,7 @@
 //! serve loop and assert the daemon's bump heap did not grow across them.
 
 use alloc::vec::Vec;
-use user::messenger::{self, topics_client};
+use user::messenger;
 use user::sys;
 use user::trace;
 
@@ -51,7 +51,7 @@ impl Soak {
     /// Start a soak of `cycles` request/reply cycles and record the baseline.
     pub(super) fn start(cycles: u64) -> Soak {
         Soak {
-            request: topics_client::ping_request(),
+            request: super::wire::ping_request(),
             reply_buffer: alloc::vec![0u8; messenger::DEFAULT_BUFFER],
             cycles_total: cycles,
             cycles_left: cycles,

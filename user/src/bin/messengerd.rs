@@ -40,6 +40,8 @@ mod filter;
 mod handlers;
 #[path = "messengerd/soak.rs"]
 mod soak;
+#[path = "messengerd/wire.rs"]
+mod wire;
 
 use alloc::format;
 use core::panic::PanicInfo;

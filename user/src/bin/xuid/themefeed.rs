@@ -21,13 +21,12 @@
 //! only when a setting actually changes.
 
 use alloc::string::String;
-use alloc::vec::Vec;
+use libmessenger::client::Deadline;
 use messenger_generated::topics;
 use uitheme::Settings;
 use user::central::{Bus, Subscription};
 use user::messenger::confd::{connect, wire, Client, ValueClient};
 use user::messenger::topics_client::Qos;
-use user::messenger::{DEFAULT_BUFFER, EXPIRED_DEADLINE};
 use user::sys;
 use user::trace;
 
@@ -57,8 +56,6 @@ pub(super) struct ThemeFeed {
     next_connect: u64,
     /// The settings currently applied, for change detection.
     settings: Settings,
-    /// Reused reply buffer for the topic poll.
-    buffer: Vec<u8>,
     /// The cursor size read from confd and the size the compositor last took.
     cursor_size: u32,
     cursor_taken: u32,
@@ -83,7 +80,6 @@ impl ThemeFeed {
             next_poll: 0,
             next_connect: 0,
             settings,
-            buffer: alloc::vec![0u8; DEFAULT_BUFFER],
             cursor_size: uitheme::DEFAULT_CURSOR_SIZE,
             cursor_taken: uitheme::DEFAULT_CURSOR_SIZE,
             cursor_theme: None,
@@ -186,10 +182,10 @@ impl ThemeFeed {
                 return false;
             }
             self.next_connect = now + RETRY_TICKS;
-            return self.connect(now);
+            return self.connect();
         }
-        let machine = drain(&mut self.watch, &mut self.buffer);
-        let own = drain(&mut self.user_watch, &mut self.buffer);
+        let machine = drain(&mut self.watch);
+        let own = drain(&mut self.user_watch);
         if machine || own {
             return self.reload();
         }
@@ -197,7 +193,7 @@ impl ThemeFeed {
     }
 
     /// Connect to confd and the broker, then read the current values.
-    fn connect(&mut self, now: u64) -> bool {
+    fn connect(&mut self) -> bool {
         if self.client.is_none() {
             // Expected to fail until `confd` registers; retried quietly.
             self.client = connect().ok();
@@ -206,7 +202,7 @@ impl ThemeFeed {
             return false;
         }
         if self.watch.is_none() {
-            self.watch = system_filter().and_then(|filter| subscribe(filter, now));
+            self.watch = system_filter().and_then(subscribe);
         }
         if let (Some(uid), None) = (self.user, &self.user_watch) {
             self.user_watch = self.subscribe_user(uid);
@@ -225,7 +221,7 @@ impl ThemeFeed {
             topics::Mode::Subscribe,
         )
         .ok()?;
-        subscribe(filter, sys::clock())
+        subscribe(filter)
     }
 
     /// Re-read the theme keys and install the resulting palette; `true` when
@@ -281,10 +277,10 @@ impl ThemeFeed {
 
 /// Subscribe to `filter`, bounded: the compositor must not stall on a silent
 /// broker. A failure is logged and retried by a later poll.
-pub(super) fn subscribe(filter: String, now: u64) -> Option<Subscription> {
-    let deadline = Some(now + SUBSCRIBE_TICKS);
-    let watch = Bus::connect()
-        .and_then(|mut bus| bus.subscribe_with_deadline(&filter, Qos::Latest, deadline));
+pub(super) fn subscribe(filter: String) -> Option<Subscription> {
+    let within = Deadline::ticks(SUBSCRIBE_TICKS);
+    let watch =
+        Bus::connect().and_then(|mut bus| bus.subscribe_within(&filter, Qos::Latest, within));
     if let Err(error) = &watch {
         sys::write_str(&alloc::format!("THEME:WATCH:FAIL {filter} {error:?}\n"));
     }
@@ -293,7 +289,7 @@ pub(super) fn subscribe(filter: String, now: u64) -> Option<Subscription> {
 
 /// Whether at least one change event arrived on `watch` (all pending ones
 /// consumed). A broken subscription is dropped, so a later poll resubscribes.
-pub(super) fn drain(watch: &mut Option<Subscription>, buffer: &mut [u8]) -> bool {
+pub(super) fn drain(watch: &mut Option<Subscription>) -> bool {
     let Some(subscription) = watch else {
         return false;
     };
@@ -305,7 +301,7 @@ pub(super) fn drain(watch: &mut Option<Subscription>, buffer: &mut [u8]) -> bool
         // for 10 to 20 ms every `POLL_TICKS`. The kernel keeps a poll open
         // for the broker's whole service turn (`channels::POLL_DEADLINE`),
         // so a queued event is still delivered.
-        match subscription.recv_with(buffer, Some(EXPIRED_DEADLINE)) {
+        match subscription.recv(Deadline::Poll) {
             Ok(Some(_)) => any = true,
             Ok(None) => break,
             Err(_) => {

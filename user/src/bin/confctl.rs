@@ -23,15 +23,14 @@ extern crate alloc;
 
 use alloc::format;
 use alloc::string::{String, ToString};
-use alloc::vec;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 
 use confd::Value as StoreValue;
 use lazyos_crypto::hex;
+use libmessenger::client::Deadline;
 use messenger_generated::os_lazy_confd_v1 as topics_wire;
 use user::messenger::confd::{self as wire, ValueClient};
-use user::messenger::{self};
 use user::sys;
 
 /// The topic `watch` subscribes to when the caller gives no filter.
@@ -273,9 +272,8 @@ fn watch(filter: &str) -> Result<(), String> {
     let subscription =
         wire::watch(filter).map_err(|error| format!("watch {filter}: {}", error.message()))?;
     say(&format!("watching {filter}"));
-    let mut buffer = vec![0u8; messenger::DEFAULT_BUFFER];
     loop {
-        match subscription.recv_with(&mut buffer, None) {
+        match subscription.recv(Deadline::Never) {
             Ok(Some(event)) => {
                 let change = wire::decode_system_confd_changed(&event.payload)
                     .map_err(|error| format!("bad change payload: {}", error.message()))?;

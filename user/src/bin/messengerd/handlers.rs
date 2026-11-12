@@ -1,8 +1,12 @@
-//! Topics request handling: the broker `serve` entry (policy checks, method
-//! dispatch) and the endpoint-level wake/reply plumbing.
+//! Topics request handling: the broker's `Server` (policy checks, the tables)
+//! behind the generated `dispatch`, the one request that parks (`NextEvent`),
+//! and the endpoint-level wake/reply plumbing.
 
 use alloc::collections::VecDeque;
+use alloc::string::String;
 use alloc::vec::Vec;
+use libmessenger::server::{self, Caller, Fault};
+use messenger_generated::os_lazy_messenger_topics_v1 as generated;
 use user::messenger::{self, errno, topics_client};
 use user::sys;
 
@@ -12,228 +16,234 @@ use super::broker::{
 use super::filter::{
     holds_nic_name, is_system_topic, may_publish_system, nic_link_ifname, valid_topic, Filter,
 };
+use super::wire;
 
-impl Broker {
-    /// Serve one topics request from the task in slot `sender`, whose
-    /// credentials at send time are `caller` (both kernel-stamped).
-    pub fn serve(
-        &mut self,
-        request: &libmessenger::Parcel,
-        sender: u64,
-        caller: sys::Cred,
-        txn: Option<u64>,
-    ) -> Result<Outcome, messenger::Error> {
-        use topics_client::{method, MODE_PUBLISH};
-        let invalid = |_| messenger::Error::Topics(errno::EINVAL);
+/// A refusal with the broker's errno-style code and its friendly text.
+fn refuse(code: i64) -> Fault {
+    Fault::from(messenger::Error::Topics(code))
+}
 
-        let mut outcome = Outcome::default();
-        match request.header.method {
-            method::PING => {
-                outcome.reply = Some(topics_client::reply_ok(request.header.method));
-            }
-            method::PUBLISH => {
-                let args = topics_client::decode_publish_args(&request.body).map_err(invalid)?;
-                let (topic, payload, retained) = (args.topic, args.payload, args.retained);
-                if payload.is_empty() {
-                    return Err(messenger::Error::Topics(errno::EINVAL));
-                }
-                if payload.len() > topics_client::MAX_PAYLOAD {
-                    return Err(messenger::Error::Topics(errno::E2BIG));
-                }
-                if !valid_topic(&topic) {
-                    return Err(messenger::Error::Topics(errno::EINVAL));
-                }
-                // Policy first: a denied publish stores nothing and is audited.
-                topics_client::authorize(sender, MODE_PUBLISH, &topic, txn.unwrap_or(0))
-                    .map_err(|_| messenger::Error::Topics(errno::EACCES))?;
-                // `system/` is the platform's own audited namespace (service
-                // status, clipboard/launch audit records, denial markers):
-                // `logd` treats every event under it as authentic. The kernel
-                // ACL above stays in its bootstrap-allow state until a policy
-                // is loaded, so without this check any task could forge audit
-                // records here. The platform publishers (sysmond, clipboardd,
-                // mimed, init) run as uid 0; a dedicated system uid gets its
-                // own subtree only (`may_publish_system`), and the audio
-                // driver and mixer (`_snd`, `_audio`) their stream events,
-                // `system/audio/...` alone (issue #453).
-                if is_system_topic(&topic) {
-                    let uid = caller.uid;
-                    if !may_publish_system(&topic, uid)
-                        && !sndpolicy::may_publish_audio_event(uid, &topic)
-                    {
-                        return Err(messenger::Error::Topics(errno::EACCES));
-                    }
-                    // A driver uid speaks for the card it serves, not for
-                    // every card (root is the console's boot identity).
-                    if let Some(ifname) = nic_link_ifname(&topic) {
-                        if uid != 0 && !holds_nic_name(sender, ifname) {
-                            return Err(messenger::Error::Topics(errno::EACCES));
-                        }
-                    }
-                }
-                let matched = self.publish(&topic, sender, payload, retained);
-                outcome.wakes = self.satisfy();
-                outcome.reply = Some(
-                    topics_client::reply_matched(matched)
-                        .map_err(|_| messenger::Error::Topics(errno::E2BIG))?,
-                );
-            }
-            method::SUBSCRIBE => {
-                let args = topics_client::decode_subscribe_args(&request.body).map_err(invalid)?;
-                let filter = args.filter;
-                let qos = topics_client::Qos::from_parts(args.qos, args.depth)
-                    .ok_or(messenger::Error::Topics(errno::EINVAL))?;
-                let parsed =
-                    Filter::parse(&filter).ok_or(messenger::Error::Topics(errno::EINVAL))?;
-                topics_client::authorize(
-                    sender,
-                    topics_client::MODE_SUBSCRIBE,
-                    &filter,
-                    txn.unwrap_or(0),
-                )
-                .map_err(|_| messenger::Error::Topics(errno::EACCES))?;
-                if self.subscriptions.len() >= MAX_SUBSCRIPTIONS {
-                    return Err(messenger::Error::Topics(errno::ENOMEM));
-                }
-                let id = self.next_subscription;
-                self.next_subscription += 1;
-                self.subscriptions.push(Subscription {
-                    id,
-                    owner: sender,
-                    filter: parsed,
-                    qos,
-                    queue: VecDeque::new(),
-                    conflated: Vec::new(),
-                    drops: 0,
-                    delivered: 0,
-                    matched: 0,
-                    bell: None,
-                    rung: false,
-                });
-                self.replay_retained(self.subscriptions.len() - 1, id);
-                outcome.reply = Some(
-                    topics_client::reply_subscription(id)
-                        .map_err(|_| messenger::Error::Topics(errno::E2BIG))?,
-                );
-            }
-            method::UNSUBSCRIBE => {
-                let id = subscription_id(request)?;
-                self.remove(id, sender)?;
-                outcome.reply = Some(topics_client::reply_ok(request.header.method));
-            }
-            method::NEXT_EVENT => {
-                let id = subscription_id(request)?;
-                let index = self
-                    .subscriptions
-                    .iter()
-                    .position(|sub| sub.id == id)
-                    .ok_or(messenger::Error::Topics(errno::ENOENT))?;
-                if self.subscriptions[index].owner != sender {
-                    return Err(messenger::Error::Topics(errno::EPERM));
-                }
-                match peek(&self.subscriptions[index]) {
-                    Some(event) => {
-                        let sequence = event.sequence;
-                        let encoded = topics_client::reply_event(event);
-                        match encoded {
-                            Ok(parcel) => {
-                                outcome.reply = Some(parcel);
-                                outcome.delivery = Some(Delivery {
-                                    subscription: id,
-                                    sequence,
-                                });
-                            }
-                            Err(_) => {
-                                // The event can't be encoded into a reply
-                                // (e.g. too large for the buffer): drop it so
-                                // a retry sees the next one instead of
-                                // hitting the same unencodable head forever.
-                                self.drop_undeliverable(id, sequence);
-                                return Err(messenger::Error::Topics(errno::E2BIG));
-                            }
-                        }
-                    }
-                    None => {
-                        // The owner drained the queue: the next event rings
-                        // its bell again.
-                        self.subscriptions[index].rung = false;
-                        let txn = txn.ok_or(messenger::Error::Topics(errno::EINVAL))?;
-                        // One parked pull per (subscription, owner): the
-                        // client's retry/timeout replaces its own stale entry.
-                        self.pending
-                            .retain(|p| !(p.subscription == id && p.owner == sender));
-                        if self.pending.len() >= MAX_PENDING {
-                            return Err(messenger::Error::Topics(errno::EAGAIN));
-                        }
-                        self.pending.push(Pending {
-                            subscription: id,
-                            owner: sender,
-                            txn,
-                        });
-                        // No reply: the kernel keeps the caller parked until a
-                        // publish wakes it (or its deadline expires).
-                    }
-                }
-            }
-            method::ACK => {
-                let id = subscription_id(request)?;
-                let sequence = topics_client::decode_ack_args(&request.body)
-                    .map_err(invalid)?
-                    .sequence;
-                let index = self
-                    .subscriptions
-                    .iter()
-                    .position(|sub| sub.id == id)
-                    .ok_or(messenger::Error::Topics(errno::ENOENT))?;
-                if self.subscriptions[index].owner != sender {
-                    return Err(messenger::Error::Topics(errno::EPERM));
-                }
-                if self.subscriptions[index].qos == topics_client::Qos::Reliable {
-                    let queue = &mut self.subscriptions[index].queue;
-                    while let Some(front) = queue.front() {
-                        if front.sequence > sequence {
-                            break;
-                        }
-                        queue.pop_front();
-                    }
-                }
-                outcome.reply = Some(topics_client::reply_ok(request.header.method));
-            }
-            method::LIST_TOPICS => {
-                let list = self.list();
-                outcome.reply = Some(
-                    topics_client::reply_topics(&list)
-                        .map_err(|_| messenger::Error::Topics(errno::E2BIG))?,
-                );
-            }
-            method::STATS => {
-                let id = subscription_id(request)?;
-                let index = self
-                    .subscriptions
-                    .iter()
-                    .position(|sub| sub.id == id)
-                    .ok_or(messenger::Error::Topics(errno::ENOENT))?;
-                let sub = &self.subscriptions[index];
-                if sub.owner != sender {
-                    return Err(messenger::Error::Topics(errno::EPERM));
-                }
-                let stats = topics_client::SubscriptionStats {
-                    qos: sub.qos.code(),
-                    depth: sub.qos.depth(),
-                    queued: sub.queued(),
-                    delivered: sub.delivered,
-                    matched: sub.matched,
-                    drops: sub.drops,
-                };
-                outcome.reply = Some(
-                    topics_client::reply_stats(&stats)
-                        .map_err(|_| messenger::Error::Topics(errno::E2BIG))?,
-                );
-            }
-            _ => return Err(messenger::Error::Topics(errno::EINVAL)),
+/// One request being served: the broker's tables, and what the request
+/// produced besides its reply (parked pulls it satisfied).
+struct Request<'a> {
+    broker: &'a mut Broker,
+    outcome: Outcome,
+    /// The request's transaction, copied into the kernel's denial records.
+    txn: Option<u64>,
+}
+
+impl Request<'_> {
+    /// The index of subscription `id`, which only its `owner` may touch.
+    fn owned(&self, id: u64, owner: u64) -> Result<usize, Fault> {
+        let index = self
+            .broker
+            .subscriptions
+            .iter()
+            .position(|sub| sub.id == id)
+            .ok_or_else(|| refuse(errno::ENOENT))?;
+        if self.broker.subscriptions[index].owner != owner {
+            return Err(refuse(errno::EPERM));
         }
-        Ok(outcome)
+        Ok(index)
     }
+}
+
+/// Whether `cx` may publish `topic` under the platform's `system/` namespace
+/// (anything else is the kernel ACL's business alone).
+///
+/// `system/` is the platform's own audited record (service status,
+/// clipboard/launch audit records, denial markers): `logd` treats every event
+/// under it as authentic. The kernel ACL stays in its bootstrap-allow state
+/// until a policy is loaded, so without this check any task could forge audit
+/// records here. The platform publishers (sysmond, clipboardd, mimed, init)
+/// run as uid 0; a dedicated system uid gets its own subtree only
+/// (`may_publish_system`), and the audio driver and mixer (`_snd`, `_audio`)
+/// their stream events, `system/audio/...` alone (issue #453).
+fn may_publish(cx: &Caller, topic: &str) -> bool {
+    if !is_system_topic(topic) {
+        return true;
+    }
+    if !may_publish_system(topic, cx.uid) && !sndpolicy::may_publish_audio_event(cx.uid, topic) {
+        return false;
+    }
+    // A driver uid speaks for the card it serves, not for every card (root is
+    // the console's boot identity).
+    match nic_link_ifname(topic) {
+        Some(ifname) => cx.uid == 0 || holds_nic_name(cx.sender, ifname),
+        None => true,
+    }
+}
+
+impl generated::Server for Request<'_> {
+    fn publish(
+        &mut self,
+        cx: &Caller,
+        topic: String,
+        payload: Vec<u8>,
+        retained: bool,
+    ) -> Result<u64, Fault> {
+        if payload.is_empty() || !valid_topic(&topic) {
+            return Err(refuse(errno::EINVAL));
+        }
+        if payload.len() > topics_client::MAX_PAYLOAD {
+            return Err(refuse(errno::E2BIG));
+        }
+        // Policy first: a denied publish stores nothing and is audited.
+        let txn = self.txn.unwrap_or(0);
+        topics_client::authorize(cx.sender, topics_client::MODE_PUBLISH, &topic, txn)
+            .map_err(|_| refuse(errno::EACCES))?;
+        if !may_publish(cx, &topic) {
+            return Err(refuse(errno::EACCES));
+        }
+        let matched = self.broker.publish(&topic, cx.sender, payload, retained);
+        self.outcome.wakes = self.broker.satisfy();
+        Ok(matched)
+    }
+
+    fn subscribe(
+        &mut self,
+        cx: &Caller,
+        filter: String,
+        qos: u32,
+        depth: u32,
+    ) -> Result<u64, Fault> {
+        let qos =
+            topics_client::Qos::from_parts(qos, depth).ok_or_else(|| refuse(errno::EINVAL))?;
+        let parsed = Filter::parse(&filter).ok_or_else(|| refuse(errno::EINVAL))?;
+        let txn = self.txn.unwrap_or(0);
+        topics_client::authorize(cx.sender, topics_client::MODE_SUBSCRIBE, &filter, txn)
+            .map_err(|_| refuse(errno::EACCES))?;
+        let broker = &mut *self.broker;
+        if broker.subscriptions.len() >= MAX_SUBSCRIPTIONS {
+            return Err(refuse(errno::ENOMEM));
+        }
+        let id = broker.next_subscription;
+        broker.next_subscription += 1;
+        broker.subscriptions.push(Subscription {
+            id,
+            owner: cx.sender,
+            filter: parsed,
+            qos,
+            queue: VecDeque::new(),
+            conflated: Vec::new(),
+            drops: 0,
+            delivered: 0,
+            matched: 0,
+            bell: None,
+            rung: false,
+        });
+        broker.replay_retained(broker.subscriptions.len() - 1, id);
+        Ok(id)
+    }
+
+    fn unsubscribe(&mut self, cx: &Caller, subscription: u64) -> Result<(), Fault> {
+        Ok(self.broker.remove(subscription, cx.sender)?)
+    }
+
+    /// Served by [`pull`]: it may park the caller, which a reply value cannot
+    /// say.
+    fn next_event(&mut self, _: &Caller, _: u64) -> Result<generated::Event, Fault> {
+        Err(Fault::unserved())
+    }
+
+    fn ack(&mut self, cx: &Caller, subscription: u64, sequence: u64) -> Result<(), Fault> {
+        let index = self.owned(subscription, cx.sender)?;
+        let sub = &mut self.broker.subscriptions[index];
+        if sub.qos == topics_client::Qos::Reliable {
+            while sub
+                .queue
+                .front()
+                .is_some_and(|front| front.sequence <= sequence)
+            {
+                sub.queue.pop_front();
+            }
+        }
+        Ok(())
+    }
+
+    fn list_topics(&mut self, _: &Caller) -> Result<Vec<generated::TopicInfo>, Fault> {
+        Ok(self.broker.list())
+    }
+
+    fn stats(&mut self, cx: &Caller, subscription: u64) -> Result<generated::Stats, Fault> {
+        let sub = &self.broker.subscriptions[self.owned(subscription, cx.sender)?];
+        Ok(generated::Stats {
+            qos: sub.qos.code(),
+            depth: sub.qos.depth(),
+            queued: sub.queued(),
+            delivered: sub.delivered,
+            matched: sub.matched,
+            drops: sub.drops,
+        })
+    }
+
+    fn ping(&mut self, _: &Caller) -> Result<(), Fault> {
+        Ok(())
+    }
+
+    /// Served by [`serve_bell`]: the request carries a channel end.
+    fn bell(&mut self, _: &Caller, _: u64, _: u64) -> Result<(), Fault> {
+        Err(Fault::unserved())
+    }
+}
+
+/// `NextEvent`: answer with the subscription's head event (committed once the
+/// reply reaches the caller), or park the caller until a publish wakes it.
+fn pull(broker: &mut Broker, message: &messenger::Message) -> Result<Outcome, Fault> {
+    let id = wire::subscription_id(&message.parcel).map_err(Fault::from)?;
+    let sender = message.sender;
+    let index = broker
+        .subscriptions
+        .iter()
+        .position(|sub| sub.id == id)
+        .ok_or_else(|| refuse(errno::ENOENT))?;
+    if broker.subscriptions[index].owner != sender {
+        return Err(refuse(errno::EPERM));
+    }
+    let mut outcome = Outcome::default();
+    match peek(&broker.subscriptions[index]) {
+        Some(event) => {
+            let sequence = event.sequence;
+            match wire::reply_event(event) {
+                Ok(parcel) => {
+                    outcome.reply = Some(parcel);
+                    outcome.delivery = Some(Delivery {
+                        subscription: id,
+                        sequence,
+                    });
+                }
+                Err(_) => {
+                    // The event can't be encoded into a reply (e.g. too large
+                    // for the buffer): drop it so a retry sees the next one
+                    // instead of hitting the same unencodable head forever.
+                    broker.drop_undeliverable(id, sequence);
+                    return Err(refuse(errno::E2BIG));
+                }
+            }
+        }
+        None => {
+            // The owner drained the queue: the next event rings its bell
+            // again.
+            broker.subscriptions[index].rung = false;
+            let txn = message.txn.ok_or_else(|| refuse(errno::EINVAL))?;
+            // One parked pull per (subscription, owner): the client's
+            // retry/timeout replaces its own stale entry.
+            broker
+                .pending
+                .retain(|p| !(p.subscription == id && p.owner == sender));
+            if broker.pending.len() >= MAX_PENDING {
+                return Err(refuse(errno::EAGAIN));
+            }
+            broker.pending.push(Pending {
+                subscription: id,
+                owner: sender,
+                txn,
+            });
+            // No reply: the kernel keeps the caller parked until a publish
+            // wakes it (or its deadline expires).
+        }
+    }
+    Ok(outcome)
 }
 
 /// Handle one topics parcel: fresh events and parked-pull wakes go out first,
@@ -244,7 +254,7 @@ pub(super) fn serve_topic(
     broker: &mut Broker,
     message: &messenger::Message,
 ) {
-    if message.method() == topics_client::method::BELL {
+    if message.method() == generated::METHOD_BELL {
         serve_bell(endpoint, broker, message);
     } else {
         serve_request(endpoint, broker, message);
@@ -257,12 +267,21 @@ fn serve_request(
     broker: &mut Broker,
     message: &messenger::Message,
 ) {
-    match broker.serve(
-        &message.parcel,
-        message.sender,
-        message.caller(),
-        message.txn,
-    ) {
+    let served = if message.method() == generated::METHOD_NEXTEVENT {
+        pull(broker, message)
+    } else {
+        let mut request = Request {
+            broker,
+            outcome: Outcome::default(),
+            txn: message.txn,
+        };
+        let reply = generated::dispatch(&mut request, message);
+        Ok(Outcome {
+            reply: Some(reply),
+            ..request.outcome
+        })
+    };
+    match served {
         Ok(outcome) => {
             // Wakes first: a parked subscriber waiting on the event this
             // request just published wakes even if the request's own reply
@@ -283,9 +302,9 @@ fn serve_request(
                 }
             }
         }
-        Err(error) => {
+        Err(fault) => {
             if let Some(txn) = message.txn {
-                let reply = topics_client::error_reply(message.method(), error);
+                let reply = server::fault_reply(topics_client::INTERFACE, message.method(), &fault);
                 let _ = endpoint.reply(txn, &reply);
             }
         }
@@ -296,21 +315,19 @@ fn serve_request(
 /// doorbell. A malformed request leaves the end with the message, which
 /// closes it, so nothing can leak handles here.
 fn serve_bell(endpoint: &messenger::Endpoint, broker: &mut Broker, message: &messenger::Message) {
-    let result = match topics_client::decode_bell_args(message) {
+    let result = match wire::decode_bell_args(message) {
         Ok((id, bell)) => {
             let installed = broker.set_bell(id, message.sender, bell);
             if installed.is_err() {
                 let _ = bell.close();
             }
-            installed
+            installed.map_err(Fault::from)
         }
-        Err(_) => Err(messenger::Error::Topics(errno::EINVAL)),
+        Err(_) => Err(refuse(errno::EINVAL)),
     };
     if let Some(txn) = message.txn {
-        let reply = match result {
-            Ok(()) => topics_client::reply_ok(message.method()),
-            Err(error) => topics_client::error_reply(message.method(), error),
-        };
+        let interface = topics_client::INTERFACE;
+        let reply = server::finish(interface, message.method(), result, |()| Ok(Vec::new()));
         let _ = endpoint.reply(txn, &reply);
     }
 }
@@ -319,7 +336,7 @@ fn serve_bell(endpoint: &messenger::Endpoint, broker: &mut Broker, message: &mes
 /// full one stays rung (its owner has a `Ready` to read already).
 fn ring_bells(broker: &mut Broker) {
     for (id, bell) in broker.bells_due() {
-        let Ok(note) = topics_client::ready_note(id) else {
+        let Ok(note) = wire::ready_note(id) else {
             continue;
         };
         if let Err(error) = bell.send(&note) {
@@ -358,11 +375,4 @@ fn delivered(
             false
         }
     }
-}
-
-/// The subscription a request names. Every subscription-addressed method
-/// (`Unsubscribe`, `NextEvent`, `Ack`, `Stats`) puts it in field 1.
-fn subscription_id(request: &libmessenger::Parcel) -> Result<u64, messenger::Error> {
-    topics_client::decode_subscription_args(request)
-        .map_err(|_| messenger::Error::Topics(errno::EINVAL))
 }
