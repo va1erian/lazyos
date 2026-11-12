@@ -306,8 +306,10 @@ task (slot and tenant) that created it. The kernel does not tell `messengerd`
 when a task exits, so a bell-less subscription of a dead task lives on, and
 because a tenant outlives its processes, enough such leaks (32) lock that app
 out of subscribing until its session ends; one with a bell is reaped when the
-bell's far end closes, so a program that can be killed mid-subscription (a
-`tail`) should attach one. Apps of different labels or sessions are different
+broker next rings that bell and finds its far end closed, so a program that
+can be killed mid-subscription (`messengerctl tail`, `confctl watch`) attaches
+one; a bell already rung and not yet drained is not rung again, so even then a
+kill can leak until the kernel tells `messengerd` a task died (follow-up). Apps of different labels or sessions are different
 tenants and can still fill the apps' shared part between them, which platform
 rows in use shrink further.
 

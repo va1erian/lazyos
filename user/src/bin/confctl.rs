@@ -269,8 +269,12 @@ fn hex_digit(byte: u8) -> Option<u8> {
 
 /// Print every change event until the process is killed.
 fn watch(filter: &str) -> Result<(), String> {
-    let subscription =
+    let mut subscription =
         wire::watch(filter).map_err(|error| format!("watch {filter}: {}", error.message()))?;
+    // A doorbell, though `recv` does not need one: `watch` ends only when it
+    // is killed, and the broker can reap a subscription only through its
+    // bell's closed far end (docs/messenger.md, budgets).
+    let _ = subscription.bell();
     say(&format!("watching {filter}"));
     loop {
         match subscription.recv(Deadline::Never) {
