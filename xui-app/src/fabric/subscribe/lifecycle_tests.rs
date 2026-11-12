@@ -7,7 +7,7 @@ use libmessenger::Parcel;
 use messenger_generated::os_lazy_messenger_topics_bell_v1 as bell;
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 
-use super::fake::{ready, Fake, Shared};
+use super::test_fake::{ready, Fake, Shared};
 use super::tests::{client, subscribed};
 use super::{Qos, Subscriber, Wait, MAX_BELL_MESSAGES};
 

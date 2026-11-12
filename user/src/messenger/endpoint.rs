@@ -391,16 +391,6 @@ pub fn create_pair() -> Result<(Endpoint, Endpoint)> {
     ))
 }
 
-/// Aggregated counters across every live channel (compact shape).
-pub fn global_stats() -> Result<Stats> {
-    stats_call(0)
-}
-
-/// Global message totals through the dedicated `TOTALS` op.
-pub fn global_totals() -> Result<Stats> {
-    lazyos_sys::msg::totals().map_err(Error::Errno)
-}
-
 /// The versioned fabric snapshot (stats ABI v3): every subsystem in one block.
 /// The snapshot buffer is sized so the kernel always serves the full block.
 ///

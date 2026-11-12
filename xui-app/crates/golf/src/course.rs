@@ -47,14 +47,6 @@ impl Material {
         Material::ALL[usize::from(value).min(Material::ALL.len() - 1)]
     }
 
-    /// Whether the ball is in play on it (the routing keeps play here).
-    pub fn is_short_grass(self) -> bool {
-        matches!(
-            self,
-            Material::Green | Material::Fringe | Material::TeeBox | Material::Fairway
-        )
-    }
-
     pub fn name(self) -> &'static str {
         match self {
             Material::Green => "green",

@@ -182,10 +182,6 @@ impl<R: Runner> RunTable<R> {
         &self.runner
     }
 
-    pub fn runner_mut(&mut self) -> &mut R {
-        &mut self.runner
-    }
-
     /// Start `script` (the buffer text or the selection, whose first line is
     /// editor line `first_line`). The caller has already passed the review
     /// gate; the table does not run anything on its own. With [`MAX_LIVE`]

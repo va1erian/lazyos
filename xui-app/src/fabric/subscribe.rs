@@ -65,11 +65,11 @@ mod transport;
 mod wire;
 
 #[cfg(test)]
-mod fake;
-#[cfg(test)]
 mod fuzz;
 #[cfg(test)]
 mod lifecycle_tests;
+#[cfg(test)]
+mod test_fake;
 #[cfg(test)]
 mod tests;
 

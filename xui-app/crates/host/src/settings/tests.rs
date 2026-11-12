@@ -2,6 +2,7 @@
 
 use super::*;
 use serde::Deserialize;
+use std::sync::Mutex;
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
 struct Window {
@@ -109,8 +110,7 @@ fn without_a_uid_the_settings_live_in_memory() {
 }
 
 #[test]
-fn the_worker_saves_and_rings_the_bell() {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+fn the_worker_saves_off_the_calling_thread() {
     use std::time::{Duration, Instant};
 
     struct Shared(Arc<Mutex<BTreeMap<String, Value>>>);
@@ -135,18 +135,13 @@ fn the_worker_saves_and_rings_the_bell() {
     let factory: Factory = Arc::new(move || Box::new(Shared(Arc::clone(&factory_map))));
     let settings: Settings<Prefs> =
         Settings::open(&Shared(Arc::clone(&map)), "demo", Saver::Worker(factory));
-    let rung = Arc::new(AtomicUsize::new(0));
-    let counter = Arc::clone(&rung);
-    settings.on_saved(Sink::from_fn(move |()| {
-        counter.fetch_add(1, Ordering::SeqCst);
-        true
-    }));
     settings.update(|p| p.font = "Serif".into());
     let started = Instant::now();
-    while rung.load(Ordering::SeqCst) == 0 && started.elapsed() < Duration::from_secs(5) {
+    while !map.lock().unwrap().contains_key("user/5/demo/font")
+        && started.elapsed() < Duration::from_secs(5)
+    {
         std::thread::sleep(Duration::from_millis(5));
     }
-    assert_eq!(rung.load(Ordering::SeqCst), 1);
     assert_eq!(
         map.lock().unwrap().get("user/5/demo/font"),
         Some(&Value::Str("Serif".into()))

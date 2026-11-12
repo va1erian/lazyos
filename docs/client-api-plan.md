@@ -888,3 +888,36 @@ X2 follows X1 and uses generated clients once C3 has them.
 * Kernel: the registry wait (C1b) is the only kernel change; if the
   registry is kernel-served it gets correctness and stress tests in its suite
   (many waiters, names that never appear, register/unregister churn).
+
+### Simplification pass (as built)
+
+A review pass over the new layers removed what had no caller and left the
+structure alone. Hand-written production Rust (`measure.py`, tests and
+generated code excluded) went from 542,381 to 541,240 lines (-1,141). Of
+that, 633 lines are two test doubles that lived in `src/` and are now named
+like the tests they serve (`xui-app/src/fabric/subscribe/test_fake.rs`,
+`libs/messenger/src/client/test_mock.rs`); the other -508 are deleted code
+(all Rust including tests: -532).
+
+* One connect bound: `Transport::connect_bound` defaults to
+  `CONNECT_BOUND` (10 s) in `libmessenger`; the native, std, `Nested`,
+  `Held` and `Observed` transports no longer repeat it.
+* Deleted, with no caller anywhere (found by counting every identifier in
+  the tree, docs and scripts included): `Settings::on_saved` and its
+  `Arc<Mutex<Option<Sink>>>`, `ErrorDialog::show_while/show_titled`,
+  `Queue::start_latest`, `atomicfile::write_with`, `AppContext::settings_key`,
+  `xui_host::testing::MemHost/MemFs`, `StdHost::on_launch/shared_lines`,
+  `user::messenger::services::drivers`, `resolve_service`,
+  `TcpStream::wait_readable`, `global_stats/global_totals`, timed
+  `TICK_TOPIC/decode_tick`, and about twenty unused accessors in fatvol,
+  netstack, nes, paint, playground, golf, webd and writer.
+* Looked at and kept: the `Follow`/`Feed` pair (std hub over `Subscriber`
+  versus the native `central::Feed`) share a contract, not code: one is a
+  thread-local hub over a nested-call transport, the other owns a `Bus` and
+  a bump-allocator buffer, and merging them would put `std` types in
+  `user`. `Connection::call_once_more`/`with_retry` differ in what a retry
+  is allowed to resend. The broker client (`user::central`, `topics_client`)
+  is still hand-framed; moving it to the generated `topics` client and the
+  generated server in `messengerd` is the one change large enough to reach
+  the -1,500 line mark (about 750 lines of `topics_client` plus `Bus`), and
+  it needs `messengerd`'s soak run and a boot, so it is a stage of its own.

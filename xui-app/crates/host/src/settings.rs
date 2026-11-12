@@ -17,7 +17,7 @@
 use std::cell::{Ref, RefCell};
 use std::collections::BTreeMap;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -73,7 +73,6 @@ pub struct Settings<T> {
     template: Json,
     stored: RefCell<BTreeMap<String, Value>>,
     sender: Sender,
-    saved: Arc<Mutex<Option<Sink<()>>>>,
 }
 
 impl<T: Serialize + DeserializeOwned + Default> Settings<T> {
@@ -90,14 +89,12 @@ impl<T: Serialize + DeserializeOwned + Default> Settings<T> {
             None => template.clone(),
         };
         let value = serde_json::from_value(tree).unwrap_or_default();
-        let saved: Arc<Mutex<Option<Sink<()>>>> = Arc::default();
         Settings {
-            sender: sender(saver, &saved),
+            sender: sender(saver),
             prefix,
             value: Rc::new(RefCell::new(value)),
             template,
             stored: RefCell::new(stored),
-            saved,
         }
     }
 
@@ -116,13 +113,6 @@ impl<T: Serialize + DeserializeOwned + Default> Settings<T> {
     pub fn update(&self, change: impl FnOnce(&mut T)) {
         change(&mut self.value.borrow_mut());
         self.save();
-    }
-
-    /// Rings `sink` each time a save has reached the store, so a page that
-    /// shows "saved" (or an app that mirrors the store) hears of it as a
-    /// message of its own.
-    pub fn on_saved(&self, sink: Sink<()>) {
-        *self.saved.lock().unwrap_or_else(|e| e.into_inner()) = Some(sink);
     }
 
     /// The `confd` key of `name` in this app's subtree (`user/<uid>/<app>/..`);
@@ -164,7 +154,6 @@ impl<T: Serialize + DeserializeOwned + Default> Settings<T> {
         match &self.sender {
             Sender::Inline(kv) => {
                 apply(kv.as_ref(), &changes);
-                ring(&self.saved);
             }
             Sender::Worker(queue) => {
                 queue.send(changes);
@@ -174,15 +163,13 @@ impl<T: Serialize + DeserializeOwned + Default> Settings<T> {
     }
 }
 
-fn sender(saver: Saver, saved: &Arc<Mutex<Option<Sink<()>>>>) -> Sender {
+fn sender(saver: Saver) -> Sender {
     match saver {
         Saver::Inline(kv) => Sender::Inline(kv),
         Saver::Worker(factory) => {
-            let notify = Arc::clone(saved);
-            let bell = Sink::from_fn(move |()| {
-                ring(&notify);
-                true
-            });
+            // Nobody listens for a finished save: the sink only gives the
+            // worker somewhere to post its (empty) answers.
+            let bell = Sink::from_fn(|()| true);
             // A handle per batch: the factory is cheap (a client over a
             // service the thread already reaches) and the handle need not
             // be `Send`.
@@ -191,12 +178,6 @@ fn sender(saver: Saver, saved: &Arc<Mutex<Option<Sink<()>>>>) -> Sender {
             });
             queue.map_or(Sender::Memory, Sender::Worker)
         }
-    }
-}
-
-fn ring(saved: &Mutex<Option<Sink<()>>>) {
-    if let Some(sink) = saved.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-        sink.send(());
     }
 }
 

@@ -116,10 +116,6 @@ impl RenderJob {
         &self.view
     }
 
-    pub fn is_done(&self) -> bool {
-        self.phase == Phase::Done
-    }
-
     /// How many visible chunks the view has.
     pub fn chunks(&self) -> usize {
         self.order.len()

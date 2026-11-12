@@ -29,10 +29,6 @@ use crate::sys;
 pub struct Observed(Std);
 
 impl Transport for Observed {
-    fn connect_bound(&self) -> Deadline {
-        self.0.connect_bound()
-    }
-
     fn call_flags(&self) -> u16 {
         self.0.call_flags()
     }

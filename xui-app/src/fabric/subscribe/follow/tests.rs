@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 
-use super::super::fake::Fake;
+use super::super::test_fake::Fake;
 use super::core::Core;
 use super::{Queue, TopicEvent, QUEUE_CAP};
 use crate::fabric::{Qos, Subscriber};

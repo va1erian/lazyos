@@ -322,11 +322,6 @@ impl LazySkyApp {
         Ok(app)
     }
 
-    /// The timeline view (tests drive it).
-    pub fn feed_view(&self) -> Rc<FeedView> {
-        Rc::clone(&self.home.view)
-    }
-
     fn view(&self, pane: u8) -> &Rc<FeedView> {
         if pane == HOME {
             &self.home.view

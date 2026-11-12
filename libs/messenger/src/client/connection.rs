@@ -14,15 +14,21 @@ use crate::{flags, Header, Object, Parcel, VERSION};
 /// A kernel handle naming a resolved service.
 pub type Handle = u64;
 
+/// How long [`Transport::connect_bound`] waits for a name to register.
+pub const CONNECT_BOUND: Deadline = Deadline::secs(10);
+
 /// What a runtime provides for Messenger calls: the native `user` library,
 /// the std programs over `lazyos-sys`, and a [`super::Mock`] in tests. It
 /// moves parcels and knows nothing of interfaces, errors or retries; that
 /// is [`Connection`].
 pub trait Transport {
-    /// The one bound this runtime waits for a service to register
+    /// The one bound a program waits for a service to register
     /// (`docs/client-api-plan.md` 3.4: [`Transport::resolve`] blocks in the
-    /// kernel on the registry for at most this long).
-    fn connect_bound(&self) -> Deadline;
+    /// kernel on the registry for at most this long). Ten seconds for every
+    /// runtime; a test transport overrides it.
+    fn connect_bound(&self) -> Deadline {
+        CONNECT_BOUND
+    }
 
     /// The flags every synchronous request of this runtime carries. Native
     /// programs send none, so the kernel refuses a call that would close a

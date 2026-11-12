@@ -221,14 +221,6 @@ impl PaintCanvas {
         self.state.borrow().top_left()
     }
 
-    /// Advances the ants one step, as a timer tick does.
-    pub fn tick_ants(&self) {
-        let mut state = self.state.borrow_mut();
-        state.phase = state.phase.wrapping_add(1);
-        drop(state);
-        self.control.invalidate();
-    }
-
     /// The viewport (zoom and scroll).
     pub fn viewport(&self) -> Viewport {
         *self.state.borrow().viewport()

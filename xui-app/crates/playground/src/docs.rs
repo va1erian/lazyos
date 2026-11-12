@@ -11,7 +11,7 @@ use crate::rhai_names::{
     alias, enum_const, has_sugar, module, module_usable, scriptable, sys_function, topic_helper,
     variant_const, wildcards,
 };
-use crate::util::{field_list, param_name, signature, ty_label};
+use crate::util::{param_name, signature, ty_label};
 
 /// The Markdown overview every interface page links to.
 pub fn messenger_doc() -> String {
@@ -476,7 +476,3 @@ fn topic_blocks(interface: &Interface, topic: &Topic) -> Vec<Block> {
     out
 }
 
-/// The fields of a method's request or reply, as one line (for a tooltip).
-pub fn fields_line(fields: &[rhai_lazy::msg::schema::Field]) -> String {
-    field_list(fields)
-}
