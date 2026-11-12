@@ -104,6 +104,21 @@ impl Feeds {
         ended
     }
 
+    /// [`Feeds::catch_up`] for the end feed alone, the last pull waiting one
+    /// tick: for the login screen's `Launch`, which follows a logout's
+    /// `login/end`.
+    pub(super) fn catch_up_end(&mut self, services: &[Service]) -> Vec<u64> {
+        let mut ended = Vec::new();
+        self.end.drain_waiting(1, |event| {
+            if let Some(session) =
+                super::sessions::observe_end(services, event.publisher, &event.value)
+            {
+                ended.push(session);
+            }
+        });
+        ended
+    }
+
     /// Read what rang (`ready` is the wait's mask; `0` reads only the feeds
     /// just made; `now` reads the login feeds whatever rang, for a pass that
     /// is about to serve a request, see [`Feed::drain_now`]) and let each record's reader act on it. Returns the

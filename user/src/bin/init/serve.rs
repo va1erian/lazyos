@@ -22,7 +22,7 @@ use super::launch::launch;
 use super::lifecycle;
 use super::protocol::Supervisor;
 use super::shutdown;
-use super::state::{Service, LAUNCH_CAP_PER_SESSION};
+use super::state::{Service, CAP_SETUID, LAUNCH_CAP_PER_SESSION};
 use super::stop::stop_app;
 
 /// The credentials the kernel stamped on a request (issue #446).
@@ -74,20 +74,31 @@ impl init_wire::Server for Handler<'_, '_> {
             feeds,
             ..
         } = &mut *self.state;
+        // `logind` publishes a record and then sends its request, but the
+        // broker rings the feed's bell only after it answered the publisher:
+        // a record not read yet is looked for on the broker itself. Only a
+        // caller that could own the session (`CAP_SETUID`, `logind`) earns
+        // that wait, so a bogus session id from anyone else cannot stall
+        // `init` (`launch` refuses it).
+        if cx.caps & CAP_SETUID != 0 {
+            let ended = if request.app == GREETER_APP_ID {
+                // The old session's `login/end` first, so the hold below sees
+                // it; one tick at most.
+                feeds.catch_up_end(services)
+            } else if request.session != 0 && super::sessions::owner(request.session).is_none() {
+                feeds.catch_up(services)
+            } else {
+                Vec::new()
+            };
+            for session in ended {
+                logouts.begin(services, broker, session);
+            }
+        }
         // The login screen comes back once the ended session's apps are gone
         // (or their grace ran out): `logind` retries.
         if request.app == GREETER_APP_ID && logouts.holds_greeter() {
             trace::line!(trace::Channel::Init, "LOGOUT:GREETER:HELD");
             return Err(Fault::from_syscall(errno::EAGAIN));
-        }
-        // `logind` publishes the session's record and then sends this
-        // request, but the broker rings the feed's bell only after it
-        // answered the publisher: an owner not known yet is looked for on the
-        // broker itself before the launch is refused.
-        if request.session != 0 && super::sessions::owner(request.session).is_none() {
-            for session in feeds.catch_up(services) {
-                logouts.begin(services, broker, session);
-            }
         }
         let caller = installed.owner_cred(cred_of(cx));
         match launch(services, broker, installed, &request, &caller, false) {
