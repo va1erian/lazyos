@@ -1,6 +1,6 @@
 //! One subscription's QoS queue and its byte accounting. Every push and pop
 //! goes through here so [`Subscription::bytes`] is always what the queues
-//! hold; the broker keeps the per-owner ledger from its changes.
+//! hold; the broker keeps the per-tenant ledger from its changes.
 //!
 //! A queue never refuses its publisher. When the owner's byte budget has no
 //! room for an event, the queue sheds its own oldest events (counted as
@@ -13,12 +13,16 @@ use messenger_generated::os_lazy_messenger_topics_v1::Event;
 
 use crate::filter::Filter;
 use crate::qos::Qos;
+use crate::tenant::{Client, Tenant};
 
 /// What one queued event costs the broker: its payload, its topic and a flat
 /// allowance for the record itself.
 pub fn event_cost(event: &Event) -> usize {
-    event.payload.len() + event.topic.len() + 64
+    event.payload.len() + event.topic.len() + EVENT_OVERHEAD
 }
+
+/// The flat allowance [`event_cost`] adds for the record itself.
+pub const EVENT_OVERHEAD: usize = 64;
 
 /// `total - amount`, loudly: a byte count that goes negative is accounting
 /// drift, which fails a debug build (and every host test) instead of being
@@ -37,11 +41,12 @@ pub(crate) fn take_bytes(total: usize, amount: usize) -> usize {
 /// doorbell handle (an endpoint in `messengerd`).
 pub struct Subscription<B> {
     pub id: u64,
-    /// Task slot the subscribing call came from (kernel-stamped).
+    /// Task slot the subscribing call came from (kernel-stamped): with
+    /// [`Subscription::tenant`], who may pull, ack or remove it.
     pub owner: u64,
-    /// Whether the owner is a platform task (no label, no session): it is
-    /// charged against the larger system budget with the reserve behind it.
-    pub platform: bool,
+    /// Whom its queue is charged to; a platform tenant draws on the larger
+    /// system budget with the reserve behind it.
+    pub tenant: Tenant,
     pub filter: Filter,
     pub qos: Qos,
     /// Events ready for delivery (latest / buffered / reliable).
@@ -60,11 +65,16 @@ pub struct Subscription<B> {
 }
 
 impl<B> Subscription<B> {
-    pub(crate) fn new(id: u64, owner: u64, platform: bool, filter: Filter, qos: Qos) -> Self {
+    /// The client this subscription answers to.
+    pub fn client(&self) -> Client {
+        Client::new(self.owner, self.tenant)
+    }
+
+    pub(crate) fn new(id: u64, client: Client, filter: Filter, qos: Qos) -> Self {
         Subscription {
             id,
-            owner,
-            platform,
+            owner: client.slot,
+            tenant: client.tenant,
             filter,
             qos,
             queue: VecDeque::new(),
@@ -135,7 +145,7 @@ impl<B> Subscription<B> {
     }
 
     /// Queue one event under the subscription's QoS policy. `room` is how
-    /// many more bytes the owner's budget has before this call; the event is
+    /// many more bytes the tenant's budget has before this call; the event is
     /// admitted if it fits once the policy's own evictions are counted.
     ///
     /// * `latest`: one slot; a new event replaces the old one (a drop).

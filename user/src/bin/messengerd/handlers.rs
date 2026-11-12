@@ -9,7 +9,7 @@ use messenger_generated::os_lazy_messenger_topics_v1 as generated;
 use user::messenger::{self, errno, topics_client};
 use user::sys;
 
-use topicsbroker::{Filter, Pulled, Refusal};
+use topicsbroker::{Client, Filter, Pulled, Refusal};
 
 use super::filter::{
     holds_nic_name, is_system_topic, may_publish_system, nic_link_ifname, valid_topic,
@@ -59,11 +59,21 @@ fn refusal(why: Refusal) -> Fault {
     })
 }
 
-/// Whether the caller is a platform task: no label and no login session (the
-/// services `init` starts before login), the rule the kernel uses for the
-/// `WaitFor` reserve. Its events are charged to the larger system budget.
-fn is_platform(cx: &Caller) -> bool {
-    cx.label_id == 0 && cx.session == 0
+/// Who the kernel's stamp says sent a request: its slot, which alone decides
+/// who may touch a subscription, and its tenant, which every budget is
+/// charged to. A tenant is a platform task (no label and no login session,
+/// the rule the kernel uses for the `WaitFor` reserve; the larger system
+/// budget) or an app, all of whose threads and processes in one session share
+/// one budget (`topicsbroker::Tenant`).
+fn client_of(cx: &Caller) -> Client {
+    Client::from_stamp(cx.label_id, cx.uid, cx.session, cx.sender)
+}
+
+/// [`client_of`] for a message the broker handles without the generated
+/// `dispatch` (`NextEvent`, `Bell`, and the rollback of a lost reply).
+fn sender_of(message: &messenger::Message) -> Client {
+    let cred = message.caller();
+    Client::from_stamp(cred.label_id, cred.uid, cred.session, message.sender)
 }
 
 /// Close a doorbell the broker handed back (replaced, dropped or orphaned).
@@ -83,9 +93,9 @@ struct Request<'a> {
 }
 
 impl Request<'_> {
-    /// The index of subscription `id`, which only its `owner` may touch.
-    fn owned(&self, id: u64, owner: u64) -> Result<usize, Fault> {
-        self.broker.index_of(id, owner).map_err(refusal)
+    /// The index of subscription `id`, which only its creator may touch.
+    fn owned(&self, id: u64, client: Client) -> Result<usize, Fault> {
+        self.broker.index_of(id, client).map_err(refusal)
     }
 }
 
@@ -141,7 +151,7 @@ impl generated::Server for Request<'_> {
         // retried, so a timeout means "maybe published" (idl/topics.midl).
         let matched = self
             .broker
-            .publish(&topic, cx.sender, is_platform(cx), payload, retained)
+            .publish(&topic, client_of(cx), payload, retained)
             .map_err(refusal)?;
         self.outcome.wakes = self.broker.satisfy(|event| wire::reply_event(event).ok());
         Ok(matched)
@@ -162,7 +172,7 @@ impl generated::Server for Request<'_> {
             .map_err(|_| refuse(errno::EACCES))?;
         let id = self
             .broker
-            .subscribe(cx.sender, is_platform(cx), parsed, qos)
+            .subscribe(client_of(cx), parsed, qos)
             .map_err(refusal)?;
         self.outcome.created = Some(id);
         Ok(id)
@@ -171,7 +181,7 @@ impl generated::Server for Request<'_> {
     fn unsubscribe(&mut self, cx: &Caller, subscription: u64) -> Result<(), Fault> {
         close_bell(
             self.broker
-                .remove(subscription, cx.sender)
+                .remove(subscription, client_of(cx))
                 .map_err(refusal)?,
         );
         Ok(())
@@ -185,7 +195,7 @@ impl generated::Server for Request<'_> {
 
     fn ack(&mut self, cx: &Caller, subscription: u64, sequence: u64) -> Result<(), Fault> {
         self.broker
-            .ack(subscription, cx.sender, sequence)
+            .ack(subscription, client_of(cx), sequence)
             .map_err(refusal)
     }
 
@@ -194,7 +204,7 @@ impl generated::Server for Request<'_> {
     }
 
     fn stats(&mut self, cx: &Caller, subscription: u64) -> Result<generated::Stats, Fault> {
-        let sub = &self.broker.subscriptions[self.owned(subscription, cx.sender)?];
+        let sub = &self.broker.subscriptions[self.owned(subscription, client_of(cx))?];
         Ok(generated::Stats {
             qos: sub.qos.code(),
             depth: sub.qos.depth(),
@@ -219,7 +229,7 @@ impl generated::Server for Request<'_> {
 /// reply reaches the caller), or park the caller until a publish wakes it.
 fn pull(broker: &mut Broker, message: &messenger::Message) -> Result<Outcome, Fault> {
     let id = wire::subscription_id(&message.parcel).map_err(Fault::from)?;
-    let sender = message.sender;
+    let sender = sender_of(message);
     // A poll (the caller's deadline already passed) is ended by the kernel
     // when this turn returns, so the broker must not park it.
     let poll = message.parcel.header.deadline_ns == libmessenger::client::POLL_HINT_NS;
@@ -313,11 +323,11 @@ fn serve_request(
                     }
                 } else {
                     // The caller never got the id: nobody can unsubscribe.
-                    close_bell(broker.settle_created(outcome.created, message.sender, false));
+                    close_bell(broker.settle_created(outcome.created, sender_of(message), false));
                 }
             } else {
                 // A subscribe sent one way has no reply to carry the id.
-                close_bell(broker.settle_created(outcome.created, message.sender, false));
+                close_bell(broker.settle_created(outcome.created, sender_of(message), false));
             }
         }
         Err(fault) => {
@@ -334,7 +344,7 @@ fn serve_request(
 /// closes it, so nothing can leak handles here.
 fn serve_bell(endpoint: &messenger::Endpoint, broker: &mut Broker, message: &messenger::Message) {
     let result = match wire::decode_bell_args(message) {
-        Ok((id, bell)) => match broker.set_bell(id, message.sender, bell) {
+        Ok((id, bell)) => match broker.set_bell(id, sender_of(message), bell) {
             Ok(old) => {
                 close_bell(old);
                 Ok(())

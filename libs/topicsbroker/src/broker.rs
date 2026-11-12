@@ -1,19 +1,38 @@
 //! The topics broker's tables: subscriptions, QoS queues, retained values,
 //! fanout and the drop accounting behind `docs/messenger.md` section 7.2's
-//! QoS table, under a per-owner byte budget.
+//! QoS table, under per-tenant budgets.
 //!
-//! # The byte budget
+//! # Tenants
 //!
-//! Retained values are charged to the task that published them and queued
-//! events to the task that subscribed, so one task can exhaust only its own
-//! allowance ([`OWNER_BYTES`], [`SYSTEM_OWNER_BYTES`] for platform tasks).
-//! Behind the allowances sits the global [`MAX_BYTES`]; the last
-//! [`SYSTEM_RESERVE`] of it is kept for platform tasks (no label, no login
-//! session, the rule the kernel uses for the `WaitFor` reserve), so apps
-//! together can never starve the services. A queue that has no room sheds its
-//! own oldest events instead of refusing the publisher; only a retained
-//! publish is refused (`NoRoom`), and only the one that would exceed its own
-//! publisher's budget.
+//! Limits are charged to a [`Tenant`], not to a task slot. A slot names one
+//! thread and is reused after the task exits, so keying a budget on it lets an
+//! app with many threads multiply its allowance and lets an unrelated task
+//! inherit a dead one's charges. A tenant is the kernel-stamped
+//! `(label, uid, session)` of an app (all its threads and processes share
+//! one budget), or one platform task slot (no label, no login session, the
+//! rule the kernel uses for the `WaitFor` reserve). Who may pull, ack or
+//! remove a subscription is a different question and stays with the creating
+//! [`Client`] (slot and tenant).
+//!
+//! # The budgets
+//!
+//! * **Bytes.** Retained values are charged to the tenant that published them
+//!   and queued events to the tenant that subscribed, so an app can exhaust
+//!   only its own allowance ([`TENANT_BYTES`], [`SYSTEM_TENANT_BYTES`] for
+//!   platform tasks). Behind the allowances sits the global [`MAX_BYTES`];
+//!   the last [`SYSTEM_RESERVE`] of it is kept for platform tasks.
+//! * **Subscriptions** ([`TENANT_SUBSCRIPTIONS`] per app) and **retained
+//!   values** ([`TENANT_RETAINED`] per app): the last
+//!   [`SYSTEM_SUBSCRIPTION_RESERVE`] subscription rows and
+//!   [`SYSTEM_TOPIC_RESERVE`] topic rows are kept for platform tasks too.
+//!
+//! So apps together can never starve the services, and one app, however many
+//! threads or processes it runs, never holds more than its tenant's share.
+//! Apps of different labels, uids or sessions are different tenants and can
+//! still fill the shared app part between them (a pool of tenants, not a
+//! per-user guarantee). A queue that has no room sheds its own oldest events
+//! instead of refusing the publisher; only a retained publish is refused
+//! (`NoRoom`), and only the one that would exceed its own tenant's budget.
 
 use alloc::collections::BTreeMap;
 use alloc::string::String;
@@ -22,34 +41,14 @@ use messenger_generated::os_lazy_messenger_topics_v1::{Event, TopicInfo};
 
 use crate::filter::{is_system_topic, Filter};
 use crate::ledger::Account;
+use crate::limits::{
+    MAX_PENDING, MAX_SUBSCRIPTIONS, MAX_TOPICS, SYSTEM_SUBSCRIPTION_RESERVE,
+    SYSTEM_TENANT_SUBSCRIPTIONS, SYSTEM_TOPIC_RESERVE, TENANT_SUBSCRIPTIONS,
+};
 use crate::qos::Qos;
 use crate::queue::Subscription;
-
-/// Largest number of live subscriptions the broker keeps: every service and
-/// app follows its topics through it (the per-service routers are gone).
-pub const MAX_SUBSCRIPTIONS: usize = 256;
-/// Largest number of distinct topics tracked for [`Broker::list`], and of
-/// retained values kept: a retained value dropped for want of a slot is a
-/// late subscriber's replay that never comes (the supervisors' per-service
-/// rows alone are a hundred).
-pub const MAX_TOPICS: usize = 1024;
-/// Largest number of live subscriptions one task may hold.
-pub const MAX_PER_OWNER: usize = 64;
-/// Largest number of parked `NextEvent` transactions: one per subscription
-/// at most (a new pull replaces its own stale entry), so a parked pull is
-/// never refused for want of a slot.
-pub const MAX_PENDING: usize = MAX_SUBSCRIPTIONS;
-/// Bytes the broker holds for retained values and queued events together.
-pub const MAX_BYTES: usize = 8 * 1024 * 1024;
-/// Of [`MAX_BYTES`], what only platform tasks may use.
-pub const SYSTEM_RESERVE: usize = 2 * 1024 * 1024;
-/// Bytes one non-platform task may have held for it (its retained values and
-/// its queues together).
-pub const OWNER_BYTES: usize = 1024 * 1024;
-/// The same for a platform task.
-pub const SYSTEM_OWNER_BYTES: usize = 2 * 1024 * 1024;
-/// Retained values one non-platform task may keep (they cannot be removed).
-pub const OWNER_RETAINED: usize = 64;
+use crate::retained::Retained;
+use crate::tenant::{Client, Tenant};
 
 /// Why the broker refused a request; `messengerd` maps each to an errno-style
 /// code.
@@ -103,15 +102,15 @@ struct TopicRow {
 /// The tables. `B` is the doorbell handle a subscription may carry.
 pub struct Broker<B> {
     pub subscriptions: Vec<Subscription<B>>,
-    /// Retained value per topic, most recent last; the event's `publisher` is
-    /// the task it is charged to.
-    pub(crate) retained: Vec<Event>,
+    /// Retained value per topic, most recent last, with the tenant it is
+    /// charged to.
+    pub(crate) retained: Vec<Retained>,
     topics: Vec<TopicRow>,
     pub pending: Vec<Pending>,
     next_subscription: u64,
     next_sequence: u64,
-    /// Per-task ledger of what [`Broker::used`] is made of.
-    pub(crate) accounts: BTreeMap<u64, Account>,
+    /// Per-tenant ledger of what [`Broker::used`] is made of.
+    pub(crate) accounts: BTreeMap<Tenant, Account>,
     /// Bytes held across every account.
     pub(crate) used: usize,
 }
@@ -161,49 +160,60 @@ impl<B: Copy> Broker<B> {
         self.used
     }
 
-    /// Bytes charged to `owner` (retained values it published plus the queues
-    /// it subscribed).
-    pub fn bytes_of(&self, owner: u64) -> usize {
-        self.accounts.get(&owner).map_or(0, |account| account.bytes)
+    /// Bytes charged to `tenant` (retained values it published plus the
+    /// queues it subscribed).
+    pub fn bytes_of(&self, tenant: &Tenant) -> usize {
+        self.accounts.get(tenant).map_or(0, |account| account.bytes)
     }
 
-    /// How many subscriptions `owner` holds.
-    pub fn owned_by(&self, owner: u64) -> usize {
+    /// How many retained values `tenant` holds.
+    pub fn retained_by(&self, tenant: &Tenant) -> usize {
+        self.accounts
+            .get(tenant)
+            .map_or(0, |account| account.retained)
+    }
+
+    /// How many subscriptions `tenant` holds.
+    pub fn owned_by(&self, tenant: &Tenant) -> usize {
         self.subscriptions
             .iter()
-            .filter(|sub| sub.owner == owner)
+            .filter(|sub| sub.tenant == *tenant)
             .count()
     }
 
-    /// Create a subscription for `owner` and hand it any retained value its
+    /// Create a subscription for `client` and hand it any retained value its
     /// filter matches (`docs/messenger.md` 7.2: "new subscribers get it
-    /// immediately"). Returns its id. Refused when the table is full or
-    /// `owner` already holds [`MAX_PER_OWNER`]; the byte budget never refuses
-    /// a subscribe (queues shed instead).
-    pub fn subscribe(
-        &mut self,
-        owner: u64,
-        platform: bool,
-        filter: Filter,
-        qos: Qos,
-    ) -> Result<u64, Refusal> {
-        if self.subscriptions.len() >= MAX_SUBSCRIPTIONS {
+    /// immediately"). Returns its id. Refused when the table is full (an
+    /// app's part stops short of [`SYSTEM_SUBSCRIPTION_RESERVE`]) or its
+    /// tenant already holds its share ([`TENANT_SUBSCRIPTIONS`]); the byte
+    /// budget never refuses a subscribe (queues shed instead).
+    pub fn subscribe(&mut self, client: Client, filter: Filter, qos: Qos) -> Result<u64, Refusal> {
+        let platform = client.tenant.is_platform();
+        let (rows, share) = if platform {
+            (MAX_SUBSCRIPTIONS, SYSTEM_TENANT_SUBSCRIPTIONS)
+        } else {
+            (
+                MAX_SUBSCRIPTIONS - SYSTEM_SUBSCRIPTION_RESERVE,
+                TENANT_SUBSCRIPTIONS,
+            )
+        };
+        if self.subscriptions.len() >= rows {
             return Err(Refusal::NoRoom);
         }
-        // One task cannot take the whole table.
-        if self.owned_by(owner) >= MAX_PER_OWNER {
+        // One tenant cannot take the table.
+        if self.owned_by(&client.tenant) >= share {
             return Err(Refusal::Busy);
         }
         let id = self.next_subscription;
         self.next_subscription += 1;
         self.subscriptions
-            .push(Subscription::new(id, owner, platform, filter, qos));
+            .push(Subscription::new(id, client, filter, qos));
         let index = self.subscriptions.len() - 1;
         let replay: Vec<Event> = self
             .retained
             .iter()
-            .filter(|event| self.subscriptions[index].filter.matches(&event.topic))
-            .cloned()
+            .filter(|held| self.subscriptions[index].filter.matches(&held.event.topic))
+            .map(|held| held.event.clone())
             .collect();
         for mut event in replay {
             event.retained = true;
@@ -215,37 +225,41 @@ impl<B: Copy> Broker<B> {
     /// Undo [`Broker::subscribe`] when its reply never reached `owner` (the
     /// caller timed out or is gone, or the request was one way): nobody holds
     /// the id, so the entry would leak. Returns the doorbell to close.
-    pub fn settle_created(&mut self, created: Option<u64>, owner: u64, learned: bool) -> Option<B> {
+    pub fn settle_created(
+        &mut self,
+        created: Option<u64>,
+        client: Client,
+        learned: bool,
+    ) -> Option<B> {
         let id = created.filter(|_| !learned)?;
-        self.remove(id, owner).ok().flatten()
+        self.remove(id, client).ok().flatten()
     }
 
     /// Fan one publish out to every matching subscription, applying each
     /// subscription's QoS policy and counting drops. Returns the match count,
     /// which the publish reply reports. A retained publish that does not fit
-    /// its publisher's budget is refused before anything changes.
+    /// its tenant's budget is refused before anything changes.
     pub fn publish(
         &mut self,
         topic: &str,
-        publisher: u64,
-        platform: bool,
+        publisher: Client,
         payload: Vec<u8>,
         retained: bool,
     ) -> Result<u64, Refusal> {
         let mut event = Event {
             topic: String::from(topic),
-            publisher,
+            publisher: publisher.slot,
             sequence: 0,
             retained,
             payload,
         };
         if retained {
-            self.check_retained(&event, platform)?;
+            self.check_retained(&event, publisher.tenant)?;
         }
         event.sequence = self.next_sequence;
         self.next_sequence += 1;
         if retained {
-            self.store_retained(&event);
+            self.store_retained(&event, publisher.tenant);
         }
         let mut matched = 0;
         for index in 0..self.subscriptions.len() {
@@ -255,7 +269,7 @@ impl<B: Copy> Broker<B> {
                 self.deliver(index, event.clone());
             }
         }
-        self.touch_topic(topic, retained);
+        self.touch_topic(topic, retained, publisher.tenant.is_platform());
         Ok(matched)
     }
 
@@ -302,34 +316,37 @@ impl<B: Copy> Broker<B> {
         wakes
     }
 
-    /// Where `owner`'s subscription `id` is, or why it is not theirs.
-    pub fn index_of(&self, id: u64, owner: u64) -> Result<usize, Refusal> {
+    /// Where `client`'s subscription `id` is, or why it is not theirs: the
+    /// slot and the tenant must both be the creator's, so a task that reuses
+    /// an exited one's slot as another tenant cannot touch its subscriptions.
+    pub fn index_of(&self, id: u64, client: Client) -> Result<usize, Refusal> {
         let index = self
             .subscriptions
             .iter()
             .position(|sub| sub.id == id)
             .ok_or(Refusal::NotFound)?;
-        if self.subscriptions[index].owner != owner {
+        if self.subscriptions[index].client() != client {
             return Err(Refusal::NotOwner);
         }
         Ok(index)
     }
 
-    /// `NextEvent` bookkeeping: report the head event of `owner`'s
+    /// `NextEvent` bookkeeping: report the head event of `client`'s
     /// subscription `id`, or (nothing queued) note the owner drained it so the
     /// next event rings its bell, and park transaction `txn` unless the call
     /// is a `poll` (its deadline already passed: the kernel ends it when the
     /// turn returns, so parking would leave a dead transaction in the table).
-    /// One parked pull per (subscription, owner): a retry replaces its own
-    /// stale entry.
+    /// One parked pull per (subscription, owner slot): a retry replaces its
+    /// own stale entry.
     pub fn pull(
         &mut self,
         id: u64,
-        owner: u64,
+        client: Client,
         poll: bool,
         txn: Option<u64>,
     ) -> Result<Pulled, Refusal> {
-        let index = self.index_of(id, owner)?;
+        let owner = client.slot;
+        let index = self.index_of(id, client)?;
         if self.subscriptions[index].peek().is_some() {
             return Ok(Pulled::Head(index));
         }
@@ -386,22 +403,22 @@ impl<B: Copy> Broker<B> {
     }
 
     /// A `reliable` subscriber acknowledged everything up to `sequence`.
-    pub fn ack(&mut self, id: u64, owner: u64, sequence: u64) -> Result<(), Refusal> {
-        let index = self.index_of(id, owner)?;
+    pub fn ack(&mut self, id: u64, client: Client, sequence: u64) -> Result<(), Refusal> {
+        let index = self.index_of(id, client)?;
         self.change(index, |sub| sub.ack(sequence));
         Ok(())
     }
 
     /// Drop a subscription, scoped to its owner. Returns its doorbell, which
     /// the caller closes.
-    pub fn remove(&mut self, id: u64, owner: u64) -> Result<Option<B>, Refusal> {
-        let index = self.index_of(id, owner)?;
+    pub fn remove(&mut self, id: u64, client: Client) -> Result<Option<B>, Refusal> {
+        let index = self.index_of(id, client)?;
         let sub = self.subscriptions.remove(index);
-        self.rebook(sub.owner, sub.bytes, 0);
+        self.rebook(sub.tenant, sub.bytes, 0);
         // Parked pulls for it can never be satisfied; the clients discover
         // that on their own deadline, so just drop the bookkeeping.
         self.pending
-            .retain(|pending| !(pending.subscription == id && pending.owner == owner));
+            .retain(|pending| !(pending.subscription == id && pending.owner == client.slot));
         Ok(sub.bell)
     }
 
@@ -410,15 +427,15 @@ impl<B: Copy> Broker<B> {
     /// and a leaked entry would count against its owner's limits. Returns the
     /// broker's doorbell end to close.
     pub fn reap(&mut self, id: u64) -> Option<B> {
-        let owner = self.subscriptions.iter().find(|sub| sub.id == id)?.owner;
-        self.remove(id, owner).ok().flatten()
+        let client = self.subscriptions.iter().find(|sub| sub.id == id)?.client();
+        self.remove(id, client).ok().flatten()
     }
 
     /// Install `bell` as subscription `id`'s doorbell (owner only) and return
     /// the one it replaces, for the caller to close. The bell is unrung, so
     /// queued events ring it.
-    pub fn set_bell(&mut self, id: u64, owner: u64, bell: B) -> Result<Option<B>, Refusal> {
-        let index = self.index_of(id, owner)?;
+    pub fn set_bell(&mut self, id: u64, client: Client, bell: B) -> Result<Option<B>, Refusal> {
+        let index = self.index_of(id, client)?;
         let sub = &mut self.subscriptions[index];
         sub.rung = false;
         Ok(sub.bell.replace(bell))
@@ -447,11 +464,17 @@ impl<B: Copy> Broker<B> {
             .and_then(|sub| sub.bell.take())
     }
 
-    /// Track a topic for [`Broker::list`].
-    fn touch_topic(&mut self, topic: &str, retained: bool) {
+    /// Track a topic for [`Broker::list`]; an app's new topic may not take
+    /// the rows kept for platform tasks.
+    fn touch_topic(&mut self, topic: &str, retained: bool, platform: bool) {
+        let rows = if platform {
+            MAX_TOPICS
+        } else {
+            MAX_TOPICS - SYSTEM_TOPIC_RESERVE
+        };
         if let Some(row) = self.topics.iter_mut().find(|row| row.topic == topic) {
             row.retained = row.retained || retained;
-        } else if self.topics.len() < MAX_TOPICS {
+        } else if self.topics.len() < rows {
             self.topics.push(TopicRow {
                 topic: String::from(topic),
                 retained,
