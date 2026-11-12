@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 
 use libmessenger::client::{CallError, Deadline, Errno};
 use messenger_generated::os_lazy_pkgd_v1 as pkgd;
-use xui_app::fabric::{pull, Feed, Watch};
+use xui_app::fabric::{park, pull, Feed, Watch};
 use xui_app::platform::messenger::{instance_client, Conn};
 use xui_app::sys::errno;
 
@@ -135,13 +135,17 @@ impl PkgEvents for FollowEvents {
             if xui_app::sys::clock_ticks() >= until {
                 return None;
             }
-            match feed.handle().bell() {
-                // Park until the doorbell rings or `until` passes (the next `pull`
-                // drains what rang).
-                Some(bell) => {
-                    let _ = xui_app::sys::msg_wait_any(&[bell], until);
-                }
-                None => xui_app::sys::sleep_millis(25),
+            // Park until a doorbell of this thread's follows rings or `until`
+            // passes (the next `pull` drains what rang).
+            let follows = park();
+            if follows.look_again {
+                continue;
+            }
+            let until = follows.retry_at.map_or(until, |retry| until.min(retry));
+            if follows.bells.is_empty() {
+                xui_app::sys::sleep_millis(25);
+            } else {
+                let _ = xui_app::sys::msg_wait_any(&follows.bells, until);
             }
         }
     }

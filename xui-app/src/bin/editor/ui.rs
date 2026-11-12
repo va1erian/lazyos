@@ -21,6 +21,7 @@ use xui_core::widget::{
 use xui_core::Dip;
 
 use xui_app::AppContext;
+use xui_host::error::ErrorDialog;
 
 use crate::app::{FindBar, Msg, Notepad};
 
@@ -152,7 +153,7 @@ pub fn build(ui: &Ui<Msg>, cx: &AppContext) -> Result<Notepad> {
         "This document has unsaved changes. Discard them?",
     )?
     .on_action(dialog_msg);
-    let message = cx.error(ui, "Error", || Some(Msg::Dialog(DialogAction::Cancel)))?;
+    let message = ErrorDialog::new(ui, "Error", || Some(Msg::Dialog(DialogAction::Cancel)))?;
 
     let dialog_open = Rc::new(Cell::new(false));
     let find_open = Rc::new(Cell::new(false));

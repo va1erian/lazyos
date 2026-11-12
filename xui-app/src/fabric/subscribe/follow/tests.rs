@@ -44,7 +44,11 @@ fn event(topic: &str, sequence: u64, retained: bool) -> topics::Event {
 fn a_feed_subscribes_with_a_doorbell_and_gets_what_is_published() {
     let mut core = core();
     let queue = add(&mut core, 1, "a/#");
-    assert_eq!(core.bell_of(1), None, "nothing is subscribed before connect");
+    assert_eq!(
+        core.bell_of(1),
+        None,
+        "nothing is subscribed before connect"
+    );
     core.connect(0);
     assert!(core.bell_of(1).is_some(), "a doorbell to park on");
     assert!(queue.subscribed.get());
@@ -111,13 +115,17 @@ fn a_lost_doorbell_resubscribes_and_the_feed_goes_on() {
     let bell = core.bell_of(1).expect("a bell");
     core.subscriber.transport.bell_dead.push(bell);
     core.service(5);
-    assert_eq!(core.retry_at(), Some(105), "made again after the retry time");
+    assert_eq!(
+        core.retry_at(),
+        Some(205),
+        "made again after the retry time"
+    );
     assert!(!queue.subscribed.get());
 
-    core.connect(105);
+    core.connect(205);
     assert!(core.bell_of(1).is_some());
     core.subscriber.transport.publish(id_of(&core), "a/2", b"z");
-    core.service(105);
+    core.service(205);
     assert_eq!(queue.take()[0].topic, "a/2");
 }
 
@@ -196,4 +204,51 @@ fn a_queue_nobody_reads_keeps_the_newest() {
     assert_eq!(kept.len(), QUEUE_CAP);
     assert_eq!(kept[0].topic, "t/5");
     assert_eq!(kept.last().unwrap().topic, format!("t/{}", QUEUE_CAP + 4));
+}
+
+#[test]
+fn a_permanent_refusal_is_not_asked_again() {
+    let mut core = core();
+    add(&mut core, 1, "a/#");
+    core.subscriber
+        .transport
+        .transport_fail
+        .push_back((topics::METHOD_SUBSCRIBE, -13));
+    core.connect(0);
+    let asked = core.subscriber.transport.log.len();
+    assert_eq!(core.retry_at(), None, "nothing is waiting for a retry");
+    core.connect(1_000_000);
+    assert_eq!(core.subscriber.transport.log.len(), asked, "no second ask");
+    assert_eq!(core.bell_of(1), None);
+}
+
+#[test]
+fn a_lost_feed_is_dropped_from_the_subscriber_whatever_the_broker_says() {
+    let mut core = core();
+    add(&mut core, 1, "a/#");
+    core.connect(0);
+    let id = crate::fabric::SubId(id_of(&core));
+    let bell = core.bell_of(1).expect("a bell");
+    core.subscriber.transport.bell_dead.push(bell);
+    core.subscriber
+        .transport
+        .transport_fail
+        .push_back((topics::METHOD_UNSUBSCRIBE, -110));
+    core.service(5);
+    assert!(!core.subscriber.holds(id), "no stale record left to read");
+    assert!(core.bells().is_empty(), "and no stale bell to park on");
+}
+
+#[test]
+fn the_hub_says_when_it_owes_a_read() {
+    let mut core = core();
+    add(&mut core, 1, "a/#");
+    assert!(!core.owes());
+    core.connect(0);
+    assert!(core.owes(), "a new subscription's replay is owed");
+    core.service(0);
+    core.service(1);
+    core.service(2);
+    assert!(!core.owes(), "settled once the looks are used up");
+    assert_eq!(core.bells().len(), 1);
 }

@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 //! Atomic file writes for [`Document`](super::Document), through the shared
-//! `atomicfile` helper (temp file, sync, rename; a symlink target is refused).
+//! `atomicfile` helper (temp file, rename; a symlink target is refused).
 
 use std::path::Path;
 

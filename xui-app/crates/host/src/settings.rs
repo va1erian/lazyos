@@ -10,14 +10,27 @@
 //! Loading happens once, when the store is opened (before the first frame,
 //! one bounded `confd` read per field). Saving never does I/O on the caller's
 //! thread: only the fields that changed are queued to a worker
-//! ([`Saver::Worker`]). Scalars (bool, integers, strings) are native `confd`
-//! values; a float or a list is stored as its JSON text in a string key. A
-//! map field is not supported (its keys are not known up front).
+//! ([`Saver::Worker`]); a process that exits calls [`flush`] first.
+//! Scalars (bool, integers, strings) are native `confd` values; a float or a
+//! list is stored as its JSON text in a string key, also inside an `Option`.
+//! A map field and an `Option<struct>` are not supported (their keys are not
+//! known up front, and data must not name `confd` keys): saving one is a
+//! debug assertion.
+//!
+//! A read that fails (a `confd` that times out) is not a missing key: the
+//! field keeps its default for this run and the default is never written over
+//! the real value; a field the user changed meanwhile is. A value that does
+//! not fit its field costs that field only.
+//!
+//! Two instances of an app share one subtree and neither follows the other's
+//! changes: each writes only the fields it changed, so the last writer of a
+//! field wins and a field the other never touched is safe.
 
 use std::cell::{Ref, RefCell};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -28,7 +41,9 @@ pub use confd::Value;
 
 /// The part of `confd` the store needs.
 pub trait KeyValue {
-    fn get(&self, key: &str) -> Option<Value>;
+    /// `Ok(None)` is a key that is not there; `Err` a read that failed (a
+    /// timeout), which is not the same thing.
+    fn get(&self, key: &str) -> Result<Option<Value>, String>;
     fn set(&self, key: &str, value: Value) -> Result<(), String>;
     fn delete(&self, key: &str) -> Result<(), String>;
     /// The kernel-stamped uid that owns `user/<uid>/..`; `None` keeps the
@@ -72,6 +87,9 @@ pub struct Settings<T> {
     value: Rc<RefCell<T>>,
     template: Json,
     stored: RefCell<BTreeMap<String, Value>>,
+    /// Keys whose read failed: the default is never written to them, so a
+    /// slow `confd` cannot make it overwrite the real value.
+    unread: BTreeSet<String>,
     sender: Sender,
 }
 
@@ -84,8 +102,9 @@ impl<T: Serialize + DeserializeOwned + Default> Settings<T> {
             .map(|uid| user_key(uid, app, "").trim_end_matches('/').to_owned());
         let template = serde_json::to_value(T::default()).unwrap_or(Json::Null);
         let mut stored = BTreeMap::new();
+        let mut unread = BTreeSet::new();
         let tree = match &prefix {
-            Some(prefix) => decode(&template, prefix, kv, &mut stored),
+            Some(prefix) => decode::<T>(&template, prefix, kv, &mut stored, &mut unread),
             None => template.clone(),
         };
         let value = serde_json::from_value(tree).unwrap_or_default();
@@ -95,6 +114,7 @@ impl<T: Serialize + DeserializeOwned + Default> Settings<T> {
             value: Rc::new(RefCell::new(value)),
             template,
             stored: RefCell::new(stored),
+            unread,
         }
     }
 
@@ -132,6 +152,7 @@ impl<T: Serialize + DeserializeOwned + Default> Settings<T> {
         };
         let mut leaves = BTreeMap::new();
         encode(&now, &self.template, prefix, &mut leaves);
+        self.keep_unread_values(&mut leaves);
         let mut stored = self.stored.borrow_mut();
         let mut changes: Vec<Change> = Vec::new();
         for (key, value) in &leaves {
@@ -150,13 +171,28 @@ impl<T: Serialize + DeserializeOwned + Default> Settings<T> {
         }
     }
 
+    /// Drops the leaves of unreadable keys that still hold their default: a
+    /// value the user changed since is theirs to write, the default is not.
+    fn keep_unread_values(&self, leaves: &mut BTreeMap<String, Option<Value>>) {
+        if self.unread.is_empty() {
+            return;
+        }
+        let mut defaults = BTreeMap::new();
+        let prefix = self.prefix.as_deref().unwrap_or_default();
+        encode(&self.template, &self.template, prefix, &mut defaults);
+        leaves.retain(|key, value| !self.unread.contains(key) || defaults.get(key) != Some(value));
+    }
+
     fn send(&self, changes: Vec<Change>) {
         match &self.sender {
             Sender::Inline(kv) => {
                 apply(kv.as_ref(), &changes);
             }
             Sender::Worker(queue) => {
-                queue.send(changes);
+                pending(1);
+                if !queue.send(changes) {
+                    pending(-1);
+                }
             }
             Sender::Memory => {}
         }
@@ -175,9 +211,37 @@ fn sender(saver: Saver) -> Sender {
             // be `Send`.
             let queue = Queue::start(&bell, "settings-save", move |changes: Vec<Change>| {
                 apply(factory().as_ref(), &changes);
+                pending(-1);
             });
             queue.map_or(Sender::Memory, Sender::Worker)
         }
+    }
+}
+
+/// Batches handed to a save worker and not yet written, process-wide.
+static PENDING: (Mutex<usize>, Condvar) = (Mutex::new(0), Condvar::new());
+
+fn pending(delta: isize) {
+    let mut count = PENDING.0.lock().unwrap_or_else(|e| e.into_inner());
+    *count = count.saturating_add_signed(delta);
+    PENDING.1.notify_all();
+}
+
+/// Waits up to `limit` for the queued saves to reach the store. A process that
+/// exits (`std::process::exit` ends the worker threads) calls this first, or
+/// the settings changed in its last moments are lost.
+pub fn flush(limit: Duration) {
+    let deadline = Instant::now() + limit;
+    let mut count = PENDING.0.lock().unwrap_or_else(|e| e.into_inner());
+    while *count > 0 {
+        let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+            return;
+        };
+        count = PENDING
+            .1
+            .wait_timeout(count, left)
+            .unwrap_or_else(|e| e.into_inner())
+            .0;
     }
 }
 
@@ -192,69 +256,133 @@ fn apply(kv: &dyn KeyValue, changes: &[Change]) {
     }
 }
 
-/// Reads every leaf `template` has from the store: a missing or mistyped
-/// value keeps the template's (the default's). `stored` collects what was
-/// read, to diff the next save against.
-fn decode(
+/// One value the store held, with where it goes in the settings JSON.
+struct Stored {
+    key: String,
+    fields: Vec<String>,
+    value: Value,
+}
+
+/// Reads every leaf `template` has from the store into `found`. A key whose
+/// read failed (`confd` timed out) is put in `unread`, not treated as missing:
+/// the next save must not write a default over a value that is really there.
+fn read_leaves(
     template: &Json,
-    path: &str,
+    fields: &mut Vec<String>,
+    prefix: &str,
+    kv: &dyn KeyValue,
+    found: &mut Vec<Stored>,
+    unread: &mut BTreeSet<String>,
+) {
+    if let Json::Object(children) = template {
+        for (name, child) in children {
+            fields.push(name.clone());
+            read_leaves(child, fields, prefix, kv, found, unread);
+            fields.pop();
+        }
+        return;
+    }
+    let key = format!("{prefix}/{}", fields.join("/"));
+    match kv.get(&key) {
+        Ok(Some(value)) => found.push(Stored {
+            key,
+            fields: fields.clone(),
+            value,
+        }),
+        Ok(None) => {}
+        Err(_) => {
+            unread.insert(key);
+        }
+    }
+}
+
+/// The settings JSON of what the store holds, leaf by leaf: a missing,
+/// mistyped or unreadable leaf keeps the default's value and never costs the
+/// others theirs. `stored` collects what was read, to diff the next save
+/// against.
+fn decode<T: DeserializeOwned>(
+    template: &Json,
+    prefix: &str,
     kv: &dyn KeyValue,
     stored: &mut BTreeMap<String, Value>,
+    unread: &mut BTreeSet<String>,
 ) -> Json {
-    if let Json::Object(fields) = template {
-        let read = fields
-            .iter()
-            .map(|(name, field)| {
-                (
-                    name.clone(),
-                    decode(field, &format!("{path}/{name}"), kv, stored),
-                )
-            })
-            .collect();
-        return Json::Object(read);
-    }
-    let Some(value) = kv.get(path) else {
-        return template.clone();
-    };
-    let read = leaf(template, &value);
-    if read.is_some() {
-        stored.insert(path.to_owned(), value);
-    }
-    read.unwrap_or_else(|| template.clone())
-}
-
-/// A stored value as the JSON of a field shaped like `template`.
-fn leaf(template: &Json, value: &Value) -> Option<Json> {
-    match (template, value) {
-        (Json::Bool(_) | Json::Null, Value::Bool(flag)) => Some(Json::Bool(*flag)),
-        (Json::Number(_) | Json::Null, Value::I64(n)) => Some(Json::from(*n)),
-        (Json::Number(_) | Json::Null, Value::U64(n)) => Some(Json::from(*n)),
-        (Json::String(_) | Json::Null, Value::Str(text)) => Some(Json::String(text.clone())),
-        (Json::Number(n), Value::Str(text)) => parse_number(n, text),
-        (Json::Array(_), Value::Str(text)) => {
-            serde_json::from_str(text).ok().filter(Json::is_array)
+    let mut found = Vec::new();
+    read_leaves(template, &mut Vec::new(), prefix, kv, &mut found, unread);
+    let mut tree = template.clone();
+    for leaf in found {
+        let shape = at(template, &leaf.fields);
+        // The first reading of the value the field's type accepts: an
+        // `Option<f64>` is `null` in the template but text in the store.
+        let accepted = readings(shape, &leaf.value).into_iter().find(|reading| {
+            let mut probe = template.clone();
+            put(&mut probe, &leaf.fields, reading.clone());
+            serde_json::from_value::<T>(probe).is_ok()
+        });
+        if let Some(reading) = accepted {
+            put(&mut tree, &leaf.fields, reading);
+            stored.insert(leaf.key, leaf.value);
         }
-        _ => None,
     }
+    tree
 }
 
-fn parse_number(shape: &serde_json::Number, text: &str) -> Option<Json> {
-    if shape.is_f64() {
-        text.parse::<f64>()
-            .ok()
-            .and_then(|n| serde_json::Number::from_f64(n).map(Json::Number))
-    } else {
-        text.parse::<i64>().ok().map(Json::from)
+fn at<'a>(json: &'a Json, fields: &[String]) -> &'a Json {
+    fields
+        .iter()
+        .fold(json, |json, name| json.get(name).unwrap_or(&Json::Null))
+}
+
+fn put(json: &mut Json, fields: &[String], value: Json) {
+    let mut slot = json;
+    for name in fields {
+        let Some(next) = slot.get_mut(name) else {
+            return;
+        };
+        slot = next;
     }
+    *slot = value;
+}
+
+/// A stored value as the JSON a field shaped like `template` could take,
+/// likeliest first.
+fn readings(template: &Json, value: &Value) -> Vec<Json> {
+    let mut out = Vec::new();
+    match (template, value) {
+        (Json::Bool(_) | Json::Null, Value::Bool(flag)) => out.push(Json::Bool(*flag)),
+        (Json::Number(_) | Json::Null, Value::I64(n)) => out.push(Json::from(*n)),
+        (Json::Number(_) | Json::Null, Value::U64(n)) => out.push(Json::from(*n)),
+        (Json::String(_) | Json::Null, Value::Str(text)) => {
+            out.push(Json::String(text.clone()));
+        }
+        _ => {}
+    }
+    if let (Json::Number(_) | Json::Array(_) | Json::Null, Value::Str(text)) = (template, value) {
+        // A float or a list is stored as its JSON text.
+        out.extend(
+            serde_json::from_str::<Json>(text)
+                .ok()
+                .filter(|json| json.is_number() || json.is_array()),
+        );
+    }
+    out
 }
 
 /// The leaves of `now` by key; `None` marks a field that is `null` (an unset
-/// `Option`), whose key is deleted.
+/// `Option`), whose key is deleted. A nested object `template` does not have
+/// (a map's entries, an `Option<Struct>`) cannot be read back; it is a
+/// programming error, refused here instead of written as keys named by data.
 fn encode(now: &Json, template: &Json, path: &str, out: &mut BTreeMap<String, Option<Value>>) {
     match now {
         Json::Object(fields) => {
             for (name, field) in fields {
-                let shape = template.get(name).unwrap_or(&Json::Null);
+                let Some(shape) = template.get(name) else {
+                    debug_assert!(
+                        false,
+                        "settings: {path}/{name}: map and Option<struct> fields are not supported"
+                    );
+                    continue;
+                };
                 encode(field, shape, &format!("{path}/{name}"), out);
             }
         }
@@ -288,6 +416,7 @@ fn encode(now: &Json, template: &Json, path: &str, out: &mut BTreeMap<String, Op
 pub struct MemKv {
     map: RefCell<BTreeMap<String, Value>>,
     uid: Option<u32>,
+    fail_reads: std::cell::Cell<bool>,
 }
 
 impl MemKv {
@@ -296,6 +425,7 @@ impl MemKv {
         MemKv {
             map: RefCell::default(),
             uid: Some(uid),
+            fail_reads: std::cell::Cell::default(),
         }
     }
 
@@ -309,6 +439,11 @@ impl MemKv {
         self.map.borrow_mut().insert(key.to_owned(), value);
     }
 
+    /// Makes every later read fail, as a `confd` that times out does.
+    pub fn fail_reads(&self, fail: bool) {
+        self.fail_reads.set(fail);
+    }
+
     /// The keys held now.
     pub fn keys(&self) -> Vec<String> {
         self.map.borrow().keys().cloned().collect()
@@ -316,8 +451,11 @@ impl MemKv {
 }
 
 impl KeyValue for MemKv {
-    fn get(&self, key: &str) -> Option<Value> {
-        self.map.borrow().get(key).cloned()
+    fn get(&self, key: &str) -> Result<Option<Value>, String> {
+        if self.fail_reads.get() {
+            return Err("read failed".into());
+        }
+        Ok(self.map.borrow().get(key).cloned())
     }
 
     fn set(&self, key: &str, value: Value) -> Result<(), String> {

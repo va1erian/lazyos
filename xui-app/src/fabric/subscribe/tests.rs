@@ -1,11 +1,12 @@
 //! The subscriber against a scripted broker: wire goldens, errors and the
 //! drain loop (the doorbell and lifecycle are in `lifecycle_tests`).
 
+use libmessenger::client::Deadline;
 use libmessenger::{flags, Parcel};
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 
 use super::test_fake::{EmptyAs, Fake};
-use super::{wire, Qos, SubId, Subscriber, Wait, ETIMEDOUT, MAX_DRAIN};
+use super::{wire, Qos, SubId, Subscriber, ETIMEDOUT, MAX_DRAIN};
 
 pub(super) type Client = Subscriber<Fake>;
 
@@ -114,9 +115,15 @@ fn polls_use_an_expired_deadline_and_calls_a_bounded_one() {
     c.stats(id).unwrap();
     c.drain(id, 4);
     let log = &c.transport.log;
-    assert_eq!(log[0], (topics::METHOD_SUBSCRIBE, Wait::Bounded));
-    assert_eq!(log[1], (topics::METHOD_STATS, Wait::Bounded));
-    assert_eq!(log[2], (topics::METHOD_NEXTEVENT, Wait::Poll));
+    assert_eq!(
+        log[0],
+        (topics::METHOD_SUBSCRIBE, topics::METHOD_SUBSCRIBE_DEADLINE)
+    );
+    assert_eq!(
+        log[1],
+        (topics::METHOD_STATS, topics::METHOD_STATS_DEADLINE)
+    );
+    assert_eq!(log[2], (topics::METHOD_NEXTEVENT, Deadline::Poll));
 }
 
 // -- Error decoding ----------------------------------------------------------
@@ -209,7 +216,7 @@ fn draining_an_empty_queue_is_not_an_error() {
         assert!(!drained.more && drained.error.is_none(), "{empty:?}");
         assert_eq!(
             c.transport.log.last(),
-            Some(&(topics::METHOD_NEXTEVENT, Wait::Poll))
+            Some(&(topics::METHOD_NEXTEVENT, Deadline::Poll))
         );
     }
 }

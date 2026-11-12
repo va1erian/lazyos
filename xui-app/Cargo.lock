@@ -5827,7 +5827,6 @@ dependencies = [
  "devtool",
  "fhs",
  "inputmap",
- "lazydownloads",
  "lazyicons",
  "lazymotion",
  "lazyos-sys",

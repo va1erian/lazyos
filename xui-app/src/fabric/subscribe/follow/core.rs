@@ -9,12 +9,19 @@
 
 use std::rc::Rc;
 
-use super::super::{Qos, SubId, Subscriber, Transport, MAX_DRAIN};
+use super::super::{Errno, Qos, SubId, Subscriber, Transport, MAX_DRAIN};
 use super::{Queue, TopicEvent};
 
-/// Ticks (100 Hz) before a subscription the broker refused or lost is made
-/// again.
-const RETRY_TICKS: u64 = 100;
+/// Ticks (100 Hz) before a subscription the broker lost, or could not answer
+/// for, is made again.
+const RETRY_TICKS: u64 = 200;
+
+/// A refusal that asking again cannot change: not permitted, access denied,
+/// invalid. (Anything else, a broker not yet registered or restarting, is
+/// worth another try.)
+fn permanent(code: Errno) -> bool {
+    matches!(code, -1 | -13 | -22)
+}
 
 /// Looks a new subscription gets for its retained replay.
 const REPLAY_LOOKS: u8 = 3;
@@ -41,6 +48,8 @@ struct Entry {
     more: bool,
     /// The earliest tick to try subscribing again.
     retry_at: u64,
+    /// The broker refused for good: never asked again.
+    refused: bool,
 }
 
 /// The subscriber and the feeds it serves.
@@ -70,6 +79,7 @@ impl<T: Transport> Core<T> {
             replay_looks: 0,
             more: false,
             retry_at: 0,
+            refused: false,
         });
     }
 
@@ -78,9 +88,7 @@ impl<T: Transport> Core<T> {
         if let Some(at) = self.entries.iter().position(|entry| entry.key == key) {
             let entry = self.entries.remove(at);
             if let Some(id) = entry.sub {
-                // A refusal leaves the record in the subscriber, whose drop
-                // makes the last attempt.
-                let _ = self.subscriber.unsubscribe(id);
+                self.subscriber.forget(id);
             }
         }
     }
@@ -88,7 +96,7 @@ impl<T: Transport> Core<T> {
     /// Make the subscriptions that are missing, once their time has come.
     pub(super) fn connect(&mut self, now: u64) {
         for entry in &mut self.entries {
-            if entry.sub.is_some() || now < entry.retry_at {
+            if entry.sub.is_some() || entry.refused || now < entry.retry_at {
                 continue;
             }
             let made = self
@@ -97,7 +105,7 @@ impl<T: Transport> Core<T> {
                 .and_then(|id| match self.subscriber.attach_bell(id) {
                     Ok(_) => Ok(id),
                     Err(code) => {
-                        let _ = self.subscriber.unsubscribe(id);
+                        self.subscriber.forget(id);
                         Err(code)
                     }
                 });
@@ -108,15 +116,33 @@ impl<T: Transport> Core<T> {
                     entry.replay_looks = REPLAY_LOOKS;
                     entry.queue.set_subscribed(true);
                 }
-                Err(_) => entry.retry_at = now.saturating_add(RETRY_TICKS),
+                Err(code) => {
+                    entry.refused = permanent(code);
+                    entry.retry_at = now.saturating_add(RETRY_TICKS);
+                }
             }
         }
     }
 
     /// The doorbell of feed `key`, once it is subscribed.
+    #[cfg(test)]
     pub(super) fn bell_of(&self, key: u64) -> Option<u64> {
         let id = self.entries.iter().find(|entry| entry.key == key)?.sub?;
         self.subscriber.bell_of(id)
+    }
+
+    /// The doorbells of every subscribed feed: what a loop parks on.
+    pub(super) fn bells(&self) -> Vec<u64> {
+        self.subscriber.doorbell_handles()
+    }
+
+    /// Whether the hub owes reads no doorbell will announce (a new
+    /// subscription's replay, a poll that missed an event, a drain that
+    /// stopped at its batch): a loop must look again before it parks.
+    pub(super) fn owes(&self) -> bool {
+        self.entries
+            .iter()
+            .any(|entry| entry.sub.is_some() && (entry.pending || entry.more))
     }
 
     /// Read what rang (and what is new, or left over) into the queues.
@@ -160,7 +186,9 @@ impl<T: Transport> Core<T> {
             if lost || drained.error.is_some() {
                 // The broker went away (its restart replays the retained
                 // values on the next subscription): subscribe again later.
-                let _ = self.subscriber.unsubscribe(id);
+                // The old record goes whatever the broker says; one that
+                // missed the request reaps the subscription by its dead bell.
+                self.subscriber.forget(id);
                 entry.sub = None;
                 entry.more = false;
                 entry.pending = false;
@@ -170,13 +198,12 @@ impl<T: Transport> Core<T> {
         }
     }
 
-    /// The tick a missing subscription may be tried again; `None` when none is
-    /// missing.
-    #[cfg(test)]
+    /// The tick a missing subscription may be tried again; `None` when none
+    /// is waiting for one.
     pub(super) fn retry_at(&self) -> Option<u64> {
         self.entries
             .iter()
-            .filter(|entry| entry.sub.is_none())
+            .filter(|entry| entry.sub.is_none() && !entry.refused)
             .map(|entry| entry.retry_at)
             .min()
     }

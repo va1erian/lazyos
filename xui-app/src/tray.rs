@@ -102,14 +102,6 @@ impl TrayIcon {
         self.tray.events()
     }
 
-    /// The doorbell of the generation feed, for the same park: ready when the
-    /// shell published a generation ([`TrayIcon::poll`] reads it).
-    pub fn generation_bell(&self) -> Option<u64> {
-        self.generation
-            .as_ref()
-            .and_then(|stream| stream.handle().bell())
-    }
-
     /// Change the given parts of the item.
     pub fn update(&mut self, patch: wire::UpdateArgs) -> Result<(), CallError> {
         self.tray.update(patch)

@@ -210,17 +210,6 @@ fn run(res: &Rc<Resident>) {
     let mut addr = stack_wire::subscribe_system_net_addr(&mut Watch, "+").ok();
     let mut link = nic_wire::subscribe_system_net_link(&mut Watch, "+").ok();
     let mut interfaces = stack_wire::subscribe_system_net_interfaces(&mut Watch).ok();
-    let bells: Vec<u64> = [
-        wifi.as_ref().and_then(|stream| stream.handle().bell()),
-        addr.as_ref().and_then(|stream| stream.handle().bell()),
-        link.as_ref().and_then(|stream| stream.handle().bell()),
-        interfaces
-            .as_ref()
-            .and_then(|stream| stream.handle().bell()),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
     let mut net = Net::default();
     let mut links = Vec::new();
     let mut first = item(lucide("link"), &net.tooltip());
@@ -233,7 +222,7 @@ fn run(res: &Rc<Resident>) {
     trace::pass!(Channel::Netstatus, "UP");
     let mut shown = (net.tooltip(), net.bars());
     loop {
-        for wake in res.idle_with(&bells, 500) {
+        for wake in res.idle(500) {
             if let Wake::Quit(_) = wake {
                 return;
             }

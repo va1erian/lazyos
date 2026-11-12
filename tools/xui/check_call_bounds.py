@@ -59,10 +59,20 @@ ALLOWLIST: dict[str, str] = {
     # its own helpers share the generated names, and its service calls state
     # their bound with `_within`.
     "xui-app/webd/src/selftest.rs": "webd's self-test thread",
+    # The two raw `lazyos_sys::msg::call` sites. The topics subscriber's takes
+    # the method's generated `METHOD_*_DEADLINE` (or a poll) from its caller
+    # and refuses `Deadline::Never`; the Fabric panel's `ListTopics` is bounded
+    # by a constant.
+    "xui-app/src/fabric/subscribe/transport.rs": "the topics subscriber's transport",
+    "xui-app/src/fabric/broker.rs": "the Fabric panel's bounded ListTopics",
 }
 
 # The explicit deadline-less form.
 UNBOUNDED_MARKS = ("Deadline::Never",)
+
+# A raw kernel call states its deadline by hand, outside the generated
+# client that resolves it from the `.midl`: only the allowlisted files do.
+RAW_CALL = re.compile(r"\bmsg::call\(")
 
 # `call_until(parcel, 0)` is the deadline-less literal the API used to
 # allow on the display client; a caller passes a tick deadline instead.
@@ -166,6 +176,8 @@ def scan_file(
         found = next((n for n in UNBOUNDED_MARKS if n in text), None)
         if ui_tree and found is not None and allowed(rel) is None:
             hits.append(Hit(rel, line_no, text, f"{found} without an allowlist entry"))
+        if ui_tree and RAW_CALL.search(text) and allowed(rel) is None:
+            hits.append(Hit(rel, line_no, text, "a raw `msg::call`: use a generated client"))
         if any(literal.search(text) for literal in literals):
             hits.append(Hit(rel, line_no, text, "a deadline-less literal (0 is for ever)"))
         if call is not None and allowed(rel) is None:

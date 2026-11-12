@@ -9,12 +9,12 @@
 //! swaps in a finished [`Archive`].
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use lazyarc::extract::{self, Options, Report};
 use lazyarc::{create, rewrite, Archive, Error, Format, Level, Progress, Source};
-use xui_work::Sink;
+use xui_work::{Once, Sink};
 
 /// How often a running task's progress moves the window's bar.
 pub const PROGRESS_GAP: Duration = Duration::from_millis(100);
@@ -96,19 +96,7 @@ pub enum Outcome {
 }
 
 /// What a finished task left, in a message: taken once by the window.
-#[derive(Clone, Debug)]
-pub struct Finished(Arc<Mutex<Option<Result<Outcome, Error>>>>);
-
-impl Finished {
-    fn new(outcome: Result<Outcome, Error>) -> Finished {
-        Finished(Arc::new(Mutex::new(Some(outcome))))
-    }
-
-    /// The outcome (once; `None` after).
-    pub fn take(&self) -> Option<Result<Outcome, Error>> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).take()
-    }
-}
+pub type Finished = Once<Result<Outcome, Error>>;
 
 /// A task running on its worker thread.
 pub struct Job {
@@ -135,7 +123,7 @@ impl Job {
             "archiver-job",
             move || run(worker_task, archive.as_deref(), &worker_progress),
             |result| {
-                Finished::new(
+                Once::new(
                     result.unwrap_or_else(|failed| Err(Error::unsupported(failed.to_string()))),
                 )
             },
@@ -250,7 +238,7 @@ mod tests {
         std::fs::write(&file, "hello").unwrap();
         let dest = dir.join("a.zip");
         let (tx, rx) = std::sync::mpsc::channel();
-        let tx = Mutex::new(tx);
+        let tx = std::sync::Mutex::new(tx);
         let finished = Sink::from_fn(move |done| tx.lock().unwrap().send(done).is_ok());
         let _job = Job::start(
             Task::Create {

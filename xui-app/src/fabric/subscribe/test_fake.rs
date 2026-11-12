@@ -2,6 +2,7 @@
 //! (decoding requests with the generated stubs) behind [`Transport`], and its
 //! doorbell channels are plain queues.
 
+use libmessenger::client::Deadline;
 use std::collections::{BTreeMap, VecDeque};
 
 use libmessenger::{Encoder, Header, Parcel};
@@ -9,7 +10,7 @@ use messenger_generated::errors::ERROR_FIELD;
 use messenger_generated::os_lazy_messenger_topics_bell_v1 as bell;
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 
-use super::{Errno, Transport, Wait, ETIMEDOUT};
+use super::{Errno, Transport, ETIMEDOUT};
 
 /// How the fake answers a `NextEvent` that finds the queue empty.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -54,7 +55,7 @@ pub(super) struct Fake {
     /// `NextEvent` polls that succeed before one fails with the errno.
     pub poll_error_after: Option<(usize, Errno)>,
     /// Every call seen: method and wait.
-    pub log: Vec<(u32, Wait)>,
+    pub log: Vec<(u32, Deadline)>,
     pub create_pair_fail: Option<Errno>,
     /// Requests seen, as bytes, for golden checks.
     pub requests: Vec<Vec<u8>>,
@@ -151,7 +152,7 @@ impl Fake {
         Self::reply(method, body.finish())
     }
 
-    fn serve(&mut self, request: &Parcel, wait: Wait) -> Result<Vec<u8>, Errno> {
+    fn serve(&mut self, request: &Parcel, wait: Deadline) -> Result<Vec<u8>, Errno> {
         let method = request.header.method;
         if let Some(garbage) = self.garbage.clone() {
             return Ok(garbage);
@@ -192,7 +193,11 @@ impl Fake {
                 }
             }
             topics::METHOD_NEXTEVENT => {
-                assert_eq!(wait, Wait::Poll, "a drain must never block on the broker");
+                assert_eq!(
+                    wait,
+                    Deadline::Poll,
+                    "a drain must never block on the broker"
+                );
                 if let Some((left, code)) = self.poll_error_after {
                     if left == 0 {
                         self.poll_error_after = None;
@@ -299,7 +304,7 @@ pub(super) fn ready(id: u64) -> Vec<u8> {
 }
 
 impl Transport for Fake {
-    fn call(&mut self, request: &[u8], reply: &mut [u8], wait: Wait) -> Result<usize, Errno> {
+    fn call(&mut self, request: &[u8], reply: &mut [u8], wait: Deadline) -> Result<usize, Errno> {
         self.requests.push(request.to_vec());
         let parcel = Parcel::decode(request).expect("the client sends well-formed parcels");
         self.log.push((parcel.header.method, wait));
@@ -342,7 +347,7 @@ impl Transport for Fake {
 pub(super) struct Shared(pub std::rc::Rc<std::cell::RefCell<Fake>>);
 
 impl Transport for Shared {
-    fn call(&mut self, request: &[u8], reply: &mut [u8], wait: Wait) -> Result<usize, Errno> {
+    fn call(&mut self, request: &[u8], reply: &mut [u8], wait: Deadline) -> Result<usize, Errno> {
         self.0.borrow_mut().call(request, reply, wait)
     }
 

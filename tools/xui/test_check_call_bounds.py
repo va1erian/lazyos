@@ -92,6 +92,12 @@ class ScanTests(unittest.TestCase):
         )
         self.assertEqual(scan(root), [])
 
+    def test_a_raw_kernel_call_needs_an_entry(self):
+        root = build({str(APP / "m.rs"): "let n = lazyos_sys::msg::call(h, &req, &mut buf, 5)?;\n"})
+        hits = scan(root)
+        self.assertEqual(len(hits), 1)
+        self.assertIn("raw `msg::call`", hits[0].why)
+
     def test_a_stale_allowlist_entry_fails_the_run(self):
         root = build({str(APP / "m.rs"): "fn main() {}\n"})
         real = dict(ALLOWLIST)
