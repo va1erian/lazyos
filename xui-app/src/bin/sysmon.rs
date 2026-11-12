@@ -314,7 +314,8 @@ fn main() {
     xui_app::app(Channel::Sysmon, "System Monitor")
         .size(WINDOW.0, WINDOW.1)
         .min_size(compact::MIN_SIZE.0, compact::MIN_SIZE.1)
-        .run(|ui, backend| {
+        .run(|ui, cx| {
+            let backend = cx.backend();
             let first = evidence(&sysinfo::snapshot());
             // The first-frame lines carry what was read, so they are the app's.
             backend.on_first_frame(move || {

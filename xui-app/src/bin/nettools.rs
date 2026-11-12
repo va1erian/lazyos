@@ -416,7 +416,7 @@ impl NetTools {
 fn main() {
     xui_app::app(Channel::Nettools, "Net Tools")
         .size(WINDOW.0, WINDOW.1)
-        .run(|ui, _backend| {
+        .run(|ui, _| {
             let widgets = Widgets::default();
             ui.root(widgets.layout())
                 .inspect_err(|error| trace::fail!(Channel::Nettools, "BUILD", "{error}"))?;

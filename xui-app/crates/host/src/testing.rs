@@ -96,7 +96,9 @@ impl StdHost {
 
 impl Report for StdHost {
     fn report(&self, line: &str) {
-        self.lines.borrow_mut().push(format!("{}{line}", self.prefix));
+        self.lines
+            .borrow_mut()
+            .push(format!("{}{line}", self.prefix));
     }
 }
 
@@ -241,7 +243,9 @@ impl MemHost {
 
 impl Report for MemHost {
     fn report(&self, line: &str) {
-        self.lines.borrow_mut().push(format!("{}{line}", self.prefix));
+        self.lines
+            .borrow_mut()
+            .push(format!("{}{line}", self.prefix));
     }
 }
 
@@ -286,7 +290,10 @@ mod tests {
             .map(|e| (e.name, e.is_dir))
             .collect();
         assert_eq!(names, vec![(OsString::from("a"), true)]);
-        assert_eq!(host.fs.read(Path::new("/home/user/a/b.txt")).unwrap(), b"hi");
+        assert_eq!(
+            host.fs.read(Path::new("/home/user/a/b.txt")).unwrap(),
+            b"hi"
+        );
         assert!(fs.list(Path::new("/nowhere")).is_err());
     }
 

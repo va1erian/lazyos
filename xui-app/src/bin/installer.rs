@@ -390,7 +390,7 @@ fn main() -> ExitCode {
     xui_app::app(Channel::Installer, "Installer")
         .size(WINDOW.0, WINDOW.1)
         .min_size(480, 360)
-        .run(move |ui, _backend| {
+        .run(move |ui, _| {
             // Resizable; the screens' layouts follow the client area. The
             // minimum keeps the consent screen's lists readable.
             Installer::build(ui, start).map_err(|error| {

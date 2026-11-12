@@ -197,7 +197,7 @@ fn main() {
     xui_app::app(Channel::Paint, "Paint")
         .size(WINDOW.0, WINDOW.1)
         .min_size(MIN_WINDOW.0, MIN_WINDOW.1)
-        .run(move |ui, _backend| {
+        .run(move |ui, _| {
             // Paint's document is fixed; only the viewport follows the window, so
             // it can be resized down to a workable drawing area.
             let setup = Setup::new(storage)

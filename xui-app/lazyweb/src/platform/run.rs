@@ -108,7 +108,8 @@ pub(super) fn run() -> ! {
         .min_size(420, 300)
         .wait_for_display(CONNECT_WAIT)
         .at_exit(move || wind_down(&exit_blocker, exit_profile.as_ref()))
-        .run(move |ui, backend| {
+        .run(move |ui, cx| {
+            let backend = cx.backend();
             let proxy = ui.proxy();
             // The doorbell for work other threads queue for the window (the blocker's relay,
             // the main-thread turns): one message, one wake per burst.

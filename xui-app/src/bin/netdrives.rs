@@ -406,7 +406,7 @@ impl Netdrives {
 fn main() {
     xui_app::app(Channel::Netdrives, TITLE)
         .size(WINDOW.0, WINDOW.1)
-        .run(|ui, _backend| {
+        .run(|ui, _| {
             let w = Widgets::default();
             ui.root(w.layout())
                 .inspect_err(|error| trace::fail!(Channel::Netdrives, "BUILD", "{error}"))?;

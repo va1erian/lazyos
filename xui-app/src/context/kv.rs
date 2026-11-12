@@ -1,0 +1,35 @@
+//! `confd` as the key-value store of [`xui_host::settings`].
+
+use xui_host::settings::{KeyValue, Value};
+use xui_settings::store::ConfigStore;
+
+use crate::platform::confd_store::ConfdStore;
+
+/// A handle on `confd`; free to copy, so the save worker builds its own.
+pub(super) struct ConfdKv;
+
+impl ConfdKv {
+    /// `user/<uid>/<app>/<name>`, for this task's uid.
+    pub(super) fn key(app: &str, name: &str) -> Option<String> {
+        let uid = ConfdStore::new().uid()?;
+        Some(format!("user/{uid}/{app}/{name}"))
+    }
+}
+
+impl KeyValue for ConfdKv {
+    fn get(&self, key: &str) -> Option<Value> {
+        ConfigStore::get(&ConfdStore::new(), key)
+    }
+
+    fn set(&self, key: &str, value: Value) -> Result<(), String> {
+        ConfigStore::set(&ConfdStore::new(), key, value)
+    }
+
+    fn delete(&self, key: &str) -> Result<(), String> {
+        ConfigStore::delete(&ConfdStore::new(), key)
+    }
+
+    fn uid(&self) -> Option<u32> {
+        ConfigStore::uid(&ConfdStore::new())
+    }
+}

@@ -5,7 +5,6 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Instant;
 
-use xui_app::backend::LazyOSBackend;
 use xui_app::devtool::{self, Notice, Provenance, ReviewGate};
 use xui_app::trace::Channel;
 use xui_core::app::Ui;
@@ -32,7 +31,8 @@ const WELCOME: &str = "// Messenger Playground. Write Rhai here and press Run (F
 // Pick an interface on the left and use Insert call, or open the Gallery.\n\
 for name in msg::services() {\n    print(name);\n}\n";
 
-pub fn build(ui: &mut Ui<Msg>, backend: &Rc<LazyOSBackend>) -> Result<Playground> {
+pub fn build(ui: &mut Ui<Msg>, cx: &xui_app::AppContext) -> Result<Playground> {
+    let backend = cx.backend();
     devtool::announce(Channel::Playground);
     // One notice for the tool's windows: the strip's state, remembered per user.
     let notice = Notice::for_tool(crate::notice::SYSTEM_NAME);

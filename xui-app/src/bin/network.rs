@@ -410,7 +410,7 @@ fn main() {
     let size = if wifi.is_some() { WINDOW_WIFI } else { WINDOW };
     xui_app::app(Channel::Netapp, TITLE)
         .size(size.0, size.1)
-        .run(move |ui, _backend| {
+        .run(move |ui, _| {
             let w = Widgets::default();
             let mut wifi = wifi;
             let tab_bar = Handle::<Tabs<Msg>>::default();

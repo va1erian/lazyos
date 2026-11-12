@@ -5827,6 +5827,7 @@ dependencies = [
  "devtool",
  "fhs",
  "inputmap",
+ "lazydownloads",
  "lazyicons",
  "lazymotion",
  "lazyos-sys",
@@ -5841,6 +5842,7 @@ dependencies = [
  "netstack",
  "printd",
  "rhai-lazy",
+ "serde",
  "surfbuf",
  "svcpolicy",
  "timezone",
@@ -5857,6 +5859,7 @@ dependencies = [
  "xui-cursored",
  "xui-explorer",
  "xui-golf",
+ "xui-host",
  "xui-icons",
  "xui-markdown",
  "xui-nes",
@@ -5997,6 +6000,17 @@ source = "git+https://github.com/va1erian/xui?rev=832c61f29419bf31a0518a47e050b1
 dependencies = [
  "glow",
  "xui-core",
+]
+
+[[package]]
+name = "xui-host"
+version = "0.1.0"
+dependencies = [
+ "confd",
+ "serde",
+ "serde_json",
+ "xui-core",
+ "xui-work",
 ]
 
 [[package]]

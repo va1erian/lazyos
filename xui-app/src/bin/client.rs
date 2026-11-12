@@ -107,7 +107,8 @@ fn main() {
     xui_app::app(Channel::Xuiapp, "xui-client")
         .size(W, H)
         .client_only()
-        .run(|ui, backend| {
+        .run(|ui, cx| {
+            let backend = cx.backend();
             // The sessions wait for this line, not `XUIAPP:UP:PASS`.
             backend.on_first_frame(|| trace::line!(Channel::Xuiapp, "CLIENT:PASS"));
             let status = Handle::new();

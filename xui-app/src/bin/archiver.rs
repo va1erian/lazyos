@@ -119,7 +119,8 @@ fn main() {
         // The list re-flows to the window; below this the toolbar clips.
         .min_size(600, 360)
         .opens(Msg::OpenChosen)
-        .run(move |ui, backend| {
+        .run(move |ui, cx| {
+            let backend = cx.backend();
             // Drops and drags reach the app through its proxy, which exists
             // now: the hooks run outside `update`.
             let bridge: Rc<RefCell<DragState>> = Rc::default();

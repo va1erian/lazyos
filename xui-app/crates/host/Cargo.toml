@@ -15,3 +15,11 @@ description = "The platform seam of the portable xui app crates"
 
 [dependencies]
 xui-core = { git = "https://github.com/va1erian/xui", rev = "832c61f29419bf31a0518a47e050b15c97b316e3" }
+xui-work = { path = "../work" }
+# The value type confd stores, so a typed setting lands in the same keys.
+confd = { path = "../../../libs/confd" }
+serde = "1"
+serde_json = "1"
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }

@@ -19,6 +19,9 @@
 //! printed before.
 
 pub mod dialogs;
+pub mod error;
+pub mod recent;
+pub mod settings;
 pub mod testing;
 
 use std::path::{Path, PathBuf};

@@ -339,7 +339,7 @@ fn sentence(reason: &str) -> String {
 fn main() {
     xui_app::app(Channel::Greeter, "Log in")
         .size(WINDOW.0, WINDOW.1)
-        .run(|ui, _backend| {
+        .run(|ui, _| {
             let mut greeter = Greeter {
                 w: Widgets::default(),
                 mode: Mode::Waiting,

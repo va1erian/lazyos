@@ -187,7 +187,8 @@ fn main() {
         .size(WINDOW.0, WINDOW.1)
         .ask_before_close()
         .drops(Msg::Dropped)
-        .run(|ui, backend| {
+        .run(|ui, cx| {
+            let backend = cx.backend();
             // The window gaining or losing the keyboard (switching to another
             // window): the cursor goes hollow and a program that asked hears
             // about it.

@@ -182,6 +182,11 @@ xui-explorer = { path = "crates/explorer", features = ["village-icons"] }
 # The Archiver (docs/archiver-plan.md): its app core and format library.
 xui-archiver = { path = "crates/archiver" }
 xui-work = { path = "crates/work" }
+# The platform seam of the portable app crates, implemented by `AppContext`.
+xui-host = { path = "crates/host" }
+# The Downloads folder name, for `AppContext::dirs`.
+lazydownloads = { path = "crates/downloads" }
+serde = "1"
 atomicfile = { path = "crates/atomicfile" }
 # The PDF Viewer (docs/pdf-reader-plan.md): its window over `lazypdf`.
 xui-pdfview = { path = "crates/pdfview" }

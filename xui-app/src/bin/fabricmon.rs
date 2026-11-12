@@ -216,7 +216,8 @@ fn main() {
     xui_app::app(Channel::Fabmon, "fabricmon")
         .size(WINDOW.0, WINDOW.1)
         .min_size(compact::MIN_SIZE.0, compact::MIN_SIZE.1)
-        .run(|ui, backend| {
+        .run(|ui, cx| {
+            let backend = cx.backend();
             let state = State::load();
             let first = state.evidence();
             // The first-frame line carries what was read, so it is the app's.

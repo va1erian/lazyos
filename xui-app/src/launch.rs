@@ -7,7 +7,7 @@
 //!         .min_size(420, 300)
 //!         .opens(Msg::OpenChosen)   // a path on argv
 //!         .drops(Msg::Dropped)      // `text/uri-list` dropped on the window
-//!         .run(|ui, backend| PdfApp::build(ui, Host::std(dirs::default_dir())))
+//!         .run(|ui, cx| PdfApp::build(ui, cx.host()))
 //! }
 //! ```
 //!
@@ -33,6 +33,7 @@ use xui_core::units::Dip;
 pub use files::{Files, NoFiles, WithFiles};
 
 use crate::backend::LazyOSBackend;
+use crate::context::AppContext;
 use crate::resident::Resident;
 use crate::trace::{self, Channel};
 
@@ -80,6 +81,11 @@ pub(crate) struct Setup {
     pub(crate) ask_before_close: bool,
     pub(crate) client_only: bool,
     pub(crate) display_wait: Duration,
+    /// The `confd` subtree name under `user/<uid>/` (the channel's prefix in
+    /// lower case unless the app says otherwise).
+    pub(crate) settings_id: Option<String>,
+    /// The package's system name, the folder under `<home>/.apps`.
+    pub(crate) system_name: Option<String>,
 }
 
 impl Setup {
@@ -152,6 +158,8 @@ pub fn app(channel: Channel, title: &str) -> AppBuilder {
             ask_before_close: false,
             client_only: false,
             display_wait: Duration::ZERO,
+            settings_id: None,
+            system_name: None,
         },
         files: NoFiles,
         at_exit: None,
@@ -192,6 +200,21 @@ impl<F> AppBuilder<F> {
     /// being installed.
     pub fn wait_for_display(mut self, wait: Duration) -> Self {
         self.setup.display_wait = wait;
+        self
+    }
+
+    /// The name of the app's `confd` subtree (`user/<uid>/<id>/..`, what
+    /// `AppContext::settings` reads and writes) when it is not the channel's
+    /// prefix in lower case: the volume applet keeps `audio`.
+    pub fn settings_id(mut self, id: &str) -> Self {
+        self.setup.settings_id = Some(id.to_owned());
+        self
+    }
+
+    /// The app's package system name (`os.lazy.nes`): the folder
+    /// `AppContext::dirs().app_data()` names under `<home>/.apps`.
+    pub fn system_name(mut self, name: &str) -> Self {
+        self.setup.system_name = Some(name.to_owned());
         self
     }
 
@@ -238,7 +261,8 @@ impl<F> AppBuilder<F> {
 
     /// Connects, opens the window, builds the app with `make` and runs it
     /// until it quits; then releases the display and exits the process, 0
-    /// after a clean quit and 1 otherwise. `make` gets the backend for
+    /// after a clean quit and 1 otherwise. `make` gets the [`AppContext`]:
+    /// the shared services, and through `cx.backend()` the display for
     /// app-specific requests (`request_size`) and for the rare app whose
     /// first-frame line carries data (it replaces the plain `UP` with
     /// `backend.on_first_frame`).
@@ -246,7 +270,7 @@ impl<F> AppBuilder<F> {
     where
         A: App,
         F: Files<A::Msg>,
-        M: FnOnce(&mut Ui<A::Msg>, &Rc<LazyOSBackend>) -> Result<A>,
+        M: FnOnce(&mut Ui<A::Msg>, &AppContext) -> Result<A>,
     {
         let AppBuilder {
             setup,
@@ -256,12 +280,13 @@ impl<F> AppBuilder<F> {
         let backend = setup.start();
         let (width, height) = backend.window_size(setup.windowed);
         let window = Rc::clone(&backend);
+        let cx = AppContext::new(Rc::clone(&backend), &setup);
         let outcome = xui_core::app(setup.title.as_str())
             .size(width, height)
             .backend(Rc::clone(&backend) as Rc<dyn Backend>)
             .run(move |ui| {
                 files.attach(&window, ui);
-                let app = make(ui, &window)?;
+                let app = make(ui, &cx)?;
                 files.open_argv(ui);
                 Ok(app)
             });
