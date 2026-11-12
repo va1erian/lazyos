@@ -19,7 +19,7 @@ use user::sys;
 
 use super::common::{
     answered_with, connect, endpoint_of, fail, failed, is_errno, local, nap, send_parcel,
-    wait_for_address,
+    wait_for_address, PATIENT,
 };
 
 const GATEWAY: [u8; 4] = [10, 0, 2, 2];
@@ -82,7 +82,7 @@ pub(super) fn run() -> Result<u32, String> {
     let conn = client.connection();
     let mut checks = Checks { done: 0 };
     wait_for_address(&client)?;
-    let before = client.stats().map_err(fail("stats"))?;
+    let before = client.stats_within(PATIENT).map_err(fail("stats"))?;
 
     // --- Out-of-contract calls. ---------------------------------------------
     let foreign = Parcel {
@@ -170,18 +170,22 @@ pub(super) fn run() -> Result<u32, String> {
         .send(&oneway)
         .map_err(local("sending a one-way ping"))?;
     client
-        .interfaces()
+        .interfaces_within(PATIENT)
         .map_err(fail("interfaces after a one-way ping"))?;
     checks.expect("a one-way Ping is ignored", true)?;
 
     // --- Reads are honest. ---------------------------------------------------
-    let interfaces = client.interfaces().map_err(fail("interfaces"))?;
+    let interfaces = client
+        .interfaces_within(PATIENT)
+        .map_err(fail("interfaces"))?;
     checks.expect(
         "eth0 first, every interface with a six-byte MAC and a metric",
         interfaces.first().is_some_and(|i| i.name == "eth0")
             && interfaces.iter().all(|i| i.mac.len() == 6 && i.metric > 0),
     )?;
-    let addresses = client.addresses().map_err(fail("addresses"))?;
+    let addresses = client
+        .addresses_within(PATIENT)
+        .map_err(fail("addresses"))?;
     checks.expect(
         "an IPv4 address with a /1../30 prefix on every interface that has one",
         !addresses.is_empty()
@@ -189,7 +193,7 @@ pub(super) fn run() -> Result<u32, String> {
                 .iter()
                 .all(|a| a.addr.len() == 4 && (1..=30).contains(&a.prefix_len)),
     )?;
-    let routes = client.routes().map_err(fail("routes"))?;
+    let routes = client.routes_within(PATIENT).map_err(fail("routes"))?;
     checks.expect(
         "an on-link route and a default route via the gateway",
         routes
@@ -237,7 +241,7 @@ pub(super) fn run() -> Result<u32, String> {
         nap();
     }
     let after = client
-        .stats()
+        .stats_within(PATIENT)
         .map_err(fail("stats after the abandoned ping"))?;
     checks.expect(
         "the stack counted five timed-out pings",
@@ -251,10 +255,10 @@ pub(super) fn run() -> Result<u32, String> {
         "the gateway answers with the 56 bytes sent",
         echo.bytes == 56 && echo.source == GATEWAY,
     )?;
-    let leases = client.stats().map_err(fail("stats"))?.leases;
-    client.renew().map_err(fail("renew"))?;
+    let leases = client.stats_within(PATIENT).map_err(fail("stats"))?.leases;
+    client.renew_within(PATIENT).map_err(fail("renew"))?;
     wait_for_address(&client)?;
-    let renewed = client.stats().map_err(fail("stats"))?;
+    let renewed = client.stats_within(PATIENT).map_err(fail("stats"))?;
     checks.expect(
         "a renewal obtains a fresh lease",
         renewed.leases == leases + 1 && renewed.lease_losses > before.lease_losses,
@@ -262,7 +266,7 @@ pub(super) fn run() -> Result<u32, String> {
     client.reattach().map_err(fail("reattach"))?;
     let deadline = sys::clock() + 800;
     while !client
-        .interfaces()
+        .interfaces_within(PATIENT)
         .map_err(fail("interfaces"))?
         .first()
         .is_some_and(|i| i.link)
@@ -270,7 +274,7 @@ pub(super) fn run() -> Result<u32, String> {
     {
         nap();
     }
-    let rebuilt = client.stats().map_err(fail("stats"))?;
+    let rebuilt = client.stats_within(PATIENT).map_err(fail("stats"))?;
     checks.expect(
         "the NIC attachment was rebuilt once",
         rebuilt.nic_resets == before.nic_resets + 1,

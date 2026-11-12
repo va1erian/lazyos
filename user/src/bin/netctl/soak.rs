@@ -17,7 +17,7 @@ use user::messenger::netstack;
 use user::messenger::{fabric_stats, TaskUsage};
 use user::{sys, sysinfo};
 
-use super::common::{connect, fail, local, nap, wait_for_address};
+use super::common::{connect, fail, local, nap, wait_for_address, PATIENT};
 
 const GATEWAY: [u8; 4] = [10, 0, 2, 2];
 
@@ -79,7 +79,7 @@ pub(super) fn run(iterations: u32) -> Result<u32, String> {
             before.len()
         ));
     }
-    let stats_before = client.stats().map_err(fail("stats"))?;
+    let stats_before = client.stats_within(PATIENT).map_err(fail("stats"))?;
     let mut renewals = 0u64;
     let mut reattachments = 0u64;
     for round in 1..=iterations {
@@ -90,7 +90,7 @@ pub(super) fn run(iterations: u32) -> Result<u32, String> {
             return Err(what("the reply came from another address"));
         }
         if round % 10 == 0 {
-            client.renew().map_err(fail(&what("renew")))?;
+            client.renew_within(PATIENT).map_err(fail(&what("renew")))?;
             wait_for_address(&client).map_err(|e| what(&e))?;
             renewals += 1;
         }
@@ -99,7 +99,7 @@ pub(super) fn run(iterations: u32) -> Result<u32, String> {
             reattachments += 1;
             let deadline = sys::clock() + 800;
             while !client
-                .interfaces()
+                .interfaces_within(PATIENT)
                 .map_err(fail(&what("interfaces")))?
                 .first()
                 .is_some_and(|i| i.link)
@@ -114,7 +114,7 @@ pub(super) fn run(iterations: u32) -> Result<u32, String> {
         nap();
     }
     let after = holdings()?;
-    let stats_after = client.stats().map_err(fail("stats"))?;
+    let stats_after = client.stats_within(PATIENT).map_err(fail("stats"))?;
     for ((name, was), (_, now)) in before.iter().zip(after.iter()) {
         let leaked = |what: &str, was: u64, now: u64| {
             if was == now {

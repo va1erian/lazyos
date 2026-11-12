@@ -4,12 +4,17 @@
 use alloc::format;
 use alloc::string::String;
 
-use libmessenger::client::{CallError, Connection};
+use libmessenger::client::{CallError, Connection, Deadline};
 use libmessenger::Parcel;
 use user::messenger::client::{call_error, Native};
 use user::messenger::netstack::Client;
 use user::messenger::{Endpoint, Error as MsgError};
 use user::sys;
+
+/// How long a tool waits for `netd` to answer a read or a renewal: it is busy
+/// at boot (the demo spawns these very tools from its own loop), so the
+/// declared bound of a UI caller (500 ms) is too short here.
+pub(super) const PATIENT: Deadline = Deadline::secs(10);
 
 /// Ticks to wait for an address after a renewal or a reattach.
 const ADDRESS_TICKS: u64 = 1500;
@@ -103,7 +108,9 @@ pub(super) fn connect() -> Result<Client, String> {
 pub(super) fn wait_for_address(client: &Client) -> Result<[u8; 4], String> {
     let deadline = sys::clock() + ADDRESS_TICKS;
     loop {
-        let list = client.addresses().map_err(fail("addresses"))?;
+        let list = client
+            .addresses_within(PATIENT)
+            .map_err(fail("addresses"))?;
         if let Some(a) = list.first() {
             if let Ok(addr) = <[u8; 4]>::try_from(a.addr.as_slice()) {
                 return Ok(addr);
