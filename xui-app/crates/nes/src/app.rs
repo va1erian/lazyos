@@ -488,8 +488,7 @@ impl App for NesApp {
     }
 }
 
-/// The panel type the welcome screen is mounted in, re-exported so the binary
-/// and the tests can name it.
+/// The welcome screen's panel type, re-exported for the binary and the tests.
 pub type WelcomePanel = Panel<Msg>;
 
 /// The status bar's type, likewise.

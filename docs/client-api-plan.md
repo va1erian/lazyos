@@ -445,6 +445,60 @@ generated client:
 The portable crates (`archiver`, `pdfview`, `videoview`, `writer`) take
 `&AppContext` (or the trait it implements) instead of their own `Host`.
 
+**As built (X2).** `.run(|ui, cx| ..)` hands the make closure an
+`xui_app::AppContext` (`xui-app/src/context.rs`); `cx.backend()` is the old
+second argument. The portable crates cannot depend on `xui-app`, so the seam
+is a tiny crate, `xui-app/crates/host` (`xui-host`, depends on `xui-core`,
+`xui-work`, `confd`, serde):
+
+* `AppHost` (+ `Report`): `file_system()`, `start_dir()`, `temp_dir()`,
+  `launch(path)`, `read_only_roots()`, `write(path, bytes)` (atomic on
+  LazyOS), `suggests(dir)`, and `report(line)`. `cx.host()` is the LazyOS
+  implementation; `testing::StdHost` (real files, records its evidence with
+  the channel prefix, `on_launch`/`on_write` hooks) and `testing::MemHost`
+  (an in-memory `FileSystem`) are the host tests'. `archiver`, `pdfview`,
+  `videoview` and `writer` take a `SharedHost` (`Rc<dyn AppHost>`); their
+  `Host` structs are gone. Writer keeps a small `Services` (font families,
+  the print queue, the remembered printer) for what is not shared.
+* `dialogs::{open_dialog, save_dialog, preset}` and `ErrorDialog`:
+  `cx.open_dialog(ui, title, filters, on_cancel)` is the file system, the
+  start folder, the filters, "All files" last and `require_existing`;
+  `cx.save_dialog` the same without the forced "All files"; `cx.error(ui,
+  title, on_close)` builds a message dialog whose `show` takes anything that
+  displays, so a `CallError` renders as the service's sentence plus hint.
+* `settings::Settings<T>` (`cx.settings::<T>()`): serde struct to one `confd`
+  key per leaf under `user/<uid>/<settings id>/` (the channel prefix in lower
+  case, or `.settings_id(..)`; `volume` keeps `audio`); read once at open (a
+  missing or mistyped key is the field's default), saved by field diff on a
+  worker thread, `on_saved(Sink<()>)` rings when a save landed. Floats and
+  lists are stored as JSON text in a string key; maps are not supported. With
+  `confd` not registered yet the settings live in memory (no start-up wait).
+  `cx.settings_key(name)` / `user_key(uid, app, name)` build the key for a
+  per-name setting that is not a struct field (term, volume, LazyWeb).
+* `recent::Recent` (`cx.recent()`): at most 10 files, newest first, kept
+  through settings; `cx.open_dialog` opens in the newest one's folder when the
+  app asked for the list. `cx.dirs()`: home, start, documents, downloads,
+  app data (`.system_name(..)`), transient, tmp.
+* **Evidence.** A marker site with a host in reach calls `report!(host,
+  "OPEN:PASS:{path}")`; the line is the text after the channel prefix and the
+  host writes it as `trace::line!(channel, ..)`, so the bytes on the serial
+  port are what `println!` wrote. `settings` and `confd-editor` report from
+  free functions and worker answers, so they use `xui_host::evidence!`, the
+  process's one sink (`AppContext::new` installs it). 26 prints left
+  `tools/trace/adhoc_baseline.json` (writer 12, settings 9, confd-editor 4,
+  pdfview 1); archiver, videoview and pdfview's `host.log` lines (dynamic
+  prefixes the lint could not see) are reports too.
+* NES keeps its `Host` trait (audio and the `Report` enum are its own) but
+  loses `default_dir` and `recent.txt`: the picker comes from the context and
+  the recent list from `cx.recent()` (the old file is not read; no backward
+  compatibility). LazyWeb's `Host` is engines and probes, not files, so it
+  stays; only its confd keys use `user_key`.
+
+Not migrated: LazySky's `settings.toml` (the `tools/lazysky` harness writes
+that file from the Terminal and greps `SKY:SETTINGS:SAVED:<path>`; moving it
+needs the harness reworked first), and the remaining `FileDialog` chains in
+paint, term, lazysky-ui and the Settings picture picker.
+
 ### 4.3 One way off the UI thread
 
 `cx.spawn(work, Msg::Done)` runs `work` on a worker and delivers its result
@@ -587,9 +641,9 @@ leaves `main` green.
 | C5 | Typed bell subscriptions; move `init`/`healthd` off the interim router; declare or drop the undeclared topics | `topic_feed`, `router`, three ad hoc pollers |
 | C6 | `check_handrolled.py --ratchet` in CI | (keeps it from coming back) |
 | X1 | `xui_app::app(..)` builder, `.opens`, panic hook, `finish`; new template; migrate every bin | `themed.rs`, outboxes, seven launch paths |
-| X2 | `AppContext`: settings, dirs, recent, dialogs, error, files | four `Host` structs, `format!` confd keys, `$HOME` lookups |
+| X2 | **Built** (section 4.2, "As built"); LazySky's TOML and four more dialog chains wait | four `Host` structs, `format!` confd keys, `$HOME` lookups |
 | X3 | **Built** (`xui_app::work`, section 4.3; `cx.spawn` follows X2) | four worker handoff mechanisms |
-| X4 | **Built** (section 4.4, "As built"); the four portable crates' markers wait for an event seam | atomic-write, image, zip, HTTP copies; `println!` markers |
+| X4 | **Built** (section 4.4, "As built"); the portable crates' markers moved with X2's evidence seam | atomic-write, image, zip, HTTP copies; `println!` markers |
 
 C1, C2a and X1 are independent and run in parallel; C2b needs C1 and C2a;
 C3 and C4 need C2b; C5 needs C1; X3 follows X1 (they touch the same bins);
