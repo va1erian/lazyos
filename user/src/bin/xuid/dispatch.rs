@@ -17,6 +17,14 @@ use super::protocol::refuse;
 
 /// The reply to `message`, or `None` when it is sent later (the prompt's).
 pub(super) fn serve(comp: &mut Compositor, message: &Message) -> Option<Parcel> {
+    // `Present` is the one one-way request; any other message without a
+    // transaction is dropped, as before the generated servers.
+    if message.txn.is_none()
+        && !(message.interface_id() == wire::INTERFACE_ID
+            && message.method() == wire::METHOD_PRESENT)
+    {
+        return None;
+    }
     match message.interface_id() {
         prompt_wire::INTERFACE_ID => {
             let mut call = PromptCall {

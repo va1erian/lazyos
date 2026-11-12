@@ -235,6 +235,9 @@ fn ask(
 fn refused(reply: &Parcel) -> Option<i64> {
     match libmessenger::client::remote_error(reply) {
         Some(libmessenger::client::CallError::Remote { code, .. }) => Some(i64::from(code)),
-        _ => None,
+        // A reply that is an error but not a structured one never counts as
+        // an answer.
+        Some(_) => Some(errno::EIO),
+        None => None,
     }
 }
