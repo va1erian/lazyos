@@ -327,8 +327,8 @@ and `timed`'s `confd` watch use it instead of polling every few ticks.
 
 Headless verification: boot with `LAZYOS_MESSENGERD=1 LAZYOS_MESSENGERCTL=1`;
 `messengerctl` runs a topic conformance self-test (`TOPIC:FANOUT|WILDCARD|
-RETAINED|DROP|QOS|UNSUB|DEPTH:PASS` on the serial log; `DEPTH` hand-encodes a
-`u32::MAX` buffered depth and checks the broker clamps it), then `MESSAGE:OBJECTS:PASS`
+RETAINED|DROP|QOS|UNSUB|DEPTH:PASS` on the serial log; `DEPTH` asks the generated
+client for a `u32::MAX` buffered depth and checks the broker clamps it), then `MESSAGE:OBJECTS:PASS`
 once it has checked that a received message owns its objects until a decoder
 claims them and closes the rest when it drops
 (`user/src/bin/messengerctl/object_tests.rs`). `messengerctl topics` lists
@@ -595,7 +595,8 @@ is the shape.
 - `user::messenger` (native programs): `Endpoint` (`call`, `send`, `reply`,
   `recv`, `create_pair`), `Server::serve` (one handler per received
   `Message`), `wait` (`wait_any`), `registry` (`resolve`, `connect`,
-  `register`) and `topics_client`; the static-musl `xui-app` has the same
+  `register`) and `topics_client` (the generated broker client; programs use
+  `user::central`); the static-musl `xui-app` has the same
   shape over `lazyos-sys`. Both encode with `libmessenger` and the generated
   `messenger-generated` codecs (section 11); nothing hand-rolls a wire.
 - A received `Message` owns its objects until a decoder claims them

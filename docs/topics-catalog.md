@@ -75,4 +75,4 @@ stay undeclared: `system/events/t<N>` and `session/1/clipboard/changed` in
 - Retained flag is chosen per call site for login events (`publish(..., retained)`),
   so the declaration needs to settle one value per topic.
 - The MIDL `Qos` default per topic is not recorded anywhere today; subscribers pick
-  it at subscribe time (`user/src/messenger/topics_client/client.rs:254`).
+  it at subscribe time (`user::central::Bus::subscribe_with_qos`).

@@ -599,6 +599,36 @@ As built (C5):
   `system/events/audit/overflow` are journal keys `logd` appends under (not
   topics anything publishes): `logstore::source` constants.
 
+**As built (topics client).** The broker's native clients are the generated
+one: `user/src/messenger/topics_client.rs` (about 170 lines) keeps only domain
+meaning (`Qos` and its clamps, `MAX_PAYLOAD`, the kernel `authorize` op, and
+`lift`, the generated `CallError` as a Messenger `Error`), and `Client` is
+`wire::Client<Held>`. `Held::nested` is `Held::resolved` with `ALLOW_NESTED`
+on every request: every client shares the daemon's one endpoint and a parked
+`NextEvent` leaves a transaction open while another task publishes.
+`central::Bus` and `central::Subscription` are that client plus the payload
+envelope and the doorbell; they share it through an `Rc`, so a subscription
+outlives its bus (`confd::watch` returns one) and the broker handle is
+released with the last of them, which is why `Feed` no longer releases it by
+hand. Callers pass a `Deadline` (`recv(Deadline::Poll)`) and no reply buffer:
+the heap recycles every size class up to 1 MiB, so the scratch buffers (and
+the pre-encoded request bytes) the hand-framed path kept were stale. The
+IDL's deadlines now bound `publish` (500 ms) and `subscribe` (500 ms) where
+the hand-framed ones waited for ever.
+`messengerd` answers through the generated `dispatch`; it keeps by hand
+(`user/src/bin/messengerd/wire.rs`) only what a reply value cannot say: the
+parked `NextEvent` (no reply until a publish wakes it) and `Bell` (the request
+carries a channel end), plus the one-way `Ready` it rings with. `messengerctl`
+and `dbgd` use `Bus` and the raw client (`Bus::client`, for the hostile-depth
+check and the envelope-bare view `dbgd msg.topic` shows). Measured: 541,321 to
+540,649 production lines (-672), and the topics hand-framing lint entries
+(`topics_client/{bell,mod,wire}.rs`, 8 hits) are gone. Left: `NextEvent` is
+`retry=never`, so the native transport issues its two-step call
+(`begin_call`, `await_reply`) for every poll where the hand client made one
+`call`; a `retry=safe` on `NextEvent` (the broker commits an event only when
+its reply lands, so a resend is safe) would give one syscall back, at the cost
+of a generated-file change.
+
 ### 3.6 Generated crate layout
 
 Split `libs/generated/src/lib.rs` into one module file per interface and gate
@@ -917,7 +947,6 @@ like the tests they serve (`xui-app/src/fabric/subscribe/test_fake.rs`,
   a bump-allocator buffer, and merging them would put `std` types in
   `user`. `Connection::call_once_more`/`with_retry` differ in what a retry
   is allowed to resend. The broker client (`user::central`, `topics_client`)
-  is still hand-framed; moving it to the generated `topics` client and the
-  generated server in `messengerd` is the one change large enough to reach
-  the -1,500 line mark (about 750 lines of `topics_client` plus `Bus`), and
-  it needs `messengerd`'s soak run and a boot, so it is a stage of its own.
+  was still hand-framed then; it has since moved to the generated `topics`
+  client and `messengerd` to the generated dispatch (section 3.5, "As built
+  (topics client)").
