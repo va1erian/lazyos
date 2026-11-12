@@ -171,6 +171,47 @@ fn a_failed_read_is_not_a_missing_key_and_is_never_written_over() {
     assert!(kv.get("user/7/demo/scale").unwrap().is_some());
 }
 
+#[test]
+fn an_unread_key_the_user_set_and_then_reset_to_the_default_is_saved() {
+    let kv = Rc::new(MemKv::new(7));
+    kv.put("user/7/demo/font", Value::Str("Mono".into()));
+    kv.fail_reads(true);
+    let settings = open(&kv);
+    kv.fail_reads(false);
+    // Left at the default, the unreadable key is not written over.
+    settings.update(|p| p.scale = 2.0);
+    assert_eq!(
+        kv.get("user/7/demo/font").unwrap(),
+        Some(Value::Str("Mono".into()))
+    );
+    // The user's own value is written...
+    settings.update(|p| p.font = "Serif".into());
+    assert_eq!(
+        kv.get("user/7/demo/font").unwrap(),
+        Some(Value::Str("Serif".into()))
+    );
+    // ...and choosing the default again is a choice too.
+    settings.update(|p| p.font = String::new());
+    assert_eq!(
+        kv.get("user/7/demo/font").unwrap(),
+        Some(Value::Str(String::new()))
+    );
+}
+
+#[test]
+fn an_unread_option_set_and_then_cleared_is_deleted() {
+    let kv = Rc::new(MemKv::new(7));
+    kv.put("user/7/opt/count", Value::I64(3));
+    kv.fail_reads(true);
+    let settings: Settings<Optional> =
+        Settings::open(kv.as_ref(), "opt", Saver::Inline(kv.clone()));
+    kv.fail_reads(false);
+    settings.update(|p| p.count = Some(9));
+    assert!(kv.get("user/7/opt/count").unwrap().is_some());
+    settings.update(|p| p.count = None);
+    assert_eq!(kv.get("user/7/opt/count").unwrap(), None);
+}
+
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
 struct Optional {
     ratio: Option<f64>,

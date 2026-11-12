@@ -88,8 +88,10 @@ pub struct Settings<T> {
     template: Json,
     stored: RefCell<BTreeMap<String, Value>>,
     /// Keys whose read failed: the default is never written to them, so a
-    /// slow `confd` cannot make it overwrite the real value.
-    unread: BTreeSet<String>,
+    /// slow `confd` cannot make it overwrite the real value. A key leaves the
+    /// set once a value of the user's has been written to it, after which it
+    /// is an ordinary key (setting it back to the default saves it).
+    unread: RefCell<BTreeSet<String>>,
     sender: Sender,
 }
 
@@ -114,7 +116,7 @@ impl<T: Serialize + DeserializeOwned + Default> Settings<T> {
             value: Rc::new(RefCell::new(value)),
             template,
             stored: RefCell::new(stored),
-            unread,
+            unread: RefCell::new(unread),
         }
     }
 
@@ -173,14 +175,18 @@ impl<T: Serialize + DeserializeOwned + Default> Settings<T> {
 
     /// Drops the leaves of unreadable keys that still hold their default: a
     /// value the user changed since is theirs to write, the default is not.
+    /// A key whose leaf survives is being written now, so it is readable (as
+    /// far as the store goes) from then on.
     fn keep_unread_values(&self, leaves: &mut BTreeMap<String, Option<Value>>) {
-        if self.unread.is_empty() {
+        let mut unread = self.unread.borrow_mut();
+        if unread.is_empty() {
             return;
         }
         let mut defaults = BTreeMap::new();
         let prefix = self.prefix.as_deref().unwrap_or_default();
         encode(&self.template, &self.template, prefix, &mut defaults);
-        leaves.retain(|key, value| !self.unread.contains(key) || defaults.get(key) != Some(value));
+        leaves.retain(|key, value| !unread.contains(key) || defaults.get(key) != Some(value));
+        unread.retain(|key| !leaves.contains_key(key));
     }
 
     fn send(&self, changes: Vec<Change>) {
