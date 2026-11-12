@@ -291,7 +291,7 @@ pub const METHOD_SETTITLE: u32 = 29;
 pub const METHOD_SETTITLE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
 /// Whether a client resends `SetTitle` to a restarted service after the peer died
 /// handling it (`retry` in the `.midl`; `Never` unless stated).
-pub const METHOD_SETTITLE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
+pub const METHOD_SETTITLE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `HintOpenOrigin` method id.
 pub const METHOD_HINTOPENORIGIN: u32 = 30;
 /// How long a client waits for `HintOpenOrigin`'s reply: at most 500 ms (`deadline` in the `.midl`).
@@ -307,7 +307,7 @@ pub const METHOD_SETSIZEHINTS: u32 = 32;
 pub const METHOD_SETSIZEHINTS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
 /// Whether a client resends `SetSizeHints` to a restarted service after the peer died
 /// handling it (`retry` in the `.midl`; `Never` unless stated).
-pub const METHOD_SETSIZEHINTS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
+pub const METHOD_SETSIZEHINTS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Configure` method id.
 pub const METHOD_CONFIGURE: u32 = 33;
 /// `RequestSize` method id.
@@ -353,7 +353,7 @@ pub const METHOD_SETICONGEOMETRY: u32 = 40;
 pub const METHOD_SETICONGEOMETRY_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(2000);
 /// Whether a client resends `SetIconGeometry` to a restarted service after the peer died
 /// handling it (`retry` in the `.midl`; `Never` unless stated).
-pub const METHOD_SETICONGEOMETRY_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
+pub const METHOD_SETICONGEOMETRY_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `HintLaunchOrigin` method id.
 pub const METHOD_HINTLAUNCHORIGIN: u32 = 41;
 /// How long a client waits for `HintLaunchOrigin`'s reply: at most 2000 ms (`deadline` in the `.midl`).
@@ -394,7 +394,7 @@ pub const METHOD_SETCLOSEMODE: u32 = 48;
 pub const METHOD_SETCLOSEMODE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
 /// Whether a client resends `SetCloseMode` to a restarted service after the peer died
 /// handling it (`retry` in the `.midl`; `Never` unless stated).
-pub const METHOD_SETCLOSEMODE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
+pub const METHOD_SETCLOSEMODE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `ActivateApp` method id.
 pub const METHOD_ACTIVATEAPP: u32 = 49;
 /// How long a client waits for `ActivateApp`'s reply: at most 2000 ms (`deadline` in the `.midl`).
@@ -2581,7 +2581,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// event of kind `Title`. Clients that never call it keep the
     /// `CreateSurface` title, so old clients are unaffected.
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_title(&self, surface: u64, title: &str) -> Result<(), ClientError> {
         self.set_title_within(surface, title, METHOD_SETTITLE_DEADLINE)
     }
@@ -2636,7 +2636,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// clients are unaffected. The bounds apply to the content size (the
     /// decorated window is `BORDER` wider and `TITLE_H + BORDER` taller).
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_size_hints(&self, surface: u64, min_w: u32, min_h: u32, max_w: u32, max_h: u32) -> Result<(), ClientError> {
         self.set_size_hints_within(surface, min_w, min_h, max_w, max_h, METHOD_SETSIZEHINTS_DEADLINE)
     }
@@ -2765,7 +2765,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// to a small rectangle at the bottom-left of the screen. `ENOENT` for an
     /// unknown surface; an empty rectangle forgets the geometry.
     ///
-    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_icon_geometry(&self, surface: u64, x: i32, y: i32, w: i32, h: i32) -> Result<(), ClientError> {
         self.set_icon_geometry_within(surface, x, y, w, h, METHOD_SETICONGEOMETRY_DEADLINE)
     }
@@ -2892,7 +2892,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Calling `SetCloseMode` again changes nothing about that. A shutdown or
     /// logout never depends on it: `init` kills what is left.
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_close_mode(&self, surface: u64, ask: bool) -> Result<(), ClientError> {
         self.set_close_mode_within(surface, ask, METHOD_SETCLOSEMODE_DEADLINE)
     }
@@ -3192,25 +3192,25 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.attach_buffer(&cx, args.surface, args.pixels), |()| Ok(Vec::new()))
         }
         METHOD_COMMIT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_commit_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_commit_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.commit(&cx, args.surface, args.x, args.y, args.w, args.h), |()| Ok(Vec::new()))
         }
         METHOD_DESTROYSURFACE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_destroy_surface_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_destroy_surface_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.destroy_surface(&cx, args.surface), |()| Ok(Vec::new()))
         }
         METHOD_DRAGSTART if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_drag_start_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_drag_start_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.drag_start(&cx, args.surface, args.token, args.mime), |()| Ok(Vec::new()))
         }
         METHOD_DRAGCANCEL if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_drag_cancel_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_drag_cancel_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.drag_cancel(&cx, args.surface), |()| Ok(Vec::new()))
@@ -3237,68 +3237,68 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.attach_buffer_slot(&cx, args.surface, args.slot, args.pixels), |()| Ok(Vec::new()))
         }
         METHOD_PRESENT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_present_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_present_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             server.present(&cx, args.surface, args.slot, args.seq, args.damage);
             libmessenger::server::reply(id, method, Vec::new())
         }
         METHOD_SETTITLE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_title_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_title_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_title(&cx, args.surface, args.title), |()| Ok(Vec::new()))
         }
         METHOD_HINTOPENORIGIN if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_hint_open_origin_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_hint_open_origin_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.hint_open_origin(&cx, args.surface, args.x, args.y, args.w, args.h), |()| Ok(Vec::new()))
         }
         METHOD_SETSIZEHINTS if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_size_hints_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_size_hints_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_size_hints(&cx, args.surface, args.min_w, args.min_h, args.max_w, args.max_h), |()| Ok(Vec::new()))
         }
         METHOD_REQUESTSIZE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_request_size_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_request_size_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.request_size(&cx, args.surface, args.width, args.height), |()| Ok(Vec::new()))
         }
         METHOD_PLACESURFACE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_place_surface_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_place_surface_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.place_surface(&cx, args.surface, args.x, args.y), |()| Ok(Vec::new()))
         }
         METHOD_ACTIVATESURFACE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_activate_surface_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_activate_surface_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.activate_surface(&cx, args.surface), |()| Ok(Vec::new()))
         }
         METHOD_MINIMIZESURFACE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_minimize_surface_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_minimize_surface_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.minimize_surface(&cx, args.surface), |()| Ok(Vec::new()))
         }
         METHOD_SETWORKAREA if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_work_area_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_work_area_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_work_area(&cx, args.x, args.y, args.w, args.h), |()| Ok(Vec::new()))
         }
         METHOD_SETICONGEOMETRY if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_icon_geometry_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_icon_geometry_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_icon_geometry(&cx, args.surface, args.x, args.y, args.w, args.h), |()| Ok(Vec::new()))
         }
         METHOD_HINTLAUNCHORIGIN if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_hint_launch_origin_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_hint_launch_origin_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.hint_launch_origin(&cx, args.x, args.y, args.w, args.h), |()| Ok(Vec::new()))
@@ -3307,25 +3307,25 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.get_output(&cx), |value| encode_get_output_reply(&value))
         }
         METHOD_ALLOWPOPUP if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_allow_popup_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_allow_popup_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.allow_popup(&cx, args.task, args.token, args.x, args.y, args.w, args.h), |()| Ok(Vec::new()))
         }
         METHOD_GRABPANELKEYS if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_grab_panel_keys_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_grab_panel_keys_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.grab_panel_keys(&cx, args.grab), |()| Ok(Vec::new()))
         }
         METHOD_SETCLOSEMODE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_close_mode_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_close_mode_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_close_mode(&cx, args.surface, args.ask), |()| Ok(Vec::new()))
         }
         METHOD_ACTIVATEAPP if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_activate_app_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_activate_app_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.activate_app(&cx, args.label, args.session), |()| Ok(Vec::new()))

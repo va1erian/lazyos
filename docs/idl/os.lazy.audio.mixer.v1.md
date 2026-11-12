@@ -46,7 +46,7 @@ structured error field (see `services::error_field`): an unknown stream is
 | Method | Scope interface | Scope id | Deadline | Retry |
 |---|---|---|---|---|
 | ListStreams | this interface | - | 2000 ms | safe |
-| SetStreamVolume | this interface | - | 2000 ms | safe |
+| SetStreamVolume | this interface | - | 2000 ms | never |
 | GetMaster | this interface | - | 2000 ms | safe |
 | SetMaster | this interface | - | 2000 ms | safe |
 | ListOutputs | this interface | - | 2000 ms | safe |

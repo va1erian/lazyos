@@ -1582,61 +1582,61 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.detach(&cx), |()| Ok(Vec::new()))
         }
         METHOD_SETCOUNTRY if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_country_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_country_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_country(&cx, args.alpha2), |()| Ok(Vec::new()))
         }
         METHOD_SCAN if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_scan_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_scan_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.scan(&cx, args.request), |value| encode_scan_reply(&ScanReply { scan_id: value }))
         }
         METHOD_ABORTSCAN if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_abort_scan_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_abort_scan_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.abort_scan(&cx, args.scan_id), |()| Ok(Vec::new()))
         }
         METHOD_SCANRESULTS if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_scan_results_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_scan_results_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.scan_results(&cx, args.scan_id, args.first, args.max), |value| encode_scan_results_reply(&value))
         }
         METHOD_JOIN if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_join_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_join_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.join(&cx, args.request), |()| Ok(Vec::new()))
         }
         METHOD_TXMGMT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_tx_mgmt_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_tx_mgmt_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.tx_mgmt(&cx, args.kind, args.frame), |()| Ok(Vec::new()))
         }
         METHOD_SETSTATE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_state_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_state_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_state(&cx, args.state, args.aid), |()| Ok(Vec::new()))
         }
         METHOD_SETKEY if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_key_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_key_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_key(&cx, args.kind, args.index, args.cipher, args.key, args.rsc, args.addr), |()| Ok(Vec::new()))
         }
         METHOD_DELKEY if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_del_key_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_del_key_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.del_key(&cx, args.kind, args.index), |()| Ok(Vec::new()))
         }
         METHOD_LEAVE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_leave_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_leave_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.leave(&cx, args.reason), |()| Ok(Vec::new()))

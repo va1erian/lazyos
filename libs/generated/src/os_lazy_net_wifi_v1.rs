@@ -1111,43 +1111,43 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.interfaces(&cx), |value| encode_interfaces_reply(&InterfacesReply { names: value }))
         }
         METHOD_SCAN if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_scan_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_scan_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.scan(&cx, args.ifname, args.ssids), |()| Ok(Vec::new()))
         }
         METHOD_NETWORKS if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_networks_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_networks_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.networks(&cx, args.ifname), |value| encode_networks_reply(&NetworksReply { list: value }))
         }
         METHOD_ADDNETWORK if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_add_network_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_add_network_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.add_network(&cx, args.profile, args.passphrase), |value| encode_add_network_reply(&AddNetworkReply { id: value }))
         }
         METHOD_CONNECT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_connect_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_connect_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.connect(&cx, args.ifname, args.id), |()| Ok(Vec::new()))
         }
         METHOD_DISCONNECT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_disconnect_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_disconnect_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.disconnect(&cx, args.ifname), |()| Ok(Vec::new()))
         }
         METHOD_FORGET if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_forget_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_forget_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.forget(&cx, args.id), |()| Ok(Vec::new()))
         }
         METHOD_STATUS if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_status_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_status_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.status(&cx, args.ifname), |value| encode_status_reply(&StatusReply { status: value }))

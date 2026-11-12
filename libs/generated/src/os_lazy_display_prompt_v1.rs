@@ -161,7 +161,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
     let cx = message.caller();
     match method {
         METHOD_PROMPT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_prompt_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_prompt_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.prompt(&cx, args.summary, args.uid, args.user, args.label_id, args.admin, args.error), |value| encode_prompt_reply(&value))

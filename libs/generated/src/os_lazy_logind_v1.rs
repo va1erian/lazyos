@@ -771,7 +771,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.sessions(&cx), |value| encode_sessions_reply(&value))
         }
         METHOD_LOGIN if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_login_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_login_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.login(&cx, args.user, args.secret), |value| encode_login_reply(&LoginReply { session: value }))

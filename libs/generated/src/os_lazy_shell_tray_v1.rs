@@ -786,7 +786,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.set(&cx, args.item, args.events), |()| Ok(Vec::new()))
         }
         METHOD_UPDATE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_update_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_update_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.update(&cx, args.icon, args.tooltip, args.status, args.badge, args.menu), |()| Ok(Vec::new()))

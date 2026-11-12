@@ -217,7 +217,7 @@ pub const METHOD_DELETE: u32 = 1469573738;
 pub const METHOD_DELETE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(2000);
 /// Whether a client resends `Delete` to a restarted service after the peer died
 /// handling it (`retry` in the `.midl`; `Never` unless stated).
-pub const METHOD_DELETE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
+pub const METHOD_DELETE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `List` method id.
 pub const METHOD_LIST: u32 = 220805025;
 /// How long a client waits for `List`'s reply: at most 2000 ms (`deadline` in the `.midl`).
@@ -691,7 +691,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Remove `path`; deleting an absent path succeeds.
     ///
-    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn delete(&self, path: &str) -> Result<(), ClientError> {
         self.delete_within(path, METHOD_DELETE_DEADLINE)
     }
@@ -810,25 +810,25 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
     let cx = message.caller();
     match method {
         METHOD_GET if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_get_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_get_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.get(&cx, args.path), |value| encode_get_reply(&GetReply { value }))
         }
         METHOD_SET if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set(&cx, args.path, args.value), |()| Ok(Vec::new()))
         }
         METHOD_DELETE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_delete_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_delete_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.delete(&cx, args.path), |()| Ok(Vec::new()))
         }
         METHOD_LIST if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_list_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_list_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.list(&cx, args.prefix), |value| encode_list_reply(&ListReply { paths: value }))

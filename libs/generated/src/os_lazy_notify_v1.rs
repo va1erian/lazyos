@@ -591,13 +591,13 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
     let cx = message.caller();
     match method {
         METHOD_NOTIFY if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_notify_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_notify_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.notify(&cx, args.level, args.title, args.body, args.icon, args.actions, args.progress, args.replaces_id, args.timeout), |value| encode_notify_reply(&NotifyReply { id: value }))
         }
         METHOD_CLOSE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_close_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_close_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.close(&cx, args.id), |()| Ok(Vec::new()))

@@ -609,31 +609,31 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
     let cx = message.caller();
     match method {
         METHOD_OPEN if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_open_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_open_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.open(&cx, args.printer, args.user, args.ticket), |value| encode_open_reply(&OpenReply { job: value }))
         }
         METHOD_WRITE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_write_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_write_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.write(&cx, args.job, args.bytes), |()| Ok(Vec::new()))
         }
         METHOD_CLOSE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_close_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_close_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.close(&cx, args.job), |()| Ok(Vec::new()))
         }
         METHOD_CANCEL if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_cancel_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_cancel_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.cancel(&cx, args.job), |()| Ok(Vec::new()))
         }
         METHOD_STATUS if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_status_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_status_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.status(&cx, args.job), |value| encode_status_reply(&StatusReply { info: value }))

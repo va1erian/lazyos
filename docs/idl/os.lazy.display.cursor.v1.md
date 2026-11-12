@@ -32,7 +32,7 @@ error field (id 15) like the display interface's.
 
 | Method | Scope interface | Scope id | Deadline | Retry |
 |---|---|---|---|---|
-| SetCursor | this interface | - | 1000 ms | safe |
+| SetCursor | this interface | - | 1000 ms | never |
 
 ## enum `CursorShape`
 

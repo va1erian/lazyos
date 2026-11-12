@@ -1388,85 +1388,85 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
     let cx = message.caller();
     match method {
         METHOD_OPEN if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_open_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_open_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.open(&cx, args.kind), |value| encode_open_reply(&OpenReply { sock: value }))
         }
         METHOD_BIND if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_bind_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_bind_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.bind(&cx, args.sock, args.addr), |()| Ok(Vec::new()))
         }
         METHOD_CONNECT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_connect_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_connect_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.connect(&cx, args.sock, args.addr, args.timeout_ms), |()| Ok(Vec::new()))
         }
         METHOD_LISTEN if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_listen_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_listen_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.listen(&cx, args.sock, args.backlog), |()| Ok(Vec::new()))
         }
         METHOD_ACCEPT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_accept_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_accept_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.accept(&cx, args.sock, args.timeout_ms), |value| encode_accept_reply(&value))
         }
         METHOD_SEND if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_send_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_send_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.send(&cx, args.sock, args.data, args.timeout_ms), |value| encode_send_reply(&SendReply { sent: value }))
         }
         METHOD_RECV if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_recv_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_recv_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.recv(&cx, args.sock, args.max, args.timeout_ms), |value| encode_recv_reply(&RecvReply { data: value }))
         }
         METHOD_SENDTO if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_send_to_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_send_to_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.send_to(&cx, args.sock, args.addr, args.data), |value| encode_send_to_reply(&SendToReply { sent: value }))
         }
         METHOD_RECVFROM if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_recv_from_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_recv_from_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.recv_from(&cx, args.sock, args.max, args.timeout_ms), |value| encode_recv_from_reply(&value))
         }
         METHOD_POLL if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_poll_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_poll_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.poll(&cx, args.sock, args.interest, args.timeout_ms), |value| encode_poll_reply(&PollReply { ready: value }))
         }
         METHOD_SHUTDOWN if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_shutdown_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_shutdown_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.shutdown(&cx, args.sock, args.how), |()| Ok(Vec::new()))
         }
         METHOD_LOCALADDR if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_local_addr_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_local_addr_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.local_addr(&cx, args.sock), |value| encode_local_addr_reply(&LocalAddrReply { addr: value }))
         }
         METHOD_PEERADDR if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_peer_addr_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_peer_addr_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.peer_addr(&cx, args.sock), |value| encode_peer_addr_reply(&PeerAddrReply { addr: value }))
         }
         METHOD_CLOSE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_close_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_close_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.close(&cx, args.sock), |()| Ok(Vec::new()))

@@ -29,7 +29,7 @@ Change notifications are best-effort: a subscriber observes
 |---|---|---|---|---|
 | Get | this interface | - | 2000 ms | safe |
 | Set | this interface | - | 2000 ms | safe |
-| Delete | this interface | - | 2000 ms | safe |
+| Delete | this interface | - | 2000 ms | never |
 | List | this interface | - | 2000 ms | safe |
 | Info | this interface | - | 2000 ms | safe |
 

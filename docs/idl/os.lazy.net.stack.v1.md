@@ -47,7 +47,7 @@ when the resolver replies, `ETIMEDOUT` when `timeout_ms` passes.
 | Addresses | this interface | - | 500 ms | safe |
 | Routes | this interface | - | 500 ms | safe |
 | Stats | this interface | - | 500 ms | safe |
-| Ping | this interface | - | 5000 ms | safe |
+| Ping | this interface | - | 5000 ms | never |
 | Resolve | this interface | - | 5000 ms | safe |
 | Renew | this interface | - | 500 ms | never |
 | Reattach | this interface | - | 5000 ms | never |

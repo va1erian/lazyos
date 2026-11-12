@@ -309,7 +309,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
     let cx = message.caller();
     match method {
         METHOD_ECHO if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_echo_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_echo_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.echo(&cx, args.text, args.count), |value| encode_echo_reply(&EchoReply { reply: value }))
@@ -318,7 +318,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.ping(&cx), |value| encode_ping_reply(&PingReply { alive: value }))
         }
         METHOD_NOTIFY if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_notify_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_notify_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             server.notify(&cx, args.event);

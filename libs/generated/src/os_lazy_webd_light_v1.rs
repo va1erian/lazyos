@@ -1238,7 +1238,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.create_view(&cx, args.config, args.width, args.height, args.events), |value| encode_create_view_reply(&CreateViewReply { view: value }))
         }
         METHOD_DESTROYVIEW if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_destroy_view_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_destroy_view_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.destroy_view(&cx, args.view), |()| Ok(Vec::new()))
@@ -1250,27 +1250,27 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.attach_slot(&cx, args.view, args.slot, args.pixels), |()| Ok(Vec::new()))
         }
         METHOD_RELEASESLOT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_release_slot_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_release_slot_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             server.release_slot(&cx, args.view, args.slot);
             libmessenger::server::reply(id, method, Vec::new())
         }
         METHOD_RESIZE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_resize_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_resize_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.resize(&cx, args.view, args.width, args.height), |()| Ok(Vec::new()))
         }
         METHOD_SETVISIBLE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_visible_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_visible_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             server.set_visible(&cx, args.view, args.visible);
             libmessenger::server::reply(id, method, Vec::new())
         }
         METHOD_REFRESH if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_refresh_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_refresh_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             server.refresh(&cx, args.view);
@@ -1283,28 +1283,28 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.load_html(&cx, args.view, args.html, args.base_url), |()| Ok(Vec::new()))
         }
         METHOD_MOUSE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_mouse_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_mouse_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             server.mouse(&cx, args.view, args.kind, args.button, args.x, args.y, args.mods);
             libmessenger::server::reply(id, method, Vec::new())
         }
         METHOD_WHEEL if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_wheel_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_wheel_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             server.wheel(&cx, args.view, args.x, args.y, args.ticks_x, args.ticks_y, args.mods, args.seq);
             libmessenger::server::reply(id, method, Vec::new())
         }
         METHOD_KEY if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_key_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_key_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             server.key(&cx, args.view, args.press, args.keysym, args.text, args.mods);
             libmessenger::server::reply(id, method, Vec::new())
         }
         METHOD_FOCUS if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_focus_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_focus_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             server.focus(&cx, args.view, args.focused);

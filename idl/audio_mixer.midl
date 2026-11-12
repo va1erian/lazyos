@@ -28,7 +28,7 @@ interface os.lazy.audio.mixer.v1 {
     /// Every open stream, in opening order.
     method ListStreams() -> (streams: Array<StreamStatus> = 1) retry=safe;
     /// Set one stream's gain and mute flag, whoever owns it.
-    method SetStreamVolume(stream: U32 = 1, gain_q16: U32 = 2, mute: Bool = 3) -> () retry=safe;
+    method SetStreamVolume(stream: U32 = 1, gain_q16: U32 = 2, mute: Bool = 3) -> () retry=never;
     /// The master gain, the mute flag and what the card runs at.
     method GetMaster() -> (master: Master = 1) retry=safe;
     /// Set the master gain and mute flag, applied after mixing.

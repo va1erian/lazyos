@@ -50,7 +50,7 @@ pub const METHOD_SETCURSOR: u32 = 1;
 pub const METHOD_SETCURSOR_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
 /// Whether a client resends `SetCursor` to a restarted service after the peer died
 /// handling it (`retry` in the `.midl`; `Never` unless stated).
-pub const METHOD_SETCURSOR_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
+pub const METHOD_SETCURSOR_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 
 /// Set the shape shown while the pointer is over `surface`'s content. The
 /// caller must own the surface (`EACCES` otherwise); an unknown surface is
@@ -141,7 +141,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// The shape stays until the next call or until the surface goes away;
     /// `Default` restores the arrow.
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_cursor(&self, surface: u64, shape: u32) -> Result<(), ClientError> {
         self.set_cursor_within(surface, shape, METHOD_SETCURSOR_DEADLINE)
     }
@@ -186,7 +186,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
     let cx = message.caller();
     match method {
         METHOD_SETCURSOR if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_cursor_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_cursor_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_cursor(&cx, args.surface, args.shape), |()| Ok(Vec::new()))

@@ -14,6 +14,7 @@ from midlc_decls import (
     parse_default,
     parse_policy_attr,
     apply_default_policy,
+    validate_retry_objects,
     parse_errors,
     parse_scope,
     parse_service,
@@ -405,6 +406,7 @@ def validate(interface: Interface) -> None:
     validate_rings(interface, claim)
     validate_errors(interface)
     apply_default_policy(interface)
+    validate_retry_objects(interface)
 
 
 def validate_topics(interface: Interface, named: set[str], claim, holding: set[str] = frozenset()) -> None:

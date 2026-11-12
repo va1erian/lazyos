@@ -106,20 +106,20 @@ fields, which never use that id.
 | Subscribe | this interface | - | 2000 ms | never |
 | GetTheme | this interface | - | 5000 ms | safe |
 | AttachBufferSlot | this interface | - | 1000 ms | never |
-| SetTitle | this interface | - | 1000 ms | safe |
+| SetTitle | this interface | - | 1000 ms | never |
 | HintOpenOrigin | this interface | - | 500 ms | never |
-| SetSizeHints | this interface | - | 1000 ms | safe |
+| SetSizeHints | this interface | - | 1000 ms | never |
 | RequestSize | this interface | - | 1000 ms | never |
 | PlaceSurface | this interface | - | 2000 ms | never |
 | ActivateSurface | this interface | - | 2000 ms | never |
 | MinimizeSurface | this interface | - | 2000 ms | never |
 | SetWorkArea | this interface | - | 2000 ms | safe |
-| SetIconGeometry | this interface | - | 2000 ms | safe |
+| SetIconGeometry | this interface | - | 2000 ms | never |
 | HintLaunchOrigin | this interface | - | 2000 ms | never |
 | GetOutput | this interface | - | 500 ms | safe |
 | AllowPopup | this interface | - | 5000 ms | never |
 | GrabPanelKeys | this interface | - | 2000 ms | never |
-| SetCloseMode | this interface | - | 1000 ms | safe |
+| SetCloseMode | this interface | - | 1000 ms | never |
 | ActivateApp | this interface | - | 2000 ms | never |
 
 ## Objects

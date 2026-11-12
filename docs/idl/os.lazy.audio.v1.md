@@ -81,8 +81,8 @@ declared reply fields.
 | Drain | this interface | - | 5000 ms | never |
 | Position | this interface | - | 5000 ms | safe |
 | CloseStream | this interface | - | 5000 ms | never |
-| SetVolume | this interface | - | 5000 ms | safe |
-| SetMute | this interface | - | 5000 ms | safe |
+| SetVolume | this interface | - | 5000 ms | never |
+| SetMute | this interface | - | 5000 ms | never |
 
 ## Objects
 

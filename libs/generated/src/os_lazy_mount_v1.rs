@@ -722,13 +722,13 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
     let cx = message.caller();
     match method {
         METHOD_MOUNT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_mount_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_mount_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.mount(&cx, args.name, args.host, args.port, args.user, args.password, args.kind, args.share), |value| encode_mount_reply(&MountReply { path: value }))
         }
         METHOD_UNMOUNT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_unmount_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_unmount_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.unmount(&cx, args.name), |()| Ok(Vec::new()))
@@ -740,7 +740,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.volumes(&cx), |value| encode_volumes_reply(&VolumesReply { volumes: value }))
         }
         METHOD_EJECT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_eject_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_eject_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.eject(&cx, args.disk, args.force), |value| encode_eject_reply(&value))

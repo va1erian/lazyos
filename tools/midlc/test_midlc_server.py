@@ -41,7 +41,15 @@ class ServerTests(unittest.TestCase):
     def test_objects_are_claimed_by_the_decoder(self) -> None:
         text = server_text("os.lazy.demo.v1")
         self.assertIn("message.decode(decode_hand_args)", text)
-        self.assertIn("message.decode(|body, _| decode_get_args(body))", text)
+        self.assertIn("message.decode(libmessenger::server::no_objects(decode_get_args))", text)
+
+    def test_error_sentences_are_escaped_as_rust_string_literals(self) -> None:
+        from midlc_model import ErrorCode
+
+        interface = parse()["os.lazy.demo.v1"]
+        interface.errors = [ErrorCode("Odd", 9, 'a \\ b "c"')]
+        text = "\n".join(emit_server(interface))
+        self.assertIn("ServiceError::Odd => \"a \\\\ b 'c'\"", text)
 
     def test_a_scoped_method_matches_its_scope_id(self) -> None:
         text = server_text("os.lazy.demo.v1")

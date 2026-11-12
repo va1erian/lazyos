@@ -604,13 +604,13 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.get_zone(&cx), |value| encode_get_zone_reply(&GetZoneReply { name: value }))
         }
         METHOD_SETZONE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_zone_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_zone_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_zone(&cx, args.name), |()| Ok(Vec::new()))
         }
         METHOD_SETTIME if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_time_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_time_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_time(&cx, args.unix_secs), |()| Ok(Vec::new()))

@@ -1282,43 +1282,43 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.attach(&cx, args.events), |()| Ok(Vec::new()))
         }
         METHOD_SETFOCUS if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_focus_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_focus_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_focus(&cx, args.surface), |()| Ok(Vec::new()))
         }
         METHOD_REGISTERSURFACE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_register_surface_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_register_surface_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.register_surface(&cx, args.surface, args.owner), |()| Ok(Vec::new()))
         }
         METHOD_UNREGISTERSURFACE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_unregister_surface_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_unregister_surface_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.unregister_surface(&cx, args.surface), |()| Ok(Vec::new()))
         }
         METHOD_REGISTERHOTKEY if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_register_hotkey_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_register_hotkey_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.register_hotkey(&cx, args.code, args.mods), |value| encode_register_hotkey_reply(&RegisterHotkeyReply { id: value }))
         }
         METHOD_UNREGISTERHOTKEY if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_unregister_hotkey_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_unregister_hotkey_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.unregister_hotkey(&cx, args.id), |()| Ok(Vec::new()))
         }
         METHOD_APPROVEGRANT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_approve_grant_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_approve_grant_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.approve_grant(&cx, args.session, args.allow), |()| Ok(Vec::new()))
         }
         METHOD_SETBOUNDS if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_bounds_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_bounds_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_bounds(&cx, args.width, args.height), |()| Ok(Vec::new()))
@@ -1327,42 +1327,42 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.get_pointer(&cx), |value| encode_get_pointer_reply(&value))
         }
         METHOD_NOTEFOCUS if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_note_focus_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_note_focus_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             server.note_focus(&cx, args.surface);
             libmessenger::server::reply(id, method, Vec::new())
         }
         METHOD_NOTESURFACE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_note_surface_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_note_surface_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             server.note_surface(&cx, args.surface, args.owner);
             libmessenger::server::reply(id, method, Vec::new())
         }
         METHOD_FORGETSURFACE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_forget_surface_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_forget_surface_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             server.forget_surface(&cx, args.surface);
             libmessenger::server::reply(id, method, Vec::new())
         }
         METHOD_NOTEINPUTDONE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_note_input_done_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_note_input_done_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             server.note_input_done(&cx, args.seq);
             libmessenger::server::reply(id, method, Vec::new())
         }
         METHOD_NOTEKEYSHELD if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_note_keys_held_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_note_keys_held_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             server.note_keys_held(&cx, args.held);
             libmessenger::server::reply(id, method, Vec::new())
         }
         METHOD_NOTESESSIONLAYOUT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_note_session_layout_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_note_session_layout_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             server.note_session_layout(&cx, args.layout);

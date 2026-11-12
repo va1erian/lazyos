@@ -235,7 +235,7 @@ pub const METHOD_SETSTREAMVOLUME: u32 = 953940373;
 pub const METHOD_SETSTREAMVOLUME_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(2000);
 /// Whether a client resends `SetStreamVolume` to a restarted service after the peer died
 /// handling it (`retry` in the `.midl`; `Never` unless stated).
-pub const METHOD_SETSTREAMVOLUME_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
+pub const METHOD_SETSTREAMVOLUME_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `GetMaster` method id.
 pub const METHOD_GETMASTER: u32 = 1362695053;
 /// How long a client waits for `GetMaster`'s reply: at most 2000 ms (`deadline` in the `.midl`).
@@ -510,7 +510,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Set one stream's gain and mute flag, whoever owns it.
     ///
-    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_stream_volume(&self, stream: u32, gain_q16: u32, mute: bool) -> Result<(), ClientError> {
         self.set_stream_volume_within(stream, gain_q16, mute, METHOD_SETSTREAMVOLUME_DEADLINE)
     }
@@ -649,7 +649,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.list_streams(&cx), |value| encode_list_streams_reply(&ListStreamsReply { streams: value }))
         }
         METHOD_SETSTREAMVOLUME if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_stream_volume_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_stream_volume_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_stream_volume(&cx, args.stream, args.gain_q16, args.mute), |()| Ok(Vec::new()))
@@ -658,7 +658,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.get_master(&cx), |value| encode_get_master_reply(&GetMasterReply { master: value }))
         }
         METHOD_SETMASTER if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_master_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_master_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_master(&cx, args.gain_q16, args.mute), |()| Ok(Vec::new()))
@@ -667,7 +667,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.list_outputs(&cx), |value| encode_list_outputs_reply(&ListOutputsReply { outputs: value }))
         }
         METHOD_SELECTOUTPUT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_select_output_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_select_output_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.select_output(&cx, args.id), |()| Ok(Vec::new()))

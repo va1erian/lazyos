@@ -20,7 +20,7 @@ interface os.lazy.display.cursor.v1 {
     /// `ENOENT` and a `shape` that is not a `CursorShape` value is `EINVAL`.
     /// The shape stays until the next call or until the surface goes away;
     /// `Default` restores the arrow.
-    method SetCursor(surface: U64 = 1, shape: CursorShape = 2) -> () = 1 deadline=1s retry=safe;
+    method SetCursor(surface: U64 = 1, shape: CursorShape = 2) -> () = 1 deadline=1s retry=never;
 
     /// A pointer shape. Numeric values are the wire values and stay
     /// append-only; `libs/cursorgfx` draws each one.

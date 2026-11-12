@@ -326,6 +326,19 @@ fn a_request_missing_its_object_is_refused_and_keeps_it_for_the_message_to_close
 }
 
 #[test]
+fn an_object_sent_to_a_method_without_objects_is_refused_and_stays_unclaimed() {
+    let body = timed::encode_set_zone_args(&timed::SetZoneArgs { name: "UTC".into() }).unwrap();
+    let message = Msg::new(timed::INTERFACE_ID, timed::METHOD_SETZONE, body);
+    *message.objects.borrow_mut() = vec![Object::Buffer(5)];
+    let mut clock = Clock::default();
+    let reply = timed::dispatch(&mut clock, &message);
+    assert_eq!(error_of(&reply).0 as i64, Errno::INVAL.number());
+    assert!(clock.zone.is_empty(), "the handler must not run");
+    // Still held by the message, which releases them when it drops.
+    assert_eq!(message.objects.borrow().len(), 1);
+}
+
+#[test]
 fn a_scoped_method_answers_on_its_scope_id_only() {
     let body = clipboard::encode_request_args(&clipboard::RequestArgs {
         token: 1,

@@ -517,7 +517,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
     let cx = message.caller();
     match method {
         METHOD_TAIL if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_tail_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_tail_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.tail(&cx, args.count), |value| encode_tail_reply(&TailReply { records: value }))
@@ -532,7 +532,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.sources(&cx), |value| encode_sources_reply(&SourcesReply { sources: value }))
         }
         METHOD_TAILFILE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_tail_file_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_tail_file_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.tail_file(&cx, args.source, args.count), |value| encode_tail_file_reply(&TailFileReply { lines: value }))

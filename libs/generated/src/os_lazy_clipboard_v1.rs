@@ -1133,7 +1133,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
     let cx = message.caller();
     match method {
         METHOD_OFFER if id == METHOD_OFFER_SCOPE => {
-            let Ok(args) = message.decode(|body, _| decode_offer_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_offer_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.offer(&cx, args.owner, args.sink, args.mimes, args.data), |value| encode_offer_reply(&OfferReply { token: value }))
@@ -1145,7 +1145,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.offer_buffer(&cx, args.owner, args.mime, args.data), |value| encode_offer_buffer_reply(&OfferBufferReply { token: value }))
         }
         METHOD_REQUEST if id == METHOD_REQUEST_SCOPE => {
-            let Ok(args) = message.decode(|body, _| decode_request_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_request_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.request(&cx, args.token, args.mime), |value| encode_request_reply(&value))
@@ -1157,7 +1157,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.fetch(&cx, args.token, args.mime, args.into), |value| encode_fetch_reply(&FetchReply { written: value }))
         }
         METHOD_SERIALIZE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_serialize_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_serialize_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.serialize(&cx, args.token, args.mime), |value| encode_serialize_reply(&SerializeReply { bytes: value }))

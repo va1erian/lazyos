@@ -373,7 +373,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
     let cx = message.caller();
     match method {
         METHOD_REQUEST if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_request_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_request_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.request(&cx, args.operation, args.args), |value| encode_request_reply(&value))

@@ -639,7 +639,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.attach(&cx, args.staging), |()| Ok(Vec::new()))
         }
         METHOD_CONFIGURE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_configure_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_configure_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.configure(&cx, args.rate), |value| encode_configure_reply(&ConfigureReply { granted: value }))
@@ -654,7 +654,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.release(&cx), |()| Ok(Vec::new()))
         }
         METHOD_SUBMIT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_submit_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_submit_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.submit(&cx, args.slot, args.offset, args.len), |()| Ok(Vec::new()))

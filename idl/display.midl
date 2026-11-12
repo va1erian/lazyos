@@ -155,7 +155,7 @@ interface os.lazy.display.v1 {
     /// overflow its own chrome. A change sends the shell a `SurfaceChanged`
     /// event of kind `Title`. Clients that never call it keep the
     /// `CreateSurface` title, so old clients are unaffected.
-    method SetTitle(surface: U64 = 1, title: String = 2) -> () = 29 deadline=1s retry=safe;
+    method SetTitle(surface: U64 = 1, title: String = 2) -> () = 29 deadline=1s retry=never;
     /// Hint where the *next* `CreateSurface` from this task should open from:
     /// a rectangle `(x, y, w, h)` relative to the content origin of `surface`
     /// (which the caller must own; `EACCES` otherwise, `ENOENT` for an unknown
@@ -184,7 +184,7 @@ interface os.lazy.display.v1 {
     /// window is fixed-size: no resize edges and no maximize button, so old
     /// clients are unaffected. The bounds apply to the content size (the
     /// decorated window is `BORDER` wider and `TITLE_H + BORDER` taller).
-    method SetSizeHints(surface: U64 = 1, min_w: U32 = 2, min_h: U32 = 3, max_w: U32 = 4, max_h: U32 = 5) -> () = 32 deadline=1s retry=safe;
+    method SetSizeHints(surface: U64 = 1, min_w: U32 = 2, min_h: U32 = 3, max_w: U32 = 4, max_h: U32 = 5) -> () = 32 deadline=1s retry=never;
     /// Event: the window manager changed the surface's content size to
     /// `width` x `height` (`state` is a `WindowState`). The client should
     /// attach buffer(s) of the new size (`AttachBuffer`, or `AttachBufferSlot`
@@ -238,7 +238,7 @@ interface os.lazy.display.v1 {
     /// minimize/restore zoom flies to and from it. A window without one zooms
     /// to a small rectangle at the bottom-left of the screen. `ENOENT` for an
     /// unknown surface; an empty rectangle forgets the geometry.
-    method SetIconGeometry(surface: U64 = 1, x: I32 = 2, y: I32 = 3, w: I32 = 4, h: I32 = 5) -> () = 40 deadline=2s retry=safe;
+    method SetIconGeometry(surface: U64 = 1, x: I32 = 2, y: I32 = 3, w: I32 = 4, h: I32 = 5) -> () = 40 deadline=2s retry=never;
     /// Shell-only: the next window *any* task creates within about two seconds
     /// zooms open from this screen rectangle (the start-menu row or desktop
     /// icon the user just activated) instead of from its taskbar entry. The
@@ -295,7 +295,7 @@ interface os.lazy.display.v1 {
     /// only a close more than 30 s after the last one is passed on again.
     /// Calling `SetCloseMode` again changes nothing about that. A shutdown or
     /// logout never depends on it: `init` kills what is left.
-    method SetCloseMode(surface: U64 = 1, ask: Bool = 2) -> () = 48 deadline=1s retry=safe;
+    method SetCloseMode(surface: U64 = 1, ask: Bool = 2) -> () = 48 deadline=1s retry=never;
     /// Shell-only: restore, raise and focus every window created by a program
     /// running under the package label `label` in `session`, the one that was
     /// topmost ending up focused (a click on one of that app's notifications:

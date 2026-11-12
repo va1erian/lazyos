@@ -273,14 +273,14 @@ pub const METHOD_SETVOLUME: u32 = 1919741053;
 pub const METHOD_SETVOLUME_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
 /// Whether a client resends `SetVolume` to a restarted service after the peer died
 /// handling it (`retry` in the `.midl`; `Never` unless stated).
-pub const METHOD_SETVOLUME_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
+pub const METHOD_SETVOLUME_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `SetMute` method id.
 pub const METHOD_SETMUTE: u32 = 1285443642;
 /// How long a client waits for `SetMute`'s reply: at most 5000 ms (`deadline` in the `.midl`).
 pub const METHOD_SETMUTE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
 /// Whether a client resends `SetMute` to a restarted service after the peer died
 /// handling it (`retry` in the `.midl`; `Never` unless stated).
-pub const METHOD_SETMUTE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
+pub const METHOD_SETMUTE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 
 /// Describe the card: stream count and the formats, rates and channel
 /// counts it accepts.
@@ -1067,7 +1067,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// saturate instead of wrapping. A driver that cannot scale the granted
     /// format fails with `ENOTSUP`.
     ///
-    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_volume(&self, stream: u32, gain_q16: u32) -> Result<(), ClientError> {
         self.set_volume_within(stream, gain_q16, METHOD_SETVOLUME_DEADLINE)
     }
@@ -1086,7 +1086,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Silence the stream (`mute`) or restore its volume, without losing it.
     /// A muted stream keeps consuming and its position keeps moving.
     ///
-    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_mute(&self, stream: u32, mute: bool) -> Result<(), ClientError> {
         self.set_mute_within(stream, mute, METHOD_SETMUTE_DEADLINE)
     }
@@ -1174,7 +1174,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.info(&cx), |value| encode_info_reply(&InfoReply { info: value }))
         }
         METHOD_OPENSTREAM if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_open_stream_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_open_stream_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.open_stream(&cx, args.dir, args.format, args.rate, args.channels, args.period_bytes), |value| encode_open_stream_reply(&OpenStreamReply { grant: value }))
@@ -1186,49 +1186,49 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.attach_ring(&cx, args.stream, args.ring), |()| Ok(Vec::new()))
         }
         METHOD_COMMIT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_commit_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_commit_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.commit(&cx, args.stream, args.written_frames), |value| encode_commit_reply(&CommitReply { consumed: value }))
         }
         METHOD_START if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_start_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_start_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.start(&cx, args.stream), |value| encode_start_reply(&StartReply { ok: value }))
         }
         METHOD_STOP if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_stop_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_stop_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.stop(&cx, args.stream), |value| encode_stop_reply(&StopReply { ok: value }))
         }
         METHOD_DRAIN if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_drain_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_drain_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.drain(&cx, args.stream), |value| encode_drain_reply(&DrainReply { ok: value }))
         }
         METHOD_POSITION if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_position_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_position_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.position(&cx, args.stream), |value| encode_position_reply(&PositionReply { frames: value }))
         }
         METHOD_CLOSESTREAM if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_close_stream_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_close_stream_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.close_stream(&cx, args.stream), |()| Ok(Vec::new()))
         }
         METHOD_SETVOLUME if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_volume_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_volume_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_volume(&cx, args.stream, args.gain_q16), |()| Ok(Vec::new()))
         }
         METHOD_SETMUTE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_mute_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_mute_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_mute(&cx, args.stream, args.mute), |()| Ok(Vec::new()))

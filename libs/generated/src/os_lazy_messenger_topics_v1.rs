@@ -1052,31 +1052,31 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
     let cx = message.caller();
     match method {
         METHOD_PUBLISH if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_publish_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_publish_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.publish(&cx, args.topic, args.payload, args.retained), |value| encode_publish_reply(&PublishReply { matched: value }))
         }
         METHOD_SUBSCRIBE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_subscribe_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_subscribe_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.subscribe(&cx, args.filter, args.qos, args.depth), |value| encode_subscribe_reply(&SubscribeReply { subscription: value }))
         }
         METHOD_UNSUBSCRIBE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_unsubscribe_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_unsubscribe_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.unsubscribe(&cx, args.subscription), |()| Ok(Vec::new()))
         }
         METHOD_NEXTEVENT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_next_event_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_next_event_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.next_event(&cx, args.subscription), |value| encode_next_event_reply(&NextEventReply { event: value }))
         }
         METHOD_ACK if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_ack_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_ack_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.ack(&cx, args.subscription, args.sequence), |()| Ok(Vec::new()))
@@ -1085,7 +1085,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.list_topics(&cx), |value| encode_list_topics_reply(&ListTopicsReply { topics: value }))
         }
         METHOD_STATS if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_stats_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_stats_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.stats(&cx, args.subscription), |value| encode_stats_reply(&StatsReply { stats: value }))

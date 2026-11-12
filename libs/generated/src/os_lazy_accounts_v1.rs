@@ -754,37 +754,37 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
     let cx = message.caller();
     match method {
         METHOD_LOOKUP if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_lookup_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_lookup_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.lookup(&cx, args.name, args.uid), |value| encode_lookup_reply(&value))
         }
         METHOD_AUTHENTICATE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_authenticate_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_authenticate_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.authenticate(&cx, args.name, args.secret), |value| encode_authenticate_reply(&AuthenticateReply { ok: value }))
         }
         METHOD_CREATE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_create_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_create_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.create(&cx, args.name, args.secret, args.admin), |value| encode_create_reply(&CreateReply { user: value }))
         }
         METHOD_DELETE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_delete_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_delete_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.delete(&cx, args.name, args.home), |()| Ok(Vec::new()))
         }
         METHOD_SETPASSWORD if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_password_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_password_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_password(&cx, args.name, args.old, args.secret), |()| Ok(Vec::new()))
         }
         METHOD_SETADMIN if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_admin_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_admin_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_admin(&cx, args.name, args.admin), |()| Ok(Vec::new()))

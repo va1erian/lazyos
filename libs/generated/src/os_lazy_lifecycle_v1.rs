@@ -81,7 +81,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
     let cx = message.caller();
     match method {
         METHOD_SHUTDOWN if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_shutdown_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_shutdown_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             server.shutdown(&cx, args.reason);

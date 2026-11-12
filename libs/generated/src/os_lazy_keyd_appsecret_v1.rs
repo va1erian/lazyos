@@ -344,19 +344,19 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
     let cx = message.caller();
     match method {
         METHOD_PUT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_put_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_put_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.put(&cx, args.name, args.secret), |()| Ok(Vec::new()))
         }
         METHOD_GET if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_get_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_get_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.get(&cx, args.name), |value| encode_get_reply(&GetReply { secret: value }))
         }
         METHOD_DELETE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_delete_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_delete_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.delete(&cx, args.name), |()| Ok(Vec::new()))

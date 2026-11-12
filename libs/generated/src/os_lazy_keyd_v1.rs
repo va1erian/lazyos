@@ -1467,37 +1467,37 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
     let cx = message.caller();
     match method {
         METHOD_VERIFY if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_verify_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_verify_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.verify(&cx, args.user, args.secret), |value| encode_verify_reply(&VerifyReply { ok: value }))
         }
         METHOD_SIGN if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_sign_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_sign_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.sign(&cx, args.key, args.digest), |value| encode_sign_reply(&SignReply { tag: value }))
         }
         METHOD_WRAP if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_wrap_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_wrap_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.wrap(&cx, args.key, args.plaintext), |value| encode_wrap_reply(&WrapReply { blob: value }))
         }
         METHOD_UNWRAP if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_unwrap_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_unwrap_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.unwrap(&cx, args.key, args.blob), |value| encode_unwrap_reply(&UnwrapReply { plaintext: value }))
         }
         METHOD_RANDOM if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_random_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_random_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.random(&cx, args.len), |value| encode_random_reply(&RandomReply { bytes: value }))
         }
         METHOD_GENERATE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_generate_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_generate_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.generate(&cx, args.kind), |value| encode_generate_reply(&GenerateReply { id: value }))
@@ -1509,55 +1509,55 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.ping(&cx), |()| Ok(Vec::new()))
         }
         METHOD_PROVISION if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_provision_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_provision_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.provision(&cx, args.user, args.secret), |value| encode_provision_reply(&ProvisionReply { verifier: value }))
         }
         METHOD_FORGET if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_forget_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_forget_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.forget(&cx, args.user), |()| Ok(Vec::new()))
         }
         METHOD_RESTORE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_restore_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_restore_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.restore(&cx, args.user, args.verifier), |()| Ok(Vec::new()))
         }
         METHOD_STORESECRET if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_store_secret_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_store_secret_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.store_secret(&cx, args.scope, args.name, args.secret), |()| Ok(Vec::new()))
         }
         METHOD_DELETESECRET if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_delete_secret_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_delete_secret_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.delete_secret(&cx, args.scope, args.name), |()| Ok(Vec::new()))
         }
         METHOD_LISTSECRETS if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_list_secrets_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_list_secrets_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.list_secrets(&cx, args.scope), |value| encode_list_secrets_reply(&ListSecretsReply { names: value }))
         }
         METHOD_WIFIPMK if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_wifi_pmk_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_wifi_pmk_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.wifi_pmk(&cx, args.scope, args.name, args.ssid, args.owner), |value| encode_wifi_pmk_reply(&WifiPmkReply { pmk: value }))
         }
         METHOD_STORESECRETFOR if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_store_secret_for_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_store_secret_for_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.store_secret_for(&cx, args.scope, args.name, args.secret, args.owner), |()| Ok(Vec::new()))
         }
         METHOD_DELETESECRETFOR if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_delete_secret_for_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_delete_secret_for_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.delete_secret_for(&cx, args.scope, args.name, args.owner), |()| Ok(Vec::new()))

@@ -91,7 +91,7 @@ interface os.lazy.init.v1 {
     /// `/home/.archived/<name>-<uid>`, root-only) or `remove`. `uid` must be a
     /// human account's (1000 or more) and `name` a login name. The reply
     /// comes once the change is done; a failed change is `EIO`.
-    method Home(op: String = 1, name: String = 2, uid: U32 = 3, gid: U32 = 4) -> () retry=safe;
+    method Home(op: String = 1, name: String = 2, uid: U32 = 3, gid: U32 = 4) -> () retry=never;
 
     /// Restart the system service `name` (docs/accounts-plan.md U2): its
     /// running task is killed and the supervisor starts it again as after a

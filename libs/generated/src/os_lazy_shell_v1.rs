@@ -600,13 +600,13 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.status(&cx), |value| encode_status_reply(&value))
         }
         METHOD_SHOWSTARTMENU if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_show_start_menu_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_show_start_menu_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.show_start_menu(&cx, args.open), |()| Ok(Vec::new()))
         }
         METHOD_LAUNCH if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_launch_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_launch_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.launch(&cx, args.app), |value| encode_launch_reply(&LaunchReply { pid: value }))
@@ -615,7 +615,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.refresh(&cx), |value| encode_refresh_reply(&value))
         }
         METHOD_ACTIVATE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_activate_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_activate_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.activate(&cx, args.surface), |()| Ok(Vec::new()))

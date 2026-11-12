@@ -43,7 +43,7 @@ reply, so the error field is hand-written next to these stubs.
 | Stop | this interface | - | 5000 ms | never |
 | Shutdown | this interface | - | 3000 ms | never |
 | StartDriver | this interface | - | 5000 ms | never |
-| Home | this interface | - | 5000 ms | safe |
+| Home | this interface | - | 5000 ms | never |
 | RestartService | this interface | - | 5000 ms | never |
 | ReloadService | this interface | - | 5000 ms | never |
 | RevertService | this interface | - | 5000 ms | never |

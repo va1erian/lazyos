@@ -203,6 +203,23 @@ pub fn finish<T>(
     }
 }
 
+/// Wraps the decoder of a method that declares no object field: a message
+/// that still carries objects is refused (`BadObjectIndex`, so `EINVAL`)
+/// and, since a failed decode claims nothing, the message releases them when
+/// it drops. Without it the claim after a successful decode would forget
+/// objects nobody owns, filling the daemon's handle table.
+pub fn no_objects<T>(
+    decode: impl FnOnce(&[u8]) -> Result<T, crate::Error>,
+) -> impl FnOnce(&[u8], &[Object]) -> Result<T, crate::Error> {
+    move |body, objects| {
+        if objects.is_empty() {
+            decode(body)
+        } else {
+            Err(crate::Error::BadObjectIndex)
+        }
+    }
+}
+
 /// The refusal for a request whose body does not decode: `EINVAL`.
 pub fn bad_request(interface: u64, method: u32) -> Parcel {
     fault_reply(

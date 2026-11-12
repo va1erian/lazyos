@@ -1139,7 +1139,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.open(&cx, args.surface, args.events), |value| encode_open_reply(&OpenReply { session: value }))
         }
         METHOD_CLOSE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_close_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_close_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.close(&cx, args.session), |()| Ok(Vec::new()))
@@ -1148,19 +1148,19 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.get_state(&cx), |value| encode_get_state_reply(&value))
         }
         METHOD_REQUESTGRANT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_request_grant_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_request_grant_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.request_grant(&cx, args.session, args.kind), |()| Ok(Vec::new()))
         }
         METHOD_RELEASEGRANT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_release_grant_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_release_grant_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.release_grant(&cx, args.session), |()| Ok(Vec::new()))
         }
         METHOD_PING if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_ping_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_ping_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.ping(&cx, args.session, args.token), |value| encode_ping_reply(&value))

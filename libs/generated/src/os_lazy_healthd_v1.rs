@@ -418,7 +418,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
     let cx = message.caller();
     match method {
         METHOD_REPORT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_report_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_report_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.report(&cx, args.name, args.status, args.detail), |value| encode_report_reply(&value))

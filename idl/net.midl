@@ -206,7 +206,7 @@ interface os.lazy.net.stack.v1 {
     /// (10 to 60000) bounds the wait. Fails with `EINVAL` for a bad argument,
     /// `ENETUNREACH` when there is no address or route yet, `EAGAIN` when this
     /// caller has 4 pings outstanding or all callers together have 8, and `ETIMEDOUT` when no reply came.
-    method Ping(dst: Bytes = 1, payload_len: U32 = 2, timeout_ms: U32 = 3) -> (result: EchoResult = 1) retry=safe;
+    method Ping(dst: Bytes = 1, payload_len: U32 = 2, timeout_ms: U32 = 3) -> (result: EchoResult = 1) retry=never;
     /// Look `name` up (A records) at the resolvers DHCP or the static
     /// configuration gave. `name` is a host name of at most 253 bytes made of
     /// dot-separated labels of 1 to 63 letters, digits and hyphens (`EINVAL`

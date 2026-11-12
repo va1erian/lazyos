@@ -214,6 +214,18 @@ def apply_default_policy(interface: Interface) -> None:
             policy.retry = default.retry
 
 
+def validate_retry_objects(interface: Interface) -> None:
+    """A `retry=safe` call is sent again after the peer died; the objects of
+    the first send were moved or shared with the dead peer (a channel end is
+    gone for good), so a request that carries objects cannot be resent."""
+    for method in interface.methods:
+        if method.objects and method.policy.retry == "safe":
+            raise MidlError(
+                f"method {method.name!r} carries objects, so it cannot be retry=safe "
+                "(the objects of the first send are gone); use retry=never"
+            )
+
+
 def attach_services(interfaces: list[Interface], services: list[Service]) -> None:
     """Link every service to the interfaces it implements (all files parsed).
 

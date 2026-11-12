@@ -740,37 +740,37 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
     let cx = message.caller();
     match method {
         METHOD_GUESS if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_guess_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_guess_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.guess(&cx, args.path), |value| encode_guess_reply(&GuessReply { mime: value }))
         }
         METHOD_LOOKUP if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_lookup_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_lookup_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.lookup(&cx, args.mime, args.verb), |value| encode_lookup_reply(&LookupReply { app: value }))
         }
         METHOD_VERBS if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_verbs_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_verbs_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.verbs(&cx, args.mime), |value| encode_verbs_reply(&VerbsReply { verbs: value }))
         }
         METHOD_OPEN if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_open_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_open_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.open(&cx, args.path, args.verb), |value| encode_open_reply(&value))
         }
         METHOD_REGISTER if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_register_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_register_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.register(&cx, args.mime, args.app, args.verb, args.owner), |()| Ok(Vec::new()))
         }
         METHOD_UNREGISTER if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_unregister_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_unregister_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.unregister(&cx, args.mime, args.app, args.verb), |()| Ok(Vec::new()))

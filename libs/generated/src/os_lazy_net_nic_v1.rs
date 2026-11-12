@@ -808,7 +808,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.info(&cx), |value| encode_info_reply(&InfoReply { info: value }))
         }
         METHOD_SETRXMODE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_set_rx_mode_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_set_rx_mode_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.set_rx_mode(&cx, args.mode), |value| encode_set_rx_mode_reply(&SetRxModeReply { ok: value }))
@@ -820,7 +820,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.attach_ring(&cx, args.slots, args.rings, args.notify), |value| encode_attach_ring_reply(&AttachRingReply { ring: value }))
         }
         METHOD_DETACHRING if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_detach_ring_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_detach_ring_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.detach_ring(&cx, args.ring), |()| Ok(Vec::new()))
@@ -829,7 +829,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.stats(&cx), |value| encode_stats_reply(&StatsReply { stats: value }))
         }
         METHOD_KICK if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_kick_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_kick_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             server.kick(&cx, args.ring);

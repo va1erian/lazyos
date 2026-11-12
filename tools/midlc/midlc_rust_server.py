@@ -109,7 +109,7 @@ def emit_arm(method: Method) -> list[str]:
     guard = f"METHOD_{method.name.upper()} if id == {header_id(method)}"
     lines = [f"        {guard} => {{"]
     if method.params:
-        decoder = f"decode_{snake}_args" if method.objects else f"|body, _| decode_{snake}_args(body)"
+        decoder = f"decode_{snake}_args" if method.objects else f"{RT}::no_objects(decode_{snake}_args)"
         lines += [
             f"            let Ok(args) = message.decode({decoder}) else {{",
             f"                return {RT}::bad_request(id, method);",
@@ -167,7 +167,7 @@ def emit_service_error(interface: Interface, gate: str) -> list[str]:
     ]
     for error in interface.errors:
         text = (error.doc.splitlines() or [error.name])[0].strip() or error.name
-        lines.append(f'            ServiceError::{error.name} => "{text.replace(chr(34), chr(39))}",')
+        lines.append(f'            ServiceError::{error.name} => "{text.replace(chr(92), chr(92) * 2).replace(chr(34), chr(39))}",')
     lines += [
         "        }",
         "    }",

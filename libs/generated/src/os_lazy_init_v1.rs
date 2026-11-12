@@ -528,7 +528,7 @@ pub const METHOD_HOME: u32 = 1391791790;
 pub const METHOD_HOME_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
 /// Whether a client resends `Home` to a restarted service after the peer died
 /// handling it (`retry` in the `.midl`; `Never` unless stated).
-pub const METHOD_HOME_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
+pub const METHOD_HOME_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `RestartService` method id.
 pub const METHOD_RESTARTSERVICE: u32 = 726211199;
 /// How long a client waits for `RestartService`'s reply: at most 5000 ms (`deadline` in the `.midl`).
@@ -1730,7 +1730,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// human account's (1000 or more) and `name` a login name. The reply
     /// comes once the change is done; a failed change is `EIO`.
     ///
-    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn home(&self, op: &str, name: &str, uid: u32, gid: u32) -> Result<(), ClientError> {
         self.home_within(op, name, uid, gid, METHOD_HOME_DEADLINE)
     }
@@ -2022,7 +2022,7 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.services(&cx), |value| encode_services_reply(&ServicesReply { services: value }))
         }
         METHOD_LAUNCH if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_launch_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_launch_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.launch(&cx, args.app, args.args, args.session), |value| encode_launch_reply(&value))
@@ -2031,19 +2031,19 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.list_apps(&cx), |value| encode_list_apps_reply(&ListAppsReply { apps: value }))
         }
         METHOD_STOP if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_stop_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_stop_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.stop(&cx, args.app), |value| encode_stop_reply(&StopReply { stopped: value }))
         }
         METHOD_SHUTDOWN if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_shutdown_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_shutdown_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.shutdown(&cx, args.mode, args.reason, args.force), |value| encode_shutdown_reply(&value))
         }
         METHOD_STARTDRIVER if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_start_driver_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_start_driver_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.start_driver(&cx, args.driver, args.device, args.ifname), |value| encode_start_driver_reply(&value))
@@ -2053,38 +2053,38 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::reply(id, method, Vec::new())
         }
         METHOD_REPORTFAILURE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_report_failure_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_report_failure_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             server.report_failure(&cx, args.reason);
             libmessenger::server::reply(id, method, Vec::new())
         }
         METHOD_HOME if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_home_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_home_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.home(&cx, args.op, args.name, args.uid, args.gid), |()| Ok(Vec::new()))
         }
         METHOD_RESTARTSERVICE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_restart_service_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_restart_service_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.restart_service(&cx, args.name), |value| encode_restart_service_reply(&RestartServiceReply { pid: value }))
         }
         METHOD_RELOADSERVICE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_reload_service_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_reload_service_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.reload_service(&cx, args.name, args.binary, args.sha256, args.trial_ms), |value| encode_reload_service_reply(&ReloadServiceReply { pid: value }))
         }
         METHOD_REVERTSERVICE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_revert_service_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_revert_service_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.revert_service(&cx, args.name), |value| encode_revert_service_reply(&RevertServiceReply { pid: value }))
         }
         METHOD_RELAUNCHAPP if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_relaunch_app_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_relaunch_app_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.relaunch_app(&cx, args.app), |value| encode_relaunch_app_reply(&value))

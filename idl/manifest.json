@@ -128,14 +128,14 @@
         "id": 1919741053,
         "oneway": false,
         "deadline_ms": 5000,
-        "retry": "safe"
+        "retry": "never"
       },
       {
         "name": "SetMute",
         "id": 1285443642,
         "oneway": false,
         "deadline_ms": 5000,
-        "retry": "safe"
+        "retry": "never"
       }
     ],
     "topics": [
@@ -178,7 +178,7 @@
         "id": 953940373,
         "oneway": false,
         "deadline_ms": 2000,
-        "retry": "safe"
+        "retry": "never"
       },
       {
         "name": "GetMaster",
@@ -337,7 +337,7 @@
         "id": 1469573738,
         "oneway": false,
         "deadline_ms": 2000,
-        "retry": "safe"
+        "retry": "never"
       },
       {
         "name": "List",
@@ -640,7 +640,7 @@
         "id": 29,
         "oneway": false,
         "deadline_ms": 1000,
-        "retry": "safe"
+        "retry": "never"
       },
       {
         "name": "HintOpenOrigin",
@@ -659,7 +659,7 @@
         "id": 32,
         "oneway": false,
         "deadline_ms": 1000,
-        "retry": "safe"
+        "retry": "never"
       },
       {
         "name": "Configure",
@@ -709,7 +709,7 @@
         "id": 40,
         "oneway": false,
         "deadline_ms": 2000,
-        "retry": "safe"
+        "retry": "never"
       },
       {
         "name": "HintLaunchOrigin",
@@ -759,7 +759,7 @@
         "id": 48,
         "oneway": false,
         "deadline_ms": 1000,
-        "retry": "safe"
+        "retry": "never"
       },
       {
         "name": "ActivateApp",
@@ -782,7 +782,7 @@
         "id": 1,
         "oneway": false,
         "deadline_ms": 1000,
-        "retry": "safe"
+        "retry": "never"
       }
     ],
     "topics": [],
@@ -1002,7 +1002,7 @@
         "id": 1391791790,
         "oneway": false,
         "deadline_ms": 5000,
-        "retry": "safe"
+        "retry": "never"
       },
       {
         "name": "RestartService",
@@ -1920,7 +1920,7 @@
         "id": 2142761129,
         "oneway": false,
         "deadline_ms": 5000,
-        "retry": "safe"
+        "retry": "never"
       },
       {
         "name": "Resolve",

@@ -35,7 +35,7 @@ interface os.lazy.confd.v1 {
     /// Create or overwrite `path`; the change is persisted before the reply.
     method Set(path: String = 1, value: Value = 2) -> () deadline=2s retry=safe;
     /// Remove `path`; deleting an absent path succeeds.
-    method Delete(path: String = 1) -> () deadline=2s retry=safe;
+    method Delete(path: String = 1) -> () deadline=2s retry=never;
     /// Every path the caller may read under `prefix`, in sorted order.
     method List(prefix: String = 1) -> (paths: Array<String> = 1) deadline=2s retry=safe;
     /// Where the store lives: the directory confd chose and whether it

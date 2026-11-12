@@ -1593,19 +1593,19 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
     let cx = message.caller();
     match method {
         METHOD_INSPECT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_inspect_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_inspect_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.inspect(&cx, args.path), |value| encode_inspect_reply(&InspectReply { info: value }))
         }
         METHOD_INSTALL if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_install_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_install_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.install(&cx, args.path), |value| encode_install_reply(&InstallReply { app: value }))
         }
         METHOD_REMOVE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_remove_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_remove_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.remove(&cx, args.system_name), |()| Ok(Vec::new()))
@@ -1614,13 +1614,13 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.list(&cx), |value| encode_list_reply(&ListReply { apps: value }))
         }
         METHOD_INSTALLED if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_installed_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_installed_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.installed(&cx, args.system_name), |value| encode_installed_reply(&InstalledReply { app: value }))
         }
         METHOD_LABELNAME if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_label_name_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_label_name_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.label_name(&cx, args.label_id), |value| encode_label_name_reply(&LabelNameReply { label: value }))
@@ -1629,25 +1629,25 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.provisioned(&cx), |value| encode_provisioned_reply(&ProvisionedReply { state: value }))
         }
         METHOD_DEVELOP if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_develop_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_develop_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.develop(&cx, args.path, args.confirm), |value| encode_develop_reply(&value))
         }
         METHOD_DEVELOPDECLINED if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_develop_declined_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_develop_declined_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.develop_declined(&cx, args.path), |()| Ok(Vec::new()))
         }
         METHOD_INSTALLAPPROVED if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_install_approved_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_install_approved_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.install_approved(&cx, args.path, args.digest, args.core, args.devtool), |value| encode_install_approved_reply(&InstallApprovedReply { app: value }))
         }
         METHOD_INSTALLDEBUG if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_install_debug_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_install_debug_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.install_debug(&cx, args.path, args.digest), |value| encode_install_debug_reply(&InstallDebugReply { app: value }))

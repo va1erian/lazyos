@@ -464,7 +464,7 @@ pub const METHOD_PING: u32 = 2142761129;
 pub const METHOD_PING_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
 /// Whether a client resends `Ping` to a restarted service after the peer died
 /// handling it (`retry` in the `.midl`; `Never` unless stated).
-pub const METHOD_PING_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
+pub const METHOD_PING_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Resolve` method id.
 pub const METHOD_RESOLVE: u32 = 1645633795;
 /// How long a client waits for `Resolve`'s reply: at most 5000 ms (`deadline` in the `.midl`).
@@ -1021,7 +1021,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `ENETUNREACH` when there is no address or route yet, `EAGAIN` when this
     /// caller has 4 pings outstanding or all callers together have 8, and `ETIMEDOUT` when no reply came.
     ///
-    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn ping(&self, dst: &[u8], payload_len: u32, timeout_ms: u32) -> Result<EchoResult, ClientError> {
         self.ping_within(dst, payload_len, timeout_ms, METHOD_PING_DEADLINE)
     }
@@ -1176,13 +1176,13 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
             libmessenger::server::finish(id, method, server.stats(&cx), |value| encode_stats_reply(&StatsReply { stats: value }))
         }
         METHOD_PING if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_ping_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_ping_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.ping(&cx, args.dst, args.payload_len, args.timeout_ms), |value| encode_ping_reply(&PingReply { result: value }))
         }
         METHOD_RESOLVE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_resolve_args(body)) else {
+            let Ok(args) = message.decode(libmessenger::server::no_objects(decode_resolve_args)) else {
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.resolve(&cx, args.name, args.timeout_ms), |value| encode_resolve_reply(&ResolveReply { addrs: value }))
