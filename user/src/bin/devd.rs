@@ -31,9 +31,9 @@ use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use user::trace;
 
+use libmessenger::server::{Caller, Fault};
 use user::central;
 use user::messenger::client::Native;
-use libmessenger::server::{Caller, Fault};
 use user::messenger::devd::{self as api, wire};
 use user::messenger::services::init::Client as InitClient;
 use user::messenger::services::{self};

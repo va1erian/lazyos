@@ -15,8 +15,8 @@
 use alloc::string::String;
 use user::trace;
 
-use nicdrv::engine::{AttachError, CtlError};
 use libmessenger::server::{Caller, Fault};
+use nicdrv::engine::{AttachError, CtlError};
 use user::messenger::net::{self as api, wire};
 use user::messenger::{errno, Endpoint, Error as MsgError, Message, Parcel};
 use user::sys;
@@ -63,13 +63,7 @@ impl Service {
 
     /// Whether the sender may call an owner method of this card.
     fn may_own(&self, cx: &Caller) -> bool {
-        netpolicy::may_own_nic(
-            cx.uid,
-            cx.label_id,
-            cx.session,
-            self.own_uid,
-            &self.ifname,
-        )
+        netpolicy::may_own_nic(cx.uid, cx.label_id, cx.session, self.own_uid, &self.ifname)
     }
 
     /// Release the attachment's buffer and endpoint.

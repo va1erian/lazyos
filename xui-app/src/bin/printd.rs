@@ -76,7 +76,13 @@ fn refused(message: impl AsRef<str>) -> Fault {
 }
 
 impl wire::Server for Spool<'_> {
-    fn open(&mut self, cx: &Caller, printer: String, user: String, ticket: wire::Ticket) -> Result<u32, Fault> {
+    fn open(
+        &mut self,
+        cx: &Caller,
+        printer: String,
+        user: String,
+        ticket: wire::Ticket,
+    ) -> Result<u32, Fault> {
         let request = Request {
             printer,
             user,
@@ -106,6 +112,11 @@ impl wire::Server for Spool<'_> {
     }
 
     fn jobs(&mut self, cx: &Caller) -> Result<Vec<wire::JobInfo>, Fault> {
-        Ok(self.0.jobs(cx.uid).iter().map(print::info_to_wire).collect())
+        Ok(self
+            .0
+            .jobs(cx.uid)
+            .iter()
+            .map(print::info_to_wire)
+            .collect())
     }
 }

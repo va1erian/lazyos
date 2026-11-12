@@ -33,11 +33,11 @@ extern crate alloc;
 
 use alloc::format;
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use libmessenger::server::{Caller, Fault};
 use messenger_generated::os_lazy_sysmond_v1 as stats;
 use user::central;
-use alloc::vec::Vec;
-use libmessenger::server::{Caller, Fault};
 use user::messenger::{self, errno, registry, services, wait, Error};
 use user::sys;
 use user::sysinfo::{self, Snapshot, TaskState};

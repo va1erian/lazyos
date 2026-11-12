@@ -142,7 +142,8 @@ impl wire::Server for Service {
     /// `AttachRing`: the decoded request owns the ring; every way out but
     /// success closes it.
     fn attach_ring(&mut self, cx: &Caller, stream: u32, ring: Buffer) -> Result<(), Fault> {
-        let outcome = owned(&mut self.session, cx, stream).and_then(|session| session.attach(&ring));
+        let outcome =
+            owned(&mut self.session, cx, stream).and_then(|session| session.attach(&ring));
         if outcome.is_err() {
             let _ = sys::buffer_close(ring.handle);
         }

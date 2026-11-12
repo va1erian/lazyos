@@ -210,7 +210,9 @@ impl wire::Server for Pkgd {
         devtool: bool,
     ) -> Result<Installed, Fault> {
         let caller = self.identity(cx, false);
-        Ok(Pkgd::install_approved(self, &caller, &path, &digest, core, devtool)?)
+        Ok(Pkgd::install_approved(
+            self, &caller, &path, &digest, core, devtool,
+        )?)
     }
 
     fn install_debug(

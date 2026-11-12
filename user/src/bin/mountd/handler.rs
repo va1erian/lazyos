@@ -5,8 +5,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use user::trace;
 
-use mounttable::{daemon_args, daemon_env, validate_kind, Kind, Table};
 use libmessenger::server::{Caller, Fault};
+use mounttable::{daemon_args, daemon_env, validate_kind, Kind, Table};
 use user::messenger::mount::wire;
 use user::messenger::{errno, Error, Result as MResult};
 use user::sys::{self, Personality, SpawnCred};
@@ -56,7 +56,8 @@ impl wire::Server for Handler<'_> {
     }
 
     fn eject(&mut self, cx: &Caller, disk: String, force: bool) -> Result<wire::EjectReply, Fault> {
-        let disk = mounttable::volumes::parse_disk_name(&disk).ok_or(Error::Errno(-errno::EINVAL))?;
+        let disk =
+            mounttable::volumes::parse_disk_name(&disk).ok_or(Error::Errno(-errno::EINVAL))?;
         let done = self.automount.eject(disk, cx.uid, force)?;
         Ok(wire::EjectReply {
             state: String::from(done.state),

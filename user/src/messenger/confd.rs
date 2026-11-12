@@ -5,7 +5,6 @@
 //! [`confd::Value`] conversion ([`ValueClient`]) and the reply framing the
 //! daemon still writes by hand.
 
-
 use libmessenger::client::{CallError, Deadline, Errno, Transport};
 
 use super::client::Native;

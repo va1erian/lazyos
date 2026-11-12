@@ -4,8 +4,6 @@
 //! `midlc` from `idl/mount.midl`; this module names them for native programs.
 //! Its other clients are the Network Drives app (`xui-app`) and scripts (`sys::mount` in `rhai`).
 
-
-
 use super::client::Native;
 
 /// The generated `os.lazy.mount.v1` stubs.

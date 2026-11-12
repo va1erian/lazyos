@@ -4,9 +4,9 @@
 use alloc::vec;
 use intelgfx::adopt::{Adopted, FbMap};
 use intelgfx::regs::{plane_ctl, DdiMode};
+use libmessenger::server::{Caller, Fault};
 use user::messenger::gpu::{self as api, wire};
 use user::messenger::services;
-use libmessenger::server::{Caller, Fault};
 use user::messenger::{self, errno, registry, Error as MsgError};
 use user::sys;
 

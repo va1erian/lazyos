@@ -58,11 +58,11 @@ use user::trace;
 
 use accountdb::ratelimit::Limiter;
 use accountdb::{Db, User};
+use accounts::wire;
 use libmessenger::client::{Deadline, Errno};
 use libmessenger::server::{Caller, Fault};
 use user::messenger::client::Native;
 use user::messenger::services::health::Client as HealthClient;
-use accounts::wire;
 use user::messenger::{self, accounts, errno, registry, Error};
 use user::sys::{self, Cred};
 
@@ -185,7 +185,10 @@ impl Handler<'_> {
             Ok(_) => Ok(()),
             Err(reason) => Err(Fault::refuse(
                 Errno::IO,
-                &format!("no account database ({}: {reason})", fhs::state::ACCOUNTS_DB),
+                &format!(
+                    "no account database ({}: {reason})",
+                    fhs::state::ACCOUNTS_DB
+                ),
             )),
         }
     }
@@ -244,7 +247,11 @@ impl wire::Server for Handler<'_> {
 
     fn delete(&mut self, cx: &Caller, name: String, home: String) -> Result<(), Fault> {
         self.ready()?;
-        Ok(manage::delete(self.0, cred_of(cx), &wire::DeleteArgs { name, home })?)
+        Ok(manage::delete(
+            self.0,
+            cred_of(cx),
+            &wire::DeleteArgs { name, home },
+        )?)
     }
 
     fn set_password(
@@ -261,7 +268,11 @@ impl wire::Server for Handler<'_> {
 
     fn set_admin(&mut self, cx: &Caller, name: String, admin: bool) -> Result<(), Fault> {
         self.ready()?;
-        Ok(manage::set_admin(self.0, cred_of(cx), &wire::SetAdminArgs { name, admin })?)
+        Ok(manage::set_admin(
+            self.0,
+            cred_of(cx),
+            &wire::SetAdminArgs { name, admin },
+        )?)
     }
 }
 

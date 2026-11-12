@@ -79,7 +79,13 @@ impl NotifyService {
                     break;
                 }
             };
-            let reply = wire::dispatch(&mut Handler { ctx, rows: &mut rows }, &call);
+            let reply = wire::dispatch(
+                &mut Handler {
+                    ctx,
+                    rows: &mut rows,
+                },
+                &call,
+            );
             if let Some(txn) = call.txn {
                 let _ = server.reply(txn, &reply);
             }
@@ -174,7 +180,12 @@ impl wire::Server for Handler<'_> {
         })?;
         let (level, title) = (request.note.level, request.note.title.clone());
         let now = sys::clock_ticks();
-        let posted = self.ctx.notify.center.borrow_mut().post(&owner, request, now);
+        let posted = self
+            .ctx
+            .notify
+            .center
+            .borrow_mut()
+            .post(&owner, request, now);
         match posted {
             Ok(id) => {
                 println!(

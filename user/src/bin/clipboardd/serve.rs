@@ -121,7 +121,12 @@ impl proto::Server for Handler<'_> {
             .offer_buffer(request, cx.session, cx.sender, sys::clock())?)
     }
 
-    fn request(&mut self, cx: &Caller, token: u64, mime: String) -> Result<proto::RequestReply, Fault> {
+    fn request(
+        &mut self,
+        cx: &Caller,
+        token: u64,
+        mime: String,
+    ) -> Result<proto::RequestReply, Fault> {
         let cred = actor(cx);
         let handle = self.0.request(token, &mime, cred.session);
         match &handle {
@@ -158,11 +163,7 @@ impl proto::Server for Handler<'_> {
     }
 
     fn current(&mut self, cx: &Caller) -> Result<Option<proto::OfferMeta>, Fault> {
-        Ok(self
-            .0
-            .current(cx.session)
-            .as_ref()
-            .map(wire::to_wire_meta))
+        Ok(self.0.current(cx.session).as_ref().map(wire::to_wire_meta))
     }
 
     fn ping(&mut self, _: &Caller) -> Result<(), Fault> {

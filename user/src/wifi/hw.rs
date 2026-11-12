@@ -132,7 +132,14 @@ impl HwService {
         message: &mut Message,
         now: u64,
     ) -> Parcel {
-        let reply = wire::dispatch(&mut HwHandler { svc: self, mac, now }, message);
+        let reply = wire::dispatch(
+            &mut HwHandler {
+                svc: self,
+                mac,
+                now,
+            },
+            message,
+        );
         if carries_secret(message.method()) {
             message.parcel.body.fill(0);
         }
@@ -292,7 +299,10 @@ impl<R: Radio> wire::Server for HwHandler<'_, R> {
     }
 
     fn detach(&mut self, cx: &StampedCaller) -> Result<(), Fault> {
-        self.mac.detach(sender_of(cx)).map_err(mac_err).map_err(fault)?;
+        self.mac
+            .detach(sender_of(cx))
+            .map_err(mac_err)
+            .map_err(fault)?;
         self.svc.drop_events();
         Ok(())
     }

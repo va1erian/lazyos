@@ -88,7 +88,8 @@ impl<M: 'static> Handler<'_, M> {
         if lazyshell::policy::caller_allowed(Some(caller), self.ctx.uid) {
             return Ok(());
         }
-        self.ctx.note("deny", || format!("SHELL:SERVICE:DENY uid={caller}"));
+        self.ctx
+            .note("deny", || format!("SHELL:SERVICE:DENY uid={caller}"));
         Err(fault((errno::EACCES, "caller not allowed")))
     }
 }

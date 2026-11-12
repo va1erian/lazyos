@@ -26,10 +26,10 @@ use nicdrv::{Doorbell, Engine, Fatal, NicRings, RxError, TxError};
 use wifimac::{DataDrop, Radio, SoftMac};
 
 use crate::messenger::net::{self as api, wire};
-use libmessenger::server::{Caller, Fault};
 use crate::messenger::{errno, Endpoint, Error as MsgError, Message, Parcel};
 use crate::sys;
 use crate::sys::Cred;
+use libmessenger::server::{Caller, Fault};
 
 /// Frames moved to the client per pump.
 const RX_BUDGET: u32 = 64;
@@ -306,11 +306,7 @@ impl<R: Radio> NicService<R> {
         outcome
     }
 
-    fn attach_inner(
-        &mut self,
-        cx: &Caller,
-        args: &wire::AttachRingArgs,
-    ) -> Result<u32, MsgError> {
+    fn attach_inner(&mut self, cx: &Caller, args: &wire::AttachRingArgs) -> Result<u32, MsgError> {
         if self.engine.attached().is_some() {
             return Err(err(errno::EBUSY));
         }

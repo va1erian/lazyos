@@ -32,7 +32,9 @@ impl wire::Server for Handler<'_> {
         let (uid, app_id) = app_of(cx)?;
         let name = bounded_text(name)?;
         let secret = bounded_bytes(secret, secretstore::APP_MAX_SECRET)?;
-        Ok(self.secrets.put(self.entropy, uid, &app_id, &name, &secret)?)
+        Ok(self
+            .secrets
+            .put(self.entropy, uid, &app_id, &name, &secret)?)
     }
 
     fn get(&mut self, cx: &Caller, name: String) -> Result<Vec<u8>, Fault> {
@@ -42,7 +44,9 @@ impl wire::Server for Handler<'_> {
 
     fn delete(&mut self, cx: &Caller, name: String) -> Result<(), Fault> {
         let (uid, app_id) = app_of(cx)?;
-        Ok(self.secrets.delete(self.entropy, uid, &app_id, &bounded_text(name)?)?)
+        Ok(self
+            .secrets
+            .delete(self.entropy, uid, &app_id, &bounded_text(name)?)?)
     }
 
     fn list(&mut self, cx: &Caller) -> Result<Vec<String>, Fault> {

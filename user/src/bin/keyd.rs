@@ -68,8 +68,8 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
-use user::messenger::keyd::wire as api;
 use libmessenger::server::{Caller, Fault};
+use user::messenger::keyd::wire as api;
 use user::messenger::{self, errno, keyd as wire, registry, Error};
 use user::sys;
 use user::trace;
@@ -223,7 +223,9 @@ impl api::Server for Handler<'_> {
         // (`Authenticate`'s brake), and an open `Verify` would be a way
         // around that brake for any session (review of #659, H2).
         require_accountsd(cx)?;
-        Ok(self.keyd.verify(&bounded_text(user)?, &bounded_text(secret)?))
+        Ok(self
+            .keyd
+            .verify(&bounded_text(user)?, &bounded_text(secret)?))
     }
 
     fn sign(&mut self, cx: &Caller, key: u64, digest: Vec<u8>) -> Result<Vec<u8>, Fault> {
@@ -250,7 +252,9 @@ impl api::Server for Handler<'_> {
         // accounts service alone, by its identity (U1). No capability or
         // uid is enough on its own.
         require_accountsd(cx)?;
-        Ok(self.keyd.provision(&bounded_text(user)?, &bounded_text(secret)?)?)
+        Ok(self
+            .keyd
+            .provision(&bounded_text(user)?, &bounded_text(secret)?)?)
     }
 
     fn forget(&mut self, cx: &Caller, user: String) -> Result<(), Fault> {
@@ -287,7 +291,9 @@ impl api::Server for Handler<'_> {
         let owner = secret_owner(cx, &scope, &name, Op::Store)?;
         let name = bounded_text(name)?;
         let secret = bounded_bytes(secret, MAX_BYTES)?;
-        Ok(self.secrets.put(&mut self.keyd.entropy, owner, &name, &secret)?)
+        Ok(self
+            .secrets
+            .put(&mut self.keyd.entropy, owner, &name, &secret)?)
     }
 
     fn delete_secret(&mut self, cx: &Caller, scope: String, name: String) -> Result<(), Fault> {
@@ -313,7 +319,9 @@ impl api::Server for Handler<'_> {
         let owner = secret_owner(cx, &scope, &name, op)?;
         let name = bounded_text(name)?;
         let secret = bounded_bytes(secret, MAX_BYTES)?;
-        Ok(self.secrets.put(&mut self.keyd.entropy, owner, &name, &secret)?)
+        Ok(self
+            .secrets
+            .put(&mut self.keyd.entropy, owner, &name, &secret)?)
     }
 
     fn delete_secret_for(
@@ -341,7 +349,9 @@ impl api::Server for Handler<'_> {
         let owner = secret_owner(cx, &scope, &name, op)?;
         let name = bounded_text(name)?;
         let ssid = bounded_bytes(ssid, secretstore::MAX_SSID)?;
-        Ok(self.secrets.pmk(&mut self.keyd.entropy, owner, &name, &ssid)?)
+        Ok(self
+            .secrets
+            .pmk(&mut self.keyd.entropy, owner, &name, &ssid)?)
     }
 
     fn ping(&mut self, _: &Caller) -> Result<(), Fault> {
