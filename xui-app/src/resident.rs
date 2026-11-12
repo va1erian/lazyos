@@ -37,8 +37,8 @@ use crate::sys::{self, errno};
 use crate::trace::{self, Channel};
 use crate::tray::TrayIcon;
 
-/// The longest a windowless app parks before it looks at its topics again
-/// (the tray's generation): half a second.
+/// The longest a windowless app parks before it looks around again (a
+/// refused `Set` is retried, a quit grace runs out): half a second.
 const IDLE_MILLIS: u64 = 500;
 /// Receive buffer for one lifecycle event.
 const EVENT_BYTES: usize = 2048;
@@ -194,17 +194,26 @@ impl Resident {
         found
     }
 
-    /// The windowless wait: park on the tray and lifecycle channels for at
-    /// most `timeout_ms` (capped at [`IDLE_MILLIS`], so the tray generation
-    /// is followed), then return what woke the app.
+    /// The windowless wait: park on the tray and lifecycle channels and the
+    /// tray generation's doorbell for at most `timeout_ms` (capped at
+    /// [`IDLE_MILLIS`]), then return what woke the app.
     pub fn idle(&self, timeout_ms: u64) -> Vec<Wake> {
-        let mut handles = Vec::with_capacity(2);
+        self.idle_with(&[], timeout_ms)
+    }
+
+    /// [`Resident::idle`] that also parks on `bells` (an app's own
+    /// [`crate::fabric::Follow::bell`]s): the caller takes from its follows
+    /// after the wait, whatever woke it.
+    pub fn idle_with(&self, bells: &[u64], timeout_ms: u64) -> Vec<Wake> {
+        let mut handles = Vec::with_capacity(3 + bells.len());
         if let Some(life) = self.life.borrow().as_ref() {
             handles.push(life.channel);
         }
         if let Some(channel) = self.tray.borrow().channel() {
             handles.push(channel);
         }
+        handles.extend(self.tray.borrow().generation_bell());
+        handles.extend_from_slice(bells);
         let ms = timeout_ms.clamp(1, IDLE_MILLIS);
         if handles.is_empty() {
             sys::sleep_millis(ms);

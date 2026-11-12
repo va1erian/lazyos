@@ -74,7 +74,7 @@ shared structured error field (`services::error_field`).
 
 | Topic | Payload | QoS | Retained | Permissions |
 |---|---|---|---|---|
-| `system/net/+/wifi/state` | `WifiState` | latest | yes | `publish:system/net/+/wifi/state`, `subscribe:system/net/+/wifi/state` |
+| `system/net/+/wifi/state` | `WifiState` | buffered | yes | `publish:system/net/+/wifi/state`, `subscribe:system/net/+/wifi/state` |
 | `system/net/+/wifi/scan` | `ScanEvent` | latest | no | `publish:system/net/+/wifi/scan`, `subscribe:system/net/+/wifi/scan` |
 
 ## struct `Network`

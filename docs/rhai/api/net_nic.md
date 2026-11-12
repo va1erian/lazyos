@@ -293,7 +293,7 @@ Published by the driver whenever the link changes, and once at start.
 same name as `system/net/{ifname}/addr`: two cards of one model must
 not share a retained topic.
 
-Payload `LinkEvent`, QoS `latest`, retained.
+Payload `LinkEvent`, QoS `buffered`, retained.
 
 Helpers: `LINK_PATTERN`, `link_topic(ifname)`, `on_link(ifname, handler)`, `subscribe_link(ifname)`, `publish_link(ifname, payload)`.
 

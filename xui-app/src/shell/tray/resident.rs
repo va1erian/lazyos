@@ -11,42 +11,36 @@
 
 use lazyshell::tray::Change;
 use messenger_generated::os_lazy_init_v1 as init_wire;
-use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 
 use super::super::ctx::Ctx;
-use crate::platform::topic_feed::TopicFeed;
+use crate::fabric::{pull, Feed, Watch};
 
-/// Ticks between looks at the topic (a quarter second).
-const LOOK_TICKS: u64 = 25;
 /// Most resident apps taken from one value (the tray holds 64 items).
 const MAX_APPS: usize = 64;
 
 /// The session's resident-apps topic, followed.
 pub struct ResidentFeed {
-    feed: Option<TopicFeed>,
+    feed: Option<Feed<init_wire::ResidentApps>>,
 }
 
 impl ResidentFeed {
     pub fn new(session: Option<u64>) -> ResidentFeed {
-        let feed = session
-            .and_then(|session| init_wire::name_session_apps_resident(&session.to_string()).ok())
-            .map(|topic| TopicFeed::new(topic, topics::QOS_LATEST, 1, LOOK_TICKS));
+        let feed = session.and_then(|session| {
+            init_wire::subscribe_session_apps_resident(&mut Watch, &session.to_string()).ok()
+        });
         ResidentFeed { feed }
     }
 }
 
 /// Apply the newest list; `true` when the tray changed.
 pub fn pump(ctx: &Ctx) -> bool {
-    let events = match ctx.tray.resident.borrow_mut().feed.as_mut() {
-        Some(feed) => feed.poll(),
-        None => return false,
-    };
     // Only the newest value matters: the topic is a state, not a log.
-    let Some(value) = events
-        .iter()
-        .rev()
-        .find_map(|event| init_wire::decode_session_apps_resident(&event.payload).ok())
-    else {
+    let mut newest = None;
+    match ctx.tray.resident.borrow_mut().feed.as_mut() {
+        Some(stream) => pull(stream, |event| newest = Some(event.value)),
+        None => return false,
+    }
+    let Some(value) = newest else {
         return false;
     };
     let running: Vec<(String, u64)> = value

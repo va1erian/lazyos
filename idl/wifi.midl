@@ -449,7 +449,7 @@ interface os.lazy.net.wifi.v1 {
 
     /// The interface's state, retained so a late subscriber (the tray applet
     /// after login) sees it at once. `{ifname}` is the radio's interface name.
-    topic "system/net/{ifname}/wifi/state" : WifiState retained qos=latest;
+    topic "system/net/{ifname}/wifi/state" : WifiState retained qos=buffered;
 
     /// A scan completed and `Networks` changed. Not retained: a client that
     /// arrives later calls `Networks`.

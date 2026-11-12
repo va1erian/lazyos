@@ -30,11 +30,11 @@ use std::os::fd::FromRawFd;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use messenger_generated::os_lazy_pkgd_v1 as pkgd_wire;
 use lazyrad_ide::run::{
     stderr_event, stdout_event, ChildProcess, EventSink, LaunchError, LaunchMode, Launcher,
     RunEvent, RunId, SendError,
 };
+use messenger_generated::os_lazy_pkgd_v1 as pkgd_wire;
 use rhai::{Dynamic, Map};
 use rhai_lazy::msg::gate::Gate;
 use rhai_lazy::msg::{topics, Fabric, Service, Subscription, Wait};
@@ -113,8 +113,12 @@ impl Launcher for DevLauncher {
             .map(|gate| Rc::new(Fabric::new(Rc::new(gate))))
             .ok_or_else(|| launch_error(player, "not running on LazyOS"))?;
         // Subscribe before asking, so the answer cannot be missed.
-        let events = topics::subscribe(&fabric, &pkg_events().map_err(|why| launch_error(player, why))?, &Map::new())
-            .map_err(|error| launch_error(player, format!("the package events: {error}")))?;
+        let events = topics::subscribe(
+            &fabric,
+            &pkg_events().map_err(|why| launch_error(player, why))?,
+            &Map::new(),
+        )
+        .map_err(|error| launch_error(player, format!("the package events: {error}")))?;
         let path = staged.to_string_lossy().into_owned();
         ask_for_approval(&fabric, &path).map_err(|why| launch_error(player, why))?;
         let label = format!("dev:{}", built.system_name);

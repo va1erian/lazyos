@@ -155,7 +155,7 @@ interface os.lazy.net.nic.v1 {
     /// `{ifname}` is the interface name `devd` gave the card (`eth0`), the
     /// same name as `system/net/{ifname}/addr`: two cards of one model must
     /// not share a retained topic.
-    topic "system/net/{ifname}/link" : LinkEvent retained qos=latest;
+    topic "system/net/{ifname}/link" : LinkEvent retained qos=buffered;
 
     /// Reasons for a `Notify`; ordinals are the `events` bit numbers, so new
     /// ones are append-only. `RxReady`: frames arrived in the receive ring.
@@ -318,7 +318,7 @@ interface os.lazy.net.stack.v1 {
 
     /// The address `netd` currently holds on an interface, retained so a late
     /// subscriber sees it. `{ifname}` is the interface name.
-    topic "system/net/{ifname}/addr" : AddressEvent retained qos=latest;
+    topic "system/net/{ifname}/addr" : AddressEvent retained qos=buffered;
 
     /// Published once when the stack first has an address (and again after a
     /// lease is lost and regained).

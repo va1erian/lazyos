@@ -100,7 +100,7 @@ object list (the index each field must hold).
 
 | Topic | Payload | QoS | Retained | Permissions |
 |---|---|---|---|---|
-| `system/net/+/link` | `LinkEvent` | latest | yes | `publish:system/net/+/link`, `subscribe:system/net/+/link` |
+| `system/net/+/link` | `LinkEvent` | buffered | yes | `publish:system/net/+/link`, `subscribe:system/net/+/link` |
 
 ## Rings
 

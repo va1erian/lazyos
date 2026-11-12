@@ -4,14 +4,12 @@
 //! them. Parsing and validation are `lazyterm::settings` (host-tested).
 
 use lazyterm::settings::{Settings, Value, KEYS};
-use messenger_generated::os_lazy_messenger_topics_v1 as topics;
+use messenger_generated::os_lazy_confd_v1 as confd_wire;
+use xui_app::fabric::{pull, Feed, Watch};
 use xui_app::platform::confd_store::ConfdStore;
-use xui_app::platform::topic_feed::TopicFeed;
 use xui_app::sys;
 use xui_settings::store::{ConfigStore, Value as StoreValue};
 
-/// Ticks (100 Hz) between looks at the change topic.
-const LOOK_TICKS: u64 = 50;
 /// Ticks between re-reads of the desktop's motion setting (it has no topic
 /// of its own here): ten seconds.
 const MOTION_TICKS: u64 = 1000;
@@ -30,7 +28,7 @@ pub struct Follower {
     store: ConfdStore,
     available: bool,
     uid: Option<u32>,
-    changes: Option<TopicFeed>,
+    changes: Option<Feed<confd_wire::Change>>,
     next_motion: u64,
     current: Conf,
 }
@@ -50,13 +48,9 @@ impl Follower {
         let store = ConfdStore::new();
         let available = store.registered();
         let uid = if available { store.uid() } else { None };
-        let changes = uid.map(|uid| {
-            TopicFeed::new(
-                format!("user/{uid}/confd/changed/#"),
-                topics::QOS_LATEST,
-                8,
-                LOOK_TICKS,
-            )
+        // Every key of the user's store; the watcher thread reads the topic.
+        let changes = uid.and_then(|uid| {
+            confd_wire::subscribe_user_confd_changed(&mut Watch, &uid.to_string(), "#").ok()
         });
         Follower {
             store,
@@ -139,10 +133,10 @@ impl Follower {
 
     /// Look for changes; the new configuration when something differs.
     pub fn poll(&mut self) -> Option<Conf> {
-        let changed = self
-            .changes
-            .as_mut()
-            .is_some_and(|feed| !feed.poll().is_empty());
+        let mut changed = false;
+        if let Some(feed) = self.changes.as_mut() {
+            pull(feed, |_| changed = true);
+        }
         let motion_due = sys::clock_ticks() >= self.next_motion;
         if !changed && !motion_due {
             return None;

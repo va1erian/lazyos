@@ -1673,7 +1673,7 @@
         "name": "system/net/+/link",
         "source": "system/net/{ifname}/link",
         "payload": "LinkEvent",
-        "qos": "latest",
+        "qos": "buffered",
         "retained": true,
         "publish_permission": "publish:system/net/+/link",
         "subscribe_permission": "subscribe:system/net/+/link"
@@ -1761,7 +1761,7 @@
         "name": "system/net/+/addr",
         "source": "system/net/{ifname}/addr",
         "payload": "AddressEvent",
-        "qos": "latest",
+        "qos": "buffered",
         "retained": true,
         "publish_permission": "publish:system/net/+/addr",
         "subscribe_permission": "subscribe:system/net/+/addr"
@@ -3198,7 +3198,7 @@
         "name": "system/net/+/wifi/state",
         "source": "system/net/{ifname}/wifi/state",
         "payload": "WifiState",
-        "qos": "latest",
+        "qos": "buffered",
         "retained": true,
         "publish_permission": "publish:system/net/+/wifi/state",
         "subscribe_permission": "subscribe:system/net/+/wifi/state"

@@ -763,10 +763,10 @@ where
 /// Bytes of echo payload returned.
 /// The address `netd` currently holds on an interface, retained so a late
 /// subscriber sees it. `{ifname}` is the interface name.
-/// The declared `system/net/+/addr` topic (`AddressEvent`, `latest`, retained).
+/// The declared `system/net/+/addr` topic (`AddressEvent`, `buffered`, retained).
 pub const TOPIC_SYSTEM_NET_ADDR: &str = "system/net/+/addr";
 /// The `system/net/+/addr` delivery policy.
-pub const TOPIC_SYSTEM_NET_ADDR_QOS: u32 = topics::QOS_LATEST;
+pub const TOPIC_SYSTEM_NET_ADDR_QOS: u32 = topics::QOS_BUFFERED;
 /// Whether `system/net/+/addr` publishes are retained.
 pub const TOPIC_SYSTEM_NET_ADDR_RETAINED: bool = true;
 

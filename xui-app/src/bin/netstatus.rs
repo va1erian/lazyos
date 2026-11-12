@@ -17,19 +17,16 @@
 //! Serial evidence: `NETSTATUS:UP:PASS` once it started,
 //! `NETSTATUS:STATE <tooltip>` on every change, `NETSTATUS:QUIT:PASS`.
 
-use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 use messenger_generated::os_lazy_net_nic_v1 as nic_wire;
 use messenger_generated::os_lazy_net_stack_v1 as stack_wire;
 use messenger_generated::os_lazy_net_wifi_v1 as wifi_wire;
 use std::rc::Rc;
 use trayclient::{item, lucide, wire};
+use xui_app::fabric::{pull, Watch};
 use xui_app::net::wifimodel::{self, Conn};
-use xui_app::platform::topic_feed::{TopicEvent, TopicFeed};
 use xui_app::resident::{Resident, Wake};
 use xui_app::trace::{self, Channel};
 
-/// Ticks between looks at the topics (a second).
-const LOOK_TICKS: u64 = 100;
 /// Most interfaces remembered.
 const MAX_LINKS: usize = 8;
 
@@ -152,54 +149,52 @@ fn segment(topic: &str) -> Option<&str> {
     topic.split('/').nth(2).filter(|name| !name.is_empty())
 }
 
-/// Fold one event into `net`.
-fn apply(net: &mut Net, links: &mut Vec<(String, bool)>, event: &TopicEvent) {
-    if event.topic == stack_wire::TOPIC_SYSTEM_NET_INTERFACES {
-        if let Ok(list) = stack_wire::decode_system_net_interfaces(&event.payload) {
-            net.primary = list.list.iter().find(|i| i.primary).map(|i| i.name.clone());
-        }
-        return;
+/// Fold one interface list into `net`.
+fn apply_interfaces(net: &mut Net, list: &stack_wire::InterfaceList) {
+    net.primary = list.list.iter().find(|i| i.primary).map(|i| i.name.clone());
+}
+
+/// Fold one `system/net/<name>/wifi/state` value into `net`.
+fn apply_wifi(net: &mut Net, name: &str, state: &wifi_wire::WifiState) {
+    net.wifi.retain(|known| known.name != name);
+    if net.wifi.len() < MAX_LINKS {
+        net.wifi.push(Wifi {
+            name: name.to_owned(),
+            conn: Conn::from_wire(state.state),
+            ssid: wifimodel::clean(&state.ssid, wifimodel::MAX_SSID),
+            rssi_dbm: state.rssi_dbm.clamp(-127, 0),
+        });
     }
-    let Some(name) = segment(&event.topic) else {
-        return;
-    };
-    if event.topic.ends_with("/wifi/state") {
-        if let Ok(state) = wifi_wire::decode_system_net_wifi_state(&event.payload) {
-            net.wifi.retain(|known| known.name != name);
-            if net.wifi.len() < MAX_LINKS {
-                net.wifi.push(Wifi {
-                    name: name.to_owned(),
-                    conn: Conn::from_wire(state.state),
-                    ssid: wifimodel::clean(&state.ssid, wifimodel::MAX_SSID),
-                    rssi_dbm: state.rssi_dbm.clamp(-127, 0),
-                });
-            }
+}
+
+/// Fold one `system/net/<name>/addr` value into `net`.
+fn apply_addr(net: &mut Net, name: &str, addr: &stack_wire::AddressEvent) {
+    let octets: Option<[u8; 4]> = addr.addr.as_slice().try_into().ok();
+    net.addresses.retain(|(known, _)| known != name);
+    if let Some(octets) = octets.filter(|octets| *octets != [0; 4]) {
+        if net.addresses.len() < MAX_LINKS {
+            net.addresses.push((name.to_owned(), octets));
         }
-        return;
     }
-    if event.topic.ends_with("/addr") {
-        let Ok(addr) = stack_wire::decode_system_net_addr(&event.payload) else {
-            return;
-        };
-        let octets: Option<[u8; 4]> = addr.addr.as_slice().try_into().ok();
-        net.addresses.retain(|(known, _)| known != name);
-        if let Some(octets) = octets.filter(|octets| *octets != [0; 4]) {
-            if net.addresses.len() < MAX_LINKS {
-                net.addresses.push((name.to_owned(), octets));
-            }
-        }
-    } else if let Ok(link) = nic_wire::decode_system_net_link(&event.payload) {
-        links.retain(|(known, _)| known != name);
-        if links.len() < MAX_LINKS {
-            links.push((name.to_owned(), link.up));
-        }
-        net.link = links.iter().any(|(_, up)| *up);
-        net.down = links
-            .iter()
-            .filter(|(_, up)| !*up)
-            .map(|(name, _)| name.clone())
-            .collect();
+}
+
+/// Fold one `system/net/<name>/link` value into `net`.
+fn apply_link(
+    net: &mut Net,
+    links: &mut Vec<(String, bool)>,
+    name: &str,
+    link: &nic_wire::LinkEvent,
+) {
+    links.retain(|(known, _)| known != name);
+    if links.len() < MAX_LINKS {
+        links.push((name.to_owned(), link.up));
     }
+    net.link = links.iter().any(|(_, up)| *up);
+    net.down = links
+        .iter()
+        .filter(|(_, up)| !*up)
+        .map(|(name, _)| name.clone())
+        .collect();
 }
 
 fn main() {
@@ -209,32 +204,23 @@ fn main() {
 }
 
 fn run(res: &Rc<Resident>) {
-    let mut feeds = [
-        TopicFeed::new(
-            String::from(wifi_wire::TOPIC_SYSTEM_NET_WIFI_STATE),
-            topics::QOS_LATEST,
-            1,
-            LOOK_TICKS,
-        ),
-        TopicFeed::new(
-            String::from(stack_wire::TOPIC_SYSTEM_NET_ADDR),
-            topics::QOS_LATEST,
-            1,
-            LOOK_TICKS,
-        ),
-        TopicFeed::new(
-            String::from(nic_wire::TOPIC_SYSTEM_NET_LINK),
-            topics::QOS_LATEST,
-            1,
-            LOOK_TICKS,
-        ),
-        TopicFeed::new(
-            String::from(stack_wire::TOPIC_SYSTEM_NET_INTERFACES),
-            topics::QOS_LATEST,
-            1,
-            LOOK_TICKS,
-        ),
-    ];
+    // The watcher thread reads the topics; this loop parks on their
+    // doorbells with the tray's, so it wakes for a change and for nothing else.
+    let mut wifi = wifi_wire::subscribe_system_net_wifi_state(&mut Watch, "+").ok();
+    let mut addr = stack_wire::subscribe_system_net_addr(&mut Watch, "+").ok();
+    let mut link = nic_wire::subscribe_system_net_link(&mut Watch, "+").ok();
+    let mut interfaces = stack_wire::subscribe_system_net_interfaces(&mut Watch).ok();
+    let bells: Vec<u64> = [
+        wifi.as_ref().and_then(|stream| stream.handle().bell()),
+        addr.as_ref().and_then(|stream| stream.handle().bell()),
+        link.as_ref().and_then(|stream| stream.handle().bell()),
+        interfaces
+            .as_ref()
+            .and_then(|stream| stream.handle().bell()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     let mut net = Net::default();
     let mut links = Vec::new();
     let mut first = item(lucide("link"), &net.tooltip());
@@ -247,15 +233,34 @@ fn run(res: &Rc<Resident>) {
     trace::pass!(Channel::Netstatus, "UP");
     let mut shown = (net.tooltip(), net.bars());
     loop {
-        for wake in res.idle(500) {
+        for wake in res.idle_with(&bells, 500) {
             if let Wake::Quit(_) = wake {
                 return;
             }
         }
-        for feed in feeds.iter_mut() {
-            for event in feed.poll() {
-                apply(&mut net, &mut links, &event);
-            }
+        if let Some(stream) = interfaces.as_mut() {
+            pull(stream, |event| apply_interfaces(&mut net, &event.value));
+        }
+        if let Some(stream) = wifi.as_mut() {
+            pull(stream, |event| {
+                if let Some(name) = segment(&event.topic) {
+                    apply_wifi(&mut net, name, &event.value);
+                }
+            });
+        }
+        if let Some(stream) = addr.as_mut() {
+            pull(stream, |event| {
+                if let Some(name) = segment(&event.topic) {
+                    apply_addr(&mut net, name, &event.value);
+                }
+            });
+        }
+        if let Some(stream) = link.as_mut() {
+            pull(stream, |event| {
+                if let Some(name) = segment(&event.topic) {
+                    apply_link(&mut net, &mut links, name, &event.value);
+                }
+            });
         }
         let now = (net.tooltip(), net.bars());
         if now != shown {

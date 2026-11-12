@@ -689,10 +689,10 @@ pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
 /// Networks in the merged list.
 /// The interface's state, retained so a late subscriber (the tray applet
 /// after login) sees it at once. `{ifname}` is the radio's interface name.
-/// The declared `system/net/+/wifi/state` topic (`WifiState`, `latest`, retained).
+/// The declared `system/net/+/wifi/state` topic (`WifiState`, `buffered`, retained).
 pub const TOPIC_SYSTEM_NET_WIFI_STATE: &str = "system/net/+/wifi/state";
 /// The `system/net/+/wifi/state` delivery policy.
-pub const TOPIC_SYSTEM_NET_WIFI_STATE_QOS: u32 = topics::QOS_LATEST;
+pub const TOPIC_SYSTEM_NET_WIFI_STATE_QOS: u32 = topics::QOS_BUFFERED;
 /// Whether `system/net/+/wifi/state` publishes are retained.
 pub const TOPIC_SYSTEM_NET_WIFI_STATE_RETAINED: bool = true;
 

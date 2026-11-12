@@ -4,7 +4,11 @@
 //! [`Transport`] is the seam [`crate::handoff`] is written against:
 //! [`MessengerTransport`] talks to the real services, tests script a mock.
 
+use std::collections::VecDeque;
+
 use libmessenger::client::{CallError, Deadline, Errno};
+use messenger_generated::os_lazy_pkgd_v1 as pkgd;
+use xui_app::fabric::{pull, Feed, Watch};
 use xui_app::platform::messenger::{instance_client, Conn};
 use xui_app::sys::errno;
 
@@ -34,6 +38,13 @@ pub enum Wait {
     Poll,
 }
 
+/// The package manager's events, from the moment they were followed.
+pub trait PkgEvents {
+    /// The next event, waiting no longer than the absolute kernel tick
+    /// `until`: `None` when none came by then (or the follow is unusable).
+    fn next(&mut self, until: u64) -> Option<pkgd::PkgEvent>;
+}
+
 /// One request/reply exchange with a Messenger service, and the clock the
 /// handoff's waits run on.
 pub trait Transport {
@@ -47,6 +58,10 @@ pub trait Transport {
         body: Vec<u8>,
         wait: Wait,
     ) -> Result<Vec<u8>, Failure>;
+
+    /// Follows `system/events/pkg/+`: what is published from now on (and the
+    /// broker's retained replay) is what [`PkgEvents::next`] returns.
+    fn follow_pkg_events(&self) -> Box<dyn PkgEvents + '_>;
 
     /// The kernel tick counter (100 Hz).
     fn ticks(&self) -> u64;
@@ -83,12 +98,51 @@ impl Transport for MessengerTransport {
             .map_err(|error| failure(service, error))
     }
 
+    fn follow_pkg_events(&self) -> Box<dyn PkgEvents + '_> {
+        Box::new(FollowEvents {
+            feed: pkgd::subscribe_system_events_pkg(&mut Watch, "+").ok(),
+            pending: VecDeque::new(),
+        })
+    }
+
     fn ticks(&self) -> u64 {
         xui_app::sys::clock_ticks()
     }
 
     fn pause(&self, millis: u64) {
         xui_app::sys::sleep_millis(millis);
+    }
+}
+
+/// The real [`PkgEvents`]: a typed [`Feed`] of the process's watcher thread,
+/// waited on through its doorbell (no timer, no broker call on this thread).
+struct FollowEvents {
+    feed: Option<Feed<pkgd::PkgEvent>>,
+    pending: VecDeque<pkgd::PkgEvent>,
+}
+
+impl PkgEvents for FollowEvents {
+    fn next(&mut self, until: u64) -> Option<pkgd::PkgEvent> {
+        loop {
+            if let Some(event) = self.pending.pop_front() {
+                return Some(event);
+            }
+            let feed = self.feed.as_mut()?;
+            pull(feed, |event| self.pending.push_back(event.value));
+            if !self.pending.is_empty() {
+                continue;
+            }
+            if xui_app::sys::clock_ticks() >= until {
+                return None;
+            }
+            match feed.handle().bell() {
+                // Park until the watcher queues something or `until` passes.
+                Some(bell) => {
+                    let _ = xui_app::sys::msg_wait_any(&[bell], until);
+                }
+                None => xui_app::sys::sleep_millis(25),
+            }
+        }
     }
 }
 

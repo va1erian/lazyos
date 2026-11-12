@@ -54,7 +54,7 @@ when the resolver replies, `ETIMEDOUT` when `timeout_ms` passes.
 | Topic | Payload | QoS | Retained | Permissions |
 |---|---|---|---|---|
 | `system/net/interfaces` | `InterfaceList` | latest | yes | `publish:system/net/interfaces`, `subscribe:system/net/interfaces` |
-| `system/net/+/addr` | `AddressEvent` | latest | yes | `publish:system/net/+/addr`, `subscribe:system/net/+/addr` |
+| `system/net/+/addr` | `AddressEvent` | buffered | yes | `publish:system/net/+/addr`, `subscribe:system/net/+/addr` |
 | `system/events/network/up` | `AddressEvent` | latest | no | `publish:system/events/network/up`, `subscribe:system/events/network/up` |
 
 ## struct `InterfaceInfo`

@@ -10,29 +10,26 @@
 //!
 //! [`TrayIcon::poll`] never parks: it drains the item's event channel with
 //! the channel counters first, and follows the shell's retained
-//! `session/<s>/shell/tray` generation through a [`TopicFeed`], setting the
-//! item again when a restarted shell publishes a new one. An app therefore
+//! `session/<s>/shell/tray` generation through a [`Follow`] (the watcher
+//! thread reads it; the poll only empties a queue), setting the item again
+//! when a restarted shell publishes a new one. An app therefore
 //! keeps its icon across a shell restart without code of its own. A labelled
 //! app needs `os.lazy.shell.tray.v1` and `subscribe:session/+/shell/tray` in
 //! its manifest (both implied by `resident` from stage T3).
 
 use libmessenger::client::{Connection, Deadline};
 use libmessenger::Parcel;
-use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 use trayclient::{wire, Event, Transport, Tray};
 
+use crate::fabric::{pull, Feed, Watch};
 use crate::platform::messenger::{Conn, Observed};
-use crate::platform::topic_feed::TopicFeed;
 use crate::sys::{self, errno};
 
 /// Ticks (100 Hz) one tray call may take: the shell answers from its
 /// heartbeat, about every 30 ms.
 const CALL_TICKS: u64 = 100;
-/// Ticks between looks at the generation topic.
-const GENERATION_TICKS: u64 = 50;
-/// How long the first look at the generation may wait for its retained
-/// value.
-const FIRST_LOOK_TICKS: u64 = 20;
+/// Ticks between tries of a `Set` a restarting shell refused.
+const RETRY_TICKS: u64 = 50;
 /// Most events read per poll.
 const PER_POLL: usize = 16;
 /// Receive buffer for one event (the largest is `Activate`, a few dozen
@@ -88,7 +85,7 @@ pub struct TrayIcon {
     tray: Tray<XuiTransport>,
     /// The shell's generation topic for this session (`None` when the
     /// session is unknown: then the item is never set again by itself).
-    generation: Option<TopicFeed>,
+    generation: Option<Feed<wire::Generation>>,
     /// When a refused `Set` is next tried again (a PIT tick).
     next_retry: u64,
     buf: Vec<u8>,
@@ -104,9 +101,9 @@ impl TrayIcon {
     /// No item yet; follows this task's session's tray generation.
     pub fn new() -> TrayIcon {
         let session = sys::cred_get(None).ok().map(|cred| cred.session);
-        let generation = session
-            .and_then(|session| wire::name_session_shell_tray(&session.to_string()).ok())
-            .map(|topic| TopicFeed::new(topic, topics::QOS_LATEST, 1, GENERATION_TICKS));
+        let generation = session.and_then(|session| {
+            wire::subscribe_session_shell_tray(&mut Watch, &session.to_string()).ok()
+        });
         TrayIcon {
             tray: Tray::new(XuiTransport::new()),
             generation,
@@ -128,6 +125,14 @@ impl TrayIcon {
     /// with others (`crate::resident`).
     pub fn channel(&self) -> Option<u64> {
         self.tray.events()
+    }
+
+    /// The doorbell of the generation feed, for the same park: ready when the
+    /// shell published a generation ([`TrayIcon::poll`] reads it).
+    pub fn generation_bell(&self) -> Option<u64> {
+        self.generation
+            .as_ref()
+            .and_then(|stream| stream.handle().bell())
     }
 
     /// Change the given parts of the item.
@@ -176,28 +181,25 @@ impl TrayIcon {
         found
     }
 
+    /// Learn the shell's generation from what the watcher queued; `set` asks
+    /// first so the item is registered with the generation already known.
     fn follow_generation(&mut self, now: bool) {
-        let Some(feed) = self.generation.as_mut() else {
+        let Some(stream) = self.generation.as_mut() else {
             return;
         };
         let tick = sys::clock_ticks();
+        let mut generations = Vec::new();
+        pull(stream, |event| generations.push(event.value.generation));
         if !now && tick >= self.next_retry {
             // A `Set` a restarting shell refused is tried again.
-            self.next_retry = tick.saturating_add(GENERATION_TICKS);
+            self.next_retry = tick.saturating_add(RETRY_TICKS);
             if let Some(Err(code)) = self.tray.retry() {
                 println!("TRAY:RESET:RETRY err={}", -code);
             }
         }
-        let events = if now {
-            feed.poll_waiting(FIRST_LOOK_TICKS)
-        } else {
-            feed.poll()
-        };
-        for event in events {
-            if let Ok(value) = wire::decode_session_shell_tray(&event.payload) {
-                if let Some(Err(code)) = self.tray.generation(value.generation) {
-                    println!("TRAY:RESET:FAIL err={}", -code);
-                }
+        for generation in generations {
+            if let Some(Err(code)) = self.tray.generation(generation) {
+                println!("TRAY:RESET:FAIL err={}", -code);
             }
         }
     }

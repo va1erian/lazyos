@@ -347,7 +347,7 @@ Bytes of echo payload returned.
 The address `netd` currently holds on an interface, retained so a late
 subscriber sees it. `{ifname}` is the interface name.
 
-Payload `AddressEvent`, QoS `latest`, retained.
+Payload `AddressEvent`, QoS `buffered`, retained.
 
 Helpers: `ADDR_PATTERN`, `addr_topic(ifname)`, `on_addr(ifname, handler)`, `subscribe_addr(ifname)`, `publish_addr(ifname, payload)`.
 

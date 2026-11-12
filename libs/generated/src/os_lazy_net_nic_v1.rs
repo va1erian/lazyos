@@ -542,10 +542,10 @@ pub const RING_TX: rings::RingDecl = rings::RingDecl {
 /// `{ifname}` is the interface name `devd` gave the card (`eth0`), the
 /// same name as `system/net/{ifname}/addr`: two cards of one model must
 /// not share a retained topic.
-/// The declared `system/net/+/link` topic (`LinkEvent`, `latest`, retained).
+/// The declared `system/net/+/link` topic (`LinkEvent`, `buffered`, retained).
 pub const TOPIC_SYSTEM_NET_LINK: &str = "system/net/+/link";
 /// The `system/net/+/link` delivery policy.
-pub const TOPIC_SYSTEM_NET_LINK_QOS: u32 = topics::QOS_LATEST;
+pub const TOPIC_SYSTEM_NET_LINK_QOS: u32 = topics::QOS_BUFFERED;
 /// Whether `system/net/+/link` publishes are retained.
 pub const TOPIC_SYSTEM_NET_LINK_RETAINED: bool = true;
 

@@ -2,7 +2,17 @@
 //! `os.lazy.messenger.topics`), built so a GUI can listen without polling
 //! (`docs/messenger-playground-plan.md` D5).
 //!
-//! # The contract the caller must keep
+//! # Most programs use [`Follow`]
+//!
+//! An xui app or LazyRAD does not drive a [`Subscriber`] itself: it makes a
+//! [`Follow`] (or, typed, the generated `subscribe_<topic>` helper over
+//! [`Watch`]), and the one watcher thread of the process owns the
+//! subscriber, parks on every doorbell, drains and reconnects. The UI thread
+//! only empties a queue in memory, so it does no broker I/O and never waits.
+//! Driving the [`Subscriber`] directly is for the Playground's monitor,
+//! which needs per-subscription counters and acks.
+//!
+////! # The contract the caller must keep
 //!
 //! `fabricmon` found that `messengerd`'s bump heap never frees a receive
 //! buffer: every request the broker receives costs it memory for good, and a
@@ -50,6 +60,7 @@
 //! error field `code` is reported as `-code`.
 
 mod bell;
+mod follow;
 mod transport;
 mod wire;
 
@@ -63,6 +74,7 @@ mod lifecycle_tests;
 mod tests;
 
 pub use bell::Rung;
+pub use follow::{pull, Feed, Follow, FollowError, TopicEvent, Watch};
 pub use transport::{SysTransport, Transport, Wait};
 
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;

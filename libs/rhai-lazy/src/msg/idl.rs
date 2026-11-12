@@ -2565,7 +2565,7 @@ pub static INTERFACES: &[Interface] = &[
             Topic {
                 pattern: "system/net/+/link",
                 payload: "LinkEvent",
-                qos: 0,
+                qos: 1,
                 retained: true,
                 doc: "Link changes since the driver started, so a subscriber can tell a\nflap from a repeat.\nPublished by the driver whenever the link changes, and once at start.\n`{ifname}` is the interface name `devd` gave the card (`eth0`), the\nsame name as `system/net/{ifname}/addr`: two cards of one model must\nnot share a retained topic.",
             },
@@ -2703,7 +2703,7 @@ pub static INTERFACES: &[Interface] = &[
             Topic {
                 pattern: "system/net/+/addr",
                 payload: "AddressEvent",
-                qos: 0,
+                qos: 1,
                 retained: true,
                 doc: "Round trip in milliseconds (10 ms resolution).\nFour octets: who answered.\nBytes of echo payload returned.\nThe address `netd` currently holds on an interface, retained so a late\nsubscriber sees it. `{ifname}` is the interface name.",
             },
@@ -5121,7 +5121,7 @@ pub static INTERFACES: &[Interface] = &[
             Topic {
                 pattern: "system/net/+/wifi/state",
                 payload: "WifiState",
-                qos: 0,
+                qos: 1,
                 retained: true,
                 doc: "Scans completed since the service started.\nNetworks in the merged list.\nThe interface's state, retained so a late subscriber (the tray applet\nafter login) sees it at once. `{ifname}` is the radio's interface name.",
             },
