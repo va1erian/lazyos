@@ -252,12 +252,15 @@ itself against.
 file       = { service | interface } ;
 service    = "service" STRING "implements" NAME { "," NAME } ";" ;
 interface  = "interface" NAME "{" { member } "}" ;
-member     = method | struct | enum | topic | ring | errors ;
+member     = method | struct | enum | topic | ring | errors | default ;
 method     = "method" IDENT params "->" params { attr } ";" ;
 params     = "(" [ field { "," field } ] ")" ;
 field      = IDENT ":" type [ "=" NUMBER ] ;
 attr       = "=" NUMBER | "oneway" | "sync"
-           | "scope" STRING | "deadline" "=" NUMBER ( "ms" | "s" ) ;
+           | "scope" STRING | deadline | retry ;
+deadline   = "deadline" "=" ( NUMBER ( "ms" | "s" ) | "never" ) ;
+retry      = "retry" "=" ( "safe" | "never" ) ;
+default    = "default" { deadline | retry } ";" ;
 errors     = "errors" "{" { IDENT "=" NUMBER [ "," ] } "}" ;
 struct     = "struct" IDENT "{" { field [ "," ] } "}" ;
 enum       = "enum" IDENT "{" { IDENT [ "," ] } "}" ;
@@ -407,20 +410,69 @@ kernel computes for an interface id. A method without `scope` travels on
 `INTERFACE_ID` and gets no constant. The clipboard's owner scope
 (`Serialize`) is the 8 bytes `os.owner`, not a name hash, so it has no syntax.
 
-### `deadline`
+### `deadline`, `retry` and `default`
 
 ```idl
-method Get(path: String) -> (value: String) deadline=500ms;
-method Fetch(...) -> (...) deadline=5s;
+interface os.lazy.confd.v1 {
+    default deadline=2s;
+    method Get(path: String) -> (value: String) retry=safe;
+    method Fetch(...) -> (...) deadline=5s;
+    method Verify(...) -> (...) deadline=never;
+}
 ```
 
-How long every client waits for the reply: a positive count of `ms` or `s`
-that fits 32 bits of milliseconds, refused on a `oneway` method (there is
-nothing to wait for). Generated: `METHOD_<X>_DEADLINE_MS: u32`. A method
-without a deadline has no constant; the generated client then waits the
-crate-wide `libmessenger::client::DEFAULT_DEADLINE` (5 s, the bound most
-hand-written clients already used), so every client of a method behaves the
-same. State a deadline only where callers need a different one.
+Two attributes state how a client calls a method, so no call site does.
+
+* `deadline=<n>ms|<n>s|never`: how long every client waits for the reply. A
+  positive count that fits 32 bits of milliseconds, or `never` (wait for ever:
+  a password hash, an install; never on a UI thread, which
+  `tools/xui/check_call_bounds.py` enforces). Refused on a `oneway` method
+  (there is nothing to wait for).
+* `retry=safe|never`: whether the client may send the request again to a
+  restarted service after the peer died while it may have been handling it.
+  `safe` is for a read or a write that sets a value (running it twice changes
+  nothing); `never` (also what a method that states nothing gets) returns the
+  error, so a launch, a mount or a password change never runs twice. Refused
+  on a `oneway` method. A request the kernel provably never queued (a stale
+  handle after a restart) is resent whatever the method says; see
+  "Resending" below.
+* `default deadline=2s retry=never;`: a line in an interface that gives every
+  two-way method the attributes it does not state itself (one `default` per
+  interface, stating at least one attribute; a method overrides each
+  attribute separately; a `oneway` method takes none).
+
+An interface that gets a generated client must resolve a `deadline` for every
+two-way method, its own or the interface `default`: `midlc` refuses one that
+does not. There is no crate-wide default bound any more.
+
+Generated, for each two-way method that resolves them:
+`METHOD_<X>_DEADLINE: libmessenger::client::Deadline` (`Deadline::millis(n)` or
+`Deadline::Never`) and `METHOD_<X>_RETRY: libmessenger::client::Retry`
+(`Retry::Safe` or `Retry::Never`, the latter when unstated). The manifest and
+the Markdown page carry the resolved values (`deadline_ms` or `"deadline":
+"never"`, and `retry`).
+
+#### Resending
+
+A restarted service leaves the client a cached handle whose peer is gone. The
+kernel answers a call on it `EPIPE`, which the `Connection` takes as "evict the
+handle, resolve again once and ask whether to resend". The kernel reports the
+same `EPIPE` for two different failures: `begin_call` refuses a request whose
+peer endpoint is closed (never queued: nothing ran), and an `await_reply`
+whose peer closed after it took the request ends `PeerDied` (it may have run).
+A single `OP_CALL` cannot tell them apart, so for a `retry=never` method the
+transports (`user::messenger::client::Native`, `lazyos_sys::client::Std`) issue
+the two halves (`OP_CALL_BEGIN`, `OP_CALL_AWAIT`); a `retry=safe` method is
+resent either way and keeps the single `OP_CALL`. They report `CallFailure { errno,
+delivered }`. The rule in `Connection::call`:
+
+| Failure | `retry=never` | `retry=safe` |
+|---|---|---|
+| never queued (`delivered` false) | resent once to the restarted service | resent once |
+| queued, then the peer died | the error is returned, the handle dropped | resent once |
+
+After any failure the handle is gone, so the next call resolves again. A
+`oneway` send is always resent once: the kernel refuses it before it is queued.
 
 ## Generated crate layout
 
@@ -465,9 +517,10 @@ let quick = conf.get_within("sys/ui/theme", Deadline::millis(50))?;
 * The return is `()` for an empty reply, the field's type for a one-field
   reply and the `XxxReply` struct otherwise.
 * The request travels on the method's `scope` id when it has one, else on
-  `INTERFACE_ID`, and waits the method's `deadline` or the crate-wide default.
-  Every call has exactly one deadline override, `<method>_within(.., Deadline)`;
-  a `oneway` method has none (it sends and returns).
+  `INTERFACE_ID`, waits the method's resolved `deadline` and is resent after a
+  dead peer as its `retry` says (above). Every call has exactly one deadline
+  override, `<method>_within(.., Deadline)` (the retry policy is the IDL's
+  alone); a `oneway` method has none (it sends and returns).
 * Failures are `ClientError`, an alias of `CallError<ServiceError>` (of
   `CallError` for an interface without `errors`): a transport failure, a
   `Remote` refusal whose code the interface does not declare, or
@@ -476,6 +529,49 @@ let quick = conf.get_within("sys/ui/theme", Deadline::millis(50))?;
 * There is no non-blocking `_begin` form yet: the transport trait has no
   asynchronous call, so a UI that must not block keeps using the runtime's own
   lane until one exists.
+
+## Generated server
+
+Every interface with methods gets a server behind the cargo feature
+`<interface>_server` (`confd_v1_server`; it implies the interface's own): a
+`Server` trait with one function per method and `dispatch`, over
+`libmessenger::server` (`docs/client-api-plan.md` 3.3). A daemon implements the
+trait for its state and calls `dispatch(&mut state, &message)`; the result is
+the reply parcel.
+
+```rust
+use messenger_generated::os_lazy_timed_v1 as timed;
+use libmessenger::server::{Caller, Fault};
+
+impl timed::Server for Handler<'_> {
+    fn get_zone(&mut self, _: &Caller) -> Result<String, Fault> { /* ... */ }
+    fn set_zone(&mut self, cx: &Caller, name: String) -> Result<(), Fault> {
+        if cx.caps & CAP_SYS_TIME == 0 {
+            return Err(Fault::refuse(Errno::PERM, "only an administrator may do that"));
+        }
+        /* ... */
+    }
+}
+let reply: Parcel = timed::dispatch(&mut handler, &message);
+```
+
+* Arguments arrive decoded and by value; kernel objects (`Buffer`, `Channel`)
+  were claimed by the decode, so the handler owns them and closes them on a
+  refusal.
+* The result is `()` for no reply field, the field itself for one, the
+  `XxxReply` struct for several. A `oneway` method returns nothing.
+* `Caller` is the kernel's stamp (`uid`, `gid`, `caps`, `label_id`, `session`,
+  and the sender's task slot for addressing only). Authorize from it, never
+  from the body.
+* A `Fault` is an errno (`Fault::errno(Errno::PERM)`, `Fault::refuse(errno,
+  sentence)`) or, through `From<ServiceError>`, one of the interface's declared
+  codes, with an optional `hint`, `domain` and `docs` detail record.
+* A method the handler does not implement answers `ENOSYS`; a request for
+  another interface (or a scoped method on the wrong scope id) answers
+  `EINVAL`, an undeclared method `ENOSYS`, a body that does not decode
+  `EINVAL`.
+* No server exists for the kernel ACL scopes (`KERNEL_SCOPES`) or the
+  kernel-served registry.
 
 ## Errors
 

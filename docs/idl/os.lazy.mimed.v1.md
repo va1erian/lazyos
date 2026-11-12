@@ -25,11 +25,16 @@ as a typed reply.
 
 - Served under the registry name `os.lazy.mimed`; registered once.
 
-## Scopes and deadlines
+## Scopes, deadlines and retries
 
-| Method | Scope interface | Scope id | Deadline |
-|---|---|---|---|
-| Open | this interface | - | 2000 ms |
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Guess | this interface | - | 5000 ms | safe |
+| Lookup | this interface | - | 5000 ms | safe |
+| Verbs | this interface | - | 5000 ms | safe |
+| Open | this interface | - | 2000 ms | never |
+| Register | this interface | - | 5000 ms | never |
+| Unregister | this interface | - | 5000 ms | never |
 
 ## Topics
 

@@ -78,28 +78,46 @@ pub fn decode_tick(body: &[u8]) -> Result<Tick, Error> {
 
 /// `Now` method id.
 pub const METHOD_NOW: u32 = 188597655;
-/// How long a client waits for `Now`'s reply, in milliseconds.
-pub const METHOD_NOW_DEADLINE_MS: u32 = 2000;
+/// How long a client waits for `Now`'s reply: at most 2000 ms (`deadline` in the `.midl`).
+pub const METHOD_NOW_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(2000);
+/// Whether a client resends `Now` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_NOW_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `GetZone` method id.
 pub const METHOD_GETZONE: u32 = 697211125;
-/// How long a client waits for `GetZone`'s reply, in milliseconds.
-pub const METHOD_GETZONE_DEADLINE_MS: u32 = 250;
+/// How long a client waits for `GetZone`'s reply: at most 250 ms (`deadline` in the `.midl`).
+pub const METHOD_GETZONE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(250);
+/// Whether a client resends `GetZone` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_GETZONE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `SetZone` method id.
 pub const METHOD_SETZONE: u32 = 1574816713;
-/// How long a client waits for `SetZone`'s reply, in milliseconds.
-pub const METHOD_SETZONE_DEADLINE_MS: u32 = 15000;
+/// How long a client waits for `SetZone`'s reply: at most 15000 ms (`deadline` in the `.midl`).
+pub const METHOD_SETZONE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(15000);
+/// Whether a client resends `SetZone` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SETZONE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `SetTime` method id.
 pub const METHOD_SETTIME: u32 = 670376986;
-/// How long a client waits for `SetTime`'s reply, in milliseconds.
-pub const METHOD_SETTIME_DEADLINE_MS: u32 = 15000;
+/// How long a client waits for `SetTime`'s reply: at most 15000 ms (`deadline` in the `.midl`).
+pub const METHOD_SETTIME_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(15000);
+/// Whether a client resends `SetTime` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SETTIME_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `NtpStatus` method id.
 pub const METHOD_NTPSTATUS: u32 = 209271495;
-/// How long a client waits for `NtpStatus`'s reply, in milliseconds.
-pub const METHOD_NTPSTATUS_DEADLINE_MS: u32 = 2000;
+/// How long a client waits for `NtpStatus`'s reply: at most 2000 ms (`deadline` in the `.midl`).
+pub const METHOD_NTPSTATUS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(2000);
+/// Whether a client resends `NtpStatus` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_NTPSTATUS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `SyncNow` method id.
 pub const METHOD_SYNCNOW: u32 = 1100029530;
-/// How long a client waits for `SyncNow`'s reply, in milliseconds.
-pub const METHOD_SYNCNOW_DEADLINE_MS: u32 = 2000;
+/// How long a client waits for `SyncNow`'s reply: at most 2000 ms (`deadline` in the `.midl`).
+pub const METHOD_SYNCNOW_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(2000);
+/// Whether a client resends `SyncNow` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SYNCNOW_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 
 /// The current instant and its local-time parameters.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -389,9 +407,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// The current instant and its local-time parameters.
     ///
-    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn now(&self) -> Result<NowReply, ClientError> {
-        self.now_within(libmessenger::client::Deadline::millis(METHOD_NOW_DEADLINE_MS as u64))
+        self.now_within(METHOD_NOW_DEADLINE)
     }
 
     /// [`Self::now`] with the caller's deadline instead of the IDL's.
@@ -400,16 +418,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_NOW, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_NOW, wire_body, wire_objects, within, METHOD_NOW_RETRY)
             ?;
         decode_now_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
 
     /// The configured zone name (`UTC` when none is set).
     ///
-    /// Waits for the reply at most 250 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 250 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn get_zone(&self) -> Result<alloc::string::String, ClientError> {
-        self.get_zone_within(libmessenger::client::Deadline::millis(METHOD_GETZONE_DEADLINE_MS as u64))
+        self.get_zone_within(METHOD_GETZONE_DEADLINE)
     }
 
     /// [`Self::get_zone`] with the caller's deadline instead of the IDL's.
@@ -418,7 +436,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_GETZONE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_GETZONE, wire_body, wire_objects, within, METHOD_GETZONE_RETRY)
             ?;
         let reply = decode_get_zone_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.name)
@@ -431,9 +449,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// (a session asks `elevd` to write `sys/time/zone`, which `timed`
     /// follows).
     ///
-    /// Waits for the reply at most 15000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 15000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn set_zone(&self, name: &str) -> Result<(), ClientError> {
-        self.set_zone_within(name, libmessenger::client::Deadline::millis(METHOD_SETZONE_DEADLINE_MS as u64))
+        self.set_zone_within(name, METHOD_SETZONE_DEADLINE)
     }
 
     /// [`Self::set_zone`] with the caller's deadline instead of the IDL's.
@@ -442,7 +460,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SETZONE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SETZONE, wire_body, wire_objects, within, METHOD_SETZONE_RETRY)
             ?;
         Ok(())
     }
@@ -454,9 +472,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// 2200 fails with `EINVAL`: the service would lift an earlier clock again
     /// the next time it starts.
     ///
-    /// Waits for the reply at most 15000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 15000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_time(&self, unix_secs: i64) -> Result<(), ClientError> {
-        self.set_time_within(unix_secs, libmessenger::client::Deadline::millis(METHOD_SETTIME_DEADLINE_MS as u64))
+        self.set_time_within(unix_secs, METHOD_SETTIME_DEADLINE)
     }
 
     /// [`Self::set_time`] with the caller's deadline instead of the IDL's.
@@ -465,7 +483,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SETTIME, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SETTIME, wire_body, wire_objects, within, METHOD_SETTIME_RETRY)
             ?;
         Ok(())
     }
@@ -477,9 +495,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `offset_ms` and `delay_ms` are the last accepted exchange's server
     /// minus local clock and round trip.
     ///
-    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn ntp_status(&self) -> Result<NtpStatusReply, ClientError> {
-        self.ntp_status_within(libmessenger::client::Deadline::millis(METHOD_NTPSTATUS_DEADLINE_MS as u64))
+        self.ntp_status_within(METHOD_NTPSTATUS_DEADLINE)
     }
 
     /// [`Self::ntp_status`] with the caller's deadline instead of the IDL's.
@@ -488,7 +506,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_NTPSTATUS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_NTPSTATUS, wire_body, wire_objects, within, METHOD_NTPSTATUS_RETRY)
             ?;
         decode_ntp_status_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
@@ -502,9 +520,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// says is still judged by the same clock-step policy as a scheduled
     /// exchange, so a caller cannot choose the time, only when to ask.
     ///
-    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn sync_now(&self) -> Result<(), ClientError> {
-        self.sync_now_within(libmessenger::client::Deadline::millis(METHOD_SYNCNOW_DEADLINE_MS as u64))
+        self.sync_now_within(METHOD_SYNCNOW_DEADLINE)
     }
 
     /// [`Self::sync_now`] with the caller's deadline instead of the IDL's.
@@ -513,8 +531,114 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SYNCNOW, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SYNCNOW, wire_body, wire_objects, within, METHOD_SYNCNOW_RETRY)
             ?;
         Ok(())
+    }
+}
+
+#[cfg(feature = "timed_v1_server")]
+/// What a program answering `os.lazy.timed.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// The current instant and its local-time parameters.
+    fn now(&mut self, cx: &libmessenger::server::Caller) -> Result<NowReply, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The configured zone name (`UTC` when none is set).
+    fn get_zone(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::string::String, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Switch to the built-in zone `name` and persist it to `confd`.
+    /// An unknown name fails with `EINVAL`. A machine setting, like the
+    /// clock: the caller's kernel-stamped credentials must hold
+    /// `CAP_SYS_TIME`, or the caller be `elevd`; anyone else gets `EPERM`
+    /// (a session asks `elevd` to write `sys/time/zone`, which `timed`
+    /// follows).
+    fn set_zone(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, name,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Step the wall clock to `unix_secs` (UTC). The caller's kernel-stamped
+    /// credentials must hold `CAP_SYS_TIME`, or the caller be `elevd` (once
+    /// an administrator approved `time.set`); anyone else gets `EPERM`. A time
+    /// before the build's floor (`sntp::CLOCK_FLOOR_UNIX`, 2026-01-01) or past
+    /// 2200 fails with `EINVAL`: the service would lift an earlier clock again
+    /// the next time it starts.
+    fn set_time(&mut self, cx: &libmessenger::server::Caller, unix_secs: i64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, unix_secs,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The state of the network time client (docs/ntp-plan.md): whether it is
+    /// switched on (`sys/time/ntp/enabled`), what it is doing (`state`, an
+    /// `NtpState` ordinal), and the last exchange that was accepted. Open to
+    /// everyone. Times are UTC seconds, 0 when there is none yet;
+    /// `offset_ms` and `delay_ms` are the last accepted exchange's server
+    /// minus local clock and round trip.
+    fn ntp_status(&mut self, cx: &libmessenger::server::Caller) -> Result<NtpStatusReply, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Ask the network time client to query a server now. Open to everyone,
+    /// and rate-limited like the schedule: it fails with `EAGAIN` when a
+    /// query went out less than 15 seconds ago or is still in flight, or a
+    /// server asked to be left alone (`RATE`) and its hold has not passed,
+    /// `ENETUNREACH` when there is
+    /// no network and `ENODEV` when the client is off. Whatever the server
+    /// says is still judged by the same clock-step policy as a scheduled
+    /// exchange, so a caller cannot choose the time, only when to ask.
+    fn sync_now(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "timed_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_NOW if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.now(&cx), |value| encode_now_reply(&value))
+        }
+        METHOD_GETZONE if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.get_zone(&cx), |value| encode_get_zone_reply(&GetZoneReply { name: value }))
+        }
+        METHOD_SETZONE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_zone_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set_zone(&cx, args.name), |()| Ok(Vec::new()))
+        }
+        METHOD_SETTIME if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_time_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set_time(&cx, args.unix_secs), |()| Ok(Vec::new()))
+        }
+        METHOD_NTPSTATUS if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.ntp_status(&cx), |value| encode_ntp_status_reply(&value))
+        }
+        METHOD_SYNCNOW if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.sync_now(&cx), |()| Ok(Vec::new()))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
     }
 }

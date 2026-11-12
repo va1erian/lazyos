@@ -97,16 +97,48 @@ pub fn decode_entry(body: &[u8]) -> Result<Entry, Error> {
 
 /// `Register` method id.
 pub const METHOD_REGISTER: u32 = 658098656;
+/// How long a client waits for `Register`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_REGISTER_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Register` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_REGISTER_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Resolve` method id.
 pub const METHOD_RESOLVE: u32 = 1645633795;
+/// How long a client waits for `Resolve`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_RESOLVE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Resolve` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_RESOLVE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
+/// `WaitFor` method id.
+pub const METHOD_WAITFOR: u32 = 1225377743;
+/// How long a client waits for `WaitFor`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_WAITFOR_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `WaitFor` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_WAITFOR_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Connect` method id.
 pub const METHOD_CONNECT: u32 = 1535748249;
+/// How long a client waits for `Connect`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_CONNECT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Connect` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_CONNECT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Connected` method id.
 pub const METHOD_CONNECTED: u32 = 2079757168;
 /// `Unregister` method id.
 pub const METHOD_UNREGISTER: u32 = 1480320227;
+/// How long a client waits for `Unregister`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_UNREGISTER_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Unregister` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_UNREGISTER_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `List` method id.
 pub const METHOD_LIST: u32 = 220805025;
+/// How long a client waits for `List`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_LIST_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `List` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LIST_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 
 /// Publish `endpoint` (a handle in the owner's table) under `name`. The
 /// owner becomes the registering task. A `lease_ticks` of `0` registers a
@@ -229,6 +261,65 @@ pub fn encode_resolve_reply(value: &ResolveReply) -> Result<Vec<u8>, Error> {
 
 pub fn decode_resolve_reply(body: &[u8]) -> Result<ResolveReply, Error> {
     let mut out = ResolveReply::default();
+    let mut decoder = Decoder::new(body);
+    while let Some(field) = decoder.next()? {
+        if field.id == 1 {
+            out.handle = field.as_u64()?;
+        }
+    }
+    Ok(out)
+}
+
+/// `Resolve`, but a name that is not registered yet is waited for
+/// instead of refused: the call returns when `name` is registered or the
+/// request's deadline passes (`ETIMEDOUT`), and the reply is a `Resolve`
+/// reply, the handle open in the caller's table. Nothing polls: the
+/// kernel parks the caller on the registry and a `Register` of that name
+/// (and no other) wakes it. The name policy that gates `Resolve` is
+/// applied before the wait starts and again when the name appears, so a
+/// waiter learns nothing a `Resolve` would not tell it. A task waits for
+/// one name at a time; the kernel bounds waiters per process and in all
+/// (`EAGAIN`, after which a client degrades to plain `Resolve`s); a
+/// signal ends the wait with `EINTR` (issue it again with the same
+/// deadline) and a killed caller is released at once (`ECANCELED`).
+/// Kernel gate only, for the caller's own table (`EINVAL` for another
+/// target): `messengerd` does not proxy it, since it would park the
+/// daemon.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WaitForArgs {
+    pub name: alloc::string::String,
+}
+
+pub fn encode_wait_for_args(value: &WaitForArgs) -> Result<Vec<u8>, Error> {
+    let mut target = Encoder::new();
+    target.string(1, &value.name)?;
+    Ok(target.finish())
+}
+
+pub fn decode_wait_for_args(body: &[u8]) -> Result<WaitForArgs, Error> {
+    let mut out = WaitForArgs::default();
+    let mut decoder = Decoder::new(body);
+    while let Some(field) = decoder.next()? {
+        if field.id == 1 {
+            out.name = field.as_str()?.into();
+        }
+    }
+    Ok(out)
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WaitForReply {
+    pub handle: u64,
+}
+
+pub fn encode_wait_for_reply(value: &WaitForReply) -> Result<Vec<u8>, Error> {
+    let mut target = Encoder::new();
+    target.u64(1, value.handle)?;
+    Ok(target.finish())
+}
+
+pub fn decode_wait_for_reply(body: &[u8]) -> Result<WaitForReply, Error> {
+    let mut out = WaitForReply::default();
     let mut decoder = Decoder::new(body);
     while let Some(field) = decoder.next()? {
         if field.id == 1 {
@@ -452,9 +543,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// own domain, `<id>.<name>.v<N>`; anything else is refused (`EACCES`,
     /// audited). Other callers may leave it empty.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn register(&self, name: &str, endpoint: core::option::Option<u64>, interfaces: &[u64], lease_ticks: u64, interface_names: &[alloc::string::String]) -> Result<(), ClientError> {
-        self.register_within(name, endpoint, interfaces, lease_ticks, interface_names, libmessenger::client::DEFAULT_DEADLINE)
+        self.register_within(name, endpoint, interfaces, lease_ticks, interface_names, METHOD_REGISTER_DEADLINE)
     }
 
     /// [`Self::register`] with the caller's deadline instead of the IDL's.
@@ -463,7 +554,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_REGISTER, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_REGISTER, wire_body, wire_objects, within, METHOD_REGISTER_RETRY)
             ?;
         Ok(())
     }
@@ -471,9 +562,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Look `name` up. Over the gate the new handle is the call's return value;
     /// over the daemon it is `handle`, already open in the caller's table.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn resolve(&self, name: &str) -> Result<u64, ClientError> {
-        self.resolve_within(name, libmessenger::client::DEFAULT_DEADLINE)
+        self.resolve_within(name, METHOD_RESOLVE_DEADLINE)
     }
 
     /// [`Self::resolve`] with the caller's deadline instead of the IDL's.
@@ -482,9 +573,42 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_RESOLVE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_RESOLVE, wire_body, wire_objects, within, METHOD_RESOLVE_RETRY)
             ?;
         let reply = decode_resolve_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.handle)
+    }
+
+    /// `Resolve`, but a name that is not registered yet is waited for
+    /// instead of refused: the call returns when `name` is registered or the
+    /// request's deadline passes (`ETIMEDOUT`), and the reply is a `Resolve`
+    /// reply, the handle open in the caller's table. Nothing polls: the
+    /// kernel parks the caller on the registry and a `Register` of that name
+    /// (and no other) wakes it. The name policy that gates `Resolve` is
+    /// applied before the wait starts and again when the name appears, so a
+    /// waiter learns nothing a `Resolve` would not tell it. A task waits for
+    /// one name at a time; the kernel bounds waiters per process and in all
+    /// (`EAGAIN`, after which a client degrades to plain `Resolve`s); a
+    /// signal ends the wait with `EINTR` (issue it again with the same
+    /// deadline) and a killed caller is released at once (`ECANCELED`).
+    /// Kernel gate only, for the caller's own table (`EINVAL` for another
+    /// target): `messengerd` does not proxy it, since it would park the
+    /// daemon.
+    ///
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
+    pub fn wait_for(&self, name: &str) -> Result<u64, ClientError> {
+        self.wait_for_within(name, METHOD_WAITFOR_DEADLINE)
+    }
+
+    /// [`Self::wait_for`] with the caller's deadline instead of the IDL's.
+    pub fn wait_for_within(&self, name: &str, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let wire_body = encode_wait_for_args(&WaitForArgs { name: name.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_WAITFOR, wire_body, wire_objects, within, METHOD_WAITFOR_RETRY)
+            ?;
+        let reply = decode_wait_for_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.handle)
     }
 
@@ -495,9 +619,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// closing a connection ends only that connection. Kernel gate only;
     /// `messengerd` does not proxy it. Allowed wherever `Resolve` is.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn connect_call(&self, name: &str) -> Result<u64, ClientError> {
-        self.connect_call_within(name, libmessenger::client::DEFAULT_DEADLINE)
+        self.connect_call_within(name, METHOD_CONNECT_DEADLINE)
     }
 
     /// [`Self::connect_call`] with the caller's deadline instead of the IDL's.
@@ -506,7 +630,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_CONNECT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_CONNECT, wire_body, wire_objects, within, METHOD_CONNECT_RETRY)
             ?;
         let reply = decode_connect_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.handle)
@@ -527,9 +651,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Withdraw `name`. Only its owner (or an administrator) may.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn unregister(&self, name: &str) -> Result<(), ClientError> {
-        self.unregister_within(name, libmessenger::client::DEFAULT_DEADLINE)
+        self.unregister_within(name, METHOD_UNREGISTER_DEADLINE)
     }
 
     /// [`Self::unregister`] with the caller's deadline instead of the IDL's.
@@ -538,16 +662,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_UNREGISTER, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_UNREGISTER, wire_body, wire_objects, within, METHOD_UNREGISTER_RETRY)
             ?;
         Ok(())
     }
 
     /// Snapshot the name table.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn list(&self) -> Result<alloc::vec::Vec<Entry>, ClientError> {
-        self.list_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.list_within(METHOD_LIST_DEADLINE)
     }
 
     /// [`Self::list`] with the caller's deadline instead of the IDL's.
@@ -556,7 +680,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_LIST, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LIST, wire_body, wire_objects, within, METHOD_LIST_RETRY)
             ?;
         let reply = decode_list_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.entries)

@@ -3,10 +3,12 @@
 //! [`libmessenger::client::Connection`] on, and the one bounded wait for a
 //! service that has not registered yet.
 
-use libmessenger::client::{Deadline, Errno, Handle, Transport};
+use libmessenger::client::{
+    resolve_waiting as wait_resolving, CallFailure, Deadline, Errno, Handle, Retry, Transport,
+};
 use libmessenger::Parcel;
 
-use super::{park_tick, registry, Endpoint, Error, Result};
+use super::{errno, park_tick, registry, Endpoint, Error, Result};
 use crate::sys;
 
 /// How long a native program waits for a service to register: the one connect
@@ -25,21 +27,40 @@ fn errno_of(error: Error) -> Errno {
 
 /// Resolve `name`, waiting for it to register no longer than `until`.
 ///
-/// The kernel-served registry has no "wait for name" operation, so this is
-/// the runtime's one bounded polling loop (one tick between attempts);
-/// `docs/client-api-plan.md` 3.4 is the follow-up that wakes on the
-/// registration instead. [`Deadline::Poll`] makes one attempt.
+/// The kernel parks the task until the name registers or `until` passes
+/// (`WaitFor`), so nothing polls; [`Deadline::Poll`] is one plain `Resolve`.
 pub fn resolve_within(name: &str, until: Deadline) -> Result<Endpoint> {
-    let stop = until.absolute_ticks(sys::clock());
-    loop {
-        match registry::resolve(name) {
-            Ok(endpoint) => return Ok(endpoint),
-            Err(error) if until == Deadline::Poll || (stop != 0 && sys::clock() >= stop) => {
-                return Err(error)
-            }
-            Err(_) => park_tick(),
-        }
+    if until == Deadline::Poll {
+        return registry::resolve(name);
     }
+    // Fixed once, so a re-issued wait keeps the caller's bound.
+    let stop = until.absolute_ticks(sys::clock());
+    let mut last = Error::Errno(-errno::EAGAIN);
+    let found = wait_resolving(
+        || {
+            registry::wait_for(name, stop)
+                .map(Endpoint::handle)
+                .map_err(|error| {
+                    last = error;
+                    errno_of(error)
+                })
+        },
+        // The overload path (`EAGAIN`): a plain resolve every tick.
+        || {
+            registry::resolve(name)
+                .map(Endpoint::handle)
+                .map_err(errno_of)
+        },
+        || stop != 0 && sys::clock() >= stop,
+        park_tick,
+        // A native task has no handlers: a fatal signal ended it on the
+        // `EINTR` return itself (`deliver_native`), so there is nothing to run.
+        || {},
+    );
+    found.map(Endpoint::from_raw).map_err(|code| match code {
+        Errno::TIMEDOUT => Error::Errno(-errno::ETIMEDOUT),
+        _ => last,
+    })
 }
 
 /// [`registry::resolve`] for a program that may start before the service:
@@ -65,16 +86,30 @@ impl Transport for Native {
             .map_err(errno_of)
     }
 
+    /// A `retry=never` method issues the two halves of the kernel call
+    /// (`begin_call`, `await_reply`), so a request the kernel refused before
+    /// queuing is told from one the peer had when it died; a `retry=safe`
+    /// one is resent either way and takes the single call.
     fn call(
         &self,
         handle: Handle,
         request: &Parcel,
         until: Deadline,
-    ) -> core::result::Result<Parcel, Errno> {
+        retry: Retry,
+    ) -> core::result::Result<Parcel, CallFailure> {
         let deadline = until.absolute_ticks(sys::clock());
-        Endpoint::from_raw(handle)
-            .call(request, Some(deadline))
-            .map_err(errno_of)
+        let endpoint = Endpoint::from_raw(handle);
+        if retry == Retry::Safe {
+            return endpoint
+                .call(request, Some(deadline))
+                .map_err(|error| CallFailure::delivered(errno_of(error)));
+        }
+        let txn = endpoint
+            .begin_call(request, Some(deadline))
+            .map_err(|error| CallFailure::undelivered(errno_of(error)))?;
+        endpoint
+            .await_reply(txn)
+            .map_err(|error| CallFailure::delivered(errno_of(error)))
     }
 
     fn send(&self, handle: Handle, request: &Parcel) -> core::result::Result<(), Errno> {

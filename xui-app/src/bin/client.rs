@@ -55,7 +55,7 @@ impl ClientApp {
     fn key_pass(&mut self) {
         if !self.key_pass {
             self.key_pass = true;
-            println!("XUIAPP:KEY:PASS");
+            trace::pass!(Channel::Xuiapp, "KEY");
         }
     }
 }
@@ -70,14 +70,14 @@ impl App for ClientApp {
                 self.status
                     .get()
                     .set_text(&format!("{} clicks", self.count));
-                println!("XUIAPP:COUNTER:{}", self.count);
+                trace::line!(Channel::Xuiapp, "COUNTER:{}", self.count);
             }
             Msg::Edit(value) => {
-                println!("XUIAPP:TEXT:{value}");
+                trace::line!(Channel::Xuiapp, "TEXT:{value}");
                 self.key_pass();
             }
             Msg::Close => {
-                println!("XUIAPP:CLOSE:PASS");
+                trace::pass!(Channel::Xuiapp, "CLOSE");
                 ui.quit();
             }
         }
@@ -107,7 +107,8 @@ fn main() {
     xui_app::app(Channel::Xuiapp, "xui-client")
         .size(W, H)
         .client_only()
-        .run(|ui, backend| {
+        .run(|ui, cx| {
+            let backend = cx.backend();
             // The sessions wait for this line, not `XUIAPP:UP:PASS`.
             backend.on_first_frame(|| trace::line!(Channel::Xuiapp, "CLIENT:PASS"));
             let status = Handle::new();

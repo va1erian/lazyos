@@ -62,17 +62,29 @@ def markdown_services(interface: Interface) -> list[str]:
     return lines
 
 
+def deadline_text(policy) -> str:
+    if policy.never:
+        return "never"
+    return f"{policy.deadline_ms} ms" if policy.deadline_ms is not None else "-"
+
+
 def markdown_method_attrs(interface: Interface) -> list[str]:
-    """Methods that declare a scope or a deadline."""
-    declared = [m for m in interface.methods if m.scope is not None or m.deadline_ms is not None]
+    """Methods that declare a scope, a deadline or a retry policy."""
+    declared = [m for m in interface.methods if m.scope is not None or m.policy.stated]
     if not declared:
         return []
-    lines = ["", "## Scopes and deadlines", "", "| Method | Scope interface | Scope id | Deadline |", "|---|---|---|---|"]
+    lines = [
+        "",
+        "## Scopes, deadlines and retries",
+        "",
+        "| Method | Scope interface | Scope id | Deadline | Retry |",
+        "|---|---|---|---|---|",
+    ]
     for m in declared:
         scope = f"`{m.scope}`" if m.scope is not None else "this interface"
         scope_id = f"`{m.scope_id:#x}`" if m.scope is not None else "-"
-        deadline = f"{m.deadline_ms} ms" if m.deadline_ms is not None else "-"
-        lines.append(f"| {m.name} | {scope} | {scope_id} | {deadline} |")
+        retry = m.policy.retry or ("never" if not m.oneway else "-")
+        lines.append(f"| {m.name} | {scope} | {scope_id} | {deadline_text(m.policy)} | {retry} |")
     return lines
 
 
@@ -125,8 +137,12 @@ def method_entry(method) -> dict:
     if method.scope is not None:
         entry["scope"] = method.scope
         entry["scope_id"] = f"{method.scope_id:#x}"
-    if method.deadline_ms is not None:
-        entry["deadline_ms"] = method.deadline_ms
+    if method.policy.never:
+        entry["deadline"] = "never"
+    elif method.policy.deadline_ms is not None:
+        entry["deadline_ms"] = method.policy.deadline_ms
+    if method.policy.retry is not None:
+        entry["retry"] = method.policy.retry
     if method.objects:
         entry["objects"] = [object_entry(o) for o in method.objects]
     return entry

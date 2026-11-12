@@ -15,6 +15,7 @@
 //! racing a second unpack), and the Installer's own install left the bounded
 //! shape for the async lane ([`install_async`]).
 
+use crate::trace::{self, Channel};
 use std::rc::Rc;
 
 use libmessenger::client::Errno;
@@ -180,7 +181,7 @@ pub fn install(path: &str) -> Result<Installed, String> {
 
 /// A core app's replacement, through `elevd` once an administrator approved.
 fn install_as_admin(path: &str) -> Result<Installed, String> {
-    println!("INSTALLER:ELEVATE pkg.update-core");
+    trace::line!(Channel::Installer, "ELEVATE pkg.update-core");
     super::elevd::request("pkg.update-core", &[path])
         .map_err(|error| format!("Not installed: {}", super::elevd::describe(&error)))?;
     let package = inspect(path)?;

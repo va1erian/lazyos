@@ -46,15 +46,15 @@ impl App for Counter {
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         match msg {
             Msg::Close => {
-                println!("XUIAPP:CLOSE:PASS");
+                trace::pass!(Channel::Xuiapp, "CLOSE");
                 ui.quit();
             }
             Msg::Bump => {
                 self.count += 1;
                 self.label.get().set_text(&format!("{} clicks", self.count));
-                println!("XUIAPP:CLICK:{}", self.count);
+                trace::line!(Channel::Xuiapp, "CLICK:{}", self.count);
                 if self.count == 1 {
-                    println!("XUIAPP:INPUT:PASS");
+                    trace::pass!(Channel::Xuiapp, "INPUT");
                 }
             }
         }
@@ -97,7 +97,8 @@ fn layout(
 fn main() {
     xui_app::app(Channel::Xuiapp, "xui counter")
         .size(WINDOW.0, WINDOW.1)
-        .run(|ui, backend| {
+        .run(|ui, cx| {
+            let backend = cx.backend();
             // The sessions wait for this line, not `XUIAPP:UP:PASS`.
             backend.on_first_frame(|| trace::line!(Channel::Xuiapp, "COUNTER:PASS"));
             let scale = backend.scale() as i32;

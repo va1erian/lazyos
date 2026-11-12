@@ -311,36 +311,60 @@ pub fn decode_scan_event(body: &[u8]) -> Result<ScanEvent, Error> {
 
 /// `Interfaces` method id.
 pub const METHOD_INTERFACES: u32 = 1779791769;
-/// How long a client waits for `Interfaces`'s reply, in milliseconds.
-pub const METHOD_INTERFACES_DEADLINE_MS: u32 = 1000;
+/// How long a client waits for `Interfaces`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_INTERFACES_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
+/// Whether a client resends `Interfaces` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_INTERFACES_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Scan` method id.
 pub const METHOD_SCAN: u32 = 1830061320;
-/// How long a client waits for `Scan`'s reply, in milliseconds.
-pub const METHOD_SCAN_DEADLINE_MS: u32 = 1000;
+/// How long a client waits for `Scan`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_SCAN_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
+/// Whether a client resends `Scan` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SCAN_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Networks` method id.
 pub const METHOD_NETWORKS: u32 = 413956514;
-/// How long a client waits for `Networks`'s reply, in milliseconds.
-pub const METHOD_NETWORKS_DEADLINE_MS: u32 = 1000;
+/// How long a client waits for `Networks`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_NETWORKS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
+/// Whether a client resends `Networks` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_NETWORKS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `AddNetwork` method id.
 pub const METHOD_ADDNETWORK: u32 = 69972362;
-/// How long a client waits for `AddNetwork`'s reply, in milliseconds.
-pub const METHOD_ADDNETWORK_DEADLINE_MS: u32 = 1000;
+/// How long a client waits for `AddNetwork`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_ADDNETWORK_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
+/// Whether a client resends `AddNetwork` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_ADDNETWORK_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Connect` method id.
 pub const METHOD_CONNECT: u32 = 1535748249;
-/// How long a client waits for `Connect`'s reply, in milliseconds.
-pub const METHOD_CONNECT_DEADLINE_MS: u32 = 1000;
+/// How long a client waits for `Connect`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_CONNECT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
+/// Whether a client resends `Connect` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_CONNECT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Disconnect` method id.
 pub const METHOD_DISCONNECT: u32 = 1518631179;
-/// How long a client waits for `Disconnect`'s reply, in milliseconds.
-pub const METHOD_DISCONNECT_DEADLINE_MS: u32 = 1000;
+/// How long a client waits for `Disconnect`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_DISCONNECT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
+/// Whether a client resends `Disconnect` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_DISCONNECT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Forget` method id.
 pub const METHOD_FORGET: u32 = 1849666444;
-/// How long a client waits for `Forget`'s reply, in milliseconds.
-pub const METHOD_FORGET_DEADLINE_MS: u32 = 1000;
+/// How long a client waits for `Forget`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_FORGET_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
+/// Whether a client resends `Forget` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_FORGET_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Status` method id.
 pub const METHOD_STATUS: u32 = 6222351;
-/// How long a client waits for `Status`'s reply, in milliseconds.
-pub const METHOD_STATUS_DEADLINE_MS: u32 = 1000;
+/// How long a client waits for `Status`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_STATUS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
+/// Whether a client resends `Status` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_STATUS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 
 /// The wireless interfaces `wlanmd` manages, by name (`wlan0`).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -836,9 +860,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// The wireless interfaces `wlanmd` manages, by name (`wlan0`).
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn interfaces(&self) -> Result<alloc::vec::Vec<alloc::string::String>, ClientError> {
-        self.interfaces_within(libmessenger::client::Deadline::millis(METHOD_INTERFACES_DEADLINE_MS as u64))
+        self.interfaces_within(METHOD_INTERFACES_DEADLINE)
     }
 
     /// [`Self::interfaces`] with the caller's deadline instead of the IDL's.
@@ -847,7 +871,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_INTERFACES, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_INTERFACES, wire_body, wire_objects, within, METHOD_INTERFACES_RETRY)
             ?;
         let reply = decode_interfaces_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.names)
@@ -859,9 +883,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// is under way (`EBUSY`) and may be skipped while the link is busy with
     /// the handshake.
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn scan(&self, ifname: &str, ssids: &[alloc::string::String]) -> Result<(), ClientError> {
-        self.scan_within(ifname, ssids, libmessenger::client::Deadline::millis(METHOD_SCAN_DEADLINE_MS as u64))
+        self.scan_within(ifname, ssids, METHOD_SCAN_DEADLINE)
     }
 
     /// [`Self::scan`] with the caller's deadline instead of the IDL's.
@@ -870,7 +894,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SCAN, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SCAN, wire_body, wire_objects, within, METHOD_SCAN_RETRY)
             ?;
         Ok(())
     }
@@ -880,9 +904,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// when the caller may use a known network. Profiles of other users are
     /// not shown. At most 128 entries.
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn networks(&self, ifname: &str) -> Result<alloc::vec::Vec<Network>, ClientError> {
-        self.networks_within(ifname, libmessenger::client::Deadline::millis(METHOD_NETWORKS_DEADLINE_MS as u64))
+        self.networks_within(ifname, METHOD_NETWORKS_DEADLINE)
     }
 
     /// [`Self::networks`] with the caller's deadline instead of the IDL's.
@@ -891,7 +915,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_NETWORKS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_NETWORKS, wire_body, wire_objects, within, METHOD_NETWORKS_RETRY)
             ?;
         let reply = decode_networks_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.list)
@@ -911,9 +935,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// scope `System` from anyone but `elevd`; `ENOSPC` past 32 networks for
     /// one owner.
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn add_network(&self, profile: &Profile, passphrase: core::option::Option<&str>) -> Result<alloc::string::String, ClientError> {
-        self.add_network_within(profile, passphrase, libmessenger::client::Deadline::millis(METHOD_ADDNETWORK_DEADLINE_MS as u64))
+        self.add_network_within(profile, passphrase, METHOD_ADDNETWORK_DEADLINE)
     }
 
     /// [`Self::add_network`] with the caller's deadline instead of the IDL's.
@@ -922,7 +946,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_ADDNETWORK, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_ADDNETWORK, wire_body, wire_objects, within, METHOD_ADDNETWORK_RETRY)
             ?;
         let reply = decode_add_network_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.id)
@@ -935,9 +959,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `Failed` with a reason). A user network belongs to its owner: another
     /// user gets `EPERM`.
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn connect_call(&self, ifname: &str, id: &str) -> Result<(), ClientError> {
-        self.connect_call_within(ifname, id, libmessenger::client::Deadline::millis(METHOD_CONNECT_DEADLINE_MS as u64))
+        self.connect_call_within(ifname, id, METHOD_CONNECT_DEADLINE)
     }
 
     /// [`Self::connect_call`] with the caller's deadline instead of the IDL's.
@@ -946,7 +970,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_CONNECT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_CONNECT, wire_body, wire_objects, within, METHOD_CONNECT_RETRY)
             ?;
         Ok(())
     }
@@ -955,9 +979,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// connect is suspended for this interface until the next `Connect`).
     /// Not an error when not connected.
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn disconnect(&self, ifname: &str) -> Result<(), ClientError> {
-        self.disconnect_within(ifname, libmessenger::client::Deadline::millis(METHOD_DISCONNECT_DEADLINE_MS as u64))
+        self.disconnect_within(ifname, METHOD_DISCONNECT_DEADLINE)
     }
 
     /// [`Self::disconnect`] with the caller's deadline instead of the IDL's.
@@ -966,7 +990,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_DISCONNECT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_DISCONNECT, wire_body, wire_objects, within, METHOD_DISCONNECT_RETRY)
             ?;
         Ok(())
     }
@@ -974,9 +998,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Delete a profile and its secret. Disconnects first if it is the
     /// current network. Not an error for an id that is gone.
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn forget(&self, id: &str) -> Result<(), ClientError> {
-        self.forget_within(id, libmessenger::client::Deadline::millis(METHOD_FORGET_DEADLINE_MS as u64))
+        self.forget_within(id, METHOD_FORGET_DEADLINE)
     }
 
     /// [`Self::forget`] with the caller's deadline instead of the IDL's.
@@ -985,7 +1009,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_FORGET, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_FORGET, wire_body, wire_objects, within, METHOD_FORGET_RETRY)
             ?;
         Ok(())
     }
@@ -993,9 +1017,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// The interface's state now: the same value the retained `state` topic
     /// carries, for a client that does not subscribe.
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn status(&self, ifname: &str) -> Result<WifiState, ClientError> {
-        self.status_within(ifname, libmessenger::client::Deadline::millis(METHOD_STATUS_DEADLINE_MS as u64))
+        self.status_within(ifname, METHOD_STATUS_DEADLINE)
     }
 
     /// [`Self::status`] with the caller's deadline instead of the IDL's.
@@ -1004,9 +1028,154 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_STATUS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_STATUS, wire_body, wire_objects, within, METHOD_STATUS_RETRY)
             ?;
         let reply = decode_status_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.status)
+    }
+}
+
+#[cfg(feature = "net_wifi_v1_server")]
+/// What a program answering `os.lazy.net.wifi.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// The wireless interfaces `wlanmd` manages, by name (`wlan0`).
+    fn interfaces(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Ask for a fresh scan; returns at once, the results arrive on
+    /// `system/net/{ifname}/wifi/scan`. `ssids` are hidden networks to probe
+    /// for (at most 4); empty is a wildcard scan. A scan is refused while one
+    /// is under way (`EBUSY`) and may be skipped while the link is busy with
+    /// the handshake.
+    fn scan(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String, ssids: alloc::vec::Vec<alloc::string::String>) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, ifname, ssids,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The current scan results merged with the known profiles: one entry per
+    /// network (SSID and security), strongest BSS first, with the profile id
+    /// when the caller may use a known network. Profiles of other users are
+    /// not shown. At most 128 entries.
+    fn networks(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String) -> Result<alloc::vec::Vec<Network>, libmessenger::server::Fault> {
+        let _ = (cx, ifname,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Remember a network; `scope` is a `Scope` ordinal. Scope `User`: the
+    /// caller's network and its secret; `profile.id` must be empty (the
+    /// service picks one and returns it), and the passphrase is required for
+    /// `Wpa2Psk` (8 to 63 octets of UTF-8 without control characters, or
+    /// exactly 64 hex digits for a raw PSK) and absent for `Open`. Scope
+    /// `System` (from `elevd` alone): only the profile, under the id
+    /// `profile.id` names (`w` and 12 lowercase hex digits), whose secret
+    /// `elevd` already stored in `keyd` under that id; the passphrase must be
+    /// absent. Does not connect. `EEXIST` for the same SSID and scope (or the
+    /// same id); `EINVAL` for a bad SSID (1 to 32 bytes), id, security or
+    /// passphrase, or a name that matches several heard networks; `EPERM` for
+    /// scope `System` from anyone but `elevd`; `ENOSPC` past 32 networks for
+    /// one owner.
+    fn add_network(&mut self, cx: &libmessenger::server::Caller, profile: Profile, passphrase: core::option::Option<alloc::string::String>) -> Result<alloc::string::String, libmessenger::server::Fault> {
+        let _ = (cx, profile, passphrase,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Join the network `id` on `ifname`: leave the current one, scan if the
+    /// SSID is not in the results, pick the best BSS, authenticate, associate
+    /// and run the handshake. Returns when the attempt is started; the
+    /// outcome is on `system/net/{ifname}/wifi/state` (`Connected` or
+    /// `Failed` with a reason). A user network belongs to its owner: another
+    /// user gets `EPERM`.
+    fn connect(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String, id: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, ifname, id,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Leave the current network and do not reconnect until asked (auto-
+    /// connect is suspended for this interface until the next `Connect`).
+    /// Not an error when not connected.
+    fn disconnect(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, ifname,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Delete a profile and its secret. Disconnects first if it is the
+    /// current network. Not an error for an id that is gone.
+    fn forget(&mut self, cx: &libmessenger::server::Caller, id: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, id,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The interface's state now: the same value the retained `state` topic
+    /// carries, for a client that does not subscribe.
+    fn status(&mut self, cx: &libmessenger::server::Caller, ifname: alloc::string::String) -> Result<WifiState, libmessenger::server::Fault> {
+        let _ = (cx, ifname,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "net_wifi_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_INTERFACES if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.interfaces(&cx), |value| encode_interfaces_reply(&InterfacesReply { names: value }))
+        }
+        METHOD_SCAN if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_scan_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.scan(&cx, args.ifname, args.ssids), |()| Ok(Vec::new()))
+        }
+        METHOD_NETWORKS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_networks_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.networks(&cx, args.ifname), |value| encode_networks_reply(&NetworksReply { list: value }))
+        }
+        METHOD_ADDNETWORK if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_add_network_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.add_network(&cx, args.profile, args.passphrase), |value| encode_add_network_reply(&AddNetworkReply { id: value }))
+        }
+        METHOD_CONNECT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_connect_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.connect(&cx, args.ifname, args.id), |()| Ok(Vec::new()))
+        }
+        METHOD_DISCONNECT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_disconnect_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.disconnect(&cx, args.ifname), |()| Ok(Vec::new()))
+        }
+        METHOD_FORGET if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_forget_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.forget(&cx, args.id), |()| Ok(Vec::new()))
+        }
+        METHOD_STATUS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_status_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.status(&cx, args.ifname), |value| encode_status_reply(&StatusReply { status: value }))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
     }
 }

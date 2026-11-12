@@ -11,7 +11,9 @@ import re
 
 from midlc_lexer import Token
 from midlc_decls import (
-    parse_deadline,
+    parse_default,
+    parse_policy_attr,
+    apply_default_policy,
     parse_errors,
     parse_scope,
     parse_service,
@@ -176,8 +178,8 @@ class Parser:
             token = self.next()
             if token.text == "scope":
                 parse_scope(self, attrs, token)
-            elif token.text == "deadline":
-                parse_deadline(self, attrs, token)
+            elif token.text in ("deadline", "retry"):
+                parse_policy_attr(self, attrs.policy, token, f"method {name.text!r}")
             elif token.text == "=":
                 number = self.next()
                 if number.kind != "number":
@@ -320,6 +322,8 @@ class Parser:
                 interface.topics.append(self.parse_topic())
             elif keyword.text == "ring":
                 interface.rings.append(self.parse_ring())
+            elif keyword.text == "default":
+                parse_default(self, interface, keyword)
             elif keyword.text == "errors":
                 if interface.errors:
                     raise MidlError("an interface has one errors block", keyword.line)
@@ -398,6 +402,7 @@ def validate(interface: Interface) -> None:
     validate_topics(interface, named, claim, holding)
     validate_rings(interface, claim)
     validate_errors(interface)
+    apply_default_policy(interface)
 
 
 def validate_topics(interface: Interface, named: set[str], claim, holding: set[str] = frozenset()) -> None:

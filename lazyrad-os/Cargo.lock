@@ -122,6 +122,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
+name = "atomicfile"
+version = "0.1.0"
+
+[[package]]
 name = "audioclient"
 version = "0.1.0"
 dependencies = [
@@ -1272,6 +1276,7 @@ dependencies = [
 name = "lazyhttps"
 version = "0.1.0"
 dependencies = [
+ "fhs",
  "nettls-crypto",
  "rustls",
  "rustls-pki-types",
@@ -1473,6 +1478,7 @@ dependencies = [
 name = "lazysky-core"
 version = "0.1.0"
 dependencies = [
+ "atomicfile",
  "image",
  "lazyhttps",
  "serde",
@@ -1486,6 +1492,7 @@ version = "0.1.0"
 dependencies = [
  "lazysky-core",
  "xui-core",
+ "xui-work",
 ]
 
 [[package]]
@@ -1978,6 +1985,7 @@ dependencies = [
 name = "printd"
 version = "0.1.0"
 dependencies = [
+ "atomicfile",
  "ipp",
 ]
 
@@ -3308,6 +3316,7 @@ name = "xui-app"
 version = "0.1.0"
 dependencies = [
  "accountdb",
+ "atomicfile",
  "audioclient",
  "confd",
  "deskmenu",
@@ -3355,6 +3364,7 @@ dependencies = [
  "xui-settings",
  "xui-videoview",
  "xui-webd-client",
+ "xui-work",
  "xui-writer",
 ]
 
@@ -3364,6 +3374,7 @@ version = "0.1.0"
 dependencies = [
  "lazyarc",
  "xui-core",
+ "xui-work",
 ]
 
 [[package]]
@@ -3387,6 +3398,7 @@ dependencies = [
 name = "xui-code-editor"
 version = "0.1.0"
 dependencies = [
+ "atomicfile",
  "regex",
  "ropey",
  "xui-core",
@@ -3438,6 +3450,7 @@ dependencies = [
  "image",
  "xui-core",
  "xui-icons",
+ "xui-work",
 ]
 
 [[package]]
@@ -3456,6 +3469,7 @@ name = "xui-golf"
 version = "0.1.0"
 dependencies = [
  "xui-core",
+ "xui-work",
 ]
 
 [[package]]
@@ -3490,6 +3504,8 @@ name = "xui-paint"
 version = "0.0.0"
 dependencies = [
  "cosmic-text",
+ "crc32fast",
+ "flate2",
  "tiny-skia",
  "xui-core",
 ]
@@ -3500,6 +3516,7 @@ version = "0.1.0"
 dependencies = [
  "lazypdf",
  "xui-core",
+ "xui-work",
 ]
 
 [[package]]
@@ -3546,6 +3563,7 @@ dependencies = [
  "timezone",
  "uitheme",
  "xui-core",
+ "xui-work",
 ]
 
 [[package]]
@@ -3562,6 +3580,13 @@ version = "0.1.0"
 dependencies = [
  "libmessenger",
  "messenger-generated",
+]
+
+[[package]]
+name = "xui-work"
+version = "0.1.0"
+dependencies = [
+ "xui-core",
 ]
 
 [[package]]

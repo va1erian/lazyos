@@ -115,11 +115,18 @@ IDL = """\
 service "os.lazy.demo" implements os.lazy.demo.v1;
 
 interface os.lazy.demo.v1 {
+    default deadline=never;
     method Quick(a: U32 = 1) -> () deadline=500ms;
     method Slow(a: U32 = 1) -> (b: U32 = 1);
     method ListApps() -> (n: U32 = 1);
     method Connect() -> ();
+    method Explicit(a: U32 = 1) -> () deadline=never;
     method Notice(a: U32 = 1) -> () oneway;
+}
+interface os.lazy.demo.bounded.v1 {
+    default deadline=5s;
+    method Fine(a: U32 = 1) -> ();
+    method Stuck(a: U32 = 1) -> () deadline=never;
 }
 """
 IMPORTS = "use messenger_generated::os_lazy_demo_v1 as wire;\n"
@@ -129,11 +136,20 @@ class IdlDeadlineTests(unittest.TestCase):
     def tree(self, source: str, rel: str = "xui-app/src/platform/m.rs") -> Path:
         return build({"idl/demo.midl": IDL, rel: source})
 
-    def test_a_method_without_a_deadline_in_the_idl_is_reported(self):
+    def test_a_method_the_idl_leaves_unbounded_by_default_is_reported(self):
         root = self.tree(IMPORTS + "fn f(c: &wire::Client<T>) { c.slow(1); }\n")
         hits = scan(root)
         self.assertEqual(len(hits), 1, hits)
         self.assertIn("`slow` of os_lazy_demo_v1", hits[0].why)
+        self.assertIn("deadline=never", hits[0].why)
+
+    def test_an_explicit_never_is_reported_and_a_bounded_default_is_not(self):
+        root = self.tree(
+            "use messenger_generated::os_lazy_demo_bounded_v1 as wire;\n"
+            "fn f(c: &wire::Client<T>) { c.fine(1); c.stuck(1); }\n"
+        )
+        hits = scan(root)
+        self.assertEqual([h.why.split("`")[1] for h in hits], ["stuck"], hits)
 
     def test_snake_case_and_the_reserved_name_follow_the_generator(self):
         root = self.tree(
@@ -146,7 +162,7 @@ class IdlDeadlineTests(unittest.TestCase):
     def test_a_stated_deadline_a_within_call_and_a_oneway_are_not_reported(self):
         root = self.tree(
             IMPORTS
-            + "fn f(c: &wire::Client<T>) { c.quick(); c.slow_within(1, d); c.notice(1); }\n"
+            + "fn f(c: &wire::Client<T>) { c.quick(); c.slow_within(1, d); c.explicit_within(1, d); c.notice(1); }\n"
         )
         self.assertEqual(scan(root), [])
 
@@ -167,7 +183,7 @@ class IdlDeadlineTests(unittest.TestCase):
         )
         self.assertEqual(len(scan(root)), 1)
 
-    def test_the_real_tree_calls_no_method_the_idl_leaves_unbounded(self):
+    def test_the_real_tree_calls_no_method_the_idl_never_bounds(self):
         self.assertEqual(scan(Path(__file__).resolve().parents[2]), [])
 
 

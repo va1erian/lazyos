@@ -70,10 +70,18 @@ pub fn decode_health_record(body: &[u8]) -> Result<HealthRecord, Error> {
 
 /// `Report` method id.
 pub const METHOD_REPORT: u32 = 1182923275;
+/// How long a client waits for `Report`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_REPORT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Report` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_REPORT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Status` method id.
 pub const METHOD_STATUS: u32 = 6222351;
-/// How long a client waits for `Status`'s reply, in milliseconds.
-pub const METHOD_STATUS_DEADLINE_MS: u32 = 500;
+/// How long a client waits for `Status`'s reply: at most 500 ms (`deadline` in the `.midl`).
+pub const METHOD_STATUS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(500);
+/// Whether a client resends `Status` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_STATUS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 
 /// Publish `health/<name>` with `status`/`detail`.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -348,9 +356,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Publish `health/<name>` with `status`/`detail`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn report(&self, name: &str, status: &str, detail: &str) -> Result<ReportReply, ClientError> {
-        self.report_within(name, status, detail, libmessenger::client::DEFAULT_DEADLINE)
+        self.report_within(name, status, detail, METHOD_REPORT_DEADLINE)
     }
 
     /// [`Self::report`] with the caller's deadline instead of the IDL's.
@@ -359,16 +367,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_REPORT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_REPORT, wire_body, wire_objects, within, METHOD_REPORT_RETRY)
             ?;
         decode_report_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
 
     /// Snapshot retained health rows plus the aggregate.
     ///
-    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn status(&self) -> Result<StatusReply, ClientError> {
-        self.status_within(libmessenger::client::Deadline::millis(METHOD_STATUS_DEADLINE_MS as u64))
+        self.status_within(METHOD_STATUS_DEADLINE)
     }
 
     /// [`Self::status`] with the caller's deadline instead of the IDL's.
@@ -377,8 +385,53 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_STATUS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_STATUS, wire_body, wire_objects, within, METHOD_STATUS_RETRY)
             ?;
         decode_status_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+}
+
+#[cfg(feature = "healthd_v1_server")]
+/// What a program answering `os.lazy.healthd.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Publish `health/<name>` with `status`/`detail`.
+    fn report(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, status: alloc::string::String, detail: alloc::string::String) -> Result<ReportReply, libmessenger::server::Fault> {
+        let _ = (cx, name, status, detail,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Snapshot retained health rows plus the aggregate.
+    fn status(&mut self, cx: &libmessenger::server::Caller) -> Result<StatusReply, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "healthd_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_REPORT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_report_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.report(&cx, args.name, args.status, args.detail), |value| encode_report_reply(&value))
+        }
+        METHOD_STATUS if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.status(&cx), |value| encode_status_reply(&value))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
     }
 }

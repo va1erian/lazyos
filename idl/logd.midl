@@ -8,26 +8,27 @@ service "os.lazy.logd" implements os.lazy.logd.v1;
 /// with `Sources` and `TailFile`. Failures are returned as a structured error
 /// field (errno-style code, friendly text), not as a typed reply.
 interface os.lazy.logd.v1 {
+    default deadline=5s;
     /// Return the newest `count` records; an absent `count` means `10`.
-    method Tail(count: Option<U64> = 1) -> (records: Array<LogRecord> = 1);
+    method Tail(count: Option<U64> = 1) -> (records: Array<LogRecord> = 1) retry=safe;
 
     /// Return the number of records appended since boot.
-    method Count() -> (count: U64 = 1);
+    method Count() -> (count: U64 = 1) retry=safe;
 
     /// Recompute the hash chain and report `ok`/first bad `index` (the record
     /// count when the chain is intact).
-    method Verify() -> (ok: Bool = 1, index: U64 = 2);
+    method Verify() -> (ok: Bool = 1, index: U64 = 2) retry=safe;
 
     /// The sources that have a persisted journal (`/logs/<source>.log`),
     /// sorted; empty when the store is absent. Served to uid 0 only, like
     /// `TailFile`: the journals carry every user's activity.
-    method Sources() -> (sources: Array<String> = 1);
+    method Sources() -> (sources: Array<String> = 1) retry=safe;
 
     /// The newest `count` lines of `/logs/<source>.log` (records of earlier
     /// boots included), oldest first. Served to uid 0 only (`EACCES`
     /// otherwise); a source outside `[a-z0-9_-]{1,32}` fails with `EINVAL`
     /// and one without a journal with `ENOENT`.
-    method TailFile(source: String = 1, count: U64 = 2) -> (lines: Array<String> = 1);
+    method TailFile(source: String = 1, count: U64 = 2) -> (lines: Array<String> = 1) retry=safe;
 
     /// One hash-chained log record.
     struct LogRecord {

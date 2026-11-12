@@ -23,15 +23,15 @@ Change notifications are best-effort: a subscriber observes
 
 - Served under the registry name `os.lazy.confd`; registered once.
 
-## Scopes and deadlines
+## Scopes, deadlines and retries
 
-| Method | Scope interface | Scope id | Deadline |
-|---|---|---|---|
-| Get | this interface | - | 2000 ms |
-| Set | this interface | - | 2000 ms |
-| Delete | this interface | - | 2000 ms |
-| List | this interface | - | 2000 ms |
-| Info | this interface | - | 2000 ms |
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Get | this interface | - | 2000 ms | safe |
+| Set | this interface | - | 2000 ms | safe |
+| Delete | this interface | - | 2000 ms | safe |
+| List | this interface | - | 2000 ms | safe |
+| Info | this interface | - | 2000 ms | safe |
 
 ## Errors
 

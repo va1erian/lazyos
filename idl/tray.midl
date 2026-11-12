@@ -24,6 +24,7 @@ service "os.lazy.shell.tray" implements os.lazy.shell.tray.v1;
 /// A session holds at most 64 items (`ENOSPC`). Failures reply with the
 /// standard error field (id 15, `docs/midl.md`).
 interface os.lazy.shell.tray.v1 {
+    default deadline=5s;
     /// Show the app's item, replacing its current one (custom or default).
     /// `events` is the channel the shell sends the item's events
     /// on; the shell `Ping`s it on its heartbeat and drops the custom item

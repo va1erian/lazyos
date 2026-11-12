@@ -11,6 +11,7 @@ use core::cell::RefCell;
 use super::connection::{Handle, Transport};
 use super::deadline::Deadline;
 use super::errno::Errno;
+use super::policy::{CallFailure, Retry};
 use crate::{Header, Object, Parcel};
 
 /// A call or send the mock saw.
@@ -26,6 +27,8 @@ pub struct Recorded {
     pub objects: Vec<Object>,
     /// The deadline the caller gave (`None` for a one-way send).
     pub until: Option<Deadline>,
+    /// The retry policy the caller gave (`None` for a one-way send).
+    pub retry: Option<Retry>,
 }
 
 struct Service {
@@ -42,8 +45,10 @@ struct State {
     handles: Vec<(Handle, String, u64)>,
     next_handle: Handle,
     next_generation: u64,
-    script: VecDeque<Result<Parcel, Errno>>,
+    script: VecDeque<Result<Parcel, CallFailure>>,
     resolves: Vec<(String, Deadline)>,
+    /// Names that appear while a resolve waits for them.
+    appearing: Vec<String>,
     calls: Vec<Recorded>,
     released: Vec<Handle>,
 }
@@ -102,6 +107,13 @@ impl Mock {
         }
     }
 
+    /// `name` registers while a resolve waits for it (a resolve with any
+    /// deadline but [`Deadline::Poll`], as the kernel's `WaitFor` would
+    /// return when the service starts), once.
+    pub fn registers_when_waited_for(&self, name: &str) {
+        self.state.borrow_mut().appearing.push(name.to_string());
+    }
+
     /// The registration of `name` is reaped: a resolve fails with `ENOENT`.
     pub fn unregister(&self, name: &str) {
         self.state
@@ -115,9 +127,23 @@ impl Mock {
         self.state.borrow_mut().script.push_back(Ok(reply));
     }
 
-    /// Queue a transport failure for the next call.
+    /// Queue a transport failure for the next call, one that came after the
+    /// peer took the request (`delivered`: the peer died handling it, or
+    /// the call timed out).
     pub fn fail(&self, errno: Errno) {
-        self.state.borrow_mut().script.push_back(Err(errno));
+        self.state
+            .borrow_mut()
+            .script
+            .push_back(Err(CallFailure::delivered(errno)));
+    }
+
+    /// Queue a failure of the next call that happens before the request is
+    /// queued, as a closed endpoint does ([`CallFailure::undelivered`]).
+    pub fn fail_undelivered(&self, errno: Errno) {
+        self.state
+            .borrow_mut()
+            .script
+            .push_back(Err(CallFailure::undelivered(errno)));
     }
 
     /// Every call and send so far, oldest first.
@@ -164,21 +190,46 @@ impl Transport for Mock {
     }
 
     fn resolve(&self, name: &str, until: Deadline) -> Result<Handle, Errno> {
+        let waits = until != Deadline::Poll;
+        let appears = {
+            let mut state = self.state.borrow_mut();
+            state.resolves.push((name.to_string(), until));
+            let known = state.services.iter().any(|service| service.name == name);
+            let late = state.appearing.iter().position(|late| late == name);
+            match late {
+                Some(index) if waits && !known => {
+                    state.appearing.remove(index);
+                    true
+                }
+                _ => false,
+            }
+        };
+        if appears {
+            self.register(name);
+        }
         let mut state = self.state.borrow_mut();
-        state.resolves.push((name.to_string(), until));
+        // The kernel's wait ends with the timeout where a plain resolve is
+        // `ENOENT`.
+        let missing = if waits { Errno::TIMEDOUT } else { Errno::NOENT };
         let generation = state
             .services
             .iter()
             .find(|service| service.name == name)
             .map(|service| service.generation)
-            .ok_or(Errno::NOENT)?;
+            .ok_or(missing)?;
         state.next_handle += 1;
         let handle = state.next_handle;
         state.handles.push((handle, name.to_string(), generation));
         Ok(handle)
     }
 
-    fn call(&self, handle: Handle, request: &Parcel, until: Deadline) -> Result<Parcel, Errno> {
+    fn call(
+        &self,
+        handle: Handle,
+        request: &Parcel,
+        until: Deadline,
+        retry: Retry,
+    ) -> Result<Parcel, CallFailure> {
         let mut state = self.state.borrow_mut();
         state.calls.push(Recorded {
             handle,
@@ -186,8 +237,15 @@ impl Transport for Mock {
             body: request.body.clone(),
             objects: request.objects.clone(),
             until: Some(until),
+            retry: Some(retry),
         });
-        Mock::peer_alive(&state, handle)?;
+        // A dead peer refuses the request before queuing it, as the kernel's
+        // `begin_call` does. Only the split call (`Retry::Never`) can tell;
+        // the single call a safe method uses reports `delivered`.
+        Mock::peer_alive(&state, handle).map_err(|errno| CallFailure {
+            errno,
+            delivered: retry == Retry::Safe,
+        })?;
         state
             .script
             .pop_front()
@@ -202,6 +260,7 @@ impl Transport for Mock {
             body: request.body.clone(),
             objects: request.objects.clone(),
             until: None,
+            retry: None,
         });
         Mock::peer_alive(&state, handle)
     }

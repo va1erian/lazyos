@@ -80,24 +80,53 @@ pub fn decode_user(body: &[u8]) -> Result<User, Error> {
 
 /// `Lookup` method id.
 pub const METHOD_LOOKUP: u32 = 1772818603;
+/// How long a client waits for `Lookup`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_LOOKUP_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Lookup` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LOOKUP_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Authenticate` method id.
 pub const METHOD_AUTHENTICATE: u32 = 1137183084;
+/// How long a client waits for `Authenticate`'s reply: for ever (`deadline` in the `.midl`).
+pub const METHOD_AUTHENTICATE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::Never;
+/// Whether a client resends `Authenticate` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_AUTHENTICATE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Create` method id.
 pub const METHOD_CREATE: u32 = 420340861;
-/// How long a client waits for `Create`'s reply, in milliseconds.
-pub const METHOD_CREATE_DEADLINE_MS: u32 = 60000;
+/// How long a client waits for `Create`'s reply: at most 60000 ms (`deadline` in the `.midl`).
+pub const METHOD_CREATE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(60000);
+/// Whether a client resends `Create` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_CREATE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Delete` method id.
 pub const METHOD_DELETE: u32 = 1469573738;
+/// How long a client waits for `Delete`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_DELETE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Delete` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_DELETE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `SetPassword` method id.
 pub const METHOD_SETPASSWORD: u32 = 985541106;
-/// How long a client waits for `SetPassword`'s reply, in milliseconds.
-pub const METHOD_SETPASSWORD_DEADLINE_MS: u32 = 60000;
+/// How long a client waits for `SetPassword`'s reply: at most 60000 ms (`deadline` in the `.midl`).
+pub const METHOD_SETPASSWORD_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(60000);
+/// Whether a client resends `SetPassword` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SETPASSWORD_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `SetAdmin` method id.
 pub const METHOD_SETADMIN: u32 = 1706675794;
+/// How long a client waits for `SetAdmin`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SETADMIN_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `SetAdmin` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SETADMIN_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `ListUsers` method id.
 pub const METHOD_LISTUSERS: u32 = 702470087;
-/// How long a client waits for `ListUsers`'s reply, in milliseconds.
-pub const METHOD_LISTUSERS_DEADLINE_MS: u32 = 3000;
+/// How long a client waits for `ListUsers`'s reply: at most 3000 ms (`deadline` in the `.midl`).
+pub const METHOD_LISTUSERS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(3000);
+/// Whether a client resends `ListUsers` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LISTUSERS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 
 /// Find a user by `name` or, when `name` is absent, by `uid`.
 /// `found` is false (and `user` empty) when no account matches.
@@ -531,9 +560,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Find a user by `name` or, when `name` is absent, by `uid`.
     /// `found` is false (and `user` empty) when no account matches.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn lookup(&self, name: core::option::Option<&str>, uid: core::option::Option<u32>) -> Result<LookupReply, ClientError> {
-        self.lookup_within(name, uid, libmessenger::client::DEFAULT_DEADLINE)
+        self.lookup_within(name, uid, METHOD_LOOKUP_DEADLINE)
     }
 
     /// [`Self::lookup`] with the caller's deadline instead of the IDL's.
@@ -542,7 +571,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_LOOKUP, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LOOKUP, wire_body, wire_objects, within, METHOD_LOOKUP_RETRY)
             ?;
         decode_lookup_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
@@ -551,9 +580,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// failures in a row for a name or from a caller, further attempts are
     /// refused with `EAGAIN` for a delay that doubles from 1 s to 60 s.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply for ever (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn authenticate(&self, name: &str, secret: &str) -> Result<bool, ClientError> {
-        self.authenticate_within(name, secret, libmessenger::client::DEFAULT_DEADLINE)
+        self.authenticate_within(name, secret, METHOD_AUTHENTICATE_DEADLINE)
     }
 
     /// [`Self::authenticate`] with the caller's deadline instead of the IDL's.
@@ -562,7 +591,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_AUTHENTICATE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_AUTHENTICATE, wire_body, wire_objects, within, METHOD_AUTHENTICATE_RETRY)
             ?;
         let reply = decode_authenticate_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.ok)
@@ -574,9 +603,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// has no account (the owner, who must be an admin). `EEXIST` for a taken
     /// name, `EINVAL` for a bad one, `EPERM` for any other caller.
     ///
-    /// Waits for the reply at most 60000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 60000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn create(&self, name: &str, secret: &str, admin: bool) -> Result<User, ClientError> {
-        self.create_within(name, secret, admin, libmessenger::client::Deadline::millis(METHOD_CREATE_DEADLINE_MS as u64))
+        self.create_within(name, secret, admin, METHOD_CREATE_DEADLINE)
     }
 
     /// [`Self::create`] with the caller's deadline instead of the IDL's.
@@ -585,7 +614,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_CREATE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_CREATE, wire_body, wire_objects, within, METHOD_CREATE_RETRY)
             ?;
         let reply = decode_create_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.user)
@@ -595,9 +624,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// happens to its home: `keep`, `archive` (moved aside, root-only) or
     /// `remove`. The last administrator cannot be deleted (`EBUSY`).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn delete(&self, name: &str, home: &str) -> Result<(), ClientError> {
-        self.delete_within(name, home, libmessenger::client::DEFAULT_DEADLINE)
+        self.delete_within(name, home, METHOD_DELETE_DEADLINE)
     }
 
     /// [`Self::delete`] with the caller's deadline instead of the IDL's.
@@ -606,7 +635,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_DELETE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_DELETE, wire_body, wire_objects, within, METHOD_DELETE_RETRY)
             ?;
         Ok(())
     }
@@ -615,9 +644,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// the current one in `old` (checked and slowed like `Authenticate`,
     /// `EACCES` when wrong); `elevd` may set anyone's without it.
     ///
-    /// Waits for the reply at most 60000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 60000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_password(&self, name: &str, old: core::option::Option<&str>, secret: &str) -> Result<(), ClientError> {
-        self.set_password_within(name, old, secret, libmessenger::client::Deadline::millis(METHOD_SETPASSWORD_DEADLINE_MS as u64))
+        self.set_password_within(name, old, secret, METHOD_SETPASSWORD_DEADLINE)
     }
 
     /// [`Self::set_password`] with the caller's deadline instead of the IDL's.
@@ -626,7 +655,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SETPASSWORD, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SETPASSWORD, wire_body, wire_objects, within, METHOD_SETPASSWORD_RETRY)
             ?;
         Ok(())
     }
@@ -634,9 +663,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Make `name` an administrator or not (from `elevd` only). Taking it
     /// from the last administrator is `EBUSY`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_admin(&self, name: &str, admin: bool) -> Result<(), ClientError> {
-        self.set_admin_within(name, admin, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_admin_within(name, admin, METHOD_SETADMIN_DEADLINE)
     }
 
     /// [`Self::set_admin`] with the caller's deadline instead of the IDL's.
@@ -645,7 +674,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SETADMIN, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SETADMIN, wire_body, wire_objects, within, METHOD_SETADMIN_RETRY)
             ?;
         Ok(())
     }
@@ -653,9 +682,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Every account, in database order. `setup` is true while the machine
     /// has no account (the login screen then asks for its owner).
     ///
-    /// Waits for the reply at most 3000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 3000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn list_users(&self) -> Result<ListUsersReply, ClientError> {
-        self.list_users_within(libmessenger::client::Deadline::millis(METHOD_LISTUSERS_DEADLINE_MS as u64))
+        self.list_users_within(METHOD_LISTUSERS_DEADLINE)
     }
 
     /// [`Self::list_users`] with the caller's deadline instead of the IDL's.
@@ -664,8 +693,126 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_LISTUSERS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LISTUSERS, wire_body, wire_objects, within, METHOD_LISTUSERS_RETRY)
             ?;
         decode_list_users_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+}
+
+#[cfg(feature = "accounts_v1_server")]
+/// What a program answering `os.lazy.accounts.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Find a user by `name` or, when `name` is absent, by `uid`.
+    /// `found` is false (and `user` empty) when no account matches.
+    fn lookup(&mut self, cx: &libmessenger::server::Caller, name: core::option::Option<alloc::string::String>, uid: core::option::Option<u32>) -> Result<LookupReply, libmessenger::server::Fault> {
+        let _ = (cx, name, uid,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Verify `secret` against the stored verifier of `name`. After three
+    /// failures in a row for a name or from a caller, further attempts are
+    /// refused with `EAGAIN` for a delay that doubles from 1 s to 60 s.
+    fn authenticate(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, secret: alloc::string::String) -> Result<bool, libmessenger::server::Fault> {
+        let _ = (cx, name, secret,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Create the account `name` with the password `secret` (an
+    /// administrator when `admin`): the next free uid, a 0700 home made from
+    /// the skeleton. From `elevd`, or from the login screen while the machine
+    /// has no account (the owner, who must be an admin). `EEXIST` for a taken
+    /// name, `EINVAL` for a bad one, `EPERM` for any other caller.
+    fn create(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, secret: alloc::string::String, admin: bool) -> Result<User, libmessenger::server::Fault> {
+        let _ = (cx, name, secret, admin,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Delete the account `name` (from `elevd` only). `home` says what
+    /// happens to its home: `keep`, `archive` (moved aside, root-only) or
+    /// `remove`. The last administrator cannot be deleted (`EBUSY`).
+    fn delete(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, home: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, name, home,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Set `name`'s password to `secret`. A user may change their own with
+    /// the current one in `old` (checked and slowed like `Authenticate`,
+    /// `EACCES` when wrong); `elevd` may set anyone's without it.
+    fn set_password(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, old: core::option::Option<alloc::string::String>, secret: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, name, old, secret,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Make `name` an administrator or not (from `elevd` only). Taking it
+    /// from the last administrator is `EBUSY`.
+    fn set_admin(&mut self, cx: &libmessenger::server::Caller, name: alloc::string::String, admin: bool) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, name, admin,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Every account, in database order. `setup` is true while the machine
+    /// has no account (the login screen then asks for its owner).
+    fn list_users(&mut self, cx: &libmessenger::server::Caller) -> Result<ListUsersReply, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "accounts_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_LOOKUP if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_lookup_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.lookup(&cx, args.name, args.uid), |value| encode_lookup_reply(&value))
+        }
+        METHOD_AUTHENTICATE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_authenticate_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.authenticate(&cx, args.name, args.secret), |value| encode_authenticate_reply(&AuthenticateReply { ok: value }))
+        }
+        METHOD_CREATE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_create_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.create(&cx, args.name, args.secret, args.admin), |value| encode_create_reply(&CreateReply { user: value }))
+        }
+        METHOD_DELETE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_delete_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.delete(&cx, args.name, args.home), |()| Ok(Vec::new()))
+        }
+        METHOD_SETPASSWORD if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_password_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set_password(&cx, args.name, args.old, args.secret), |()| Ok(Vec::new()))
+        }
+        METHOD_SETADMIN if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_admin_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set_admin(&cx, args.name, args.admin), |()| Ok(Vec::new()))
+        }
+        METHOD_LISTUSERS if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.list_users(&cx), |value| encode_list_users_reply(&value))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
     }
 }

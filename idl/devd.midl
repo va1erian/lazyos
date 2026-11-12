@@ -11,8 +11,9 @@ service "os.lazy.devd" implements os.lazy.devd.v1;
 /// credentials and its arguments. Failures are a structured error field
 /// (errno-style code, friendly text), not a typed reply.
 interface os.lazy.devd.v1 {
+    default deadline=5s;
     /// Every device the kernel enumerated, with its match and state.
-    method Devices() -> (devices: Array<DeviceState> = 1);
+    method Devices() -> (devices: Array<DeviceState> = 1) retry=safe;
 
     /// One device as `devd` sees it.
     struct DeviceState {

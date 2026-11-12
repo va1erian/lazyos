@@ -9,6 +9,7 @@
 //!   frames painted for them with the time the painter spent.
 
 use std::cell::Cell;
+use xui_app::trace::{self, Channel};
 
 use xui_app::sys::monotonic_ns;
 
@@ -58,8 +59,9 @@ impl Perf {
             self.echoes.sort_unstable();
             let p50 = self.echoes[self.echoes.len() / 2];
             let max = self.echoes[self.echoes.len() - 1];
-            println!(
-                "TERM:PERF:echo n={} p50_us={p50} max_us={max}",
+            trace::line!(
+                Channel::Term,
+                "PERF:echo n={} p50_us={p50} max_us={max}",
                 self.echoes.len()
             );
             self.echoes.clear();
@@ -80,8 +82,9 @@ impl Perf {
         self.bytes += bytes;
         if let (true, Some(start)) = (at_prompt, self.command) {
             let (paints, nanos) = paint.take();
-            println!(
-                "TERM:PERF:cmd ms={} bytes={} paints={paints} paint_us={}",
+            trace::line!(
+                Channel::Term,
+                "PERF:cmd ms={} bytes={} paints={paints} paint_us={}",
                 now.saturating_sub(start) / 1_000_000,
                 self.bytes,
                 nanos / 1000

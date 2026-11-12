@@ -1,4 +1,4 @@
-"""midlc Rust output for `service`, `errors`, `scope` and `deadline`.
+"""midlc Rust output for `service`, `errors`, `scope`, `deadline` and `retry`.
 
 Part of the Messenger IDL compiler; see `midlc_decls.py` for the syntax and
 `docs/midl.md` for the rules. The constants and the error enum sit in the
@@ -57,10 +57,11 @@ def emit_service_consts(interface: Interface) -> list[str]:
     return lines + [""] if lines else []
 
 
-def emit_method_attrs(method: Method) -> list[str]:
-    """`METHOD_<X>_SCOPE` and `METHOD_<X>_DEADLINE_MS`, only for a method that
-    declares them; a method without a scope travels on the interface id and
-    one without a deadline has no IDL-stated bound."""
+def emit_method_attrs(method: Method, client: bool = False) -> list[str]:
+    """`METHOD_<X>_SCOPE`, `METHOD_<X>_DEADLINE` and `METHOD_<X>_RETRY`, only
+    for a method that declares them (a two-way method of an interface with a
+    generated client always has both, so a caller can read what the client
+    does): a method without a scope travels on the interface id."""
     name = method.name.upper()
     lines: list[str] = []
     if method.scope is not None:
@@ -69,10 +70,24 @@ def emit_method_attrs(method: Method) -> list[str]:
             "    /// in the request header instead of [`INTERFACE_ID`].",
             f"    pub const METHOD_{name}_SCOPE: u64 = {method.scope_id:#x};",
         ]
-    if method.deadline_ms is not None:
+    policy = method.policy
+    if policy.has_deadline:
+        value = (
+            "libmessenger::client::Deadline::Never"
+            if policy.never
+            else f"libmessenger::client::Deadline::millis({policy.deadline_ms})"
+        )
+        what = "for ever" if policy.never else f"at most {policy.deadline_ms} ms"
         lines += [
-            f"    /// How long a client waits for `{method.name}`'s reply, in milliseconds.",
-            f"    pub const METHOD_{name}_DEADLINE_MS: u32 = {method.deadline_ms};",
+            f"    /// How long a client waits for `{method.name}`'s reply: {what} (`deadline` in the `.midl`).",
+            f"    pub const METHOD_{name}_DEADLINE: libmessenger::client::Deadline = {value};",
+        ]
+    if policy.retry is not None or (client and not method.oneway):
+        retry = (policy.retry or "never").capitalize()
+        lines += [
+            f"    /// Whether a client resends `{method.name}` to a restarted service after the peer died",
+            "    /// handling it (`retry` in the `.midl`; `Never` unless stated).",
+            f"    pub const METHOD_{name}_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::{retry};",
         ]
     return lines
 

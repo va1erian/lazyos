@@ -31,13 +31,17 @@ code, friendly text).
 
 - Served under the registry name `os.lazy.accountsd`; registered once.
 
-## Scopes and deadlines
+## Scopes, deadlines and retries
 
-| Method | Scope interface | Scope id | Deadline |
-|---|---|---|---|
-| Create | this interface | - | 60000 ms |
-| SetPassword | this interface | - | 60000 ms |
-| ListUsers | this interface | - | 3000 ms |
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Lookup | this interface | - | 5000 ms | safe |
+| Authenticate | this interface | - | never | never |
+| Create | this interface | - | 60000 ms | never |
+| Delete | this interface | - | 5000 ms | never |
+| SetPassword | this interface | - | 60000 ms | never |
+| SetAdmin | this interface | - | 5000 ms | never |
+| ListUsers | this interface | - | 3000 ms | safe |
 
 ## struct `User`
 

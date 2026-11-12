@@ -330,14 +330,10 @@ mod tests {
 
     #[test]
     fn the_deadlines_are_the_bounds_the_client_always_used() {
-        let ms = |deadline_ms: u32| Deadline::millis(u64::from(deadline_ms));
-        assert_eq!(ms(wire::METHOD_OFFER_DEADLINE_MS), Deadline::ticks(50));
-        assert_eq!(ms(wire::METHOD_REQUEST_DEADLINE_MS), Deadline::ticks(50));
-        assert_eq!(
-            ms(wire::METHOD_OFFERBUFFER_DEADLINE_MS),
-            Deadline::ticks(500)
-        );
-        assert_eq!(ms(wire::METHOD_FETCH_DEADLINE_MS), Deadline::ticks(500));
+        assert_eq!(wire::METHOD_OFFER_DEADLINE, Deadline::ticks(50));
+        assert_eq!(wire::METHOD_REQUEST_DEADLINE, Deadline::ticks(50));
+        assert_eq!(wire::METHOD_OFFERBUFFER_DEADLINE, Deadline::ticks(500));
+        assert_eq!(wire::METHOD_FETCH_DEADLINE, Deadline::ticks(500));
     }
 
     #[test]

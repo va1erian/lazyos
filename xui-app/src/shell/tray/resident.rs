@@ -9,6 +9,7 @@
 //! an app gets its entry from the topic, `SHELL:TRAY:CLEAR app=<id>
 //! why=stopped` when `init` reports it gone.
 
+use crate::trace::{self, Channel};
 use lazyshell::tray::Change;
 use messenger_generated::os_lazy_init_v1 as init_wire;
 
@@ -49,7 +50,7 @@ pub fn pump(ctx: &Ctx) -> bool {
         .take(MAX_APPS)
         .map(|app| (app.app, app.pid))
         .collect();
-    println!("SHELL:TRAY:RESIDENT apps={}", running.len());
+    trace::line!(Channel::Shell, "TRAY:RESIDENT apps={}", running.len());
     let changes = ctx.tray.model.borrow_mut().set_resident(&running);
     for (app, change) in &changes {
         match change {
@@ -57,11 +58,11 @@ pub fn pump(ctx: &Ctx) -> bool {
                 if !ctx.tray.knows(app) {
                     ctx.tray.refresh_known(ctx);
                 }
-                println!("SHELL:TRAY:DEFAULT app={app}");
+                trace::line!(Channel::Shell, "TRAY:DEFAULT app={app}");
             }
             Change::Removed => {
                 ctx.tray.drop_channel(app);
-                println!("SHELL:TRAY:CLEAR app={app} why=stopped");
+                trace::line!(Channel::Shell, "TRAY:CLEAR app={app} why=stopped");
             }
             _ => {}
         }

@@ -234,29 +234,56 @@ pub const METHOD_OFFER: u32 = 1313375869;
 /// The ACL scope interface `Offer` travels on (`fnv1a64("os.lazy.clipboard.write.v1")`),
 /// in the request header instead of [`INTERFACE_ID`].
 pub const METHOD_OFFER_SCOPE: u64 = 0x828647c8d352e8f3;
-/// How long a client waits for `Offer`'s reply, in milliseconds.
-pub const METHOD_OFFER_DEADLINE_MS: u32 = 500;
+/// How long a client waits for `Offer`'s reply: at most 500 ms (`deadline` in the `.midl`).
+pub const METHOD_OFFER_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(500);
+/// Whether a client resends `Offer` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_OFFER_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `OfferBuffer` method id.
 pub const METHOD_OFFERBUFFER: u32 = 2074208755;
-/// How long a client waits for `OfferBuffer`'s reply, in milliseconds.
-pub const METHOD_OFFERBUFFER_DEADLINE_MS: u32 = 5000;
+/// How long a client waits for `OfferBuffer`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_OFFERBUFFER_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `OfferBuffer` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_OFFERBUFFER_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Request` method id.
 pub const METHOD_REQUEST: u32 = 38093138;
 /// The ACL scope interface `Request` travels on (`fnv1a64("os.lazy.clipboard.read.v1")`),
 /// in the request header instead of [`INTERFACE_ID`].
 pub const METHOD_REQUEST_SCOPE: u64 = 0x8c863642df2825cc;
-/// How long a client waits for `Request`'s reply, in milliseconds.
-pub const METHOD_REQUEST_DEADLINE_MS: u32 = 500;
+/// How long a client waits for `Request`'s reply: at most 500 ms (`deadline` in the `.midl`).
+pub const METHOD_REQUEST_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(500);
+/// Whether a client resends `Request` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_REQUEST_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Fetch` method id.
 pub const METHOD_FETCH: u32 = 1396322691;
-/// How long a client waits for `Fetch`'s reply, in milliseconds.
-pub const METHOD_FETCH_DEADLINE_MS: u32 = 5000;
+/// How long a client waits for `Fetch`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_FETCH_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Fetch` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_FETCH_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Serialize` method id.
 pub const METHOD_SERIALIZE: u32 = 1116160801;
+/// How long a client waits for `Serialize`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SERIALIZE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Serialize` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SERIALIZE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Ping` method id.
 pub const METHOD_PING: u32 = 2142761129;
+/// How long a client waits for `Ping`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_PING_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Ping` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_PING_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Current` method id.
 pub const METHOD_CURRENT: u32 = 869319546;
+/// How long a client waits for `Current`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_CURRENT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Current` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_CURRENT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 
 /// Publish typed payloads for the caller's session and return the new
 /// offer token. An eager offer fills `data` (one bounded copy is kept); a
@@ -895,9 +922,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// lazy offer sets `sink`, the registry name of the endpoint where the
     /// owner serves `Serialize`, and leaves `data` empty.
     ///
-    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn offer(&self, owner: &str, sink: core::option::Option<&str>, mimes: &[alloc::string::String], data: &[Payload]) -> Result<u64, ClientError> {
-        self.offer_within(owner, sink, mimes, data, libmessenger::client::Deadline::millis(METHOD_OFFER_DEADLINE_MS as u64))
+        self.offer_within(owner, sink, mimes, data, METHOD_OFFER_DEADLINE)
     }
 
     /// [`Self::offer`] with the caller's deadline instead of the IDL's.
@@ -906,7 +933,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(METHOD_OFFER_SCOPE, METHOD_OFFER, wire_body, wire_objects, within)
+            .call(METHOD_OFFER_SCOPE, METHOD_OFFER, wire_body, wire_objects, within, METHOD_OFFER_RETRY)
             ?;
         let reply = decode_offer_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.token)
@@ -922,9 +949,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Travels on this interface's own id, not a scope id: the kernel's
     /// declared-object gate keys on the header's interface.
     ///
-    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn offer_buffer(&self, owner: &str, mime: &str, data: libmessenger::Buffer) -> Result<u64, ClientError> {
-        self.offer_buffer_within(owner, mime, data, libmessenger::client::Deadline::millis(METHOD_OFFERBUFFER_DEADLINE_MS as u64))
+        self.offer_buffer_within(owner, mime, data, METHOD_OFFERBUFFER_DEADLINE)
     }
 
     /// [`Self::offer_buffer`] with the caller's deadline instead of the IDL's.
@@ -932,7 +959,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_offer_buffer_args(&OfferBufferArgs { owner: owner.into(), mime: mime.into(), data }).map_err(ClientError::bad_request)?;
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_OFFERBUFFER, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_OFFERBUFFER, wire_body, wire_objects, within, METHOD_OFFERBUFFER_RETRY)
             ?;
         let reply = decode_offer_buffer_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.token)
@@ -945,9 +972,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// larger one leaves `bytes` empty and is read with `Fetch`, using the
     /// reply's `token`.
     ///
-    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn request(&self, token: u64, mime: &str) -> Result<RequestReply, ClientError> {
-        self.request_within(token, mime, libmessenger::client::Deadline::millis(METHOD_REQUEST_DEADLINE_MS as u64))
+        self.request_within(token, mime, METHOD_REQUEST_DEADLINE)
     }
 
     /// [`Self::request`] with the caller's deadline instead of the IDL's.
@@ -956,7 +983,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(METHOD_REQUEST_SCOPE, METHOD_REQUEST, wire_body, wire_objects, within)
+            .call(METHOD_REQUEST_SCOPE, METHOD_REQUEST, wire_body, wire_objects, within, METHOD_REQUEST_RETRY)
             ?;
         decode_request_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
@@ -967,9 +994,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `EINVAL`), authorised like `Request` (another session's is `EACCES` and
     /// audited). Replies with the number of bytes written.
     ///
-    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn fetch(&self, token: u64, mime: &str, into: libmessenger::Buffer) -> Result<u64, ClientError> {
-        self.fetch_within(token, mime, into, libmessenger::client::Deadline::millis(METHOD_FETCH_DEADLINE_MS as u64))
+        self.fetch_within(token, mime, into, METHOD_FETCH_DEADLINE)
     }
 
     /// [`Self::fetch`] with the caller's deadline instead of the IDL's.
@@ -977,7 +1004,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_fetch_args(&FetchArgs { token, mime: mime.into(), into }).map_err(ClientError::bad_request)?;
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_FETCH, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_FETCH, wire_body, wire_objects, within, METHOD_FETCH_RETRY)
             ?;
         let reply = decode_fetch_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.written)
@@ -986,9 +1013,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Serialize one MIME of a lazy offer on demand. The service calls this on
     /// the offer owner's `sink` endpoint when a paste happens.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn serialize(&self, token: u64, mime: &str) -> Result<alloc::vec::Vec<u8>, ClientError> {
-        self.serialize_within(token, mime, libmessenger::client::DEFAULT_DEADLINE)
+        self.serialize_within(token, mime, METHOD_SERIALIZE_DEADLINE)
     }
 
     /// [`Self::serialize`] with the caller's deadline instead of the IDL's.
@@ -997,7 +1024,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_SERIALIZE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SERIALIZE, wire_body, wire_objects, within, METHOD_SERIALIZE_RETRY)
             ?;
         let reply = decode_serialize_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.bytes)
@@ -1005,9 +1032,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Liveness probe.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn ping(&self) -> Result<(), ClientError> {
-        self.ping_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.ping_within(METHOD_PING_DEADLINE)
     }
 
     /// [`Self::ping`] with the caller's deadline instead of the IDL's.
@@ -1016,7 +1043,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_PING, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_PING, wire_body, wire_objects, within, METHOD_PING_RETRY)
             ?;
         Ok(())
     }
@@ -1024,9 +1051,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Metadata of the caller session's newest offer, never content; empty
     /// when no offer is live.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn current(&self) -> Result<core::option::Option<OfferMeta>, ClientError> {
-        self.current_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.current_within(METHOD_CURRENT_DEADLINE)
     }
 
     /// [`Self::current`] with the caller's deadline instead of the IDL's.
@@ -1035,9 +1062,133 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_CURRENT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_CURRENT, wire_body, wire_objects, within, METHOD_CURRENT_RETRY)
             ?;
         let reply = decode_current_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.offer)
+    }
+}
+
+#[cfg(feature = "clipboard_v1_server")]
+/// What a program answering `os.lazy.clipboard.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Publish typed payloads for the caller's session and return the new
+    /// offer token. An eager offer fills `data` (one bounded copy is kept); a
+    /// lazy offer sets `sink`, the registry name of the endpoint where the
+    /// owner serves `Serialize`, and leaves `data` empty.
+    fn offer(&mut self, cx: &libmessenger::server::Caller, owner: alloc::string::String, sink: core::option::Option<alloc::string::String>, mimes: alloc::vec::Vec<alloc::string::String>, data: alloc::vec::Vec<Payload>) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, owner, sink, mimes, data,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Publish one large payload (more than the inline cap of 8 KiB, at most
+    /// 16 MiB) for the caller's session. The range `data.offset .. + data.len`
+    /// of the shared pages is the payload: the service copies it once into
+    /// pages of its own (not its heap) and closes the received handle before
+    /// replying, so the offer is a snapshot and the caller may reuse or
+    /// close its pages at once. The snapshot counts against the session's
+    /// retained-bytes budget (64 MiB; the oldest offers are evicted past it).
+    /// Travels on this interface's own id, not a scope id: the kernel's
+    /// declared-object gate keys on the header's interface.
+    fn offer_buffer(&mut self, cx: &libmessenger::server::Caller, owner: alloc::string::String, mime: alloc::string::String, data: libmessenger::Buffer) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, owner, mime, data,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Read one MIME of an offer. `token` 0 selects the newest offer in the
+    /// caller's session that lists `mime`; another session's token fails with
+    /// `EACCES` and is audited, an unknown one with `ENOENT`. `size` is the
+    /// payload's length. A payload up to the inline cap rides in `bytes`; a
+    /// larger one leaves `bytes` empty and is read with `Fetch`, using the
+    /// reply's `token`.
+    fn request(&mut self, cx: &libmessenger::server::Caller, token: u64, mime: alloc::string::String) -> Result<RequestReply, libmessenger::server::Fault> {
+        let _ = (cx, token, mime,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Copy a large payload (see `Request`) into the caller's buffer: the
+    /// bytes of `token`'s `mime` go to `into`'s range, which must be at least
+    /// `size` long (`E2BIG` otherwise). `token` must be an exact token (0 is
+    /// `EINVAL`), authorised like `Request` (another session's is `EACCES` and
+    /// audited). Replies with the number of bytes written.
+    fn fetch(&mut self, cx: &libmessenger::server::Caller, token: u64, mime: alloc::string::String, into: libmessenger::Buffer) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, token, mime, into,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Serialize one MIME of a lazy offer on demand. The service calls this on
+    /// the offer owner's `sink` endpoint when a paste happens.
+    fn serialize(&mut self, cx: &libmessenger::server::Caller, token: u64, mime: alloc::string::String) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault> {
+        let _ = (cx, token, mime,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Liveness probe.
+    fn ping(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Metadata of the caller session's newest offer, never content; empty
+    /// when no offer is live.
+    fn current(&mut self, cx: &libmessenger::server::Caller) -> Result<core::option::Option<OfferMeta>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "clipboard_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_OFFER if id == METHOD_OFFER_SCOPE => {
+            let Ok(args) = message.decode(|body, _| decode_offer_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.offer(&cx, args.owner, args.sink, args.mimes, args.data), |value| encode_offer_reply(&OfferReply { token: value }))
+        }
+        METHOD_OFFERBUFFER if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_offer_buffer_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.offer_buffer(&cx, args.owner, args.mime, args.data), |value| encode_offer_buffer_reply(&OfferBufferReply { token: value }))
+        }
+        METHOD_REQUEST if id == METHOD_REQUEST_SCOPE => {
+            let Ok(args) = message.decode(|body, _| decode_request_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.request(&cx, args.token, args.mime), |value| encode_request_reply(&value))
+        }
+        METHOD_FETCH if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_fetch_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.fetch(&cx, args.token, args.mime, args.into), |value| encode_fetch_reply(&FetchReply { written: value }))
+        }
+        METHOD_SERIALIZE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_serialize_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.serialize(&cx, args.token, args.mime), |value| encode_serialize_reply(&SerializeReply { bytes: value }))
+        }
+        METHOD_PING if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.ping(&cx), |()| Ok(Vec::new()))
+        }
+        METHOD_CURRENT if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.current(&cx), |value| encode_current_reply(&CurrentReply { offer: value }))
+        }
+        _ if id == INTERFACE_ID || id == METHOD_OFFER_SCOPE || id == METHOD_REQUEST_SCOPE => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
     }
 }

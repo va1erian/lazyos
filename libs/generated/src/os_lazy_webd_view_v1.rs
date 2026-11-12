@@ -356,34 +356,94 @@ pub fn decode_shift(body: &[u8]) -> Result<Shift, Error> {
 
 /// `CreateView` method id.
 pub const METHOD_CREATEVIEW: u32 = 1;
+/// How long a client waits for `CreateView`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_CREATEVIEW_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `CreateView` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_CREATEVIEW_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `DestroyView` method id.
 pub const METHOD_DESTROYVIEW: u32 = 2;
+/// How long a client waits for `DestroyView`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_DESTROYVIEW_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `DestroyView` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_DESTROYVIEW_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `AttachSlot` method id.
 pub const METHOD_ATTACHSLOT: u32 = 3;
+/// How long a client waits for `AttachSlot`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_ATTACHSLOT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `AttachSlot` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_ATTACHSLOT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `ReleaseSlot` method id.
 pub const METHOD_RELEASESLOT: u32 = 4;
 /// `Resize` method id.
 pub const METHOD_RESIZE: u32 = 5;
+/// How long a client waits for `Resize`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_RESIZE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Resize` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_RESIZE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `SetVisible` method id.
 pub const METHOD_SETVISIBLE: u32 = 6;
 /// `Refresh` method id.
 pub const METHOD_REFRESH: u32 = 7;
 /// `Load` method id.
 pub const METHOD_LOAD: u32 = 10;
+/// How long a client waits for `Load`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_LOAD_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Load` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LOAD_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `LoadHtml` method id.
 pub const METHOD_LOADHTML: u32 = 11;
+/// How long a client waits for `LoadHtml`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_LOADHTML_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `LoadHtml` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LOADHTML_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Reload` method id.
 pub const METHOD_RELOAD: u32 = 12;
+/// How long a client waits for `Reload`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_RELOAD_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Reload` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_RELOAD_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Stop` method id.
 pub const METHOD_STOP: u32 = 13;
+/// How long a client waits for `Stop`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_STOP_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Stop` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_STOP_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Back` method id.
 pub const METHOD_BACK: u32 = 14;
+/// How long a client waits for `Back`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_BACK_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Back` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_BACK_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Forward` method id.
 pub const METHOD_FORWARD: u32 = 15;
+/// How long a client waits for `Forward`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_FORWARD_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Forward` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_FORWARD_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Download` method id.
 pub const METHOD_DOWNLOAD: u32 = 16;
+/// How long a client waits for `Download`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_DOWNLOAD_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Download` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_DOWNLOAD_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Recover` method id.
 pub const METHOD_RECOVER: u32 = 17;
+/// How long a client waits for `Recover`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_RECOVER_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Recover` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_RECOVER_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Mouse` method id.
 pub const METHOD_MOUSE: u32 = 20;
 /// `Wheel` method id.
@@ -394,30 +454,95 @@ pub const METHOD_KEY: u32 = 22;
 pub const METHOD_FOCUS: u32 = 23;
 /// `DialogReply` method id.
 pub const METHOD_DIALOGREPLY: u32 = 30;
+/// How long a client waits for `DialogReply`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_DIALOGREPLY_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `DialogReply` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_DIALOGREPLY_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `NavigationAnswer` method id.
 pub const METHOD_NAVIGATIONANSWER: u32 = 31;
+/// How long a client waits for `NavigationAnswer`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_NAVIGATIONANSWER_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `NavigationAnswer` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_NAVIGATIONANSWER_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `NotifyPermission` method id.
 pub const METHOD_NOTIFYPERMISSION: u32 = 32;
+/// How long a client waits for `NotifyPermission`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_NOTIFYPERMISSION_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `NotifyPermission` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_NOTIFYPERMISSION_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `DownloadCancel` method id.
 pub const METHOD_DOWNLOADCANCEL: u32 = 33;
+/// How long a client waits for `DownloadCancel`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_DOWNLOADCANCEL_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `DownloadCancel` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_DOWNLOADCANCEL_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `SetBlocking` method id.
 pub const METHOD_SETBLOCKING: u32 = 34;
+/// How long a client waits for `SetBlocking`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SETBLOCKING_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `SetBlocking` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SETBLOCKING_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `BlockingCompile` method id.
 pub const METHOD_BLOCKINGCOMPILE: u32 = 35;
+/// How long a client waits for `BlockingCompile`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_BLOCKINGCOMPILE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `BlockingCompile` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_BLOCKINGCOMPILE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `BlockingLoad` method id.
 pub const METHOD_BLOCKINGLOAD: u32 = 36;
+/// How long a client waits for `BlockingLoad`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_BLOCKINGLOAD_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `BlockingLoad` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_BLOCKINGLOAD_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `BlockingForget` method id.
 pub const METHOD_BLOCKINGFORGET: u32 = 37;
+/// How long a client waits for `BlockingForget`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_BLOCKINGFORGET_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `BlockingForget` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_BLOCKINGFORGET_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `NotifyForget` method id.
 pub const METHOD_NOTIFYFORGET: u32 = 38;
+/// How long a client waits for `NotifyForget`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_NOTIFYFORGET_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `NotifyForget` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_NOTIFYFORGET_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `NotifyState` method id.
 pub const METHOD_NOTIFYSTATE: u32 = 39;
+/// How long a client waits for `NotifyState`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_NOTIFYSTATE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `NotifyState` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_NOTIFYSTATE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `RecoverGroup` method id.
 pub const METHOD_RECOVERGROUP: u32 = 44;
+/// How long a client waits for `RecoverGroup`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_RECOVERGROUP_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `RecoverGroup` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_RECOVERGROUP_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `DetachSlots` method id.
 pub const METHOD_DETACHSLOTS: u32 = 45;
+/// How long a client waits for `DetachSlots`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_DETACHSLOTS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `DetachSlots` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_DETACHSLOTS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `SetUserAgent` method id.
 pub const METHOD_SETUSERAGENT: u32 = 46;
+/// How long a client waits for `SetUserAgent`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SETUSERAGENT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `SetUserAgent` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SETUSERAGENT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Frame` method id.
 pub const METHOD_FRAME: u32 = 100;
 /// `State` method id.
@@ -2826,9 +2951,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `DataOnly`, `config.profile` `""`, `config.handoff` not `Browser`,
     /// and `downloads` and `blocking` false (`EACCES` otherwise).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn create_view(&self, config: &ViewConfig, width: u32, height: u32, events: u64) -> Result<u64, ClientError> {
-        self.create_view_within(config, width, height, events, libmessenger::client::DEFAULT_DEADLINE)
+        self.create_view_within(config, width, height, events, METHOD_CREATEVIEW_DEADLINE)
     }
 
     /// [`Self::create_view`] with the caller's deadline instead of the IDL's.
@@ -2836,7 +2961,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_create_view_args(&CreateViewArgs { config: config.clone(), width, height, events }).map_err(ClientError::bad_request)?;
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_CREATEVIEW, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_CREATEVIEW, wire_body, wire_objects, within, METHOD_CREATEVIEW_RETRY)
             ?;
         let reply = decode_create_view_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.view)
@@ -2844,9 +2969,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// End the view; not an error for a view that is gone.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn destroy_view(&self, view: u64) -> Result<(), ClientError> {
-        self.destroy_view_within(view, libmessenger::client::DEFAULT_DEADLINE)
+        self.destroy_view_within(view, METHOD_DESTROYVIEW_DEADLINE)
     }
 
     /// [`Self::destroy_view`] with the caller's deadline instead of the IDL's.
@@ -2855,7 +2980,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_DESTROYVIEW, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_DESTROYVIEW, wire_body, wire_objects, within, METHOD_DESTROYVIEW_RETRY)
             ?;
         Ok(())
     }
@@ -2864,9 +2989,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `width * height * 4` bytes), 3 and 4 band slots of a view with deltas
     /// (at least `width * min(height, 1024) * 4` bytes). `EBUSY` while webd has it out.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn attach_slot(&self, view: u64, slot: u32, pixels: libmessenger::Buffer) -> Result<(), ClientError> {
-        self.attach_slot_within(view, slot, pixels, libmessenger::client::DEFAULT_DEADLINE)
+        self.attach_slot_within(view, slot, pixels, METHOD_ATTACHSLOT_DEADLINE)
     }
 
     /// [`Self::attach_slot`] with the caller's deadline instead of the IDL's.
@@ -2874,7 +2999,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_attach_slot_args(&AttachSlotArgs { view, slot, pixels }).map_err(ClientError::bad_request)?;
         self
             .conn
-            .call(INTERFACE_ID, METHOD_ATTACHSLOT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_ATTACHSLOT, wire_body, wire_objects, within, METHOD_ATTACHSLOT_RETRY)
             ?;
         Ok(())
     }
@@ -2890,9 +3015,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Change the view's size; every slot is detached.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn resize(&self, view: u64, width: u32, height: u32) -> Result<(), ClientError> {
-        self.resize_within(view, width, height, libmessenger::client::DEFAULT_DEADLINE)
+        self.resize_within(view, width, height, METHOD_RESIZE_DEADLINE)
     }
 
     /// [`Self::resize`] with the caller's deadline instead of the IDL's.
@@ -2901,7 +3026,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_RESIZE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_RESIZE, wire_body, wire_objects, within, METHOD_RESIZE_RETRY)
             ?;
         Ok(())
     }
@@ -2927,9 +3052,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Load `url` in the view: it must pass the view's scheme policy (`EACCES`
     /// otherwise; `file:` never does), at most 8 KiB.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn load(&self, view: u64, url: &str) -> Result<(), ClientError> {
-        self.load_within(view, url, libmessenger::client::DEFAULT_DEADLINE)
+        self.load_within(view, url, METHOD_LOAD_DEADLINE)
     }
 
     /// [`Self::load`] with the caller's deadline instead of the IDL's.
@@ -2938,7 +3063,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_LOAD, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LOAD, wire_body, wire_objects, within, METHOD_LOAD_RETRY)
             ?;
         Ok(())
     }
@@ -2948,9 +3073,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// or `https:` address the policy allows (relative addresses resolve
     /// against it). Never `file:`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn load_html(&self, view: u64, html: libmessenger::Buffer, base_url: &str) -> Result<(), ClientError> {
-        self.load_html_within(view, html, base_url, libmessenger::client::DEFAULT_DEADLINE)
+        self.load_html_within(view, html, base_url, METHOD_LOADHTML_DEADLINE)
     }
 
     /// [`Self::load_html`] with the caller's deadline instead of the IDL's.
@@ -2958,7 +3083,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_load_html_args(&LoadHtmlArgs { view, html, base_url: base_url.into() }).map_err(ClientError::bad_request)?;
         self
             .conn
-            .call(INTERFACE_ID, METHOD_LOADHTML, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LOADHTML, wire_body, wire_objects, within, METHOD_LOADHTML_RETRY)
             ?;
         Ok(())
     }
@@ -2966,9 +3091,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Load the page again; `bypass_blocking` loads it once without the
     /// content blocker.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn reload(&self, view: u64, bypass_blocking: bool) -> Result<(), ClientError> {
-        self.reload_within(view, bypass_blocking, libmessenger::client::DEFAULT_DEADLINE)
+        self.reload_within(view, bypass_blocking, METHOD_RELOAD_DEADLINE)
     }
 
     /// [`Self::reload`] with the caller's deadline instead of the IDL's.
@@ -2977,15 +3102,15 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_RELOAD, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_RELOAD, wire_body, wire_objects, within, METHOD_RELOAD_RETRY)
             ?;
         Ok(())
     }
 
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn stop(&self, view: u64) -> Result<(), ClientError> {
-        self.stop_within(view, libmessenger::client::DEFAULT_DEADLINE)
+        self.stop_within(view, METHOD_STOP_DEADLINE)
     }
 
     /// [`Self::stop`] with the caller's deadline instead of the IDL's.
@@ -2994,15 +3119,15 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_STOP, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_STOP, wire_body, wire_objects, within, METHOD_STOP_RETRY)
             ?;
         Ok(())
     }
 
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn back(&self, view: u64) -> Result<(), ClientError> {
-        self.back_within(view, libmessenger::client::DEFAULT_DEADLINE)
+        self.back_within(view, METHOD_BACK_DEADLINE)
     }
 
     /// [`Self::back`] with the caller's deadline instead of the IDL's.
@@ -3011,15 +3136,15 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_BACK, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_BACK, wire_body, wire_objects, within, METHOD_BACK_RETRY)
             ?;
         Ok(())
     }
 
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn forward(&self, view: u64) -> Result<(), ClientError> {
-        self.forward_within(view, libmessenger::client::DEFAULT_DEADLINE)
+        self.forward_within(view, METHOD_FORWARD_DEADLINE)
     }
 
     /// [`Self::forward`] with the caller's deadline instead of the IDL's.
@@ -3028,16 +3153,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_FORWARD, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_FORWARD, wire_body, wire_objects, within, METHOD_FORWARD_RETRY)
             ?;
         Ok(())
     }
 
     /// Save `url` as a download (Save Page As): a view with `downloads` only.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn download(&self, view: u64, url: &str) -> Result<(), ClientError> {
-        self.download_within(view, url, libmessenger::client::DEFAULT_DEADLINE)
+        self.download_within(view, url, METHOD_DOWNLOAD_DEADLINE)
     }
 
     /// [`Self::download`] with the caller's deadline instead of the IDL's.
@@ -3046,7 +3171,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_DOWNLOAD, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_DOWNLOAD, wire_body, wire_objects, within, METHOD_DOWNLOAD_RETRY)
             ?;
         Ok(())
     }
@@ -3059,9 +3184,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// The engine refuses (and does nothing) while other views share the
     /// process; the service does not know.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn recover(&self, view: u64, reload: bool) -> Result<(), ClientError> {
-        self.recover_within(view, reload, libmessenger::client::DEFAULT_DEADLINE)
+        self.recover_within(view, reload, METHOD_RECOVER_DEADLINE)
     }
 
     /// [`Self::recover`] with the caller's deadline instead of the IDL's.
@@ -3070,7 +3195,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_RECOVER, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_RECOVER, wire_body, wire_objects, within, METHOD_RECOVER_RETRY)
             ?;
         Ok(())
     }
@@ -3111,9 +3236,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// The answer to `Dialog` `dialog`: `accepted` is OK, `value` a prompt's text.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn dialog_reply(&self, view: u64, dialog: u64, accepted: bool, value: &str) -> Result<(), ClientError> {
-        self.dialog_reply_within(view, dialog, accepted, value, libmessenger::client::DEFAULT_DEADLINE)
+        self.dialog_reply_within(view, dialog, accepted, value, METHOD_DIALOGREPLY_DEADLINE)
     }
 
     /// [`Self::dialog_reply`] with the caller's deadline instead of the IDL's.
@@ -3122,16 +3247,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_DIALOGREPLY, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_DIALOGREPLY, wire_body, wire_objects, within, METHOD_DIALOGREPLY_RETRY)
             ?;
         Ok(())
     }
 
     /// The answer to `NavigationRequested` `request`: `allow` loads it.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn navigation_answer(&self, view: u64, request: u64, allow: bool) -> Result<(), ClientError> {
-        self.navigation_answer_within(view, request, allow, libmessenger::client::DEFAULT_DEADLINE)
+        self.navigation_answer_within(view, request, allow, METHOD_NAVIGATIONANSWER_DEADLINE)
     }
 
     /// [`Self::navigation_answer`] with the caller's deadline instead of the IDL's.
@@ -3140,7 +3265,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_NAVIGATIONANSWER, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_NAVIGATIONANSWER, wire_body, wire_objects, within, METHOD_NAVIGATIONANSWER_RETRY)
             ?;
         Ok(())
     }
@@ -3148,9 +3273,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// The answer to `NotifyPermissionRequest` for `origin` (a `PermissionAnswer`):
     /// kept for the view's profile while webd runs.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn notify_permission(&self, view: u64, origin: &str, answer: u32) -> Result<(), ClientError> {
-        self.notify_permission_within(view, origin, answer, libmessenger::client::DEFAULT_DEADLINE)
+        self.notify_permission_within(view, origin, answer, METHOD_NOTIFYPERMISSION_DEADLINE)
     }
 
     /// [`Self::notify_permission`] with the caller's deadline instead of the IDL's.
@@ -3159,16 +3284,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_NOTIFYPERMISSION, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_NOTIFYPERMISSION, wire_body, wire_objects, within, METHOD_NOTIFYPERMISSION_RETRY)
             ?;
         Ok(())
     }
 
     /// Stop download `download`; its `.part` file is removed.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn download_cancel(&self, view: u64, download: u64) -> Result<(), ClientError> {
-        self.download_cancel_within(view, download, libmessenger::client::DEFAULT_DEADLINE)
+        self.download_cancel_within(view, download, METHOD_DOWNLOADCANCEL_DEADLINE)
     }
 
     /// [`Self::download_cancel`] with the caller's deadline instead of the IDL's.
@@ -3177,7 +3302,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_DOWNLOADCANCEL, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_DOWNLOADCANCEL, wire_body, wire_objects, within, METHOD_DOWNLOADCANCEL_RETRY)
             ?;
         Ok(())
     }
@@ -3185,9 +3310,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Content blocking on or off for the view's profile, and the hosts it is
     /// off for. A view made with `blocking` only.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_blocking(&self, view: u64, enabled: bool, exceptions: &[alloc::string::String]) -> Result<(), ClientError> {
-        self.set_blocking_within(view, enabled, exceptions, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_blocking_within(view, enabled, exceptions, METHOD_SETBLOCKING_DEADLINE)
     }
 
     /// [`Self::set_blocking`] with the caller's deadline instead of the IDL's.
@@ -3196,7 +3321,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SETBLOCKING, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SETBLOCKING, wire_body, wire_objects, within, METHOD_SETBLOCKING_RETRY)
             ?;
         Ok(())
     }
@@ -3205,9 +3330,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// list `list` into the profile's store and attach it; the result comes as
     /// `BlockingList`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn blocking_compile(&self, view: u64, list: &str, rules: libmessenger::Buffer) -> Result<(), ClientError> {
-        self.blocking_compile_within(view, list, rules, libmessenger::client::DEFAULT_DEADLINE)
+        self.blocking_compile_within(view, list, rules, METHOD_BLOCKINGCOMPILE_DEADLINE)
     }
 
     /// [`Self::blocking_compile`] with the caller's deadline instead of the IDL's.
@@ -3215,16 +3340,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_blocking_compile_args(&BlockingCompileArgs { view, list: list.into(), rules }).map_err(ClientError::bad_request)?;
         self
             .conn
-            .call(INTERFACE_ID, METHOD_BLOCKINGCOMPILE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_BLOCKINGCOMPILE, wire_body, wire_objects, within, METHOD_BLOCKINGCOMPILE_RETRY)
             ?;
         Ok(())
     }
 
     /// Attach list `list` from the profile's store (compiled earlier).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn blocking_load(&self, view: u64, list: &str) -> Result<(), ClientError> {
-        self.blocking_load_within(view, list, libmessenger::client::DEFAULT_DEADLINE)
+        self.blocking_load_within(view, list, METHOD_BLOCKINGLOAD_DEADLINE)
     }
 
     /// [`Self::blocking_load`] with the caller's deadline instead of the IDL's.
@@ -3233,16 +3358,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_BLOCKINGLOAD, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_BLOCKINGLOAD, wire_body, wire_objects, within, METHOD_BLOCKINGLOAD_RETRY)
             ?;
         Ok(())
     }
 
     /// Detach list `list` and remove it from the store.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn blocking_forget(&self, view: u64, list: &str) -> Result<(), ClientError> {
-        self.blocking_forget_within(view, list, libmessenger::client::DEFAULT_DEADLINE)
+        self.blocking_forget_within(view, list, METHOD_BLOCKINGFORGET_DEADLINE)
     }
 
     /// [`Self::blocking_forget`] with the caller's deadline instead of the IDL's.
@@ -3251,7 +3376,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_BLOCKINGFORGET, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_BLOCKINGFORGET, wire_body, wire_objects, within, METHOD_BLOCKINGFORGET_RETRY)
             ?;
         Ok(())
     }
@@ -3261,9 +3386,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// asked again (`NotifyPermissionRequest`). A view made with
     /// `notifications` only; `origin` is checked as in `NotifyPermission`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn notify_forget(&self, view: u64, origin: &str) -> Result<(), ClientError> {
-        self.notify_forget_within(view, origin, libmessenger::client::DEFAULT_DEADLINE)
+        self.notify_forget_within(view, origin, METHOD_NOTIFYFORGET_DEADLINE)
     }
 
     /// [`Self::notify_forget`] with the caller's deadline instead of the IDL's.
@@ -3272,7 +3397,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_NOTIFYFORGET, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_NOTIFYFORGET, wire_body, wire_objects, within, METHOD_NOTIFYFORGET_RETRY)
             ?;
         Ok(())
     }
@@ -3283,9 +3408,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `ESRCH` for a notification webd did not give this view or that is over;
     /// `EACCES` for a view without `notify_in_client`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn notify_state(&self, view: u64, notification: u64, state: u32) -> Result<(), ClientError> {
-        self.notify_state_within(view, notification, state, libmessenger::client::DEFAULT_DEADLINE)
+        self.notify_state_within(view, notification, state, METHOD_NOTIFYSTATE_DEADLINE)
     }
 
     /// [`Self::notify_state`] with the caller's deadline instead of the IDL's.
@@ -3294,7 +3419,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_NOTIFYSTATE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_NOTIFYSTATE, wire_body, wire_objects, within, METHOD_NOTIFYSTATE_RETRY)
             ?;
         Ok(())
     }
@@ -3306,9 +3431,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// again. Ids 40 to 43 are kept for the data and credential calls of
     /// docs/lazyweb-plan.md section 8.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn recover_group(&self, view: u64) -> Result<(), ClientError> {
-        self.recover_group_within(view, libmessenger::client::DEFAULT_DEADLINE)
+        self.recover_group_within(view, METHOD_RECOVERGROUP_DEADLINE)
     }
 
     /// [`Self::recover_group`] with the caller's deadline instead of the IDL's.
@@ -3317,7 +3442,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_RECOVERGROUP, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_RECOVERGROUP, wire_body, wire_objects, within, METHOD_RECOVERGROUP_RETRY)
             ?;
         Ok(())
     }
@@ -3331,9 +3456,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// were painted into slots that are gone, and may still be queued for the
     /// app; it ignores them rather than copy from a slot attached later.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn detach_slots(&self, view: u64) -> Result<u64, ClientError> {
-        self.detach_slots_within(view, libmessenger::client::DEFAULT_DEADLINE)
+        self.detach_slots_within(view, METHOD_DETACHSLOTS_DEADLINE)
     }
 
     /// [`Self::detach_slots`] with the caller's deadline instead of the IDL's.
@@ -3342,7 +3467,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_DETACHSLOTS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_DETACHSLOTS, wire_body, wire_objects, within, METHOD_DETACHSLOTS_RETRY)
             ?;
         let reply = decode_detach_slots_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.seq)
@@ -3356,9 +3481,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// a view only). `user_agent` is printable ASCII, at most 256 bytes; ""
     /// restores the agent the view was made with.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_user_agent(&self, view: u64, user_agent: &str) -> Result<(), ClientError> {
-        self.set_user_agent_within(view, user_agent, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_user_agent_within(view, user_agent, METHOD_SETUSERAGENT_DEADLINE)
     }
 
     /// [`Self::set_user_agent`] with the caller's deadline instead of the IDL's.
@@ -3367,7 +3492,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SETUSERAGENT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SETUSERAGENT, wire_body, wire_objects, within, METHOD_SETUSERAGENT_RETRY)
             ?;
         Ok(())
     }
@@ -3638,5 +3763,867 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self.conn
             .send(INTERFACE_ID, METHOD_WHEELDONE, wire_body, wire_objects)
+    }
+}
+
+#[cfg(feature = "webd_view_v1_server")]
+/// What a program answering `os.lazy.webd.view.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Make a view (see `os.lazy.webd.light.v1.CreateView`). Through this
+    /// interface the view has no network: `config.scheme_policy` must be
+    /// `DataOnly`, `config.profile` `""`, `config.handoff` not `Browser`,
+    /// and `downloads` and `blocking` false (`EACCES` otherwise).
+    fn create_view(&mut self, cx: &libmessenger::server::Caller, config: ViewConfig, width: u32, height: u32, events: u64) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, config, width, height, events,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// End the view; not an error for a view that is gone.
+    fn destroy_view(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Register `pixels` as slot `slot`: 0 to 2 are frame slots (at least
+    /// `width * height * 4` bytes), 3 and 4 band slots of a view with deltas
+    /// (at least `width * min(height, 1024) * 4` bytes). `EBUSY` while webd has it out.
+    fn attach_slot(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32, pixels: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, slot, pixels,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The app is done reading `slot`.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn release_slot(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32) {
+        let _ = (cx, view, slot,);
+    }
+
+    /// Change the view's size; every slot is detached.
+    fn resize(&mut self, cx: &libmessenger::server::Caller, view: u64, width: u32, height: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, width, height,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// A view that is not visible gets no paints.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn set_visible(&mut self, cx: &libmessenger::server::Caller, view: u64, visible: bool) {
+        let _ = (cx, view, visible,);
+    }
+
+    /// Ask for a whole frame.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn refresh(&mut self, cx: &libmessenger::server::Caller, view: u64) {
+        let _ = (cx, view,);
+    }
+
+    /// Load `url` in the view: it must pass the view's scheme policy (`EACCES`
+    /// otherwise; `file:` never does), at most 8 KiB.
+    fn load(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, url,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Replace the page with `html` (UTF-8, at most 8 MiB) at `base_url`:
+    /// empty, `about:` or `data:`, or with a network scheme policy an `http:`
+    /// or `https:` address the policy allows (relative addresses resolve
+    /// against it). Never `file:`.
+    fn load_html(&mut self, cx: &libmessenger::server::Caller, view: u64, html: libmessenger::Buffer, base_url: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, html, base_url,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Load the page again; `bypass_blocking` loads it once without the
+    /// content blocker.
+    fn reload(&mut self, cx: &libmessenger::server::Caller, view: u64, bypass_blocking: bool) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, bypass_blocking,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    fn stop(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    fn back(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    fn forward(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Save `url` as a download (Save Page As): a view with `downloads` only.
+    fn download(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, url,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The page's process does not answer (the app got `Responsive(false)`) and
+    /// the person chose a way out (LazyWeb, P4): the view's web process is
+    /// ended. With `reload` the page loads again in a fresh process. Without it
+    /// the page stays stopped: the engine reports the page as ended by request,
+    /// which is `ViewLost` with reason `Other`, and the app makes a new view.
+    /// The engine refuses (and does nothing) while other views share the
+    /// process; the service does not know.
+    fn recover(&mut self, cx: &libmessenger::server::Caller, view: u64, reload: bool) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, reload,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Input, as on the light interface.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn mouse(&mut self, cx: &libmessenger::server::Caller, view: u64, kind: u32, button: i32, x: i32, y: i32, mods: u32) {
+        let _ = (cx, view, kind, button, x, y, mods,);
+    }
+
+    /// A wheel turn; a non-zero `seq` (rising) is answered by `WheelDone`.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn wheel(&mut self, cx: &libmessenger::server::Caller, view: u64, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32, seq: u64) {
+        let _ = (cx, view, x, y, ticks_x, ticks_y, mods, seq,);
+    }
+
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn key(&mut self, cx: &libmessenger::server::Caller, view: u64, press: bool, keysym: u32, text: alloc::string::String, mods: u32) {
+        let _ = (cx, view, press, keysym, text, mods,);
+    }
+
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn focus(&mut self, cx: &libmessenger::server::Caller, view: u64, focused: bool) {
+        let _ = (cx, view, focused,);
+    }
+
+    /// The answer to `Dialog` `dialog`: `accepted` is OK, `value` a prompt's text.
+    fn dialog_reply(&mut self, cx: &libmessenger::server::Caller, view: u64, dialog: u64, accepted: bool, value: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, dialog, accepted, value,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The answer to `NavigationRequested` `request`: `allow` loads it.
+    fn navigation_answer(&mut self, cx: &libmessenger::server::Caller, view: u64, request: u64, allow: bool) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, request, allow,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The answer to `NotifyPermissionRequest` for `origin` (a `PermissionAnswer`):
+    /// kept for the view's profile while webd runs.
+    fn notify_permission(&mut self, cx: &libmessenger::server::Caller, view: u64, origin: alloc::string::String, answer: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, origin, answer,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Stop download `download`; its `.part` file is removed.
+    fn download_cancel(&mut self, cx: &libmessenger::server::Caller, view: u64, download: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, download,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Content blocking on or off for the view's profile, and the hosts it is
+    /// off for. A view made with `blocking` only.
+    fn set_blocking(&mut self, cx: &libmessenger::server::Caller, view: u64, enabled: bool, exceptions: alloc::vec::Vec<alloc::string::String>) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, enabled, exceptions,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Compile `rules` (a WebKit content rule list, JSON, at most 32 MiB) as
+    /// list `list` into the profile's store and attach it; the result comes as
+    /// `BlockingList`.
+    fn blocking_compile(&mut self, cx: &libmessenger::server::Caller, view: u64, list: alloc::string::String, rules: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, list, rules,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Attach list `list` from the profile's store (compiled earlier).
+    fn blocking_load(&mut self, cx: &libmessenger::server::Caller, view: u64, list: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, list,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Detach list `list` and remove it from the store.
+    fn blocking_forget(&mut self, cx: &libmessenger::server::Caller, view: u64, list: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, list,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Forget the profile's decision about `origin` (LazyWeb, P4): the page's
+    /// `Notification.permission` is `default` again and its next request is
+    /// asked again (`NotifyPermissionRequest`). A view made with
+    /// `notifications` only; `origin` is checked as in `NotifyPermission`.
+    fn notify_forget(&mut self, cx: &libmessenger::server::Caller, view: u64, origin: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, origin,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// What became of notification `notification` that `NotifyShow` gave a
+    /// view made with `notify_in_client` (a `NotifyStateKind`): the app's toast
+    /// is on screen, was clicked (the page's click handler runs) or went away.
+    /// `ESRCH` for a notification webd did not give this view or that is over;
+    /// `EACCES` for a view without `notify_in_client`.
+    fn notify_state(&mut self, cx: &libmessenger::server::Caller, view: u64, notification: u64, state: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, notification, state,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Like `Recover` without a reload, for a view that shares its web process
+    /// with others (tabs of one site, `ViewConfig.process_key`): the process
+    /// of the view's group is ended and every view in it is reported as ended
+    /// by request (`ViewLost` with reason `Other`). Each app makes its views
+    /// again. Ids 40 to 43 are kept for the data and credential calls of
+    /// docs/lazyweb-plan.md section 8.
+    fn recover_group(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Detach every slot of the view, as `Resize` does, without resizing it
+    /// and without costing the page a layout: a view that is not on screen
+    /// (a background tab) gives its slot memory back to the client's quota.
+    /// The app attaches slots again and asks for a whole frame (`Refresh`)
+    /// when the view comes back. Replies with the sequence number of the last
+    /// `Frame` webd sent for the view (0 for none): frames numbered up to it
+    /// were painted into slots that are gone, and may still be queued for the
+    /// app; it ignores them rather than copy from a slot attached later.
+    fn detach_slots(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, view,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Change the user agent the page's requests and `navigator.userAgent`
+    /// show, from the next load on (a tab asking for the desktop site). The
+    /// view must have been made through `os.lazy.webd.browser.v1` with a
+    /// `user_agent` or a `user_agent_suffix` (else `EACCES`: the engine's
+    /// site quirks, which put a fixed agent on every request, are off for such
+    /// a view only). `user_agent` is printable ASCII, at most 256 bytes; ""
+    /// restores the agent the view was made with.
+    fn set_user_agent(&mut self, cx: &libmessenger::server::Caller, view: u64, user_agent: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, user_agent,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Event: slot `slot` holds frame `seq`. `whole`: every pixel is new.
+    /// Otherwise the app moves its picture by `shift` (when present) and then
+    /// copies `rects` from the slot. `offset_x`/`offset_y` is the page's scroll
+    /// offset these pixels were painted at; `at_bottom` when the page cannot
+    /// scroll further down from there.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn frame(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32, seq: u64, width: u32, height: u32, whole: bool, shift: core::option::Option<Shift>, rects: alloc::vec::Vec<Rect>, offset_x: i32, offset_y: i32, at_bottom: bool) {
+        let _ = (cx, view, slot, seq, width, height, whole, shift, rects, offset_x, offset_y, at_bottom,);
+    }
+
+    /// Event: what the page says about itself. `url` is the address on show,
+    /// `committed_url` the page on screen; `progress` in thousandths;
+    /// `secure` when the committed page came over verified HTTPS. `commits`
+    /// counts the documents committed since the view was made: a reload of
+    /// the same address counts, a script's pushState or a link to an anchor
+    /// does not (an app tells a new document by it, not by its address).
+    /// Texts are cut at 48 KiB.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn state(&mut self, cx: &libmessenger::server::Caller, view: u64, title: alloc::string::String, loading: bool, finished: u32, error: alloc::string::String, url: alloc::string::String, committed_url: alloc::string::String, can_back: bool, can_forward: bool, progress: u32, secure: bool, commits: u32) {
+        let _ = (cx, view, title, loading, finished, error, url, committed_url, can_back, can_forward, progress, secure, commits,);
+    }
+
+    /// Event: the page scrolled (as on the light interface).
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn scroll(&mut self, cx: &libmessenger::server::Caller, view: u64, x: i32, y: i32, at_bottom: bool) {
+        let _ = (cx, view, x, y, at_bottom,);
+    }
+
+    /// Event: as on the light interface (a full view's navigation is not
+    /// locked, so webd does not send it today).
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn link_clicked(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String) {
+        let _ = (cx, view, url,);
+    }
+
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn clipboard_write(&mut self, cx: &libmessenger::server::Caller, view: u64, text: alloc::string::String) {
+        let _ = (cx, view, text,);
+    }
+
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn view_lost(&mut self, cx: &libmessenger::server::Caller, view: u64, reason: u32) {
+        let _ = (cx, view, reason,);
+    }
+
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn ping(&mut self, cx: &libmessenger::server::Caller) {
+        let _ = (cx,);
+    }
+
+    /// Event: band slot `slot` holds `height` rows of the page from document
+    /// row `doc_y`, painted at horizontal offset `doc_x`, `width` wide.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn band(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32, doc_x: i32, doc_y: i32, width: u32, height: u32) {
+        let _ = (cx, view, slot, doc_x, doc_y, width, height,);
+    }
+
+    /// Event: the pointer is over a link (its address) or no longer ("").
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn hover(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String) {
+        let _ = (cx, view, url,);
+    }
+
+    /// Event: the page wants this pointer shape (a `CursorShape`).
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn cursor(&mut self, cx: &libmessenger::server::Caller, view: u64, shape: u32) {
+        let _ = (cx, view, shape,);
+    }
+
+    /// Event: the page asked for a new window (`target=_blank`,
+    /// `window.open`); nothing opened. `gesture`: a click or key started it.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn new_window_requested(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String, gesture: bool) {
+        let _ = (cx, view, url, gesture,);
+    }
+
+    /// Event: a navigation outside the view's policy is held (`Handoff.Ask`);
+    /// answer with `NavigationAnswer` within 10 seconds or it is refused.
+    /// `kind` is a `NavigationKind`.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn navigation_requested(&mut self, cx: &libmessenger::server::Caller, view: u64, request: u64, url: alloc::string::String, kind: u32, gesture: bool) {
+        let _ = (cx, view, request, url, kind, gesture,);
+    }
+
+    /// Event: the page opened a JavaScript dialog (a `DialogKind`) and waits
+    /// for `DialogReply`.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn dialog(&mut self, cx: &libmessenger::server::Caller, view: u64, dialog: u64, kind: u32, message: alloc::string::String, default_value: alloc::string::String) {
+        let _ = (cx, view, dialog, kind, message, default_value,);
+    }
+
+    /// Event: a download began, into the person's Downloads folder under a
+    /// `.part` name. `total` is the announced size or -1.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn download_started(&mut self, cx: &libmessenger::server::Caller, view: u64, download: u64, url: alloc::string::String, name: alloc::string::String, total: i64) {
+        let _ = (cx, view, download, url, name, total,);
+    }
+
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn download_progress(&mut self, cx: &libmessenger::server::Caller, view: u64, download: u64, received: i64, total: i64) {
+        let _ = (cx, view, download, received, total,);
+    }
+
+    /// Event: every byte is in `name` (a file of the Downloads folder).
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn download_done(&mut self, cx: &libmessenger::server::Caller, view: u64, download: u64, name: alloc::string::String) {
+        let _ = (cx, view, download, name,);
+    }
+
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn download_failed(&mut self, cx: &libmessenger::server::Caller, view: u64, download: u64, reason: alloc::string::String) {
+        let _ = (cx, view, download, reason,);
+    }
+
+    /// Event: a page asked to show notifications for `origin`.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn notify_permission_request(&mut self, cx: &libmessenger::server::Caller, view: u64, origin: alloc::string::String) {
+        let _ = (cx, view, origin,);
+    }
+
+    /// Event: the person clicked notification `notification` (webd posted it
+    /// as a toast titled with the site); the page's click handler ran.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn notify_clicked(&mut self, cx: &libmessenger::server::Caller, view: u64, notification: u64) {
+        let _ = (cx, view, notification,);
+    }
+
+    /// Event: what became of rule list `list` (a `BlockingStatus`).
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn blocking_list(&mut self, cx: &libmessenger::server::Caller, view: u64, list: alloc::string::String, status: u32) {
+        let _ = (cx, view, list, status,);
+    }
+
+    /// Event: the number of loads the lists blocked on the page on show.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn blocked(&mut self, cx: &libmessenger::server::Caller, view: u64, count: u32) {
+        let _ = (cx, view, count,);
+    }
+
+    /// Event: the page's process stopped answering, or answers again.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn responsive(&mut self, cx: &libmessenger::server::Caller, view: u64, responsive: bool) {
+        let _ = (cx, view, responsive,);
+    }
+
+    /// Event: webd gave `url` to the program the person chose for it
+    /// (`Handoff.Browser`).
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn handed_off(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String) {
+        let _ = (cx, view, url,);
+    }
+
+    /// Event (a view made with `notify_in_client`): the page asked to show
+    /// notification `notification` and its profile allowed `origin`; the app
+    /// shows it (as its own toast, titled by the app, not by the page) and
+    /// answers with `NotifyState`. `page_url` is the page that asked, `tag` the
+    /// page's tag; the texts are the page's own and are cut at 16 KiB each.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn notify_show(&mut self, cx: &libmessenger::server::Caller, view: u64, notification: u64, origin: alloc::string::String, page_url: alloc::string::String, title: alloc::string::String, body: alloc::string::String, tag: alloc::string::String) {
+        let _ = (cx, view, notification, origin, page_url, title, body, tag,);
+    }
+
+    /// Event: the page closed notification `notification` itself.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn notify_cancel(&mut self, cx: &libmessenger::server::Caller, view: u64, notification: u64) {
+        let _ = (cx, view, notification,);
+    }
+
+    /// Event: the page's object for `notification` is gone (its document went
+    /// away); the toast is the person's now and a click reaches no script.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn notify_gone(&mut self, cx: &libmessenger::server::Caller, view: u64, notification: u64) {
+        let _ = (cx, view, notification,);
+    }
+
+    /// Event: the page has answered every wheel turn up to `seq` (`Wheel`), and
+    /// its main frame is scrolled to `(x, y)` now, before the frame that shows
+    /// it arrives. The app that shows its picture ahead of the page keeps it
+    /// ahead while turns are unanswered, and moves it to where this says the
+    /// page went (back, when the page did not scroll: its end, a box that
+    /// scrolled instead, a script that cancelled the wheel). A page whose
+    /// process ended answers everything at once.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn wheel_done(&mut self, cx: &libmessenger::server::Caller, view: u64, seq: u64, x: i32, y: i32) {
+        let _ = (cx, view, seq, x, y,);
+    }
+}
+
+#[cfg(feature = "webd_view_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_CREATEVIEW if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_create_view_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.create_view(&cx, args.config, args.width, args.height, args.events), |value| encode_create_view_reply(&CreateViewReply { view: value }))
+        }
+        METHOD_DESTROYVIEW if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_destroy_view_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.destroy_view(&cx, args.view), |()| Ok(Vec::new()))
+        }
+        METHOD_ATTACHSLOT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_attach_slot_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.attach_slot(&cx, args.view, args.slot, args.pixels), |()| Ok(Vec::new()))
+        }
+        METHOD_RELEASESLOT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_release_slot_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.release_slot(&cx, args.view, args.slot);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_RESIZE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_resize_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.resize(&cx, args.view, args.width, args.height), |()| Ok(Vec::new()))
+        }
+        METHOD_SETVISIBLE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_visible_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.set_visible(&cx, args.view, args.visible);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_REFRESH if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_refresh_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.refresh(&cx, args.view);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_LOAD if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_load_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.load(&cx, args.view, args.url), |()| Ok(Vec::new()))
+        }
+        METHOD_LOADHTML if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_load_html_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.load_html(&cx, args.view, args.html, args.base_url), |()| Ok(Vec::new()))
+        }
+        METHOD_RELOAD if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_reload_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.reload(&cx, args.view, args.bypass_blocking), |()| Ok(Vec::new()))
+        }
+        METHOD_STOP if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_stop_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.stop(&cx, args.view), |()| Ok(Vec::new()))
+        }
+        METHOD_BACK if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_back_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.back(&cx, args.view), |()| Ok(Vec::new()))
+        }
+        METHOD_FORWARD if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_forward_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.forward(&cx, args.view), |()| Ok(Vec::new()))
+        }
+        METHOD_DOWNLOAD if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_download_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.download(&cx, args.view, args.url), |()| Ok(Vec::new()))
+        }
+        METHOD_RECOVER if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_recover_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.recover(&cx, args.view, args.reload), |()| Ok(Vec::new()))
+        }
+        METHOD_MOUSE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_mouse_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.mouse(&cx, args.view, args.kind, args.button, args.x, args.y, args.mods);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_WHEEL if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_wheel_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.wheel(&cx, args.view, args.x, args.y, args.ticks_x, args.ticks_y, args.mods, args.seq);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_KEY if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_key_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.key(&cx, args.view, args.press, args.keysym, args.text, args.mods);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_FOCUS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_focus_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.focus(&cx, args.view, args.focused);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_DIALOGREPLY if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_dialog_reply_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.dialog_reply(&cx, args.view, args.dialog, args.accepted, args.value), |()| Ok(Vec::new()))
+        }
+        METHOD_NAVIGATIONANSWER if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_navigation_answer_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.navigation_answer(&cx, args.view, args.request, args.allow), |()| Ok(Vec::new()))
+        }
+        METHOD_NOTIFYPERMISSION if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_notify_permission_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.notify_permission(&cx, args.view, args.origin, args.answer), |()| Ok(Vec::new()))
+        }
+        METHOD_DOWNLOADCANCEL if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_download_cancel_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.download_cancel(&cx, args.view, args.download), |()| Ok(Vec::new()))
+        }
+        METHOD_SETBLOCKING if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_blocking_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set_blocking(&cx, args.view, args.enabled, args.exceptions), |()| Ok(Vec::new()))
+        }
+        METHOD_BLOCKINGCOMPILE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_blocking_compile_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.blocking_compile(&cx, args.view, args.list, args.rules), |()| Ok(Vec::new()))
+        }
+        METHOD_BLOCKINGLOAD if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_blocking_load_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.blocking_load(&cx, args.view, args.list), |()| Ok(Vec::new()))
+        }
+        METHOD_BLOCKINGFORGET if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_blocking_forget_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.blocking_forget(&cx, args.view, args.list), |()| Ok(Vec::new()))
+        }
+        METHOD_NOTIFYFORGET if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_notify_forget_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.notify_forget(&cx, args.view, args.origin), |()| Ok(Vec::new()))
+        }
+        METHOD_NOTIFYSTATE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_notify_state_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.notify_state(&cx, args.view, args.notification, args.state), |()| Ok(Vec::new()))
+        }
+        METHOD_RECOVERGROUP if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_recover_group_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.recover_group(&cx, args.view), |()| Ok(Vec::new()))
+        }
+        METHOD_DETACHSLOTS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_detach_slots_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.detach_slots(&cx, args.view), |value| encode_detach_slots_reply(&DetachSlotsReply { seq: value }))
+        }
+        METHOD_SETUSERAGENT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_user_agent_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set_user_agent(&cx, args.view, args.user_agent), |()| Ok(Vec::new()))
+        }
+        METHOD_FRAME if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_frame_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.frame(&cx, args.view, args.slot, args.seq, args.width, args.height, args.whole, args.shift, args.rects, args.offset_x, args.offset_y, args.at_bottom);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_STATE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_state_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.state(&cx, args.view, args.title, args.loading, args.finished, args.error, args.url, args.committed_url, args.can_back, args.can_forward, args.progress, args.secure, args.commits);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_SCROLL if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_scroll_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.scroll(&cx, args.view, args.x, args.y, args.at_bottom);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_LINKCLICKED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_link_clicked_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.link_clicked(&cx, args.view, args.url);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_CLIPBOARDWRITE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_clipboard_write_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.clipboard_write(&cx, args.view, args.text);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_VIEWLOST if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_view_lost_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.view_lost(&cx, args.view, args.reason);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_PING if id == INTERFACE_ID => {
+            server.ping(&cx);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_BAND if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_band_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.band(&cx, args.view, args.slot, args.doc_x, args.doc_y, args.width, args.height);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_HOVER if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_hover_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.hover(&cx, args.view, args.url);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_CURSOR if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_cursor_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.cursor(&cx, args.view, args.shape);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_NEWWINDOWREQUESTED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_new_window_requested_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.new_window_requested(&cx, args.view, args.url, args.gesture);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_NAVIGATIONREQUESTED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_navigation_requested_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.navigation_requested(&cx, args.view, args.request, args.url, args.kind, args.gesture);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_DIALOG if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_dialog_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.dialog(&cx, args.view, args.dialog, args.kind, args.message, args.default_value);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_DOWNLOADSTARTED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_download_started_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.download_started(&cx, args.view, args.download, args.url, args.name, args.total);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_DOWNLOADPROGRESS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_download_progress_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.download_progress(&cx, args.view, args.download, args.received, args.total);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_DOWNLOADDONE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_download_done_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.download_done(&cx, args.view, args.download, args.name);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_DOWNLOADFAILED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_download_failed_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.download_failed(&cx, args.view, args.download, args.reason);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_NOTIFYPERMISSIONREQUEST if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_notify_permission_request_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.notify_permission_request(&cx, args.view, args.origin);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_NOTIFYCLICKED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_notify_clicked_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.notify_clicked(&cx, args.view, args.notification);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_BLOCKINGLIST if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_blocking_list_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.blocking_list(&cx, args.view, args.list, args.status);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_BLOCKED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_blocked_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.blocked(&cx, args.view, args.count);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_RESPONSIVE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_responsive_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.responsive(&cx, args.view, args.responsive);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_HANDEDOFF if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_handed_off_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.handed_off(&cx, args.view, args.url);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_NOTIFYSHOW if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_notify_show_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.notify_show(&cx, args.view, args.notification, args.origin, args.page_url, args.title, args.body, args.tag);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_NOTIFYCANCEL if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_notify_cancel_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.notify_cancel(&cx, args.view, args.notification);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_NOTIFYGONE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_notify_gone_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.notify_gone(&cx, args.view, args.notification);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_WHEELDONE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_wheel_done_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.wheel_done(&cx, args.view, args.seq, args.x, args.y);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
     }
 }

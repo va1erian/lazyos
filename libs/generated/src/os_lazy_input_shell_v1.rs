@@ -29,22 +29,67 @@ pub const SERVICE_NAME: &str = "os.lazy.input.shell.v1";
 
 /// `Attach` method id.
 pub const METHOD_ATTACH: u32 = 1;
+/// How long a client waits for `Attach`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_ATTACH_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Attach` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_ATTACH_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `SetFocus` method id.
 pub const METHOD_SETFOCUS: u32 = 2;
+/// How long a client waits for `SetFocus`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SETFOCUS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `SetFocus` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SETFOCUS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `RegisterSurface` method id.
 pub const METHOD_REGISTERSURFACE: u32 = 3;
+/// How long a client waits for `RegisterSurface`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_REGISTERSURFACE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `RegisterSurface` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_REGISTERSURFACE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `UnregisterSurface` method id.
 pub const METHOD_UNREGISTERSURFACE: u32 = 4;
+/// How long a client waits for `UnregisterSurface`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_UNREGISTERSURFACE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `UnregisterSurface` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_UNREGISTERSURFACE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `RegisterHotkey` method id.
 pub const METHOD_REGISTERHOTKEY: u32 = 5;
+/// How long a client waits for `RegisterHotkey`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_REGISTERHOTKEY_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `RegisterHotkey` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_REGISTERHOTKEY_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `UnregisterHotkey` method id.
 pub const METHOD_UNREGISTERHOTKEY: u32 = 6;
+/// How long a client waits for `UnregisterHotkey`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_UNREGISTERHOTKEY_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `UnregisterHotkey` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_UNREGISTERHOTKEY_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `ApproveGrant` method id.
 pub const METHOD_APPROVEGRANT: u32 = 7;
+/// How long a client waits for `ApproveGrant`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_APPROVEGRANT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `ApproveGrant` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_APPROVEGRANT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `SetBounds` method id.
 pub const METHOD_SETBOUNDS: u32 = 8;
+/// How long a client waits for `SetBounds`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SETBOUNDS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `SetBounds` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SETBOUNDS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `GetPointer` method id.
 pub const METHOD_GETPOINTER: u32 = 9;
+/// How long a client waits for `GetPointer`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_GETPOINTER_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `GetPointer` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_GETPOINTER_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `NoteFocus` method id.
 pub const METHOD_NOTEFOCUS: u32 = 10;
 /// `NoteSurface` method id.
@@ -859,9 +904,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// shell events below, and on which the compositor makes every later
     /// call. Attaching again replaces it.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn attach(&self, events: u64) -> Result<(), ClientError> {
-        self.attach_within(events, libmessenger::client::DEFAULT_DEADLINE)
+        self.attach_within(events, METHOD_ATTACH_DEADLINE)
     }
 
     /// [`Self::attach`] with the caller's deadline instead of the IDL's.
@@ -869,7 +914,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_attach_args(&AttachArgs { events }).map_err(ClientError::bad_request)?;
         self
             .conn
-            .call(INTERFACE_ID, METHOD_ATTACH, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_ATTACH, wire_body, wire_objects, within, METHOD_ATTACH_RETRY)
             ?;
         Ok(())
     }
@@ -878,9 +923,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// content is delivered). The previous holder gets `KeyboardLeave`, the new
     /// one `KeyboardEnter`; repeat is cancelled.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_focus(&self, surface: core::option::Option<u64>) -> Result<(), ClientError> {
-        self.set_focus_within(surface, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_focus_within(surface, METHOD_SETFOCUS_DEADLINE)
     }
 
     /// [`Self::set_focus`] with the caller's deadline instead of the IDL's.
@@ -889,7 +934,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SETFOCUS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SETFOCUS, wire_body, wire_objects, within, METHOD_SETFOCUS_RETRY)
             ?;
         Ok(())
     }
@@ -900,9 +945,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// compositor itself: a surface of its own, such as the trusted prompt's
     /// (docs/accounts-plan.md U2), whose session only the compositor opens.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn register_surface(&self, surface: u64, owner: u64) -> Result<(), ClientError> {
-        self.register_surface_within(surface, owner, libmessenger::client::DEFAULT_DEADLINE)
+        self.register_surface_within(surface, owner, METHOD_REGISTERSURFACE_DEADLINE)
     }
 
     /// [`Self::register_surface`] with the caller's deadline instead of the IDL's.
@@ -911,16 +956,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_REGISTERSURFACE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_REGISTERSURFACE, wire_body, wire_objects, within, METHOD_REGISTERSURFACE_RETRY)
             ?;
         Ok(())
     }
 
     /// Forget a destroyed surface; its sessions are closed.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn unregister_surface(&self, surface: u64) -> Result<(), ClientError> {
-        self.unregister_surface_within(surface, libmessenger::client::DEFAULT_DEADLINE)
+        self.unregister_surface_within(surface, METHOD_UNREGISTERSURFACE_DEADLINE)
     }
 
     /// [`Self::unregister_surface`] with the caller's deadline instead of the IDL's.
@@ -929,7 +974,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_UNREGISTERSURFACE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_UNREGISTERSURFACE, wire_body, wire_objects, within, METHOD_UNREGISTERSURFACE_RETRY)
             ?;
         Ok(())
     }
@@ -940,9 +985,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// while a session holds a keyboard grab. The reserved escape chord
     /// (Escape with Ctrl+Alt) is refused with `EACCES`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn register_hotkey(&self, code: u32, mods: u32) -> Result<u64, ClientError> {
-        self.register_hotkey_within(code, mods, libmessenger::client::DEFAULT_DEADLINE)
+        self.register_hotkey_within(code, mods, METHOD_REGISTERHOTKEY_DEADLINE)
     }
 
     /// [`Self::register_hotkey`] with the caller's deadline instead of the IDL's.
@@ -951,7 +996,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_REGISTERHOTKEY, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_REGISTERHOTKEY, wire_body, wire_objects, within, METHOD_REGISTERHOTKEY_RETRY)
             ?;
         let reply = decode_register_hotkey_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.id)
@@ -959,9 +1004,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Drop a chord.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn unregister_hotkey(&self, id: u64) -> Result<(), ClientError> {
-        self.unregister_hotkey_within(id, libmessenger::client::DEFAULT_DEADLINE)
+        self.unregister_hotkey_within(id, METHOD_UNREGISTERHOTKEY_DEADLINE)
     }
 
     /// [`Self::unregister_hotkey`] with the caller's deadline instead of the IDL's.
@@ -970,7 +1015,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_UNREGISTERHOTKEY, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_UNREGISTERHOTKEY, wire_body, wire_objects, within, METHOD_UNREGISTERHOTKEY_RETRY)
             ?;
         Ok(())
     }
@@ -980,9 +1025,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// the client gets `GrantChanged`. `ENOENT` when no request of that
     /// session is pending.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn approve_grant(&self, session: u64, allow: bool) -> Result<(), ClientError> {
-        self.approve_grant_within(session, allow, libmessenger::client::DEFAULT_DEADLINE)
+        self.approve_grant_within(session, allow, METHOD_APPROVEGRANT_DEADLINE)
     }
 
     /// [`Self::approve_grant`] with the caller's deadline instead of the IDL's.
@@ -991,7 +1036,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_APPROVEGRANT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_APPROVEGRANT, wire_body, wire_objects, within, METHOD_APPROVEGRANT_RETRY)
             ?;
         Ok(())
     }
@@ -1000,9 +1045,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `EINVAL`). `inputd` re-clamps the cursor at once and, if that moved it,
     /// sends a `PointerEvent`. It replaces the kernel's own cursor bounds.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn set_bounds(&self, width: u32, height: u32) -> Result<(), ClientError> {
-        self.set_bounds_within(width, height, libmessenger::client::DEFAULT_DEADLINE)
+        self.set_bounds_within(width, height, METHOD_SETBOUNDS_DEADLINE)
     }
 
     /// [`Self::set_bounds`] with the caller's deadline instead of the IDL's.
@@ -1011,7 +1056,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SETBOUNDS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SETBOUNDS, wire_body, wire_objects, within, METHOD_SETBOUNDS_RETRY)
             ?;
         Ok(())
     }
@@ -1019,9 +1064,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// The cursor position and held `buttons` (as in `PointerEvent`), to seed
     /// the compositor's cursor after `Attach`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn get_pointer(&self) -> Result<GetPointerReply, ClientError> {
-        self.get_pointer_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.get_pointer_within(METHOD_GETPOINTER_DEADLINE)
     }
 
     /// [`Self::get_pointer`] with the caller's deadline instead of the IDL's.
@@ -1030,7 +1075,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_GETPOINTER, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_GETPOINTER, wire_body, wire_objects, within, METHOD_GETPOINTER_RETRY)
             ?;
         decode_get_pointer_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
@@ -1200,5 +1245,383 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self.conn
             .send(INTERFACE_ID, METHOD_KEYACTIVITY, wire_body, wire_objects)
+    }
+}
+
+#[cfg(feature = "input_shell_v1_server")]
+/// What a program answering `os.lazy.input.shell.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Become the shell client; `events` is the endpoint that receives the
+    /// shell events below, and on which the compositor makes every later
+    /// call. Attaching again replaces it.
+    fn attach(&mut self, cx: &libmessenger::server::Caller, events: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, events,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Move keyboard focus to `surface` (absent: nobody is focused and no key
+    /// content is delivered). The previous holder gets `KeyboardLeave`, the new
+    /// one `KeyboardEnter`; repeat is cancelled.
+    fn set_focus(&mut self, cx: &libmessenger::server::Caller, surface: core::option::Option<u64>) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, surface,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Declare that `owner` (a task slot, as the compositor stamps in
+    /// `Surface.owner`) created `surface`, so `inputd` can match that task's
+    /// `Open` to the window. `owner` 0 (never a client's slot) names the
+    /// compositor itself: a surface of its own, such as the trusted prompt's
+    /// (docs/accounts-plan.md U2), whose session only the compositor opens.
+    fn register_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64, owner: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, surface, owner,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Forget a destroyed surface; its sessions are closed.
+    fn unregister_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, surface,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Register a chord: `code` (HID usage) with exactly the Shift/Ctrl/Alt/
+    /// Super bits of `mods`. A match is consumed (its press and release are
+    /// never delivered to a client) and reported as `HotkeyFired`, except
+    /// while a session holds a keyboard grab. The reserved escape chord
+    /// (Escape with Ctrl+Alt) is refused with `EACCES`.
+    fn register_hotkey(&mut self, cx: &libmessenger::server::Caller, code: u32, mods: u32) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, code, mods,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Drop a chord.
+    fn unregister_hotkey(&mut self, cx: &libmessenger::server::Caller, id: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, id,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Answer a `GrantRequested`. `allow` starts the grab, provided the
+    /// session still has keyboard focus (otherwise it is denied); either way
+    /// the client gets `GrantChanged`. `ENOENT` when no request of that
+    /// session is pending.
+    fn approve_grant(&mut self, cx: &libmessenger::server::Caller, session: u64, allow: bool) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, session, allow,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The screen size the cursor is clamped to (each side `1..=16384`, else
+    /// `EINVAL`). `inputd` re-clamps the cursor at once and, if that moved it,
+    /// sends a `PointerEvent`. It replaces the kernel's own cursor bounds.
+    fn set_bounds(&mut self, cx: &libmessenger::server::Caller, width: u32, height: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, width, height,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The cursor position and held `buttons` (as in `PointerEvent`), to seed
+    /// the compositor's cursor after `Attach`.
+    fn get_pointer(&mut self, cx: &libmessenger::server::Caller) -> Result<GetPointerReply, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// One-way `SetFocus`: the compositor's main loop never waits on `inputd`
+    /// (docs/performance-plan.md P3.6). Requests on the compositor's channel
+    /// are handled in the order sent, and before each client request, so a
+    /// surface noted before the compositor answers `CreateSurface` is known
+    /// by the time its client opens a session. Refused calls are dropped.
+    /// The trusted prompt never relies on a note: it waits for `SetFocus`.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn note_focus(&mut self, cx: &libmessenger::server::Caller, surface: core::option::Option<u64>) {
+        let _ = (cx, surface,);
+    }
+
+    /// One-way `RegisterSurface` (see `NoteFocus`).
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn note_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64, owner: u64) {
+        let _ = (cx, surface, owner,);
+    }
+
+    /// One-way `UnregisterSurface` (see `NoteFocus`).
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn forget_surface(&mut self, cx: &libmessenger::server::Caller, surface: u64) {
+        let _ = (cx, surface,);
+    }
+
+    /// One-way: the compositor has handled every `PointerEvent` up to `seq`
+    /// and already noted the focus they led to. A click can move focus, so
+    /// after forwarding a button press `inputd` holds the key content that
+    /// follows (in order, briefly: a compositor that never answers costs a
+    /// fraction of a second, not the keys) until this note covers the press;
+    /// otherwise a key typed right after a click would reach the window the
+    /// click left.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn note_input_done(&mut self, cx: &libmessenger::server::Caller, seq: u64) {
+        let _ = (cx, seq,);
+    }
+
+    /// One-way: the shell's panel menu has the keyboard (`held`), or no
+    /// longer has it. Focus does not move, so the focused session sees no
+    /// `KeyboardLeave`/`KeyboardEnter`; its key content is held instead:
+    /// presses, repeats and text made while held never reach it, the release
+    /// of a key it saw go down before the hold is still delivered (nothing
+    /// sticks), a key pressed while held stays invisible to it until pressed
+    /// again, and its key-state page shows nothing held meanwhile
+    /// (`inputmap::hold`, issue #648).
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn note_keys_held(&mut self, cx: &libmessenger::server::Caller, held: bool) {
+        let _ = (cx, held,);
+    }
+
+    /// One-way: the logged-in user's own keyboard layout (`confd`'s
+    /// `user/<uid>/input/layout`, which `inputd` may not read), or absent to
+    /// follow the machine default `sys/input/layout` again (the login
+    /// screen, a logout). An unknown name also means the machine default.
+    /// It ends with the compositor (`inputmap::session_layout`).
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn note_session_layout(&mut self, cx: &libmessenger::server::Caller, layout: core::option::Option<alloc::string::String>) {
+        let _ = (cx, layout,);
+    }
+
+    /// Shell event: a registered chord was pressed.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn hotkey_fired(&mut self, cx: &libmessenger::server::Caller, id: u64) {
+        let _ = (cx, id,);
+    }
+
+    /// Shell event: the client owning `surface` asked for a grab of `kind`
+    /// (a `GrantKind`) for `session`; answer with `ApproveGrant`. The
+    /// request is withdrawn if focus moves first.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn grant_requested(&mut self, cx: &libmessenger::server::Caller, session: u64, kind: u32, surface: u64) {
+        let _ = (cx, session, kind, surface,);
+    }
+
+    /// Shell event: the reserved escape chord (Ctrl+Alt+Esc) was pressed. It
+    /// reverted any grab (`GrabChanged` follows when one was held) and is
+    /// never delivered to a client.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn escape_chord(&mut self, cx: &libmessenger::server::Caller) {
+        let _ = (cx,);
+    }
+
+    /// Shell event: `surface` now receives keys through an input session, so
+    /// the compositor must stop synthesising legacy `KeyDown`/`KeyUp` for it.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn session_opened(&mut self, cx: &libmessenger::server::Caller, surface: u64) {
+        let _ = (cx, surface,);
+    }
+
+    /// Shell event: the last input session of `surface` ended; legacy key
+    /// delivery applies again.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn session_closed(&mut self, cx: &libmessenger::server::Caller, surface: u64) {
+        let _ = (cx, surface,);
+    }
+
+    /// Shell event: the pointer changed. One cursor for every pointing device
+    /// (`docs/usb-hid-plan.md`): `x`, `y` are screen pixels inside the bounds,
+    /// `buttons` the bits held after this event (`1` left, `2` right,
+    /// `4` middle, `8` back, `0x10` forward; diff it for the edge), `wheel` and
+    /// `wheel_h` the notches since the previous event (positive is up / right).
+    /// Motion is coalesced; the position and wheel apply *before* the button
+    /// change. Only the compositor receives it: the window under the cursor is
+    /// its decision. `ts_ns`/`seq` are the newest raw record's.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn pointer_event(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, buttons: u32, wheel: i32, wheel_h: i32, ts_ns: u64, seq: u64) {
+        let _ = (cx, x, y, buttons, wheel, wheel_h, ts_ns, seq,);
+    }
+
+    /// Shell event: `surface` now holds the keyboard grab (absent: nobody
+    /// does). While a grab is held the compositor must not act on its own
+    /// chords from the kernel key stream either: they belong to the grabber.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn grab_changed(&mut self, cx: &libmessenger::server::Caller, surface: core::option::Option<u64>) {
+        let _ = (cx, surface,);
+    }
+
+    /// Shell event: a key went down on some keyboard (PS/2 or USB; sent after
+    /// `inputd` handled it, so a key held back while the shell asked for the
+    /// keys was already dropped). The kernel key stream only carries PS/2, so
+    /// this is how the compositor sees that someone is typing, for the idle
+    /// timer and to wake a blank screen.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn key_activity(&mut self, cx: &libmessenger::server::Caller) {
+        let _ = (cx,);
+    }
+}
+
+#[cfg(feature = "input_shell_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_ATTACH if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_attach_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.attach(&cx, args.events), |()| Ok(Vec::new()))
+        }
+        METHOD_SETFOCUS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_focus_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set_focus(&cx, args.surface), |()| Ok(Vec::new()))
+        }
+        METHOD_REGISTERSURFACE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_register_surface_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.register_surface(&cx, args.surface, args.owner), |()| Ok(Vec::new()))
+        }
+        METHOD_UNREGISTERSURFACE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_unregister_surface_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.unregister_surface(&cx, args.surface), |()| Ok(Vec::new()))
+        }
+        METHOD_REGISTERHOTKEY if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_register_hotkey_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.register_hotkey(&cx, args.code, args.mods), |value| encode_register_hotkey_reply(&RegisterHotkeyReply { id: value }))
+        }
+        METHOD_UNREGISTERHOTKEY if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_unregister_hotkey_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.unregister_hotkey(&cx, args.id), |()| Ok(Vec::new()))
+        }
+        METHOD_APPROVEGRANT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_approve_grant_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.approve_grant(&cx, args.session, args.allow), |()| Ok(Vec::new()))
+        }
+        METHOD_SETBOUNDS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_bounds_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set_bounds(&cx, args.width, args.height), |()| Ok(Vec::new()))
+        }
+        METHOD_GETPOINTER if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.get_pointer(&cx), |value| encode_get_pointer_reply(&value))
+        }
+        METHOD_NOTEFOCUS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_note_focus_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.note_focus(&cx, args.surface);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_NOTESURFACE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_note_surface_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.note_surface(&cx, args.surface, args.owner);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_FORGETSURFACE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_forget_surface_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.forget_surface(&cx, args.surface);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_NOTEINPUTDONE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_note_input_done_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.note_input_done(&cx, args.seq);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_NOTEKEYSHELD if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_note_keys_held_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.note_keys_held(&cx, args.held);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_NOTESESSIONLAYOUT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_note_session_layout_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.note_session_layout(&cx, args.layout);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_HOTKEYFIRED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_hotkey_fired_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.hotkey_fired(&cx, args.id);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_GRANTREQUESTED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_grant_requested_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.grant_requested(&cx, args.session, args.kind, args.surface);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_ESCAPECHORD if id == INTERFACE_ID => {
+            server.escape_chord(&cx);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_SESSIONOPENED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_session_opened_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.session_opened(&cx, args.surface);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_SESSIONCLOSED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_session_closed_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.session_closed(&cx, args.surface);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_POINTEREVENT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_pointer_event_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.pointer_event(&cx, args.x, args.y, args.buttons, args.wheel, args.wheel_h, args.ts_ns, args.seq);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_GRABCHANGED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_grab_changed_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.grab_changed(&cx, args.surface);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_KEYACTIVITY if id == INTERFACE_ID => {
+            server.key_activity(&cx);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
     }
 }

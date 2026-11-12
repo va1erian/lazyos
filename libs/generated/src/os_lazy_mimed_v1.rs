@@ -67,18 +67,46 @@ pub fn decode_open_event(body: &[u8]) -> Result<OpenEvent, Error> {
 
 /// `Guess` method id.
 pub const METHOD_GUESS: u32 = 1763202418;
+/// How long a client waits for `Guess`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_GUESS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Guess` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_GUESS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Lookup` method id.
 pub const METHOD_LOOKUP: u32 = 1772818603;
+/// How long a client waits for `Lookup`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_LOOKUP_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Lookup` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LOOKUP_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Verbs` method id.
 pub const METHOD_VERBS: u32 = 1649509833;
+/// How long a client waits for `Verbs`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_VERBS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Verbs` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_VERBS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Open` method id.
 pub const METHOD_OPEN: u32 = 1401622761;
-/// How long a client waits for `Open`'s reply, in milliseconds.
-pub const METHOD_OPEN_DEADLINE_MS: u32 = 2000;
+/// How long a client waits for `Open`'s reply: at most 2000 ms (`deadline` in the `.midl`).
+pub const METHOD_OPEN_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(2000);
+/// Whether a client resends `Open` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_OPEN_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Register` method id.
 pub const METHOD_REGISTER: u32 = 658098656;
+/// How long a client waits for `Register`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_REGISTER_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Register` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_REGISTER_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Unregister` method id.
 pub const METHOD_UNREGISTER: u32 = 1480320227;
+/// How long a client waits for `Unregister`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_UNREGISTER_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Unregister` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_UNREGISTER_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 
 /// MIME type for `path` from the database; a path the database has no
 /// entry for reports `application/octet-stream`.
@@ -522,9 +550,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// MIME type for `path` from the database; a path the database has no
     /// entry for reports `application/octet-stream`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn guess(&self, path: &str) -> Result<alloc::string::String, ClientError> {
-        self.guess_within(path, libmessenger::client::DEFAULT_DEADLINE)
+        self.guess_within(path, METHOD_GUESS_DEADLINE)
     }
 
     /// [`Self::guess`] with the caller's deadline instead of the IDL's.
@@ -533,7 +561,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_GUESS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_GUESS, wire_body, wire_objects, within, METHOD_GUESS_RETRY)
             ?;
         let reply = decode_guess_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.mime)
@@ -541,9 +569,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// The app registered for `mime` and `verb`; an empty `app` means none is.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn lookup(&self, mime: &str, verb: &str) -> Result<core::option::Option<alloc::string::String>, ClientError> {
-        self.lookup_within(mime, verb, libmessenger::client::DEFAULT_DEADLINE)
+        self.lookup_within(mime, verb, METHOD_LOOKUP_DEADLINE)
     }
 
     /// [`Self::lookup`] with the caller's deadline instead of the IDL's.
@@ -552,7 +580,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_LOOKUP, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LOOKUP, wire_body, wire_objects, within, METHOD_LOOKUP_RETRY)
             ?;
         let reply = decode_lookup_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.app)
@@ -561,9 +589,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Verbs registered for `mime` (`open`, `edit`, `reveal`, ...), in
     /// registration order.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn verbs(&self, mime: &str) -> Result<alloc::vec::Vec<alloc::string::String>, ClientError> {
-        self.verbs_within(mime, libmessenger::client::DEFAULT_DEADLINE)
+        self.verbs_within(mime, METHOD_VERBS_DEADLINE)
     }
 
     /// [`Self::verbs`] with the caller's deadline instead of the IDL's.
@@ -572,7 +600,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_VERBS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_VERBS, wire_body, wire_objects, within, METHOD_VERBS_RETRY)
             ?;
         let reply = decode_verbs_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.verbs)
@@ -583,9 +611,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `published` reports whether the event went out, `launched` whether
     /// `init` accepted the launch request.
     ///
-    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn open(&self, path: &str, verb: &str) -> Result<OpenReply, ClientError> {
-        self.open_within(path, verb, libmessenger::client::Deadline::millis(METHOD_OPEN_DEADLINE_MS as u64))
+        self.open_within(path, verb, METHOD_OPEN_DEADLINE)
     }
 
     /// [`Self::open`] with the caller's deadline instead of the IDL's.
@@ -594,7 +622,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_OPEN, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_OPEN, wire_body, wire_objects, within, METHOD_OPEN_RETRY)
             ?;
         decode_open_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
@@ -611,9 +639,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// owner is neither `0` nor the uid that opens, so one user's package never
     /// takes a type over for the next user.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn register(&self, mime: &str, app: &str, verb: &str, owner: u32) -> Result<(), ClientError> {
-        self.register_within(mime, app, verb, owner, libmessenger::client::DEFAULT_DEADLINE)
+        self.register_within(mime, app, verb, owner, METHOD_REGISTER_DEADLINE)
     }
 
     /// [`Self::register`] with the caller's deadline instead of the IDL's.
@@ -622,7 +650,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_REGISTER, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_REGISTER, wire_body, wire_objects, within, METHOD_REGISTER_RETRY)
             ?;
         Ok(())
     }
@@ -635,9 +663,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// takes over again. Withdrawing a registration that is not there is not
     /// an error.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn unregister(&self, mime: &str, app: &str, verb: &str) -> Result<(), ClientError> {
-        self.unregister_within(mime, app, verb, libmessenger::client::DEFAULT_DEADLINE)
+        self.unregister_within(mime, app, verb, METHOD_UNREGISTER_DEADLINE)
     }
 
     /// [`Self::unregister`] with the caller's deadline instead of the IDL's.
@@ -646,8 +674,125 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_UNREGISTER, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_UNREGISTER, wire_body, wire_objects, within, METHOD_UNREGISTER_RETRY)
             ?;
         Ok(())
+    }
+}
+
+#[cfg(feature = "mimed_v1_server")]
+/// What a program answering `os.lazy.mimed.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// MIME type for `path` from the database; a path the database has no
+    /// entry for reports `application/octet-stream`.
+    fn guess(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<alloc::string::String, libmessenger::server::Fault> {
+        let _ = (cx, path,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The app registered for `mime` and `verb`; an empty `app` means none is.
+    fn lookup(&mut self, cx: &libmessenger::server::Caller, mime: alloc::string::String, verb: alloc::string::String) -> Result<core::option::Option<alloc::string::String>, libmessenger::server::Fault> {
+        let _ = (cx, mime, verb,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Verbs registered for `mime` (`open`, `edit`, `reveal`, ...), in
+    /// registration order.
+    fn verbs(&mut self, cx: &libmessenger::server::Caller, mime: alloc::string::String) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault> {
+        let _ = (cx, mime,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Guess the type of `path`, resolve the app for `verb` (falling back to
+    /// `open`), ask `init` to launch it and publish the launch event.
+    /// `published` reports whether the event went out, `launched` whether
+    /// `init` accepted the launch request.
+    fn open(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String, verb: alloc::string::String) -> Result<OpenReply, libmessenger::server::Fault> {
+        let _ = (cx, path, verb,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Add or replace the app registered for `mime` and `verb`; the registry
+    /// keeps the latest registration for each pair. Only a system service (the
+    /// package manager, which registers an installed app's handlers) may
+    /// register, and the registry holds a bounded number of pairs: `EPERM`
+    /// from anyone else, `ENOSPC` when it is full and the pair is new. A
+    /// user's own choice of app for a type is a preference
+    /// (`user/<uid>/mimed/default/<type>`), not a registration. `owner` is the
+    /// uid that installed the app, `0` for the image's own apps and what an
+    /// administrator installed for everyone: `Open` skips a registration whose
+    /// owner is neither `0` nor the uid that opens, so one user's package never
+    /// takes a type over for the next user.
+    fn register(&mut self, cx: &libmessenger::server::Caller, mime: alloc::string::String, app: alloc::string::String, verb: alloc::string::String, owner: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, mime, app, verb, owner,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Withdraw `app`'s registration for `mime` and `verb`, so removing an
+    /// installed app leaves no dangling handler. Only the caller's root
+    /// identity may withdraw (the package manager); the registration is
+    /// dropped only while `app` still holds it, so a later registration by
+    /// another app is never undone, and the registration `app` had replaced
+    /// takes over again. Withdrawing a registration that is not there is not
+    /// an error.
+    fn unregister(&mut self, cx: &libmessenger::server::Caller, mime: alloc::string::String, app: alloc::string::String, verb: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, mime, app, verb,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "mimed_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_GUESS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_guess_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.guess(&cx, args.path), |value| encode_guess_reply(&GuessReply { mime: value }))
+        }
+        METHOD_LOOKUP if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_lookup_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.lookup(&cx, args.mime, args.verb), |value| encode_lookup_reply(&LookupReply { app: value }))
+        }
+        METHOD_VERBS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_verbs_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.verbs(&cx, args.mime), |value| encode_verbs_reply(&VerbsReply { verbs: value }))
+        }
+        METHOD_OPEN if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_open_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.open(&cx, args.path, args.verb), |value| encode_open_reply(&value))
+        }
+        METHOD_REGISTER if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_register_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.register(&cx, args.mime, args.app, args.verb, args.owner), |()| Ok(Vec::new()))
+        }
+        METHOD_UNREGISTER if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_unregister_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.unregister(&cx, args.mime, args.app, args.verb), |()| Ok(Vec::new()))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
     }
 }

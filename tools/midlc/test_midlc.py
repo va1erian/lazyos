@@ -163,7 +163,7 @@ class CodegenTests(unittest.TestCase):
         }
         """
         interface = midlc.Parser(midlc.lex(text)).parse_interface()
-        rust = midlc.emit_rust(interface)
+        rust = midlc.emit_rust(interface, client=False)
         self.assertNotIn("Probe doc.", rust)
         self.assertIn("/// Set doc.\n    #[derive", rust)
 

@@ -189,6 +189,11 @@ pub fn decode_tasks_stats(body: &[u8]) -> Result<TasksStats, Error> {
 
 /// `Snapshot` method id.
 pub const METHOD_SNAPSHOT: u32 = 1312231341;
+/// How long a client waits for `Snapshot`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SNAPSHOT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Snapshot` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SNAPSHOT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 
 /// Return one live system-stats snapshot.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -367,9 +372,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Return one live system-stats snapshot.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn snapshot(&self) -> Result<alloc::vec::Vec<u8>, ClientError> {
-        self.snapshot_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.snapshot_within(METHOD_SNAPSHOT_DEADLINE)
     }
 
     /// [`Self::snapshot`] with the caller's deadline instead of the IDL's.
@@ -378,9 +383,42 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_SNAPSHOT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SNAPSHOT, wire_body, wire_objects, within, METHOD_SNAPSHOT_RETRY)
             ?;
         let reply = decode_snapshot_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.data)
+    }
+}
+
+#[cfg(feature = "sysmond_v1_server")]
+/// What a program answering `os.lazy.sysmond.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Return one live system-stats snapshot.
+    fn snapshot(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "sysmond_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_SNAPSHOT if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.snapshot(&cx), |value| encode_snapshot_reply(&SnapshotReply { data: value }))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
     }
 }

@@ -180,34 +180,109 @@ pub fn decode_socket_stats(body: &[u8]) -> Result<SocketStats, Error> {
 
 /// `Open` method id.
 pub const METHOD_OPEN: u32 = 1401622761;
+/// How long a client waits for `Open`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_OPEN_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Open` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_OPEN_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Bind` method id.
 pub const METHOD_BIND: u32 = 816668494;
+/// How long a client waits for `Bind`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_BIND_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Bind` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_BIND_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Connect` method id.
 pub const METHOD_CONNECT: u32 = 1535748249;
+/// How long a client waits for `Connect`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_CONNECT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Connect` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_CONNECT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Listen` method id.
 pub const METHOD_LISTEN: u32 = 1745080006;
+/// How long a client waits for `Listen`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_LISTEN_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Listen` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LISTEN_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Accept` method id.
 pub const METHOD_ACCEPT: u32 = 1353867593;
+/// How long a client waits for `Accept`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_ACCEPT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Accept` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_ACCEPT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Send` method id.
 pub const METHOD_SEND: u32 = 1921914063;
+/// How long a client waits for `Send`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SEND_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Send` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SEND_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Recv` method id.
 pub const METHOD_RECV: u32 = 1829805133;
+/// How long a client waits for `Recv`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_RECV_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Recv` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_RECV_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `SendTo` method id.
 pub const METHOD_SENDTO: u32 = 1246690602;
+/// How long a client waits for `SendTo`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SENDTO_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `SendTo` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SENDTO_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `RecvFrom` method id.
 pub const METHOD_RECVFROM: u32 = 81212541;
+/// How long a client waits for `RecvFrom`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_RECVFROM_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `RecvFrom` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_RECVFROM_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Poll` method id.
 pub const METHOD_POLL: u32 = 1454776152;
+/// How long a client waits for `Poll`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_POLL_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Poll` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_POLL_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Shutdown` method id.
 pub const METHOD_SHUTDOWN: u32 = 1911669355;
+/// How long a client waits for `Shutdown`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_SHUTDOWN_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Shutdown` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SHUTDOWN_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `LocalAddr` method id.
 pub const METHOD_LOCALADDR: u32 = 444792203;
+/// How long a client waits for `LocalAddr`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_LOCALADDR_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `LocalAddr` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LOCALADDR_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `PeerAddr` method id.
 pub const METHOD_PEERADDR: u32 = 838739718;
+/// How long a client waits for `PeerAddr`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_PEERADDR_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `PeerAddr` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_PEERADDR_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Close` method id.
 pub const METHOD_CLOSE: u32 = 1300671683;
+/// How long a client waits for `Close`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_CLOSE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Close` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_CLOSE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Stats` method id.
 pub const METHOD_STATS: u32 = 267161228;
+/// How long a client waits for `Stats`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_STATS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Stats` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_STATS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 
 /// Make a socket of `kind` (a `SockKind` ordinal). The reply is the id
 /// every other call names.
@@ -943,9 +1018,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Make a socket of `kind` (a `SockKind` ordinal). The reply is the id
     /// every other call names.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn open(&self, kind: u32) -> Result<u32, ClientError> {
-        self.open_within(kind, libmessenger::client::DEFAULT_DEADLINE)
+        self.open_within(kind, METHOD_OPEN_DEADLINE)
     }
 
     /// [`Self::open`] with the caller's deadline instead of the IDL's.
@@ -954,7 +1029,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_OPEN, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_OPEN, wire_body, wire_objects, within, METHOD_OPEN_RETRY)
             ?;
         let reply = decode_open_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.sock)
@@ -963,9 +1038,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Choose the local address and port. `addr.addr` must be all zeros (any)
     /// or the interface's own address; port 0 picks an ephemeral one.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn bind(&self, sock: u32, addr: &SockAddr) -> Result<(), ClientError> {
-        self.bind_within(sock, addr, libmessenger::client::DEFAULT_DEADLINE)
+        self.bind_within(sock, addr, METHOD_BIND_DEADLINE)
     }
 
     /// [`Self::bind`] with the caller's deadline instead of the IDL's.
@@ -974,7 +1049,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_BIND, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_BIND, wire_body, wire_objects, within, METHOD_BIND_RETRY)
             ?;
         Ok(())
     }
@@ -982,9 +1057,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Stream: open a connection to `addr`; parks until it is established or
     /// refused. Datagram: fix the peer `Send`/`Recv` use (never parks).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn connect_call(&self, sock: u32, addr: &SockAddr, timeout_ms: u32) -> Result<(), ClientError> {
-        self.connect_call_within(sock, addr, timeout_ms, libmessenger::client::DEFAULT_DEADLINE)
+        self.connect_call_within(sock, addr, timeout_ms, METHOD_CONNECT_DEADLINE)
     }
 
     /// [`Self::connect_call`] with the caller's deadline instead of the IDL's.
@@ -993,7 +1068,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_CONNECT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_CONNECT, wire_body, wire_objects, within, METHOD_CONNECT_RETRY)
             ?;
         Ok(())
     }
@@ -1001,9 +1076,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Stream only: accept connections on the bound port. `backlog` (1 to 8)
     /// is how many connections may complete before `Accept` collects them.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn listen(&self, sock: u32, backlog: u32) -> Result<(), ClientError> {
-        self.listen_within(sock, backlog, libmessenger::client::DEFAULT_DEADLINE)
+        self.listen_within(sock, backlog, METHOD_LISTEN_DEADLINE)
     }
 
     /// [`Self::listen`] with the caller's deadline instead of the IDL's.
@@ -1012,7 +1087,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_LISTEN, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LISTEN, wire_body, wire_objects, within, METHOD_LISTEN_RETRY)
             ?;
         Ok(())
     }
@@ -1020,9 +1095,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Stream only: take one established connection off a listener as a new
     /// socket owned by the caller; parks until one is there.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn accept(&self, sock: u32, timeout_ms: u32) -> Result<AcceptReply, ClientError> {
-        self.accept_within(sock, timeout_ms, libmessenger::client::DEFAULT_DEADLINE)
+        self.accept_within(sock, timeout_ms, METHOD_ACCEPT_DEADLINE)
     }
 
     /// [`Self::accept`] with the caller's deadline instead of the IDL's.
@@ -1031,7 +1106,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_ACCEPT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_ACCEPT, wire_body, wire_objects, within, METHOD_ACCEPT_RETRY)
             ?;
         decode_accept_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
@@ -1040,9 +1115,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// many bytes were taken (possibly fewer than sent); parks while no byte
     /// would fit.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn send(&self, sock: u32, data: &[u8], timeout_ms: u32) -> Result<u32, ClientError> {
-        self.send_within(sock, data, timeout_ms, libmessenger::client::DEFAULT_DEADLINE)
+        self.send_within(sock, data, timeout_ms, METHOD_SEND_DEADLINE)
     }
 
     /// [`Self::send`] with the caller's deadline instead of the IDL's.
@@ -1051,7 +1126,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_SEND, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SEND, wire_body, wire_objects, within, METHOD_SEND_RETRY)
             ?;
         let reply = decode_send_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.sent)
@@ -1060,9 +1135,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Take up to `max` (1 to 16384) bytes from a connected socket; parks
     /// until at least one is there. An empty reply is the end of the stream.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn recv(&self, sock: u32, max: u32, timeout_ms: u32) -> Result<alloc::vec::Vec<u8>, ClientError> {
-        self.recv_within(sock, max, timeout_ms, libmessenger::client::DEFAULT_DEADLINE)
+        self.recv_within(sock, max, timeout_ms, METHOD_RECV_DEADLINE)
     }
 
     /// [`Self::recv`] with the caller's deadline instead of the IDL's.
@@ -1071,7 +1146,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_RECV, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_RECV, wire_body, wire_objects, within, METHOD_RECV_RETRY)
             ?;
         let reply = decode_recv_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.data)
@@ -1080,9 +1155,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Datagram: send `data` (at most 1472 bytes) to `addr`. Never parks: a
     /// full send queue is `EAGAIN`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn send_to(&self, sock: u32, addr: &SockAddr, data: &[u8]) -> Result<u32, ClientError> {
-        self.send_to_within(sock, addr, data, libmessenger::client::DEFAULT_DEADLINE)
+        self.send_to_within(sock, addr, data, METHOD_SENDTO_DEADLINE)
     }
 
     /// [`Self::send_to`] with the caller's deadline instead of the IDL's.
@@ -1091,7 +1166,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_SENDTO, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SENDTO, wire_body, wire_objects, within, METHOD_SENDTO_RETRY)
             ?;
         let reply = decode_send_to_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.sent)
@@ -1100,9 +1175,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Datagram: take the next datagram, cut to `max` bytes (1 to 16384), and
     /// where it came from; parks until one is there.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn recv_from(&self, sock: u32, max: u32, timeout_ms: u32) -> Result<RecvFromReply, ClientError> {
-        self.recv_from_within(sock, max, timeout_ms, libmessenger::client::DEFAULT_DEADLINE)
+        self.recv_from_within(sock, max, timeout_ms, METHOD_RECVFROM_DEADLINE)
     }
 
     /// [`Self::recv_from`] with the caller's deadline instead of the IDL's.
@@ -1111,7 +1186,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_RECVFROM, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_RECVFROM, wire_body, wire_objects, within, METHOD_RECVFROM_RETRY)
             ?;
         decode_recv_from_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
@@ -1120,9 +1195,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// ready; the reply is the bitmap of what is. `Closed` and `Error` are
     /// always of interest. Parks until then.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn poll(&self, sock: u32, interest: u32, timeout_ms: u32) -> Result<u32, ClientError> {
-        self.poll_within(sock, interest, timeout_ms, libmessenger::client::DEFAULT_DEADLINE)
+        self.poll_within(sock, interest, timeout_ms, METHOD_POLL_DEADLINE)
     }
 
     /// [`Self::poll`] with the caller's deadline instead of the IDL's.
@@ -1131,7 +1206,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_POLL, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_POLL, wire_body, wire_objects, within, METHOD_POLL_RETRY)
             ?;
         let reply = decode_poll_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.ready)
@@ -1140,9 +1215,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Stream: end one or both directions (a `Shutdown` ordinal). `Write`
     /// sends FIN after the queued bytes; the socket stays open for reading.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn shutdown(&self, sock: u32, how: u32) -> Result<(), ClientError> {
-        self.shutdown_within(sock, how, libmessenger::client::DEFAULT_DEADLINE)
+        self.shutdown_within(sock, how, METHOD_SHUTDOWN_DEADLINE)
     }
 
     /// [`Self::shutdown`] with the caller's deadline instead of the IDL's.
@@ -1151,16 +1226,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SHUTDOWN, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SHUTDOWN, wire_body, wire_objects, within, METHOD_SHUTDOWN_RETRY)
             ?;
         Ok(())
     }
 
     /// The socket's own address and port (`EINVAL` before `Bind`/`Connect`).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn local_addr(&self, sock: u32) -> Result<SockAddr, ClientError> {
-        self.local_addr_within(sock, libmessenger::client::DEFAULT_DEADLINE)
+        self.local_addr_within(sock, METHOD_LOCALADDR_DEADLINE)
     }
 
     /// [`Self::local_addr`] with the caller's deadline instead of the IDL's.
@@ -1169,7 +1244,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_LOCALADDR, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LOCALADDR, wire_body, wire_objects, within, METHOD_LOCALADDR_RETRY)
             ?;
         let reply = decode_local_addr_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.addr)
@@ -1177,9 +1252,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// The peer's address and port (`ENOTCONN` when there is none).
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn peer_addr(&self, sock: u32) -> Result<SockAddr, ClientError> {
-        self.peer_addr_within(sock, libmessenger::client::DEFAULT_DEADLINE)
+        self.peer_addr_within(sock, METHOD_PEERADDR_DEADLINE)
     }
 
     /// [`Self::peer_addr`] with the caller's deadline instead of the IDL's.
@@ -1188,7 +1263,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_PEERADDR, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_PEERADDR, wire_body, wire_objects, within, METHOD_PEERADDR_RETRY)
             ?;
         let reply = decode_peer_addr_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.addr)
@@ -1197,9 +1272,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Release the socket. A stream closes gracefully (FIN); a parked call on
     /// it is answered with `EBADF`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn close(&self, sock: u32) -> Result<(), ClientError> {
-        self.close_within(sock, libmessenger::client::DEFAULT_DEADLINE)
+        self.close_within(sock, METHOD_CLOSE_DEADLINE)
     }
 
     /// [`Self::close`] with the caller's deadline instead of the IDL's.
@@ -1208,16 +1283,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_CLOSE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_CLOSE, wire_body, wire_objects, within, METHOD_CLOSE_RETRY)
             ?;
         Ok(())
     }
 
     /// Counters since `netd` started; anyone may read them.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn stats(&self) -> Result<SocketStats, ClientError> {
-        self.stats_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.stats_within(METHOD_STATS_DEADLINE)
     }
 
     /// [`Self::stats`] with the caller's deadline instead of the IDL's.
@@ -1226,9 +1301,224 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_STATS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_STATS, wire_body, wire_objects, within, METHOD_STATS_RETRY)
             ?;
         let reply = decode_stats_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.stats)
+    }
+}
+
+#[cfg(feature = "net_socket_v1_server")]
+/// What a program answering `os.lazy.net.socket.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Make a socket of `kind` (a `SockKind` ordinal). The reply is the id
+    /// every other call names.
+    fn open(&mut self, cx: &libmessenger::server::Caller, kind: u32) -> Result<u32, libmessenger::server::Fault> {
+        let _ = (cx, kind,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Choose the local address and port. `addr.addr` must be all zeros (any)
+    /// or the interface's own address; port 0 picks an ephemeral one.
+    fn bind(&mut self, cx: &libmessenger::server::Caller, sock: u32, addr: SockAddr) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, sock, addr,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Stream: open a connection to `addr`; parks until it is established or
+    /// refused. Datagram: fix the peer `Send`/`Recv` use (never parks).
+    fn connect(&mut self, cx: &libmessenger::server::Caller, sock: u32, addr: SockAddr, timeout_ms: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, sock, addr, timeout_ms,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Stream only: accept connections on the bound port. `backlog` (1 to 8)
+    /// is how many connections may complete before `Accept` collects them.
+    fn listen(&mut self, cx: &libmessenger::server::Caller, sock: u32, backlog: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, sock, backlog,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Stream only: take one established connection off a listener as a new
+    /// socket owned by the caller; parks until one is there.
+    fn accept(&mut self, cx: &libmessenger::server::Caller, sock: u32, timeout_ms: u32) -> Result<AcceptReply, libmessenger::server::Fault> {
+        let _ = (cx, sock, timeout_ms,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Queue `data` (at most 16384 bytes) on a connected socket. Returns how
+    /// many bytes were taken (possibly fewer than sent); parks while no byte
+    /// would fit.
+    fn send(&mut self, cx: &libmessenger::server::Caller, sock: u32, data: alloc::vec::Vec<u8>, timeout_ms: u32) -> Result<u32, libmessenger::server::Fault> {
+        let _ = (cx, sock, data, timeout_ms,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Take up to `max` (1 to 16384) bytes from a connected socket; parks
+    /// until at least one is there. An empty reply is the end of the stream.
+    fn recv(&mut self, cx: &libmessenger::server::Caller, sock: u32, max: u32, timeout_ms: u32) -> Result<alloc::vec::Vec<u8>, libmessenger::server::Fault> {
+        let _ = (cx, sock, max, timeout_ms,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Datagram: send `data` (at most 1472 bytes) to `addr`. Never parks: a
+    /// full send queue is `EAGAIN`.
+    fn send_to(&mut self, cx: &libmessenger::server::Caller, sock: u32, addr: SockAddr, data: alloc::vec::Vec<u8>) -> Result<u32, libmessenger::server::Fault> {
+        let _ = (cx, sock, addr, data,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Datagram: take the next datagram, cut to `max` bytes (1 to 16384), and
+    /// where it came from; parks until one is there.
+    fn recv_from(&mut self, cx: &libmessenger::server::Caller, sock: u32, max: u32, timeout_ms: u32) -> Result<RecvFromReply, libmessenger::server::Fault> {
+        let _ = (cx, sock, max, timeout_ms,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Wait until any bit of `interest` (a bitmap of `Ready` ordinals) is
+    /// ready; the reply is the bitmap of what is. `Closed` and `Error` are
+    /// always of interest. Parks until then.
+    fn poll(&mut self, cx: &libmessenger::server::Caller, sock: u32, interest: u32, timeout_ms: u32) -> Result<u32, libmessenger::server::Fault> {
+        let _ = (cx, sock, interest, timeout_ms,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Stream: end one or both directions (a `Shutdown` ordinal). `Write`
+    /// sends FIN after the queued bytes; the socket stays open for reading.
+    fn shutdown(&mut self, cx: &libmessenger::server::Caller, sock: u32, how: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, sock, how,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The socket's own address and port (`EINVAL` before `Bind`/`Connect`).
+    fn local_addr(&mut self, cx: &libmessenger::server::Caller, sock: u32) -> Result<SockAddr, libmessenger::server::Fault> {
+        let _ = (cx, sock,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The peer's address and port (`ENOTCONN` when there is none).
+    fn peer_addr(&mut self, cx: &libmessenger::server::Caller, sock: u32) -> Result<SockAddr, libmessenger::server::Fault> {
+        let _ = (cx, sock,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Release the socket. A stream closes gracefully (FIN); a parked call on
+    /// it is answered with `EBADF`.
+    fn close(&mut self, cx: &libmessenger::server::Caller, sock: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, sock,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Counters since `netd` started; anyone may read them.
+    fn stats(&mut self, cx: &libmessenger::server::Caller) -> Result<SocketStats, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "net_socket_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_OPEN if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_open_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.open(&cx, args.kind), |value| encode_open_reply(&OpenReply { sock: value }))
+        }
+        METHOD_BIND if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_bind_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.bind(&cx, args.sock, args.addr), |()| Ok(Vec::new()))
+        }
+        METHOD_CONNECT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_connect_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.connect(&cx, args.sock, args.addr, args.timeout_ms), |()| Ok(Vec::new()))
+        }
+        METHOD_LISTEN if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_listen_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.listen(&cx, args.sock, args.backlog), |()| Ok(Vec::new()))
+        }
+        METHOD_ACCEPT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_accept_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.accept(&cx, args.sock, args.timeout_ms), |value| encode_accept_reply(&value))
+        }
+        METHOD_SEND if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_send_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.send(&cx, args.sock, args.data, args.timeout_ms), |value| encode_send_reply(&SendReply { sent: value }))
+        }
+        METHOD_RECV if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_recv_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.recv(&cx, args.sock, args.max, args.timeout_ms), |value| encode_recv_reply(&RecvReply { data: value }))
+        }
+        METHOD_SENDTO if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_send_to_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.send_to(&cx, args.sock, args.addr, args.data), |value| encode_send_to_reply(&SendToReply { sent: value }))
+        }
+        METHOD_RECVFROM if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_recv_from_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.recv_from(&cx, args.sock, args.max, args.timeout_ms), |value| encode_recv_from_reply(&value))
+        }
+        METHOD_POLL if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_poll_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.poll(&cx, args.sock, args.interest, args.timeout_ms), |value| encode_poll_reply(&PollReply { ready: value }))
+        }
+        METHOD_SHUTDOWN if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_shutdown_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.shutdown(&cx, args.sock, args.how), |()| Ok(Vec::new()))
+        }
+        METHOD_LOCALADDR if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_local_addr_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.local_addr(&cx, args.sock), |value| encode_local_addr_reply(&LocalAddrReply { addr: value }))
+        }
+        METHOD_PEERADDR if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_peer_addr_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.peer_addr(&cx, args.sock), |value| encode_peer_addr_reply(&PeerAddrReply { addr: value }))
+        }
+        METHOD_CLOSE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_close_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.close(&cx, args.sock), |()| Ok(Vec::new()))
+        }
+        METHOD_STATS if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.stats(&cx), |value| encode_stats_reply(&StatsReply { stats: value }))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
     }
 }

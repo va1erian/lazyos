@@ -46,6 +46,20 @@ refused (`EINVAL`).
 
 - Served under the registry name `os.lazy.input.shell.v1`; registered once.
 
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Attach | this interface | - | 5000 ms | never |
+| SetFocus | this interface | - | 5000 ms | never |
+| RegisterSurface | this interface | - | 5000 ms | never |
+| UnregisterSurface | this interface | - | 5000 ms | never |
+| RegisterHotkey | this interface | - | 5000 ms | never |
+| UnregisterHotkey | this interface | - | 5000 ms | never |
+| ApproveGrant | this interface | - | 5000 ms | never |
+| SetBounds | this interface | - | 5000 ms | never |
+| GetPointer | this interface | - | 5000 ms | safe |
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

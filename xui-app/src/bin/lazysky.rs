@@ -34,15 +34,7 @@ struct LazyOs;
 
 impl Platform for LazyOs {
     fn ca_roots(&self) -> Roots {
-        let from_env = std::env::var_os("SSL_CERT_FILE").filter(|v| !v.is_empty());
-        let path = from_env.map(PathBuf::from).unwrap_or_else(|| {
-            [fhs::etc::CA_BUNDLE, fhs::etc::LINUX_CA_BUNDLE]
-                .iter()
-                .map(PathBuf::from)
-                .find(|path| path.is_file())
-                .unwrap_or_else(|| PathBuf::from(fhs::etc::CA_BUNDLE))
-        });
-        Roots::Bundle(path)
+        Roots::lazyos()
     }
 
     fn app_dir(&self) -> PathBuf {

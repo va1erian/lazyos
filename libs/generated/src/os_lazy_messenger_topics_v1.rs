@@ -196,26 +196,67 @@ pub fn decode_probe(body: &[u8]) -> Result<Probe, Error> {
 
 /// `Publish` method id.
 pub const METHOD_PUBLISH: u32 = 1818372520;
-/// How long a client waits for `Publish`'s reply, in milliseconds.
-pub const METHOD_PUBLISH_DEADLINE_MS: u32 = 500;
+/// How long a client waits for `Publish`'s reply: at most 500 ms (`deadline` in the `.midl`).
+pub const METHOD_PUBLISH_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(500);
+/// Whether a client resends `Publish` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_PUBLISH_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Subscribe` method id.
 pub const METHOD_SUBSCRIBE: u32 = 6992035;
-/// How long a client waits for `Subscribe`'s reply, in milliseconds.
-pub const METHOD_SUBSCRIBE_DEADLINE_MS: u32 = 500;
+/// How long a client waits for `Subscribe`'s reply: at most 500 ms (`deadline` in the `.midl`).
+pub const METHOD_SUBSCRIBE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(500);
+/// Whether a client resends `Subscribe` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SUBSCRIBE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Unsubscribe` method id.
 pub const METHOD_UNSUBSCRIBE: u32 = 2099666486;
+/// How long a client waits for `Unsubscribe`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_UNSUBSCRIBE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Unsubscribe` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_UNSUBSCRIBE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `NextEvent` method id.
 pub const METHOD_NEXTEVENT: u32 = 1278354512;
+/// How long a client waits for `NextEvent`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_NEXTEVENT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `NextEvent` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_NEXTEVENT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Ack` method id.
 pub const METHOD_ACK: u32 = 483717538;
+/// How long a client waits for `Ack`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_ACK_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Ack` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_ACK_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `ListTopics` method id.
 pub const METHOD_LISTTOPICS: u32 = 225427937;
+/// How long a client waits for `ListTopics`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_LISTTOPICS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `ListTopics` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LISTTOPICS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Stats` method id.
 pub const METHOD_STATS: u32 = 267161228;
+/// How long a client waits for `Stats`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_STATS_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Stats` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_STATS_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Ping` method id.
 pub const METHOD_PING: u32 = 2142761129;
+/// How long a client waits for `Ping`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_PING_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Ping` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_PING_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Bell` method id.
 pub const METHOD_BELL: u32 = 1766698328;
+/// How long a client waits for `Bell`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_BELL_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Bell` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_BELL_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 
 /// Publish `payload` under the literal `topic`; `retained` also remembers
 /// it as the topic's retained value. Returns how many subscriptions the
@@ -772,9 +813,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// it as the topic's retained value. Returns how many subscriptions the
     /// event reached.
     ///
-    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn publish(&self, topic: &str, payload: &[u8], retained: bool) -> Result<u64, ClientError> {
-        self.publish_within(topic, payload, retained, libmessenger::client::Deadline::millis(METHOD_PUBLISH_DEADLINE_MS as u64))
+        self.publish_within(topic, payload, retained, METHOD_PUBLISH_DEADLINE)
     }
 
     /// [`Self::publish`] with the caller's deadline instead of the IDL's.
@@ -783,7 +824,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_PUBLISH, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_PUBLISH, wire_body, wire_objects, within, METHOD_PUBLISH_RETRY)
             ?;
         let reply = decode_publish_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.matched)
@@ -793,9 +834,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// the queue depth for `Buffered` (clamped to 1..=64) and ignored by the
     /// other policies, which use fixed depths. Retained values are replayed.
     ///
-    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 500 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn subscribe(&self, filter: &str, qos: u32, depth: u32) -> Result<u64, ClientError> {
-        self.subscribe_within(filter, qos, depth, libmessenger::client::Deadline::millis(METHOD_SUBSCRIBE_DEADLINE_MS as u64))
+        self.subscribe_within(filter, qos, depth, METHOD_SUBSCRIBE_DEADLINE)
     }
 
     /// [`Self::subscribe`] with the caller's deadline instead of the IDL's.
@@ -804,7 +845,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_SUBSCRIBE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SUBSCRIBE, wire_body, wire_objects, within, METHOD_SUBSCRIBE_RETRY)
             ?;
         let reply = decode_subscribe_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.subscription)
@@ -812,9 +853,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Drop a subscription; later publishes stop matching it.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn unsubscribe(&self, subscription: u64) -> Result<(), ClientError> {
-        self.unsubscribe_within(subscription, libmessenger::client::DEFAULT_DEADLINE)
+        self.unsubscribe_within(subscription, METHOD_UNSUBSCRIBE_DEADLINE)
     }
 
     /// [`Self::unsubscribe`] with the caller's deadline instead of the IDL's.
@@ -823,7 +864,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_UNSUBSCRIBE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_UNSUBSCRIBE, wire_body, wire_objects, within, METHOD_UNSUBSCRIBE_RETRY)
             ?;
         Ok(())
     }
@@ -831,9 +872,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Wait for (or, with an expired deadline, poll) the next event of a
     /// subscription. A `Reliable` subscription redelivers its head until acked.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn next_event(&self, subscription: u64) -> Result<Event, ClientError> {
-        self.next_event_within(subscription, libmessenger::client::DEFAULT_DEADLINE)
+        self.next_event_within(subscription, METHOD_NEXTEVENT_DEADLINE)
     }
 
     /// [`Self::next_event`] with the caller's deadline instead of the IDL's.
@@ -842,7 +883,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_NEXTEVENT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_NEXTEVENT, wire_body, wire_objects, within, METHOD_NEXTEVENT_RETRY)
             ?;
         let reply = decode_next_event_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.event)
@@ -850,9 +891,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Retire every event up to `sequence` on a `Reliable` subscription.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn ack(&self, subscription: u64, sequence: u64) -> Result<(), ClientError> {
-        self.ack_within(subscription, sequence, libmessenger::client::DEFAULT_DEADLINE)
+        self.ack_within(subscription, sequence, METHOD_ACK_DEADLINE)
     }
 
     /// [`Self::ack`] with the caller's deadline instead of the IDL's.
@@ -861,16 +902,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_ACK, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_ACK, wire_body, wire_objects, within, METHOD_ACK_RETRY)
             ?;
         Ok(())
     }
 
     /// Topics the broker has seen, with live subscriber counts.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn list_topics(&self) -> Result<alloc::vec::Vec<TopicInfo>, ClientError> {
-        self.list_topics_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.list_topics_within(METHOD_LISTTOPICS_DEADLINE)
     }
 
     /// [`Self::list_topics`] with the caller's deadline instead of the IDL's.
@@ -879,7 +920,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_LISTTOPICS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LISTTOPICS, wire_body, wire_objects, within, METHOD_LISTTOPICS_RETRY)
             ?;
         let reply = decode_list_topics_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.topics)
@@ -887,9 +928,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Queue and drop counters of one subscription.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn stats(&self, subscription: u64) -> Result<Stats, ClientError> {
-        self.stats_within(subscription, libmessenger::client::DEFAULT_DEADLINE)
+        self.stats_within(subscription, METHOD_STATS_DEADLINE)
     }
 
     /// [`Self::stats`] with the caller's deadline instead of the IDL's.
@@ -898,7 +939,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_STATS, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_STATS, wire_body, wire_objects, within, METHOD_STATS_RETRY)
             ?;
         let reply = decode_stats_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.stats)
@@ -906,9 +947,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Round-trip probe used to detect a live broker.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn ping(&self) -> Result<(), ClientError> {
-        self.ping_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.ping_within(METHOD_PING_DEADLINE)
     }
 
     /// [`Self::ping`] with the caller's deadline instead of the IDL's.
@@ -917,7 +958,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_PING, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_PING, wire_body, wire_objects, within, METHOD_PING_RETRY)
             ?;
         Ok(())
     }
@@ -930,9 +971,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// drains with expired-deadline `NextEvent`s on each ring, instead of
     /// polling. Owner only; a second bell replaces the first.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn bell(&self, subscription: u64, bell: u64) -> Result<(), ClientError> {
-        self.bell_within(subscription, bell, libmessenger::client::DEFAULT_DEADLINE)
+        self.bell_within(subscription, bell, METHOD_BELL_DEADLINE)
     }
 
     /// [`Self::bell`] with the caller's deadline instead of the IDL's.
@@ -940,8 +981,145 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_bell_args(&BellArgs { subscription, bell }).map_err(ClientError::bad_request)?;
         self
             .conn
-            .call(INTERFACE_ID, METHOD_BELL, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_BELL, wire_body, wire_objects, within, METHOD_BELL_RETRY)
             ?;
         Ok(())
+    }
+}
+
+#[cfg(feature = "messenger_topics_v1_server")]
+/// What a program answering `os.lazy.messenger.topics.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Publish `payload` under the literal `topic`; `retained` also remembers
+    /// it as the topic's retained value. Returns how many subscriptions the
+    /// event reached.
+    fn publish(&mut self, cx: &libmessenger::server::Caller, topic: alloc::string::String, payload: alloc::vec::Vec<u8>, retained: bool) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, topic, payload, retained,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Create a subscription for `filter`. `qos` is a `Qos` value; `depth` is
+    /// the queue depth for `Buffered` (clamped to 1..=64) and ignored by the
+    /// other policies, which use fixed depths. Retained values are replayed.
+    fn subscribe(&mut self, cx: &libmessenger::server::Caller, filter: alloc::string::String, qos: u32, depth: u32) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, filter, qos, depth,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Drop a subscription; later publishes stop matching it.
+    fn unsubscribe(&mut self, cx: &libmessenger::server::Caller, subscription: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, subscription,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Wait for (or, with an expired deadline, poll) the next event of a
+    /// subscription. A `Reliable` subscription redelivers its head until acked.
+    fn next_event(&mut self, cx: &libmessenger::server::Caller, subscription: u64) -> Result<Event, libmessenger::server::Fault> {
+        let _ = (cx, subscription,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Retire every event up to `sequence` on a `Reliable` subscription.
+    fn ack(&mut self, cx: &libmessenger::server::Caller, subscription: u64, sequence: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, subscription, sequence,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Topics the broker has seen, with live subscriber counts.
+    fn list_topics(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<TopicInfo>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Queue and drop counters of one subscription.
+    fn stats(&mut self, cx: &libmessenger::server::Caller, subscription: u64) -> Result<Stats, libmessenger::server::Fault> {
+        let _ = (cx, subscription,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Round-trip probe used to detect a live broker.
+    fn ping(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Give a subscription a doorbell (docs/performance-plan.md P7.2): the
+    /// broker sends one `os.lazy.messenger.topics.bell.v1` `Ready` on `bell`
+    /// when the subscription has an event nobody is pulling, and no more
+    /// until a `NextEvent` from its owner finds the queue empty. The owner
+    /// parks on the other end beside its own endpoints (`wait_any`) and
+    /// drains with expired-deadline `NextEvent`s on each ring, instead of
+    /// polling. Owner only; a second bell replaces the first.
+    fn bell(&mut self, cx: &libmessenger::server::Caller, subscription: u64, bell: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, subscription, bell,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "messenger_topics_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_PUBLISH if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_publish_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.publish(&cx, args.topic, args.payload, args.retained), |value| encode_publish_reply(&PublishReply { matched: value }))
+        }
+        METHOD_SUBSCRIBE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_subscribe_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.subscribe(&cx, args.filter, args.qos, args.depth), |value| encode_subscribe_reply(&SubscribeReply { subscription: value }))
+        }
+        METHOD_UNSUBSCRIBE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_unsubscribe_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.unsubscribe(&cx, args.subscription), |()| Ok(Vec::new()))
+        }
+        METHOD_NEXTEVENT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_next_event_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.next_event(&cx, args.subscription), |value| encode_next_event_reply(&NextEventReply { event: value }))
+        }
+        METHOD_ACK if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_ack_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.ack(&cx, args.subscription, args.sequence), |()| Ok(Vec::new()))
+        }
+        METHOD_LISTTOPICS if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.list_topics(&cx), |value| encode_list_topics_reply(&ListTopicsReply { topics: value }))
+        }
+        METHOD_STATS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_stats_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.stats(&cx, args.subscription), |value| encode_stats_reply(&StatsReply { stats: value }))
+        }
+        METHOD_PING if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.ping(&cx), |()| Ok(Vec::new()))
+        }
+        METHOD_BELL if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_bell_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.bell(&cx, args.subscription, args.bell), |()| Ok(Vec::new()))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
     }
 }

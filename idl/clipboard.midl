@@ -22,6 +22,7 @@ service "os.lazy.clipboard" implements os.lazy.clipboard.v1;
 /// Failures reply with the standard error field (id 15, `docs/midl.md`) instead of the
 /// declared reply fields, which never use that id.
 interface os.lazy.clipboard.v1 {
+    default deadline=5s;
     /// Publish typed payloads for the caller's session and return the new
     /// offer token. An eager offer fills `data` (one bounded copy is kept); a
     /// lazy offer sets `sink`, the registry name of the endpoint where the
@@ -54,10 +55,10 @@ interface os.lazy.clipboard.v1 {
     /// the offer owner's `sink` endpoint when a paste happens.
     method Serialize(token: U64 = 1, mime: String = 2) -> (bytes: Bytes = 1);
     /// Liveness probe.
-    method Ping() -> ();
+    method Ping() -> () retry=safe;
     /// Metadata of the caller session's newest offer, never content; empty
     /// when no offer is live.
-    method Current() -> (offer: Option<OfferMeta> = 1);
+    method Current() -> (offer: Option<OfferMeta> = 1) retry=safe;
 
     /// One inline `{MIME, bytes}` payload of an eager offer.
     struct Payload {

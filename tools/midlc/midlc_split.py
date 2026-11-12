@@ -74,13 +74,16 @@ def mod_declaration(prefix: list[str], name: str, feature: str | None = None) ->
 def features_block(interfaces: list[Interface]) -> str:
     # Imported here: the client emitter takes `feature_name` from this module.
     from midlc_rust_client import has_client
+    from midlc_rust_server import has_server
 
     names = [feature_name(i) for i in interfaces]
     clients = [f"{feature_name(i)}_client" for i in interfaces if has_client(i)]
-    lines = [MARKER_BEGIN, 'default = ["all"]', "# Every interface and client; a program that wants fewer turns off default features and names its own."]
-    lines.append("all = [" + ", ".join(f'"{n}"' for n in names + clients) + "]")
+    servers = [f"{feature_name(i)}_server" for i in interfaces if has_server(i)]
+    lines = [MARKER_BEGIN, 'default = ["all"]', "# Every interface, client and server; a program that wants fewer turns off default features and names its own."]
+    lines.append("all = [" + ", ".join(f'"{n}"' for n in names + clients + servers) + "]")
     lines += [f"{n} = []" for n in names]
     lines += [f'{c} = ["{c.removesuffix("_client")}"]' for c in clients]
+    lines += [f'{c} = ["{c.removesuffix("_server")}"]' for c in servers]
     lines.append(MARKER_END)
     return "\n".join(lines) + "\n"
 

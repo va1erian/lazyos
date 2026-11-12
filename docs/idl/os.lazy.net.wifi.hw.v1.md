@@ -93,6 +93,25 @@ Failures of calls are returned as the shared structured error field
 
 - Served under the registry name `os.lazy.net.wifi.hw/{ifname}`; a family, one name per instance.
 
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Info | this interface | - | 5000 ms | safe |
+| Attach | this interface | - | 5000 ms | never |
+| Detach | this interface | - | 5000 ms | never |
+| SetCountry | this interface | - | 5000 ms | never |
+| Scan | this interface | - | 5000 ms | never |
+| AbortScan | this interface | - | 5000 ms | never |
+| ScanResults | this interface | - | 5000 ms | safe |
+| Join | this interface | - | 5000 ms | never |
+| TxMgmt | this interface | - | 5000 ms | never |
+| SetState | this interface | - | 5000 ms | never |
+| SetKey | this interface | - | 5000 ms | never |
+| DelKey | this interface | - | 5000 ms | never |
+| Leave | this interface | - | 5000 ms | never |
+| Stats | this interface | - | 5000 ms | safe |
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

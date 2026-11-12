@@ -48,6 +48,12 @@ use crate::ipc::handles::{self, HandleKind};
 use crate::task::process::{self, ProcessInfo};
 use crate::task::{self, TaskState};
 
+mod error;
+pub mod wait;
+
+pub use error::Error;
+pub use wait::{forget_waiter, wait_for};
+
 /// The generated `os.lazy.messenger.registry.v1` wire stubs (`idl/registry.midl`).
 ///
 /// The kernel is both the bootstrap root and the server of the native gate ops,
@@ -74,6 +80,8 @@ pub mod method {
     pub const CONNECT: u32 = wire::METHOD_CONNECT;
     /// The kernel's notice to a service that a client connected.
     pub const CONNECTED: u32 = wire::METHOD_CONNECTED;
+    /// Resolve, waiting for the name to register (`super::wait`).
+    pub const WAIT_FOR: u32 = wire::METHOD_WAITFOR;
 }
 
 /// Largest name the registry accepts, in bytes.
@@ -82,49 +90,6 @@ pub const MAX_NAME_BYTES: usize = 128;
 pub const MAX_INTERFACES: usize = 16;
 /// Largest number of live names.
 pub const MAX_ENTRIES: usize = 64;
-
-/// Why a registry operation failed. Messages are user-facing.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Error {
-    /// The name is empty, too long, or contains a control character.
-    BadName,
-    /// The endpoint handle does not name a channel or endpoint.
-    BadEndpoint,
-    /// The name is already registered by someone else.
-    NameTaken,
-    /// No name by that spelling is registered.
-    UnknownName,
-    /// The actor may not unregister this name.
-    NotOwner,
-    /// More interfaces than [`MAX_INTERFACES`].
-    TooManyInterfaces,
-    /// The lease length is so large its deadline would overflow the tick clock.
-    BadLease,
-    /// The registry is full.
-    RegistryFull,
-    /// The target task slot holds no live task.
-    BadTask,
-    /// The target task is out of handles or the kernel is out of memory.
-    NoResources,
-}
-
-impl Error {
-    /// A short, human-readable explanation (friendly-errors convention).
-    pub fn message(self) -> &'static str {
-        match self {
-            Error::BadName => "that service name is empty, too long, or has control characters",
-            Error::BadEndpoint => "a service name must refer to a channel or endpoint handle",
-            Error::NameTaken => "that service name is already registered by another owner",
-            Error::UnknownName => "no service is registered under that name",
-            Error::NotOwner => "only the owner (or an administrator) may unregister that name",
-            Error::TooManyInterfaces => "the registration declares too many interfaces",
-            Error::BadLease => "that lease is too long for the tick clock to represent",
-            Error::RegistryFull => "the kernel name registry is full",
-            Error::BadTask => "no task exists in that slot",
-            Error::NoResources => "the target process is out of Messenger handles",
-        }
-    }
-}
 
 /// One registered name.
 struct Entry {
@@ -181,12 +146,16 @@ pub struct Stats {
     pub expirations: u64,
     /// Entries dropped because their owner died (`release_owner`).
     pub releases: u64,
+    /// Tasks waiting for a name to register right now ([`wait_for`]).
+    pub waiters: u64,
 }
 
 /// The name table and its counters, one lock so a mutation and its meter are
 /// always consistent.
 struct Registry {
     entries: Vec<Entry>,
+    /// Tasks parked in [`wait_for`], so a registration wakes only its name's.
+    waiters: Vec<wait::Waiter>,
     stats: Stats,
 }
 
@@ -194,6 +163,7 @@ struct Registry {
 /// matches the channel registry's shape.
 static REGISTRY: Mutex<Registry> = Mutex::new(Registry {
     entries: Vec::new(),
+    waiters: Vec::new(),
     stats: Stats {
         entries: 0,
         leases: 0,
@@ -202,6 +172,7 @@ static REGISTRY: Mutex<Registry> = Mutex::new(Registry {
         unregistrations: 0,
         expirations: 0,
         releases: 0,
+        waiters: 0,
     },
 });
 
@@ -263,6 +234,10 @@ fn prune_locked(registry: &mut Registry, live: &[bool], now: u64) -> usize {
     });
     registry.stats.expirations += expired;
     registry.stats.releases += released;
+    // A waiter whose task died never ran its wait loop's cleanup.
+    registry
+        .waiters
+        .retain(|waiter| live.get(waiter.slot).copied().unwrap_or(false));
     before - registry.entries.len()
 }
 
@@ -313,27 +288,33 @@ pub fn register(
         Some(now.checked_add(lease_ticks).ok_or(Error::BadLease)?)
     };
     let live = live_slots();
-    let mut registry = REGISTRY.lock();
-    prune_locked(&mut registry, &live, now);
-    if let Some(index) = registry.entries.iter().position(|entry| entry.name == name) {
-        if registry.entries[index].owner_slot != owner_slot {
-            return Err(Error::NameTaken);
+    let waiting = {
+        let mut registry = REGISTRY.lock();
+        prune_locked(&mut registry, &live, now);
+        if let Some(index) = registry.entries.iter().position(|entry| entry.name == name) {
+            if registry.entries[index].owner_slot != owner_slot {
+                return Err(Error::NameTaken);
+            }
+            // Same owner: replace, so a restarting service keeps its name.
+            registry.entries.remove(index);
+        } else if registry.entries.len() >= MAX_ENTRIES {
+            return Err(Error::RegistryFull);
         }
-        // Same owner: replace, so a restarting service keeps its name.
-        registry.entries.remove(index);
-    } else if registry.entries.len() >= MAX_ENTRIES {
-        return Err(Error::RegistryFull);
-    }
-    registry.entries.push(Entry {
-        name: String::from(name),
-        kind,
-        rights: rights & !handles::rights::CONTROL,
-        object_id,
-        owner_slot,
-        interfaces: interfaces.to_vec(),
-        lease_deadline,
-    });
-    registry.stats.registrations += 1;
+        registry.entries.push(Entry {
+            name: String::from(name),
+            kind,
+            rights: rights & !handles::rights::CONTROL,
+            object_id,
+            owner_slot,
+            interfaces: interfaces.to_vec(),
+            lease_deadline,
+        });
+        registry.stats.registrations += 1;
+        wait::waiting_for(&registry, name)
+    };
+    // With the registry lock released: the wait queue is locked before the
+    // task table, and neither nests inside the registry's.
+    wait::wake(&waiting);
     Ok(())
 }
 
@@ -358,19 +339,12 @@ pub fn register(
 /// reports the closed peer. Owner teardown and lease expiry are what remove
 /// such a name automatically.
 pub fn resolve(target_slot: usize, name: &str) -> Result<u64, Error> {
-    validate_name(name)?;
-    let now = task::ticks();
-    let live = live_slots();
-    let opened = {
-        let mut registry = REGISTRY.lock();
-        prune_locked(&mut registry, &live, now);
-        let entry = registry
-            .entries
-            .iter()
-            .find(|entry| entry.name == name)
-            .ok_or(Error::UnknownName)?;
-        (entry.kind, entry.rights, entry.object_id)
-    };
+    open_entry(target_slot, lookup(name)?)
+}
+
+/// Open the endpoint a [`lookup`] found in `target_slot`'s table: the half of
+/// a resolve that mints the handle, shared with [`wait_for`].
+fn open_entry(target_slot: usize, opened: (HandleKind, u32, u64)) -> Result<u64, Error> {
     let handle =
         handles::open_for_task(target_slot, opened.0, opened.1, opened.2).map_err(|error| {
             use handles::Error::*;
@@ -482,6 +456,7 @@ pub fn stats() -> Stats {
     prune_locked(&mut registry, &live, now);
     let mut stats = registry.stats;
     stats.entries = registry.entries.len() as u64;
+    stats.waiters = registry.waiters.len() as u64;
     stats.leases = registry
         .entries
         .iter()

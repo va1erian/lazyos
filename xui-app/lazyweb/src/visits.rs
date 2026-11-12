@@ -204,9 +204,7 @@ impl Visits {
         self.lines = self.entries.len();
         self.write("rewritten", checked, move || {
             ensure_parent(&file)?;
-            let tmp = file.with_extension("tmp");
-            fs::write(&tmp, text)?;
-            fs::rename(&tmp, &file)
+            atomicfile::write(&file, text.as_bytes())
         })
     }
 }

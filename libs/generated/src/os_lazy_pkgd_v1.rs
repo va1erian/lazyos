@@ -511,40 +511,81 @@ pub fn decode_pkg_event(body: &[u8]) -> Result<PkgEvent, Error> {
 
 /// `Inspect` method id.
 pub const METHOD_INSPECT: u32 = 1027767735;
-/// How long a client waits for `Inspect`'s reply, in milliseconds.
-pub const METHOD_INSPECT_DEADLINE_MS: u32 = 12000;
+/// How long a client waits for `Inspect`'s reply: at most 12000 ms (`deadline` in the `.midl`).
+pub const METHOD_INSPECT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(12000);
+/// Whether a client resends `Inspect` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_INSPECT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Install` method id.
 pub const METHOD_INSTALL: u32 = 890027328;
-/// How long a client waits for `Install`'s reply, in milliseconds.
-pub const METHOD_INSTALL_DEADLINE_MS: u32 = 120000;
+/// How long a client waits for `Install`'s reply: at most 120000 ms (`deadline` in the `.midl`).
+pub const METHOD_INSTALL_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(120000);
+/// Whether a client resends `Install` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_INSTALL_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Remove` method id.
 pub const METHOD_REMOVE: u32 = 564498461;
-/// How long a client waits for `Remove`'s reply, in milliseconds.
-pub const METHOD_REMOVE_DEADLINE_MS: u32 = 12000;
+/// How long a client waits for `Remove`'s reply: at most 12000 ms (`deadline` in the `.midl`).
+pub const METHOD_REMOVE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(12000);
+/// Whether a client resends `Remove` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_REMOVE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `List` method id.
 pub const METHOD_LIST: u32 = 220805025;
-/// How long a client waits for `List`'s reply, in milliseconds.
-pub const METHOD_LIST_DEADLINE_MS: u32 = 12000;
+/// How long a client waits for `List`'s reply: at most 12000 ms (`deadline` in the `.midl`).
+pub const METHOD_LIST_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(12000);
+/// Whether a client resends `List` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LIST_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Installed` method id.
 pub const METHOD_INSTALLED: u32 = 1755800129;
-/// How long a client waits for `Installed`'s reply, in milliseconds.
-pub const METHOD_INSTALLED_DEADLINE_MS: u32 = 12000;
+/// How long a client waits for `Installed`'s reply: at most 12000 ms (`deadline` in the `.midl`).
+pub const METHOD_INSTALLED_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(12000);
+/// Whether a client resends `Installed` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_INSTALLED_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `LabelName` method id.
 pub const METHOD_LABELNAME: u32 = 775579582;
+/// How long a client waits for `LabelName`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_LABELNAME_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `LabelName` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LABELNAME_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Provisioned` method id.
 pub const METHOD_PROVISIONED: u32 = 1076218465;
+/// How long a client waits for `Provisioned`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_PROVISIONED_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Provisioned` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_PROVISIONED_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Develop` method id.
 pub const METHOD_DEVELOP: u32 = 803454394;
-/// How long a client waits for `Develop`'s reply, in milliseconds.
-pub const METHOD_DEVELOP_DEADLINE_MS: u32 = 12000;
+/// How long a client waits for `Develop`'s reply: at most 12000 ms (`deadline` in the `.midl`).
+pub const METHOD_DEVELOP_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(12000);
+/// Whether a client resends `Develop` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_DEVELOP_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `DevelopDeclined` method id.
 pub const METHOD_DEVELOPDECLINED: u32 = 1386916580;
-/// How long a client waits for `DevelopDeclined`'s reply, in milliseconds.
-pub const METHOD_DEVELOPDECLINED_DEADLINE_MS: u32 = 12000;
+/// How long a client waits for `DevelopDeclined`'s reply: at most 12000 ms (`deadline` in the `.midl`).
+pub const METHOD_DEVELOPDECLINED_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(12000);
+/// Whether a client resends `DevelopDeclined` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_DEVELOPDECLINED_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `InstallApproved` method id.
 pub const METHOD_INSTALLAPPROVED: u32 = 1599511615;
+/// How long a client waits for `InstallApproved`'s reply: for ever (`deadline` in the `.midl`).
+pub const METHOD_INSTALLAPPROVED_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::Never;
+/// Whether a client resends `InstallApproved` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_INSTALLAPPROVED_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `InstallDebug` method id.
 pub const METHOD_INSTALLDEBUG: u32 = 1850060999;
+/// How long a client waits for `InstallDebug`'s reply: for ever (`deadline` in the `.midl`).
+pub const METHOD_INSTALLDEBUG_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::Never;
+/// Whether a client resends `InstallDebug` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_INSTALLDEBUG_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 
 /// Open and validate the `.lzp` at `path` without changing anything. Root
 /// may name any absolute path; anyone else a file under `/transient` or
@@ -1182,9 +1223,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// their own home folder (the path is normalised first). `problems` is empty for a package that
     /// could be installed; otherwise it lists every reason it cannot be.
     ///
-    /// Waits for the reply at most 12000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 12000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn inspect(&self, path: &str) -> Result<PackageInfo, ClientError> {
-        self.inspect_within(path, libmessenger::client::Deadline::millis(METHOD_INSPECT_DEADLINE_MS as u64))
+        self.inspect_within(path, METHOD_INSPECT_DEADLINE)
     }
 
     /// [`Self::inspect`] with the caller's deadline instead of the IDL's.
@@ -1193,7 +1234,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_INSPECT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_INSPECT, wire_body, wire_objects, within, METHOD_INSPECT_RETRY)
             ?;
         let reply = decode_inspect_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.info)
@@ -1207,9 +1248,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// installed at this version and digest. Needs the caller to be the
     /// session owner or root; `pkgd` audits who asked.
     ///
-    /// Waits for the reply at most 120000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 120000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn install(&self, path: &str) -> Result<Installed, ClientError> {
-        self.install_within(path, libmessenger::client::Deadline::millis(METHOD_INSTALL_DEADLINE_MS as u64))
+        self.install_within(path, METHOD_INSTALL_DEADLINE)
     }
 
     /// [`Self::install`] with the caller's deadline instead of the IDL's.
@@ -1218,7 +1259,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_INSTALL, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_INSTALL, wire_body, wire_objects, within, METHOD_INSTALL_RETRY)
             ?;
         let reply = decode_install_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.app)
@@ -1229,9 +1270,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// documentation, then publish `system/events/pkg/remove`. User data
     /// under `/home` is kept.
     ///
-    /// Waits for the reply at most 12000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 12000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn remove(&self, system_name: &str) -> Result<(), ClientError> {
-        self.remove_within(system_name, libmessenger::client::Deadline::millis(METHOD_REMOVE_DEADLINE_MS as u64))
+        self.remove_within(system_name, METHOD_REMOVE_DEADLINE)
     }
 
     /// [`Self::remove`] with the caller's deadline instead of the IDL's.
@@ -1240,16 +1281,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_REMOVE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_REMOVE, wire_body, wire_objects, within, METHOD_REMOVE_RETRY)
             ?;
         Ok(())
     }
 
     /// Every installed app, in install order.
     ///
-    /// Waits for the reply at most 12000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 12000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn list(&self) -> Result<alloc::vec::Vec<Installed>, ClientError> {
-        self.list_within(libmessenger::client::Deadline::millis(METHOD_LIST_DEADLINE_MS as u64))
+        self.list_within(METHOD_LIST_DEADLINE)
     }
 
     /// [`Self::list`] with the caller's deadline instead of the IDL's.
@@ -1258,7 +1299,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_LIST, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LIST, wire_body, wire_objects, within, METHOD_LIST_RETRY)
             ?;
         let reply = decode_list_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.apps)
@@ -1266,9 +1307,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// One installed app by `system_name`, if present.
     ///
-    /// Waits for the reply at most 12000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 12000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn installed(&self, system_name: &str) -> Result<core::option::Option<Installed>, ClientError> {
-        self.installed_within(system_name, libmessenger::client::Deadline::millis(METHOD_INSTALLED_DEADLINE_MS as u64))
+        self.installed_within(system_name, METHOD_INSTALLED_DEADLINE)
     }
 
     /// [`Self::installed`] with the caller's deadline instead of the IDL's.
@@ -1277,7 +1318,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_INSTALLED, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_INSTALLED, wire_body, wire_objects, within, METHOD_INSTALLED_RETRY)
             ?;
         let reply = decode_installed_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.app)
@@ -1291,9 +1332,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `approvals`). Answered to `elevd` alone; `ENOENT` for an id the
     /// kernel does not know.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn label_name(&self, label_id: u32) -> Result<alloc::string::String, ClientError> {
-        self.label_name_within(label_id, libmessenger::client::DEFAULT_DEADLINE)
+        self.label_name_within(label_id, METHOD_LABELNAME_DEADLINE)
     }
 
     /// [`Self::label_name`] with the caller's deadline instead of the IDL's.
@@ -1302,7 +1343,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_LABELNAME, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LABELNAME, wire_body, wire_objects, within, METHOD_LABELNAME_RETRY)
             ?;
         let reply = decode_label_name_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.label)
@@ -1314,9 +1355,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// without blocking; `Install` and `Remove` are refused with `EAGAIN`
     /// until `done`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn provisioned(&self) -> Result<ProvisionState, ClientError> {
-        self.provisioned_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.provisioned_within(METHOD_PROVISIONED_DEADLINE)
     }
 
     /// [`Self::provisioned`] with the caller's deadline instead of the IDL's.
@@ -1325,7 +1366,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_PROVISIONED, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_PROVISIONED, wire_body, wire_objects, within, METHOD_PROVISIONED_RETRY)
             ?;
         let reply = decode_provisioned_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.state)
@@ -1345,9 +1386,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// gave them logs out, and every one is audited as
     /// `system/events/pkg/develop`.
     ///
-    /// Waits for the reply at most 12000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 12000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn develop(&self, path: &str, confirm: bool) -> Result<DevelopReply, ClientError> {
-        self.develop_within(path, confirm, libmessenger::client::Deadline::millis(METHOD_DEVELOP_DEADLINE_MS as u64))
+        self.develop_within(path, confirm, METHOD_DEVELOP_DEADLINE)
     }
 
     /// [`Self::develop`] with the caller's deadline instead of the IDL's.
@@ -1356,7 +1397,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_DEVELOP, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_DEVELOP, wire_body, wire_objects, within, METHOD_DEVELOP_RETRY)
             ?;
         decode_develop_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
@@ -1366,9 +1407,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// refusal is audited and published as `system/events/pkg/denied` under
     /// the package's `system_name`, so the IDE waiting for the approval stops.
     ///
-    /// Waits for the reply at most 12000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 12000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn develop_declined(&self, path: &str) -> Result<(), ClientError> {
-        self.develop_declined_within(path, libmessenger::client::Deadline::millis(METHOD_DEVELOPDECLINED_DEADLINE_MS as u64))
+        self.develop_declined_within(path, METHOD_DEVELOPDECLINED_DEADLINE)
     }
 
     /// [`Self::develop_declined`] with the caller's deadline instead of the IDL's.
@@ -1377,7 +1418,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_DEVELOPDECLINED, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_DEVELOPDECLINED, wire_body, wire_objects, within, METHOD_DEVELOPDECLINED_RETRY)
             ?;
         Ok(())
     }
@@ -1397,9 +1438,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// other package only when it is `false`, so a tool is never installed
     /// from a prompt that did not warn about it.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply for ever (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn install_approved(&self, path: &str, digest: &str, core: bool, devtool: bool) -> Result<Installed, ClientError> {
-        self.install_approved_within(path, digest, core, devtool, libmessenger::client::DEFAULT_DEADLINE)
+        self.install_approved_within(path, digest, core, devtool, METHOD_INSTALLAPPROVED_DEADLINE)
     }
 
     /// [`Self::install_approved`] with the caller's deadline instead of the IDL's.
@@ -1408,7 +1449,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_INSTALLAPPROVED, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_INSTALLAPPROVED, wire_body, wire_objects, within, METHOD_INSTALLAPPROVED_RETRY)
             ?;
         let reply = decode_install_approved_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.app)
@@ -1423,9 +1464,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `InstallApproved`. Unlike every other install it may replace a core
     /// app, which is what a developer iterating on one needs.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply for ever (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn install_debug(&self, path: &str, digest: &str) -> Result<Installed, ClientError> {
-        self.install_debug_within(path, digest, libmessenger::client::DEFAULT_DEADLINE)
+        self.install_debug_within(path, digest, METHOD_INSTALLDEBUG_DEADLINE)
     }
 
     /// [`Self::install_debug`] with the caller's deadline instead of the IDL's.
@@ -1434,9 +1475,216 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_INSTALLDEBUG, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_INSTALLDEBUG, wire_body, wire_objects, within, METHOD_INSTALLDEBUG_RETRY)
             ?;
         let reply = decode_install_debug_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.app)
+    }
+}
+
+#[cfg(feature = "pkgd_v1_server")]
+/// What a program answering `os.lazy.pkgd.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Open and validate the `.lzp` at `path` without changing anything. Root
+    /// may name any absolute path; anyone else a file under `/transient` or
+    /// their own home folder (the path is normalised first). `problems` is empty for a package that
+    /// could be installed; otherwise it lists every reason it cannot be.
+    fn inspect(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<PackageInfo, libmessenger::server::Fault> {
+        let _ = (cx, path,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Install the package at `path` (the same source rule as `Inspect`):
+    /// extract it to its install directory under `/apps`, copy its
+    /// `docs/*.md` to `/docs/apps/<system_name>/`, record it, register its
+    /// MIME verbs, load its policy, then publish
+    /// `system/events/pkg/install`. Fails if the same `system_name` is already
+    /// installed at this version and digest. Needs the caller to be the
+    /// session owner or root; `pkgd` audits who asked.
+    fn install(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<Installed, libmessenger::server::Fault> {
+        let _ = (cx, path,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Remove `system_name`: stop its running instances, unregister its MIME
+    /// verbs, revoke its policy, delete its install directory and its
+    /// documentation, then publish `system/events/pkg/remove`. User data
+    /// under `/home` is kept.
+    fn remove(&mut self, cx: &libmessenger::server::Caller, system_name: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, system_name,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Every installed app, in install order.
+    fn list(&mut self, cx: &libmessenger::server::Caller) -> Result<alloc::vec::Vec<Installed>, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// One installed app by `system_name`, if present.
+    fn installed(&mut self, cx: &libmessenger::server::Caller, system_name: alloc::string::String) -> Result<core::option::Option<Installed>, libmessenger::server::Fault> {
+        let _ = (cx, system_name,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The name of the policy label with the kernel id `label_id`
+    /// (`app:<system_name>`, `tool:<system_name>`, ...). Reading a label's
+    /// name takes `CAP_SETUID`, which `elevd` deliberately lacks, so it asks
+    /// here to tell a developer tool's shared label from an app's before it
+    /// lets an administrator's approval stand (`libs/elevpolicy`,
+    /// `approvals`). Answered to `elevd` alone; `ENOENT` for an id the
+    /// kernel does not know.
+    fn label_name(&mut self, cx: &libmessenger::server::Caller, label_id: u32) -> Result<alloc::string::String, libmessenger::server::Fault> {
+        let _ = (cx, label_id,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Whether this start's core package provisioning is finished, and what
+    /// it did (`docs/packages.md`, core packages). `pkgd` answers it while it
+    /// provisions, so a client such as `init`'s autostart can wait for it
+    /// without blocking; `Install` and `Remove` are refused with `EAGAIN`
+    /// until `done`.
+    fn provisioned(&mut self, cx: &libmessenger::server::Caller) -> Result<ProvisionState, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Approve a development run of the package at `path` (the same source
+    /// rule as `Inspect`; issue #529): validate it, compile its permissions and
+    /// load them for the label `dev:<system_name>`, which an IDE whose
+    /// manifest says `develop = true` may then give the program it runs. Only
+    /// the session owner or root, unlabelled (the Installer), may call it.
+    /// With `confirm` false nothing is asked: the rules are loaded and
+    /// `approved` is true only if this session already approved the same or a
+    /// wider rule set for that label; otherwise `approved` is false and nothing
+    /// changes, so the Installer shows the consent screen and calls again with
+    /// `confirm` true once the user accepts. Approvals live in `pkgd`'s memory
+    /// only, are dropped (and the label's rules revoked) when the session that
+    /// gave them logs out, and every one is audited as
+    /// `system/events/pkg/develop`.
+    fn develop(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String, confirm: bool) -> Result<DevelopReply, libmessenger::server::Fault> {
+        let _ = (cx, path, confirm,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The user declined the development consent for the package at `path`
+    /// (same caller and source rules as `Develop`). Nothing is loaded; the
+    /// refusal is audited and published as `system/events/pkg/denied` under
+    /// the package's `system_name`, so the IDE waiting for the approval stops.
+    fn develop_declined(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, path,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// `elevd`'s install of a package an administrator approved on the
+    /// trusted prompt (docs/accounts-plan.md U2, review of #659); refused
+    /// with `EPERM` from anyone else. `digest` is the SHA-256 `Inspect`
+    /// reported for the file the prompt described: `pkgd` installs the
+    /// bytes it reads only when they hash to it, so the file cannot be
+    /// swapped between the approval and the install. `core` says what was
+    /// approved: `false` (`pkg.install`) refuses a package that would
+    /// replace a core app, `true` (`pkg.update-core`) refuses one that would
+    /// not. Plain `Install` never replaces a core app for `elevd`. `devtool`
+    /// says the administrator saw the developer-tool warning
+    /// (`pkg.install-devtool`, `docs/devtool-packages-plan.md` section 4): a
+    /// developer-tool package is installed only when it is `true` and any
+    /// other package only when it is `false`, so a tool is never installed
+    /// from a prompt that did not warn about it.
+    fn install_approved(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String, digest: alloc::string::String, core: bool, devtool: bool) -> Result<Installed, libmessenger::server::Fault> {
+        let _ = (cx, path, digest, core, devtool,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// `dbgd`'s install of a package a developer uploaded to a box built for
+    /// remote control (docs/dbgd-plan.md, v2 app swapping): accepted from
+    /// `dbgd` alone and only when `/boot/lazyos.cfg` says
+    /// `diag.dbg.control=1`, refused with `EPERM` otherwise. `path` must be
+    /// `dbgd`'s staging file (`dbgwire::control::staged_package_path`) and
+    /// the bytes must hash to `digest` (SHA-256, hex), as for
+    /// `InstallApproved`. Unlike every other install it may replace a core
+    /// app, which is what a developer iterating on one needs.
+    fn install_debug(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String, digest: alloc::string::String) -> Result<Installed, libmessenger::server::Fault> {
+        let _ = (cx, path, digest,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "pkgd_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_INSPECT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_inspect_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.inspect(&cx, args.path), |value| encode_inspect_reply(&InspectReply { info: value }))
+        }
+        METHOD_INSTALL if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_install_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.install(&cx, args.path), |value| encode_install_reply(&InstallReply { app: value }))
+        }
+        METHOD_REMOVE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_remove_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.remove(&cx, args.system_name), |()| Ok(Vec::new()))
+        }
+        METHOD_LIST if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.list(&cx), |value| encode_list_reply(&ListReply { apps: value }))
+        }
+        METHOD_INSTALLED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_installed_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.installed(&cx, args.system_name), |value| encode_installed_reply(&InstalledReply { app: value }))
+        }
+        METHOD_LABELNAME if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_label_name_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.label_name(&cx, args.label_id), |value| encode_label_name_reply(&LabelNameReply { label: value }))
+        }
+        METHOD_PROVISIONED if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.provisioned(&cx), |value| encode_provisioned_reply(&ProvisionedReply { state: value }))
+        }
+        METHOD_DEVELOP if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_develop_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.develop(&cx, args.path, args.confirm), |value| encode_develop_reply(&value))
+        }
+        METHOD_DEVELOPDECLINED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_develop_declined_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.develop_declined(&cx, args.path), |()| Ok(Vec::new()))
+        }
+        METHOD_INSTALLAPPROVED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_install_approved_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.install_approved(&cx, args.path, args.digest, args.core, args.devtool), |value| encode_install_approved_reply(&InstallApprovedReply { app: value }))
+        }
+        METHOD_INSTALLDEBUG if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_install_debug_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.install_debug(&cx, args.path, args.digest), |value| encode_install_debug_reply(&InstallDebugReply { app: value }))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
     }
 }

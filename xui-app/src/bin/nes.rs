@@ -16,11 +16,13 @@
 //! `NES:QUIT:PASS` on quit; `NES:FAIL:<what>` for anything refused.
 
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use xui_app::platform::audio::{Audio, Params, PlaybackStream};
+use xui_app::platform::dirs;
 use xui_app::trace::{self, Channel};
+use xui_host::recent::Recent;
 use xui_nes::host::{Host, Report};
 use xui_nes::{Msg, NesApp, Session, WINDOW};
 
@@ -31,6 +33,8 @@ const PERIOD_BYTES: u32 = 2048;
 const RATE_HZ: u32 = 48_000;
 /// Where a headless run leaves its result, for a harness that reads files.
 const RESULT_FILE: &str = "nes-result.txt";
+/// The app's id: its data folder is `<home>/.apps/<SYSTEM_NAME>`.
+const SYSTEM_NAME: &str = "os.lazy.nes";
 
 /// The LazyOS side of the app.
 struct Platform {
@@ -39,6 +43,8 @@ struct Platform {
     /// The app's directory (`$HOME/.apps/os.lazy.nes`).
     dir: PathBuf,
     muted: bool,
+    /// The ROMs opened last, kept in the app's settings (`confd`).
+    recent: Option<Rc<Recent>>,
 }
 
 /// An open mixer stream, converted to whatever the mixer granted.
@@ -58,6 +64,7 @@ impl Platform {
             stream: None,
             dir,
             muted: false,
+            recent: None,
         };
         let Some(audio) = Audio::try_connect() else {
             trace::fail!(Channel::Nes, "SOUND", "no mixer");
@@ -174,8 +181,14 @@ impl Host for Platform {
         self.dir.clone()
     }
 
-    fn default_dir(&self) -> PathBuf {
-        xui_app::platform::dirs::default_dir()
+    fn recent(&self) -> Vec<PathBuf> {
+        self.recent.as_ref().map(|r| r.list()).unwrap_or_default()
+    }
+
+    fn remember(&self, rom: &Path) {
+        if let Some(recent) = &self.recent {
+            recent.push(rom);
+        }
     }
 
     fn sample_rom(&self) -> Option<PathBuf> {
@@ -184,13 +197,11 @@ impl Host for Platform {
     }
 }
 
-/// `$HOME/.apps/os.lazy.nes`, or `/transient`'s when there is no home.
+/// The app's data folder (`fhs::app_data_dir` of the home, or `/transient`'s
+/// when there is no home).
 fn app_dir() -> PathBuf {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .filter(|home| home.is_absolute() && home.is_dir());
-    let base = home.unwrap_or_else(|| PathBuf::from(fhs::mount::TRANSIENT));
-    base.join(".apps").join("os.lazy.nes")
+    let home = dirs::default_dir();
+    PathBuf::from(fhs::app_data_dir(&home.to_string_lossy(), SYSTEM_NAME))
 }
 
 fn main() {
@@ -209,10 +220,12 @@ fn main() {
         .min_size(320, 260)
         .opens(Msg::RomChosen)
         .drops(rom_dropped)
-        .run(|ui, _| {
+        .run(|ui, cx| {
+            let mut platform = platform;
+            platform.recent = Some(cx.recent());
             let host: Rc<RefCell<dyn Host>> = Rc::new(RefCell::new(platform));
             let session = Session::new(host.borrow().app_dir(), rate);
-            NesApp::build(ui, host, session).inspect_err(|error| {
+            NesApp::build(ui, host, cx.host(), session).inspect_err(|error| {
                 trace::fail!(Channel::Nes, "BUILD", "{error}");
             })
         })

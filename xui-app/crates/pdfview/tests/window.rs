@@ -13,7 +13,8 @@ use xui_canvas::snapshot::{render_with, Snapshot, Stage};
 use xui_core::backend::BackendError;
 use xui_core::widget::DialogAction;
 use xui_core::{Dip, Image, Theme};
-use xui_pdfview::{Host, Msg, PdfApp, Viewer, WINDOW};
+use xui_host::testing::StdHost;
+use xui_pdfview::{Msg, PdfApp, Viewer, WINDOW};
 
 const SAMPLE: &[u8] = include_bytes!("../../pdf/testdata/sample.pdf");
 const LOCKED: &[u8] = include_bytes!("../../pdf/testdata/sample-aes256.pdf");
@@ -125,10 +126,10 @@ fn drive(
     let image = render_with(
         Snapshot::new(Dip(WINDOW.0 as f32), Dip(WINDOW.1 as f32)).theme(theme),
         move |ui| {
-            let mut host = Host::std(std::env::temp_dir());
-            host.threads = 2;
-            host.log = Rc::new(move |line| log.borrow_mut().push(line.to_owned()));
-            let app = PdfApp::build(ui, host).map_err(|e: BackendError| e)?;
+            let host = StdHost::new(std::env::temp_dir())
+                .channel("PDF")
+                .collecting(log);
+            let app = PdfApp::with_threads(ui, Rc::new(host), 2).map_err(|e: BackendError| e)?;
             *slot.borrow_mut() = Some(app.viewer_handle());
             Ok(app)
         },

@@ -231,7 +231,7 @@ impl State {
                 self.picture_dirty = true;
                 self.failure = None;
                 self.reported_running = false;
-                let _ = crate::paths::push_recent(&self.host.borrow().app_dir(), path);
+                self.host.borrow().remember(path);
                 if let Some(warning) = self.session.take_warning() {
                     self.reports.push(Report::Failed(warning));
                 }

@@ -8,11 +8,12 @@ service "os.lazy.healthd" implements os.lazy.healthd.v1;
 /// with `Report`; `Status` only reads. Failures are returned as a structured
 /// error field (errno-style code, friendly text), not as a typed reply.
 interface os.lazy.healthd.v1 {
+    default deadline=5s;
     /// Publish `health/<name>` with `status`/`detail`.
     method Report(name: String = 1, status: String = 2, detail: String = 3) -> (summary: HealthRecord = 1, records: Array<HealthRecord> = 2);
 
     /// Snapshot retained health rows plus the aggregate.
-    method Status() -> (summary: HealthRecord = 1, records: Array<HealthRecord> = 2) deadline=500ms;
+    method Status() -> (summary: HealthRecord = 1, records: Array<HealthRecord> = 2) deadline=500ms retry=safe;
 
     /// One retained health row.
     struct HealthRecord {

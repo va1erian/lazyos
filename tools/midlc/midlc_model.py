@@ -121,6 +121,29 @@ class Ring:
 
 
 @dataclass
+class CallPolicy:
+    """How a client calls a method: the deadline (`deadline=500ms`, or
+    `deadline=never` for an unbounded wait) and whether a restarted service
+    may be sent the request again (`retry=safe|never`). Each is None until
+    stated; an interface's `default` line fills the unstated ones in."""
+
+    # Milliseconds, or None (see `never`).
+    deadline_ms: int | None = None
+    # `deadline=never`: wait for ever. Exclusive with `deadline_ms`.
+    never: bool = False
+    # "safe" or "never"; None means unstated, which resolves to "never".
+    retry: str | None = None
+
+    @property
+    def has_deadline(self) -> bool:
+        return self.never or self.deadline_ms is not None
+
+    @property
+    def stated(self) -> bool:
+        return self.has_deadline or self.retry is not None
+
+
+@dataclass
 class Method:
     name: str
     params: list[Param]
@@ -134,9 +157,9 @@ class Method:
     # The ACL scope interface name the request's header carries instead of the
     # interface id (`scope "os.lazy.clipboard.write.v1"`), or None.
     scope: str | None = None
-    # The deadline every client gives a call, in milliseconds
-    # (`deadline=500ms`), or None when the IDL states none.
-    deadline_ms: int | None = None
+    # The deadline and resend policy of a call; once the interface is
+    # validated, its `default` line is folded in.
+    policy: CallPolicy = field(default_factory=CallPolicy)
 
     @property
     def scope_id(self) -> int | None:
@@ -256,6 +279,8 @@ class Interface:
     # The services that serve this interface (set by `attach_services` once
     # every file of the compile is parsed).
     services: list[Service] = field(default_factory=list)
+    # The interface's `default deadline=.. retry=..;` line, or None.
+    default_policy: CallPolicy | None = None
 
     @property
     def service(self) -> Service | None:

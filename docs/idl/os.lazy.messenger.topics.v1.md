@@ -33,12 +33,19 @@ id.
 
 - Served under the registry name `os.lazy.messenger.topics`; registered once.
 
-## Scopes and deadlines
+## Scopes, deadlines and retries
 
-| Method | Scope interface | Scope id | Deadline |
-|---|---|---|---|
-| Publish | this interface | - | 500 ms |
-| Subscribe | this interface | - | 500 ms |
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Publish | this interface | - | 500 ms | never |
+| Subscribe | this interface | - | 500 ms | never |
+| Unsubscribe | this interface | - | 5000 ms | never |
+| NextEvent | this interface | - | 5000 ms | never |
+| Ack | this interface | - | 5000 ms | never |
+| ListTopics | this interface | - | 5000 ms | safe |
+| Stats | this interface | - | 5000 ms | safe |
+| Ping | this interface | - | 5000 ms | safe |
+| Bell | this interface | - | 5000 ms | never |
 
 ## Objects
 

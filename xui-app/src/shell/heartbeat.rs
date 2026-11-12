@@ -5,6 +5,7 @@
 use super::ctx::Ctx;
 use super::services;
 use crate::sys;
+use crate::trace::{self, Channel};
 
 /// The zone is re-read every three seconds, the cadence of the theme and
 /// clock-format keys, so a zone picked in Settings shows almost at once (the
@@ -113,7 +114,7 @@ impl Heartbeat {
             && ctx.desktop_loaded()
         {
             self.reported = true;
-            println!("SHELL:DESKTOP:PASS icons={icons}");
+            trace::line!(Channel::Shell, "DESKTOP:PASS icons={icons}");
         }
     }
 }

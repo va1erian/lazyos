@@ -22,6 +22,7 @@ kernel gate reports failures as negative errno values.
 |---|---|---|---|
 | Register | 658098656 | sync | `(name: String, endpoint: Option<U64>, interfaces: Array<U64>, lease_ticks: U64, interface_names: Array<String>) -> ()` |
 | Resolve | 1645633795 | sync | `(name: String) -> (handle: U64)` |
+| WaitFor | 1225377743 | sync | `(name: String) -> (handle: U64)` |
 | Connect | 1535748249 | sync | `(name: String) -> (handle: U64)` |
 | Connected | 2079757168 | oneway | `(name: String, connection: Channel<os.lazy.messenger.registry.v1>) -> ()` |
 | Unregister | 1480320227 | sync | `(name: String) -> ()` |
@@ -30,6 +31,17 @@ kernel gate reports failures as negative errno values.
 ## Service
 
 - Served under the registry name `os.lazy.messenger.registry`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Register | this interface | - | 5000 ms | never |
+| Resolve | this interface | - | 5000 ms | never |
+| WaitFor | this interface | - | 5000 ms | never |
+| Connect | this interface | - | 5000 ms | never |
+| Unregister | this interface | - | 5000 ms | never |
+| List | this interface | - | 5000 ms | never |
 
 ## Objects
 

@@ -26,6 +26,7 @@ service "os.lazy.mount" implements os.lazy.mount.v1;
 /// to pull. An eject is refused while a file is open on the volume, and the
 /// refusal says who holds it.
 interface os.lazy.mount.v1 {
+    default deadline=2s;
     /// One mount the service knows about.
     struct MountInfo {
         /// The mount's name: it is served at `path`, `/mnt/<name>`.
@@ -70,7 +71,7 @@ interface os.lazy.mount.v1 {
     method Unmount(name: String = 1) -> () deadline=2s;
 
     /// Every mount the service knows about, in the order they were asked for.
-    method List() -> (mounts: Array<MountInfo> = 1) deadline=2s;
+    method List() -> (mounts: Array<MountInfo> = 1) deadline=2s retry=safe;
 
     /// One removable volume the service knows about.
     struct VolumeInfo {
@@ -97,7 +98,7 @@ interface os.lazy.mount.v1 {
     /// The removable volumes of the caller (all of them for root), oldest
     /// plug first. An ended volume stays listed until its stick is pulled,
     /// so its outcome can be read.
-    method Volumes() -> (volumes: Array<VolumeInfo> = 1) deadline=5s;
+    method Volumes() -> (volumes: Array<VolumeInfo> = 1) deadline=5s retry=safe;
 
     /// Eject the volume on `disk` (`usb<n>`): flush, close and unmount it,
     /// then let the stick be pulled. Answers at once; the answer's `state`

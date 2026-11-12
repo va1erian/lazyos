@@ -22,6 +22,7 @@ use crate::app::{After, Msg, Writer};
 use crate::commands::{format, print, refresh_table, refresh_title, selection, words_label};
 use crate::files;
 use crate::names;
+use xui_host::report;
 
 /// Runs `after` (New, Open or Quit), first asking Save / Discard / Cancel
 /// when the document is modified.
@@ -112,7 +113,7 @@ fn start_dir(app: &Writer) -> PathBuf {
         .as_deref()
         .and_then(Path::parent)
         .filter(|dir| dir.is_absolute())
-        .map_or_else(|| app.host.start_dir.clone(), Path::to_path_buf)
+        .map_or_else(|| app.host.start_dir(), Path::to_path_buf)
 }
 
 /// The path Save writes to without asking: the document's, unless it was
@@ -142,9 +143,8 @@ fn load(app: &mut Writer, ui: &mut Ui<Msg>, doc: Document, path: Option<PathBuf>
 fn fail(app: &mut Writer, what: &str, path: &Path, error: impl std::fmt::Display) {
     app.dialogs
         .message
-        .set_message(&format!("{what} {}: {error}", path.display()));
+        .show(&format_args!("{what} {}: {error}", path.display()));
     app.dialog_open.set(true);
-    app.dialogs.message.open();
 }
 
 pub fn open_chosen(app: &mut Writer, ui: &mut Ui<Msg>, path: PathBuf) {
@@ -157,11 +157,11 @@ pub fn open_chosen(app: &mut Writer, ui: &mut Ui<Msg>, path: PathBuf) {
 pub fn open_path(app: &mut Writer, ui: &mut Ui<Msg>, path: PathBuf) {
     match files::open_document(&path) {
         Ok(doc) => {
-            println!("WRITER:OPEN:PASS:{}", path.display());
+            report!(app.host, "OPEN:PASS:{}", path.display());
             load(app, ui, doc, Some(path));
         }
         Err(error) => {
-            println!("WRITER:OPEN:FAIL:{}", path.display());
+            report!(app.host, "OPEN:FAIL:{}", path.display());
             fail(app, "Could not open", &path, error);
         }
     }
@@ -205,10 +205,10 @@ fn save_to(app: &mut Writer, ui: &mut Ui<Msg>, path: PathBuf) -> bool {
     let host = app.host.clone();
     match app
         .editor
-        .with_document(|d| files::save_document(&host, &path, d))
+        .with_document(|d| files::save_document(&*host, &path, d))
     {
         Ok(()) => {
-            println!("WRITER:SAVE:PASS:{}", path.display());
+            report!(app.host, "SAVE:PASS:{}", path.display());
             app.path = Some(path);
             app.dirty = false;
             refresh_title(app, ui);
@@ -216,7 +216,7 @@ fn save_to(app: &mut Writer, ui: &mut Ui<Msg>, path: PathBuf) -> bool {
             true
         }
         Err(error) => {
-            println!("WRITER:SAVE:FAIL:{}", path.display());
+            report!(app.host, "SAVE:FAIL:{}", path.display());
             fail(app, "Could not save", &path, error);
             false
         }
@@ -243,13 +243,13 @@ pub fn export_chosen(app: &mut Writer, path: PathBuf) {
         .with_document(|d| files::export_markdown(&host, &path, d))
     {
         Ok(()) => {
-            println!("WRITER:EXPORT:PASS:{}", path.display());
+            report!(app.host, "EXPORT:PASS:{}", path.display());
             app.status
                 .set_text(0, &format!("Exported {}", names::display_name(Some(&path))));
             app.editor.focus();
         }
         Err(error) => {
-            println!("WRITER:EXPORT:FAIL:{}", path.display());
+            report!(app.host, "EXPORT:FAIL:{}", path.display());
             fail(app, "Could not export", &path, error);
         }
     }
@@ -268,11 +268,11 @@ pub fn image_chosen(app: &mut Writer, path: PathBuf) {
     app.dialog_open.set(false);
     match files::load_image(&path) {
         Ok(image) => {
-            println!("WRITER:IMAGE:PASS:{}", path.display());
+            report!(app.host, "IMAGE:PASS:{}", path.display());
             format(app, Command::InsertImage(image));
         }
         Err(error) => {
-            println!("WRITER:IMAGE:FAIL:{}", path.display());
+            report!(app.host, "IMAGE:FAIL:{}", path.display());
             fail(app, "Could not insert", &path, error);
         }
     }

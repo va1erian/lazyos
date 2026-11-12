@@ -94,20 +94,45 @@ pub fn decode_light_config(body: &[u8]) -> Result<LightConfig, Error> {
 
 /// `CreateView` method id.
 pub const METHOD_CREATEVIEW: u32 = 1;
+/// How long a client waits for `CreateView`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_CREATEVIEW_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `CreateView` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_CREATEVIEW_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `DestroyView` method id.
 pub const METHOD_DESTROYVIEW: u32 = 2;
+/// How long a client waits for `DestroyView`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_DESTROYVIEW_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `DestroyView` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_DESTROYVIEW_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `AttachSlot` method id.
 pub const METHOD_ATTACHSLOT: u32 = 3;
+/// How long a client waits for `AttachSlot`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_ATTACHSLOT_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `AttachSlot` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_ATTACHSLOT_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `ReleaseSlot` method id.
 pub const METHOD_RELEASESLOT: u32 = 4;
 /// `Resize` method id.
 pub const METHOD_RESIZE: u32 = 5;
+/// How long a client waits for `Resize`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_RESIZE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `Resize` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_RESIZE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `SetVisible` method id.
 pub const METHOD_SETVISIBLE: u32 = 6;
 /// `Refresh` method id.
 pub const METHOD_REFRESH: u32 = 7;
 /// `LoadHtml` method id.
 pub const METHOD_LOADHTML: u32 = 11;
+/// How long a client waits for `LoadHtml`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_LOADHTML_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `LoadHtml` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LOADHTML_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Mouse` method id.
 pub const METHOD_MOUSE: u32 = 20;
 /// `Wheel` method id.
@@ -950,9 +975,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// the caller's kernel-stamped label: the views of one app share a web
     /// process, the views of two apps never do.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn create_view(&self, config: &LightConfig, width: u32, height: u32, events: u64) -> Result<u64, ClientError> {
-        self.create_view_within(config, width, height, events, libmessenger::client::DEFAULT_DEADLINE)
+        self.create_view_within(config, width, height, events, METHOD_CREATEVIEW_DEADLINE)
     }
 
     /// [`Self::create_view`] with the caller's deadline instead of the IDL's.
@@ -960,7 +985,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_create_view_args(&CreateViewArgs { config: config.clone(), width, height, events }).map_err(ClientError::bad_request)?;
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_CREATEVIEW, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_CREATEVIEW, wire_body, wire_objects, within, METHOD_CREATEVIEW_RETRY)
             ?;
         let reply = decode_create_view_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.view)
@@ -969,9 +994,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// End the view, its page and its event endpoint. Slots the app still
     /// holds stay its own memory. Not an error for a view that is already gone.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn destroy_view(&self, view: u64) -> Result<(), ClientError> {
-        self.destroy_view_within(view, libmessenger::client::DEFAULT_DEADLINE)
+        self.destroy_view_within(view, METHOD_DESTROYVIEW_DEADLINE)
     }
 
     /// [`Self::destroy_view`] with the caller's deadline instead of the IDL's.
@@ -980,7 +1005,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_DESTROYVIEW, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_DESTROYVIEW, wire_body, wire_objects, within, METHOD_DESTROYVIEW_RETRY)
             ?;
         Ok(())
     }
@@ -991,9 +1016,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// (`EBUSY` while webd has handed it out), so a slot is re-attached only
     /// after `ReleaseSlot`.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn attach_slot(&self, view: u64, slot: u32, pixels: libmessenger::Buffer) -> Result<(), ClientError> {
-        self.attach_slot_within(view, slot, pixels, libmessenger::client::DEFAULT_DEADLINE)
+        self.attach_slot_within(view, slot, pixels, METHOD_ATTACHSLOT_DEADLINE)
     }
 
     /// [`Self::attach_slot`] with the caller's deadline instead of the IDL's.
@@ -1001,7 +1026,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_attach_slot_args(&AttachSlotArgs { view, slot, pixels }).map_err(ClientError::bad_request)?;
         self
             .conn
-            .call(INTERFACE_ID, METHOD_ATTACHSLOT, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_ATTACHSLOT, wire_body, wire_objects, within, METHOD_ATTACHSLOT_RETRY)
             ?;
         Ok(())
     }
@@ -1019,9 +1044,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Change the view's size. Every slot is detached (attach new ones of the
     /// new size); the next frame has the new size.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn resize(&self, view: u64, width: u32, height: u32) -> Result<(), ClientError> {
-        self.resize_within(view, width, height, libmessenger::client::DEFAULT_DEADLINE)
+        self.resize_within(view, width, height, METHOD_RESIZE_DEADLINE)
     }
 
     /// [`Self::resize`] with the caller's deadline instead of the IDL's.
@@ -1030,7 +1055,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_RESIZE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_RESIZE, wire_body, wire_objects, within, METHOD_RESIZE_RETRY)
             ?;
         Ok(())
     }
@@ -1058,9 +1083,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// network or `file:` base is `EINVAL`. webd copies the bytes before it
     /// replies, so the app may reuse the buffer.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn load_html(&self, view: u64, html: libmessenger::Buffer, base_url: &str) -> Result<(), ClientError> {
-        self.load_html_within(view, html, base_url, libmessenger::client::DEFAULT_DEADLINE)
+        self.load_html_within(view, html, base_url, METHOD_LOADHTML_DEADLINE)
     }
 
     /// [`Self::load_html`] with the caller's deadline instead of the IDL's.
@@ -1068,7 +1093,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_load_html_args(&LoadHtmlArgs { view, html, base_url: base_url.into() }).map_err(ClientError::bad_request)?;
         self
             .conn
-            .call(INTERFACE_ID, METHOD_LOADHTML, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LOADHTML, wire_body, wire_objects, within, METHOD_LOADHTML_RETRY)
             ?;
         Ok(())
     }
@@ -1183,5 +1208,310 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self.conn
             .send(INTERFACE_ID, METHOD_PING, wire_body, wire_objects)
+    }
+}
+
+#[cfg(feature = "webd_light_v1_server")]
+/// What a program answering `os.lazy.webd.light.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Make a view of `width` x `height` pixels and return its id (non-zero,
+    /// chosen by webd and never reused). `events` is the endpoint webd sends
+    /// this view's events on; it is closed when the view ends. The view shows
+    /// a blank page until `LoadHtml`. webd derives the web process group from
+    /// the caller's kernel-stamped label: the views of one app share a web
+    /// process, the views of two apps never do.
+    fn create_view(&mut self, cx: &libmessenger::server::Caller, config: LightConfig, width: u32, height: u32, events: u64) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, config, width, height, events,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// End the view, its page and its event endpoint. Slots the app still
+    /// holds stay its own memory. Not an error for a view that is already gone.
+    fn destroy_view(&mut self, cx: &libmessenger::server::Caller, view: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Register `pixels` as slot `slot` (0 to 2) of `view`; it starts free.
+    /// The buffer must hold at least `width * height * 4` bytes of the view's
+    /// current size after its `offset`. Replaces a free slot of that number
+    /// (`EBUSY` while webd has handed it out), so a slot is re-attached only
+    /// after `ReleaseSlot`.
+    fn attach_slot(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32, pixels: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, slot, pixels,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The app is done reading `slot`; webd may paint into it again. A slot
+    /// that is not busy, or a view that is not the caller's, is ignored.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn release_slot(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32) {
+        let _ = (cx, view, slot,);
+    }
+
+    /// Change the view's size. Every slot is detached (attach new ones of the
+    /// new size); the next frame has the new size.
+    fn resize(&mut self, cx: &libmessenger::server::Caller, view: u64, width: u32, height: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, width, height,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// A view that is not visible gets no paints (its page still runs).
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn set_visible(&mut self, cx: &libmessenger::server::Caller, view: u64, visible: bool) {
+        let _ = (cx, view, visible,);
+    }
+
+    /// Ask for a whole frame (the app lost or discarded its picture).
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn refresh(&mut self, cx: &libmessenger::server::Caller, view: u64) {
+        let _ = (cx, view,);
+    }
+
+    /// Replace the page with `html` (UTF-8, the buffer's range) at the base
+    /// URL `base_url`: empty, `about:blank`, `about:...` or a `data:` URL; a
+    /// network or `file:` base is `EINVAL`. webd copies the bytes before it
+    /// replies, so the app may reuse the buffer.
+    fn load_html(&mut self, cx: &libmessenger::server::Caller, view: u64, html: libmessenger::Buffer, base_url: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, view, html, base_url,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Input, as the display protocol delivers it, in view pixels. `kind` is a
+    /// `MouseKind`, `button` 0 left, 1 middle, 2 right (-1 none: a move with no
+    /// button held); `mods` bit 0 shift, 1 control, 2 alt, 3 meta.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn mouse(&mut self, cx: &libmessenger::server::Caller, view: u64, kind: u32, button: i32, x: i32, y: i32, mods: u32) {
+        let _ = (cx, view, kind, button, x, y, mods,);
+    }
+
+    /// A wheel turn of `ticks_x` / `ticks_y` notches at `(x, y)`. `seq` numbers
+    /// the turns of a full view for `WheelDone` (the full interface); 0 asks
+    /// for no answer, and a light view is never answered.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn wheel(&mut self, cx: &libmessenger::server::Caller, view: u64, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32, seq: u64) {
+        let _ = (cx, view, x, y, ticks_x, ticks_y, mods, seq,);
+    }
+
+    /// A key edge: `keysym` is the X11 keysym the display protocol carries,
+    /// `text` the character it types (empty for none).
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn key(&mut self, cx: &libmessenger::server::Caller, view: u64, press: bool, keysym: u32, text: alloc::string::String, mods: u32) {
+        let _ = (cx, view, press, keysym, text, mods,);
+    }
+
+    /// The view gained or lost keyboard focus.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn focus(&mut self, cx: &libmessenger::server::Caller, view: u64, focused: bool) {
+        let _ = (cx, view, focused,);
+    }
+
+    /// Event: slot `slot` of `view` holds frame number `seq` (counting from 1)
+    /// of `width` x `height` pixels. The slot is the app's until `ReleaseSlot`.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn frame(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32, seq: u64, width: u32, height: u32) {
+        let _ = (cx, view, slot, seq, width, height,);
+    }
+
+    /// Event: what the page says about itself. `loading` while a load is in
+    /// progress; `finished` counts the loads that have finished (so the first
+    /// paint of a `LoadHtml` can be told from the old page's); `error` is
+    /// empty or a short reason a load failed. Texts are cut at 48 KiB.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn state(&mut self, cx: &libmessenger::server::Caller, view: u64, title: alloc::string::String, loading: bool, finished: u32, error: alloc::string::String) {
+        let _ = (cx, view, title, loading, finished, error,);
+    }
+
+    /// Event: the page scrolled to `(x, y)` in document pixels; `at_bottom`
+    /// when it cannot scroll further.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn scroll(&mut self, cx: &libmessenger::server::Caller, view: u64, x: i32, y: i32, at_bottom: bool) {
+        let _ = (cx, view, x, y, at_bottom,);
+    }
+
+    /// Event: a link was clicked, a form submitted or a meta refresh fired,
+    /// and nothing loaded. `url` is absolute.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn link_clicked(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String) {
+        let _ = (cx, view, url,);
+    }
+
+    /// Event: the user copied `text` out of the page.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn clipboard_write(&mut self, cx: &libmessenger::server::Caller, view: u64, text: alloc::string::String) {
+        let _ = (cx, view, text,);
+    }
+
+    /// Event: the view cannot go on (`reason` is a `LostReason`). The id stays
+    /// the app's to `DestroyView`; the app makes a new view and loads again.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn view_lost(&mut self, cx: &libmessenger::server::Caller, view: u64, reason: u32) {
+        let _ = (cx, view, reason,);
+    }
+
+    /// Event: liveness probe, about once a second; nothing to answer. `EPIPE`
+    /// on the endpoint tells webd the app is gone and ends its views.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn ping(&mut self, cx: &libmessenger::server::Caller) {
+        let _ = (cx,);
+    }
+}
+
+#[cfg(feature = "webd_light_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_CREATEVIEW if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_create_view_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.create_view(&cx, args.config, args.width, args.height, args.events), |value| encode_create_view_reply(&CreateViewReply { view: value }))
+        }
+        METHOD_DESTROYVIEW if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_destroy_view_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.destroy_view(&cx, args.view), |()| Ok(Vec::new()))
+        }
+        METHOD_ATTACHSLOT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_attach_slot_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.attach_slot(&cx, args.view, args.slot, args.pixels), |()| Ok(Vec::new()))
+        }
+        METHOD_RELEASESLOT if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_release_slot_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.release_slot(&cx, args.view, args.slot);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_RESIZE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_resize_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.resize(&cx, args.view, args.width, args.height), |()| Ok(Vec::new()))
+        }
+        METHOD_SETVISIBLE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_visible_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.set_visible(&cx, args.view, args.visible);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_REFRESH if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_refresh_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.refresh(&cx, args.view);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_LOADHTML if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_load_html_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.load_html(&cx, args.view, args.html, args.base_url), |()| Ok(Vec::new()))
+        }
+        METHOD_MOUSE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_mouse_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.mouse(&cx, args.view, args.kind, args.button, args.x, args.y, args.mods);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_WHEEL if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_wheel_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.wheel(&cx, args.view, args.x, args.y, args.ticks_x, args.ticks_y, args.mods, args.seq);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_KEY if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_key_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.key(&cx, args.view, args.press, args.keysym, args.text, args.mods);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_FOCUS if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_focus_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.focus(&cx, args.view, args.focused);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_FRAME if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_frame_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.frame(&cx, args.view, args.slot, args.seq, args.width, args.height);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_STATE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_state_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.state(&cx, args.view, args.title, args.loading, args.finished, args.error);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_SCROLL if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_scroll_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.scroll(&cx, args.view, args.x, args.y, args.at_bottom);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_LINKCLICKED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_link_clicked_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.link_clicked(&cx, args.view, args.url);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_CLIPBOARDWRITE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_clipboard_write_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.clipboard_write(&cx, args.view, args.text);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_VIEWLOST if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_view_lost_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.view_lost(&cx, args.view, args.reason);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_PING if id == INTERFACE_ID => {
+            server.ping(&cx);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
     }
 }

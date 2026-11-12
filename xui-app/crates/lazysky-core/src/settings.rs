@@ -96,9 +96,8 @@ impl Settings {
         let text = toml::to_string_pretty(&clean).map_err(|e| e.to_string())?;
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let path = dir.join(FILE);
-        let temp = dir.join(format!("{FILE}.part"));
-        std::fs::write(&temp, text).map_err(|e| format!("{}: {e}", temp.display()))?;
-        std::fs::rename(&temp, &path).map_err(|e| format!("{}: {e}", path.display()))?;
+        atomicfile::write(&path, text.as_bytes())
+            .map_err(|e| format!("{}: {e}", path.display()))?;
         Ok(path)
     }
 }
@@ -131,7 +130,8 @@ mod tests {
         };
         settings.save(&dir).unwrap();
         assert_eq!(Settings::load(&dir), settings);
-        assert!(!dir.join("settings.toml.part").exists());
+        let files = std::fs::read_dir(&dir).unwrap().count();
+        assert_eq!(files, 1, "a temp file was left");
     }
 
     #[test]

@@ -47,6 +47,16 @@ impl From<messenger_generated::topics::TopicError> for Error {
     }
 }
 
+impl From<Error> for libmessenger::server::Fault {
+    /// What a handler gets for `?` on a Messenger call: the errno-style code
+    /// (a malformed parcel is `EINVAL`) and the friendly text, as every
+    /// service's hand-written `error_reply` answered.
+    fn from(error: Error) -> Self {
+        let code = error.errno().map(|code| -code).unwrap_or(errno::EINVAL);
+        libmessenger::server::Fault::new(code as u32, error.message())
+    }
+}
+
 impl Error {
     /// The negative errno the kernel returned, if this is a kernel error.
     pub fn errno(self) -> Option<i64> {
@@ -97,8 +107,11 @@ impl Error {
                 code if code == -errno::EMSGSIZE => {
                     "a message was dropped: too large for the receive buffer, or its objects did not fit the handle table"
                 }
-                code if code == -errno::ETIMEDOUT => "the call timed out before a reply arrived",
+                code if code == -errno::ETIMEDOUT => "the call timed out: no reply arrived, or the service did not register in time",
                 code if code == -errno::ECANCELED => "the call was canceled",
+                code if code == -errno::ENOSYS => {
+                    "that call is served by the kernel gate only, not by the Messenger daemon"
+                }
                 _ => "the Messenger call failed",
             },
         }

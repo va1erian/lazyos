@@ -25,10 +25,8 @@ pub struct Fonts {
 /// The directories searched: the system's and the user's.
 pub fn directories() -> Vec<PathBuf> {
     let mut dirs = vec![PathBuf::from(fhs::share::FONTS)];
-    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-        if home.is_absolute() {
-            dirs.push(home.join(fhs::share::USER_FONTS_SUBDIR));
-        }
+    if let Some(home) = xui_app::platform::dirs::home() {
+        dirs.push(home.join(fhs::share::USER_FONTS_SUBDIR));
     }
     dirs
 }

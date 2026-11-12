@@ -102,11 +102,24 @@ def check_names(interface: Interface) -> None:
         raise MidlError(f"{interface.name}: a struct named Client or {ERROR_ALIAS} collides with the generated client")
 
 
+def check_policies(interface: Interface) -> None:
+    """A client needs every two-way method's deadline from the IDL: refuse
+    one that neither states `deadline=` nor gets one from a `default`."""
+    for method in interface.methods:
+        if not method.oneway and not method.policy.has_deadline:
+            raise MidlError(
+                f"{interface.name}.{method.name}: no deadline; state `deadline=<n>ms|<n>s|never` "
+                "on the method or `default deadline=...;` in the interface"
+            )
+
+
 def deadline_expr(method: Method) -> str:
-    """The deadline `method` waits: its own, else the crate-wide default."""
-    if method.deadline_ms is None:
-        return "libmessenger::client::DEFAULT_DEADLINE"
-    return f"libmessenger::client::Deadline::millis(METHOD_{method.name.upper()}_DEADLINE_MS as u64)"
+    """The deadline `method` waits: the constant its `.midl` resolves."""
+    return f"METHOD_{method.name.upper()}_DEADLINE"
+
+
+def retry_expr(method: Method) -> str:
+    return f"METHOD_{method.name.upper()}_RETRY"
 
 
 def result_type(method: Method) -> str:
@@ -186,12 +199,17 @@ def emit_method(interface: Interface, method: Method) -> list[str]:
     lines: list[str] = emit_doc_lines(method.doc, pad)
     if method.oneway:
         return lines + emit_oneway(method, pad)
-    waits = (
-        f"{method.deadline_ms} ms (`deadline` in the `.midl`)"
-        if method.deadline_ms is not None
-        else "the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`])"
+    policy = method.policy
+    waits = "for ever" if policy.never else f"at most {policy.deadline_ms} ms"
+    resend = (
+        "resent once to a restarted service (`retry=safe`)"
+        if policy.retry == "safe"
+        else "resent to a restarted service only if the request never left (`retry=never`)"
     )
-    lines += [f"{pad}///", f"{pad}/// Waits for the reply at most {waits}."]
+    lines += [
+        f"{pad}///",
+        f"{pad}/// Waits for the reply {waits} (`deadline` in the `.midl`); {resend}.",
+    ]
     args = call_args(method)
     forward = f"{args}, {deadline_expr(method)}" if args else deadline_expr(method)
     lines += [
@@ -207,7 +225,7 @@ def emit_method(interface: Interface, method: Method) -> list[str]:
     lines += [
         f"{pad}    {bind}self",
         f"{pad}        .conn",
-        f"{pad}        .call({header_id(method)}, METHOD_{method.name.upper()}, wire_body, wire_objects, within)",
+        f"{pad}        .call({header_id(method)}, METHOD_{method.name.upper()}, wire_body, wire_objects, within, {retry_expr(method)})",
     ]
     if interface.errors:
         lines += [f"{pad}        .map_err(|error| error.lift(ServiceError::from_code))?;"]
@@ -224,6 +242,7 @@ def emit_client(interface: Interface) -> list[str]:
     if not has_client(interface):
         return []
     check_names(interface)
+    check_policies(interface)
     gate = f'    #[cfg(feature = "{client_feature(interface)}")]'
     service_error = "ServiceError" if interface.errors else "core::convert::Infallible"
     lines = [

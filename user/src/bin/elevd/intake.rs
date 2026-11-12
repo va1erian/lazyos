@@ -17,13 +17,14 @@ use alloc::string::String;
 
 use elevpolicy::approvals::Caller;
 use elevpolicy::backoff::Hold;
+use libmessenger::server::{fault_reply, Fault};
 use messenger_generated::os_lazy_elevd_v1 as wire;
 use user::messenger::wait::{self, WaitItem};
 use user::messenger::{errno, Endpoint, Error, Message, Parcel};
 use user::sys;
 
 use super::audit::Entry;
-use super::{answer_now, caller_of, error_reply, Refusal, State};
+use super::{answer_now, caller_of, Refusal, State};
 
 /// The refusal for a caller held after unanswered prompts.
 pub(crate) fn held(hold: Hold) -> Refusal {
@@ -137,7 +138,8 @@ pub(crate) fn refuse(
         .map(|args| args.operation)
         .unwrap_or_else(|_| String::from("?"));
     state.audit.log(&Entry::new(&operation, caller), outcome);
-    let reply = error_reply(message.method(), refusal.0, &refusal.1);
+    let fault = Fault::new(refusal.0 as u32, &refusal.1);
+    let reply = fault_reply(wire::INTERFACE_ID, message.method(), &fault);
     reply_to(state, message, &reply);
 }
 

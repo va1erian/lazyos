@@ -30,5 +30,5 @@ fn main() {
         // so a bad path shows the same error page (and `DOCS:OPEN:FAIL`) as
         // the dialog does instead of ending the app.
         .opens(Msg::OpenChosen)
-        .run(|ui, _| Docs::build(ui, WELCOME))
+        .run(|ui, cx| Docs::build(ui, cx, WELCOME))
 }

@@ -218,7 +218,7 @@ impl Worker {
     }
 
     fn write_meta(&self, spec: &ListSpec, meta: &Meta) {
-        if let Err(e) = fs::write(self.path(spec, "meta"), meta.render()) {
+        if let Err(e) = atomicfile::write(&self.path(spec, "meta"), meta.render().as_bytes()) {
             say(&format!("FAIL:{}:meta:{e}", spec.id));
         }
     }
@@ -361,9 +361,7 @@ impl Worker {
         else {
             return;
         };
-        let staging = self.path(spec, "new");
-        let stored = fs::write(&staging, &candidate.source)
-            .and_then(|()| fs::rename(&staging, self.path(spec, "txt")));
+        let stored = atomicfile::write(&self.path(spec, "txt"), candidate.source.as_ref());
         match stored {
             Ok(()) => self.write_meta(spec, &candidate.meta),
             Err(e) => say(&format!("FAIL:{}:keep:{e}", spec.id)),

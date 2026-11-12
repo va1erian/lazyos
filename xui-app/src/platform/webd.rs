@@ -22,7 +22,7 @@
 
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
-use libmessenger::client::{Connection, Deadline};
+use libmessenger::client::{Connection, Deadline, Retry};
 use libmessenger::{Object, Parcel};
 use messenger_generated::os_lazy_webd_light_v1 as wire;
 use messenger_generated::os_lazy_webd_view_v1 as view_wire;
@@ -205,6 +205,7 @@ impl WebdTransport {
                 body.clone(),
                 objects.clone(),
                 Deadline::ticks(CALL_TICKS),
+                Retry::Never,
             );
             match attempt {
                 Err(error) if error.code() == -errno::EAGAIN && tries < QUEUE_FULL_RETRIES => {

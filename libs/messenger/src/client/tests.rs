@@ -17,7 +17,18 @@ fn connection() -> Connection<Mock> {
 }
 
 fn call(conn: &Connection<Mock>) -> Result<Parcel, CallError> {
-    conn.call(IFACE, 7, vec![1, 2], Vec::new(), Deadline::millis(500))
+    call_as(conn, Retry::Safe)
+}
+
+fn call_as(conn: &Connection<Mock>, retry: Retry) -> Result<Parcel, CallError> {
+    conn.call(
+        IFACE,
+        7,
+        vec![1, 2],
+        Vec::new(),
+        Deadline::millis(500),
+        retry,
+    )
 }
 
 fn refusal(code: u32, message: &str, detail: Option<&Encoder>) -> Parcel {
@@ -67,11 +78,30 @@ fn the_request_header_is_built_for_the_interface_and_method() {
 fn the_first_resolve_waits_the_runtimes_bound_and_try_connect_does_not() {
     let mock = Mock::new().with_connect_bound(Deadline::secs(3));
     let conn = Connection::new(mock, NAME);
-    assert_eq!(conn.connect(), Err(Errno::NOENT));
+    // A wait that reaches its bound is the timeout, a plain resolve is ENOENT.
+    assert_eq!(conn.connect(), Err(Errno::TIMEDOUT));
     assert_eq!(conn.try_connect(), Err(Errno::NOENT));
     let resolves = conn.transport().resolves();
     assert_eq!(resolves[0].1, Deadline::secs(3));
     assert_eq!(resolves[1].1, Deadline::Poll);
+}
+
+#[test]
+fn a_service_that_registers_while_connect_waits_is_connected_in_one_resolve() {
+    let mock = Mock::new();
+    mock.registers_when_waited_for(NAME);
+    let conn = Connection::new(mock, NAME);
+    // A poll does not wait, so it does not see the registration.
+    assert_eq!(conn.try_connect(), Err(Errno::NOENT));
+    let handle = conn.connect().unwrap();
+    assert_eq!(conn.connect(), Ok(handle));
+    let resolves = conn.transport().resolves();
+    assert_eq!(
+        resolves.len(),
+        2,
+        "the wait is one resolve, not a retry loop"
+    );
+    assert_eq!(resolves[1].1, Deadline::secs(10));
 }
 
 #[test]
@@ -92,6 +122,80 @@ fn a_dead_peer_is_resolved_again_once_and_the_call_retried_once() {
 }
 
 #[test]
+fn the_transport_is_told_the_methods_policy() {
+    let conn = connection();
+    call_as(&conn, Retry::Safe).unwrap();
+    call_as(&conn, Retry::Never).unwrap();
+    conn.send(IFACE, 9, vec![3], Vec::new()).unwrap();
+    let calls = conn.transport().calls();
+    assert_eq!(calls[0].retry, Some(Retry::Safe));
+    assert_eq!(calls[1].retry, Some(Retry::Never));
+    assert_eq!(calls[2].retry, None);
+}
+
+#[test]
+fn a_safe_call_is_resent_after_the_peer_died_handling_it() {
+    let conn = connection();
+    call(&conn).unwrap();
+    conn.transport().fail(Errno::PIPE);
+    call_as(&conn, Retry::Safe).unwrap();
+    assert_eq!(
+        conn.transport().calls().len(),
+        3,
+        "the failure and one resend"
+    );
+    assert_eq!(conn.transport().resolves().len(), 2);
+}
+
+#[test]
+fn a_call_that_is_never_resent_returns_the_error_and_the_next_call_reconnects() {
+    let conn = connection();
+    call(&conn).unwrap();
+    let first = conn.transport().calls()[0].handle;
+    // The peer took the request and died before it replied.
+    conn.transport().fail(Errno::PIPE);
+    assert_eq!(
+        call_as(&conn, Retry::Never),
+        Err(CallError::Transport(Errno::PIPE))
+    );
+    assert_eq!(conn.transport().calls().len(), 2, "no resend");
+    assert!(!conn.is_connected());
+    assert_eq!(conn.transport().released(), [first]);
+    // The next call resolves again and goes through.
+    call_as(&conn, Retry::Never).unwrap();
+    assert_eq!(conn.transport().resolves().len(), 2);
+    assert_ne!(conn.transport().calls()[2].handle, first);
+}
+
+#[test]
+fn a_call_that_never_left_is_resent_whatever_its_policy() {
+    // A stale handle: the kernel refuses the request before it queues it.
+    let conn = connection();
+    call(&conn).unwrap();
+    conn.transport().kill(NAME);
+    conn.transport().register(NAME);
+    call_as(&conn, Retry::Never).unwrap();
+    assert_eq!(conn.transport().calls().len(), 3);
+    // The same through a scripted refusal.
+    conn.transport().fail_undelivered(Errno::PIPE);
+    call_as(&conn, Retry::Never).unwrap();
+    assert_eq!(conn.transport().calls().len(), 5);
+}
+
+#[test]
+fn a_never_call_that_failed_after_delivery_does_not_resolve_again() {
+    let conn = connection();
+    call(&conn).unwrap();
+    conn.transport().fail(Errno::PIPE);
+    let before = conn.transport().resolves().len();
+    assert_eq!(
+        call_as(&conn, Retry::Never),
+        Err(CallError::Transport(Errno::PIPE))
+    );
+    assert_eq!(conn.transport().resolves().len(), before);
+}
+
+#[test]
 fn a_peer_that_stays_dead_is_tried_twice_and_the_handle_dropped() {
     let conn = connection();
     call(&conn).unwrap();
@@ -100,9 +204,10 @@ fn a_peer_that_stays_dead_is_tried_twice_and_the_handle_dropped() {
     assert_eq!(conn.transport().calls().len(), 3, "no retry loop");
     assert!(!conn.is_connected());
     assert_eq!(conn.transport().open_handles(), 0);
-    // A reaped name is ENOENT on the retry's resolve.
+    // A reaped name is waited for (nothing is cached after the eviction) and
+    // never registers: the wait's timeout.
     conn.transport().unregister(NAME);
-    assert_eq!(call(&conn), Err(CallError::Transport(Errno::NOENT)));
+    assert_eq!(call(&conn), Err(CallError::Transport(Errno::TIMEDOUT)));
 }
 
 #[test]

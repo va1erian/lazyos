@@ -17,7 +17,6 @@ use alloc::string::String;
 use accountdb::ratelimit::Key;
 use elevpolicy::approvals::Caller;
 use elevpolicy::PROMPT_ATTEMPTS;
-use libmessenger::client::Deadline;
 use libmessenger::Parcel;
 use messenger_generated::os_lazy_display_prompt_v1 as prompt;
 use user::messenger::accounts::Directory;
@@ -178,7 +177,7 @@ fn check(name: &str, secret: &str) -> Result<Checked, ()> {
     let account = client.lookup_name(name).ok().flatten();
     checked.known = account.is_some();
     let admin = account.is_some_and(|user| user.admin);
-    match client.authenticate_within(name, secret, Deadline::Never) {
+    match client.authenticate(name, secret) {
         Ok(ok) => {
             checked.approved = admin && ok;
             Ok(checked)

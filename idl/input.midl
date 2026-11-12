@@ -24,6 +24,7 @@ service "os.lazy.input.shell.v1" implements os.lazy.input.shell.v1;
 /// Failures of calls are returned as a structured error field (id 15,
 /// errno-style code plus friendly text) instead of the declared reply fields.
 interface os.lazy.input.v1 {
+    default deadline=5s;
     /// Open an input session bound to the calling task (the kernel-stamped
     /// sender). `surface` names the window it wants keys for: it must be a
     /// surface the compositor registered as owned by this same task, so a
@@ -39,7 +40,7 @@ interface os.lazy.input.v1 {
     method Close(session: U64 = 1) -> () = 2 deadline=1s;
     /// The current layout name, modifier and lock bits (`mods` as in
     /// `KeyEvent`) and the key-repeat timing in milliseconds.
-    method GetState() -> (layout: String = 1, mods: U32 = 2, repeat_delay_ms: U32 = 3, repeat_interval_ms: U32 = 4) = 3;
+    method GetState() -> (layout: String = 1, mods: U32 = 2, repeat_delay_ms: U32 = 3, repeat_interval_ms: U32 = 4) = 3 retry=safe;
     /// Ask for a grab of kind `kind` (a `GrantKind`) for `session`, which
     /// must be the caller's and have keyboard focus (`EACCES` otherwise;
     /// `EINVAL` for an unknown kind). The compositor decides: the answer
@@ -58,7 +59,7 @@ interface os.lazy.input.v1 {
     /// otherwise, so a session cannot watch typing aimed at another window),
     /// so a client polling its key-state page can tell the page is current
     /// (`KeyStateSeq >= seq`). `EACCES` for another task's session.
-    method Ping(session: U64 = 1, token: U64 = 2) -> (token: U64 = 1, seq: U64 = 2) = 6 deadline=1s;
+    method Ping(session: U64 = 1, token: U64 = 2) -> (token: U64 = 1, seq: U64 = 2) = 6 deadline=1s retry=safe;
     /// Attach a key-state page to `session` (the caller's): `state`, a
     /// shared buffer the client created (one page is plenty). While the
     /// session has keyboard focus `inputd` writes the
@@ -155,6 +156,7 @@ interface os.lazy.input.v1 {
 /// a focus change (docs/accounts-plan.md U2). `Attach` on that channel is
 /// refused (`EINVAL`).
 interface os.lazy.input.shell.v1 {
+    default deadline=5s;
     /// Become the shell client; `events` is the endpoint that receives the
     /// shell events below, and on which the compositor makes every later
     /// call. Attaching again replaces it.
@@ -190,7 +192,7 @@ interface os.lazy.input.shell.v1 {
     method SetBounds(width: U32 = 1, height: U32 = 2) -> () = 8;
     /// The cursor position and held `buttons` (as in `PointerEvent`), to seed
     /// the compositor's cursor after `Attach`.
-    method GetPointer() -> (x: I32 = 1, y: I32 = 2, buttons: U32 = 3) = 9;
+    method GetPointer() -> (x: I32 = 1, y: I32 = 2, buttons: U32 = 3) = 9 retry=safe;
     /// One-way `SetFocus`: the compositor's main loop never waits on `inputd`
     /// (docs/performance-plan.md P3.6). Requests on the compositor's channel
     /// are handled in the order sent, and before each client request, so a

@@ -17,7 +17,8 @@
 //! app needs `os.lazy.shell.tray.v1` and `subscribe:session/+/shell/tray` in
 //! its manifest (both implied by `resident` from stage T3).
 
-use libmessenger::client::{Connection, Deadline};
+use crate::trace::{self, Channel};
+use libmessenger::client::{Connection, Deadline, Retry};
 use libmessenger::Parcel;
 use trayclient::{wire, Event, Transport, Tray};
 
@@ -70,6 +71,7 @@ impl Transport for XuiTransport {
                 body,
                 objects,
                 Deadline::ticks(CALL_TICKS),
+                Retry::Never,
             )
             .map(|reply| reply.body)
             .map_err(i64::from)
@@ -194,12 +196,12 @@ impl TrayIcon {
             // A `Set` a restarting shell refused is tried again.
             self.next_retry = tick.saturating_add(RETRY_TICKS);
             if let Some(Err(code)) = self.tray.retry() {
-                println!("TRAY:RESET:RETRY err={}", -code);
+                trace::line!(Channel::Tray, "RESET:RETRY err={}", -code);
             }
         }
         for generation in generations {
             if let Some(Err(code)) = self.tray.generation(generation) {
-                println!("TRAY:RESET:FAIL err={}", -code);
+                trace::line!(Channel::Tray, "RESET:FAIL err={}", -code);
             }
         }
     }

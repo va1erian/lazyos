@@ -8,8 +8,9 @@ service "os.lazy.init" implements os.lazy.init.v1;
 /// structured error field (errno-style code, friendly text), not as a typed
 /// reply, so the error field is hand-written next to these stubs.
 interface os.lazy.init.v1 {
+    default deadline=5s;
     /// Snapshot the supervision table.
-    method Services() -> (services: Array<ServiceStatus> = 1) deadline=500ms;
+    method Services() -> (services: Array<ServiceStatus> = 1) deadline=500ms retry=safe;
 
     /// Launch an app as a session child. `session` 0 means the caller's own
     /// session; only the session's owner (or root) may launch into it. `args`
@@ -25,7 +26,7 @@ interface os.lazy.init.v1 {
     /// package manager installed (`AppInfo.installed`; the core packages
     /// first, then the others by `system_name`), read afresh from the
     /// configuration registry on every call. `hidden` is the caller's own.
-    method ListApps() -> (apps: Array<AppInfo> = 1) deadline=2s;
+    method ListApps() -> (apps: Array<AppInfo> = 1) deadline=2s retry=safe;
 
     /// Stop every running instance of the app `app` (the app id, as `Launch`
     /// takes it), retiring its supervision row without a restart: an
@@ -90,7 +91,7 @@ interface os.lazy.init.v1 {
     /// `/home/.archived/<name>-<uid>`, root-only) or `remove`. `uid` must be a
     /// human account's (1000 or more) and `name` a login name. The reply
     /// comes once the change is done; a failed change is `EIO`.
-    method Home(op: String = 1, name: String = 2, uid: U32 = 3, gid: U32 = 4) -> ();
+    method Home(op: String = 1, name: String = 2, uid: U32 = 3, gid: U32 = 4) -> () retry=safe;
 
     /// Restart the system service `name` (docs/accounts-plan.md U2): its
     /// running task is killed and the supervisor starts it again as after a
@@ -132,7 +133,7 @@ interface os.lazy.init.v1 {
 
     /// The hot reloads since boot, one row per service that had one.
     /// Read-only: any caller.
-    method Reloads() -> (reloads: Array<ReloadState> = 1);
+    method Reloads() -> (reloads: Array<ReloadState> = 1) retry=safe;
 
     /// One service's hot-reload state (`Reloads`).
     struct ReloadState {

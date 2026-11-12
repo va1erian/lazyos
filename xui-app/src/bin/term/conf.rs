@@ -5,6 +5,7 @@
 
 use lazyterm::settings::{Settings, Value, KEYS};
 use messenger_generated::os_lazy_confd_v1 as confd_wire;
+use xui_app::context::user_key;
 use xui_app::fabric::{pull, Feed, Watch};
 use xui_app::platform::confd_store::ConfdStore;
 use xui_app::sys;
@@ -67,7 +68,7 @@ impl Follower {
         let mut settings = Settings::default();
         if let Some(uid) = self.uid {
             for key in KEYS {
-                let path = format!("user/{uid}/term/{key}");
+                let path = user_key(uid, "term", key);
                 if let Some(value) = self.store.get(&path).and_then(convert) {
                     settings.apply(key, &value);
                 }
@@ -109,7 +110,7 @@ impl Follower {
         if self.current.settings.last_size == Some((cols, rows)) {
             return;
         }
-        let path = format!("user/{uid}/term/window/last_size");
+        let path = user_key(uid, "term", "window/last_size");
         let _ = self
             .store
             .set(&path, StoreValue::Str(format!("{cols}x{rows}")));
@@ -128,7 +129,7 @@ impl Follower {
             Value::Int(n) => StoreValue::I64(*n),
             Value::Text(t) => StoreValue::Str(t.clone()),
         };
-        let _ = self.store.set(&format!("user/{uid}/term/{key}"), stored);
+        let _ = self.store.set(&user_key(uid, "term", key), stored);
     }
 
     /// Look for changes; the new configuration when something differs.

@@ -17,6 +17,7 @@
 //! `SHELL:SUBMENU:CLOSE`, `SHELL:SUBMENU:KEY:SELECT row=<label>` and
 //! `SHELL:SUBMENU:KEY:BACK`.
 
+use crate::trace::{self, Channel};
 use std::rc::Rc;
 
 use lazyshell::keynav::{self, NavKey, RowKind, Step};
@@ -67,7 +68,7 @@ pub fn open<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>, row: usize) {
         Ok(handle) => {
             *ctx.submenu_window.borrow_mut() = Some(handle);
             super::probe::submenu(ctx);
-            println!("SHELL:SUBMENU:OPEN category={id} apps={apps}");
+            trace::line!(Channel::Shell, "SUBMENU:OPEN category={id} apps={apps}");
         }
         Err(error) => {
             ctx.submenu.borrow_mut().take();
@@ -85,7 +86,7 @@ pub fn close(ctx: &Ctx) {
     ctx.keys_in_submenu.set(false);
     if let Some(handle) = handle {
         handle.close();
-        println!("SHELL:SUBMENU:CLOSE");
+        trace::line!(Channel::Shell, "SUBMENU:CLOSE");
         ctx.repaint_menu();
     }
 }
@@ -179,7 +180,7 @@ impl SubmenuApp {
                     .as_ref()
                     .and_then(|s| s.rows().get(index))
                 {
-                    println!("SHELL:SUBMENU:KEY:SELECT row={}", row.label);
+                    trace::line!(Channel::Shell, "SUBMENU:KEY:SELECT row={}", row.label);
                 }
                 true
             }
@@ -188,7 +189,7 @@ impl SubmenuApp {
                 false
             }
             Step::Back => {
-                println!("SHELL:SUBMENU:KEY:BACK");
+                trace::line!(Channel::Shell, "SUBMENU:KEY:BACK");
                 close(&self.ctx);
                 false
             }

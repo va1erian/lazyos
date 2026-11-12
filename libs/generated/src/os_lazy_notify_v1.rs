@@ -187,16 +187,25 @@ pub fn decode_action(body: &[u8]) -> Result<Action, Error> {
 
 /// `Notify` method id.
 pub const METHOD_NOTIFY: u32 = 1;
-/// How long a client waits for `Notify`'s reply, in milliseconds.
-pub const METHOD_NOTIFY_DEADLINE_MS: u32 = 300;
+/// How long a client waits for `Notify`'s reply: at most 300 ms (`deadline` in the `.midl`).
+pub const METHOD_NOTIFY_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(300);
+/// Whether a client resends `Notify` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_NOTIFY_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Close` method id.
 pub const METHOD_CLOSE: u32 = 2;
-/// How long a client waits for `Close`'s reply, in milliseconds.
-pub const METHOD_CLOSE_DEADLINE_MS: u32 = 300;
+/// How long a client waits for `Close`'s reply: at most 300 ms (`deadline` in the `.midl`).
+pub const METHOD_CLOSE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(300);
+/// Whether a client resends `Close` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_CLOSE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Listen` method id.
 pub const METHOD_LISTEN: u32 = 3;
-/// How long a client waits for `Listen`'s reply, in milliseconds.
-pub const METHOD_LISTEN_DEADLINE_MS: u32 = 300;
+/// How long a client waits for `Listen`'s reply: at most 300 ms (`deadline` in the `.midl`).
+pub const METHOD_LISTEN_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(300);
+/// Whether a client resends `Listen` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LISTEN_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 
 /// Show a toast and return its id. With `replaces_id` naming a live
 /// toast of this sender, that toast is updated in place (a copy that
@@ -482,9 +491,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Error never time out, and neither does a toast whose `progress` is
     /// below 100. `actions` is empty for none; `progress` absent for none.
     ///
-    /// Waits for the reply at most 300 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 300 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn notify(&self, level: u32, title: &str, body: &str, icon: core::option::Option<&Icon>, actions: &[Action], progress: core::option::Option<u32>, replaces_id: core::option::Option<u64>, timeout: core::option::Option<u32>) -> Result<u64, ClientError> {
-        self.notify_within(level, title, body, icon, actions, progress, replaces_id, timeout, libmessenger::client::Deadline::millis(METHOD_NOTIFY_DEADLINE_MS as u64))
+        self.notify_within(level, title, body, icon, actions, progress, replaces_id, timeout, METHOD_NOTIFY_DEADLINE)
     }
 
     /// [`Self::notify`] with the caller's deadline instead of the IDL's.
@@ -493,7 +502,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_NOTIFY, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_NOTIFY, wire_body, wire_objects, within, METHOD_NOTIFY_RETRY)
             ?;
         let reply = decode_notify_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.id)
@@ -502,9 +511,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Close the sender's toast `id` (`Closed` with reason `Sender`). Not an
     /// error when it is already gone, or is not this sender's.
     ///
-    /// Waits for the reply at most 300 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 300 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn close(&self, id: u64) -> Result<(), ClientError> {
-        self.close_within(id, libmessenger::client::Deadline::millis(METHOD_CLOSE_DEADLINE_MS as u64))
+        self.close_within(id, METHOD_CLOSE_DEADLINE)
     }
 
     /// [`Self::close`] with the caller's deadline instead of the IDL's.
@@ -513,7 +522,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_CLOSE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_CLOSE, wire_body, wire_objects, within, METHOD_CLOSE_RETRY)
             ?;
         Ok(())
     }
@@ -523,9 +532,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `Ping`s it and forgets it when it is gone (`EPIPE`). A sender that
     /// does not care about the outcome never calls it.
     ///
-    /// Waits for the reply at most 300 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 300 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn listen(&self, events: u64) -> Result<(), ClientError> {
-        self.listen_within(events, libmessenger::client::Deadline::millis(METHOD_LISTEN_DEADLINE_MS as u64))
+        self.listen_within(events, METHOD_LISTEN_DEADLINE)
     }
 
     /// [`Self::listen`] with the caller's deadline instead of the IDL's.
@@ -533,8 +542,81 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let (wire_body, wire_objects) = encode_listen_args(&ListenArgs { events }).map_err(ClientError::bad_request)?;
         self
             .conn
-            .call(INTERFACE_ID, METHOD_LISTEN, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LISTEN, wire_body, wire_objects, within, METHOD_LISTEN_RETRY)
             ?;
         Ok(())
+    }
+}
+
+#[cfg(feature = "notify_v1_server")]
+/// What a program answering `os.lazy.notify.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Show a toast and return its id. With `replaces_id` naming a live
+    /// toast of this sender, that toast is updated in place (a copy that
+    /// goes from "Copying..." to "Done" is one toast, not two) and the same
+    /// id comes back; an id that is gone or someone else's is ignored and a
+    /// new toast is made.
+    /// 
+    /// `timeout` is in milliseconds: absent is the level's default (Info and
+    /// Success 5 s), 0 until dismissed, otherwise 1 s to 60 s. Warn and
+    /// Error never time out, and neither does a toast whose `progress` is
+    /// below 100. `actions` is empty for none; `progress` absent for none.
+    fn notify(&mut self, cx: &libmessenger::server::Caller, level: u32, title: alloc::string::String, body: alloc::string::String, icon: core::option::Option<Icon>, actions: alloc::vec::Vec<Action>, progress: core::option::Option<u32>, replaces_id: core::option::Option<u64>, timeout: core::option::Option<u32>) -> Result<u64, libmessenger::server::Fault> {
+        let _ = (cx, level, title, body, icon, actions, progress, replaces_id, timeout,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Close the sender's toast `id` (`Closed` with reason `Sender`). Not an
+    /// error when it is already gone, or is not this sender's.
+    fn close(&mut self, cx: &libmessenger::server::Caller, id: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, id,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Ask for this app's events: `Activated`, `ActionInvoked` and `Closed`
+    /// are sent on `events`, which replaces an earlier channel. The shell
+    /// `Ping`s it and forgets it when it is gone (`EPIPE`). A sender that
+    /// does not care about the outcome never calls it.
+    fn listen(&mut self, cx: &libmessenger::server::Caller, events: u64) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, events,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "notify_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_NOTIFY if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_notify_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.notify(&cx, args.level, args.title, args.body, args.icon, args.actions, args.progress, args.replaces_id, args.timeout), |value| encode_notify_reply(&NotifyReply { id: value }))
+        }
+        METHOD_CLOSE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_close_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.close(&cx, args.id), |()| Ok(Vec::new()))
+        }
+        METHOD_LISTEN if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(decode_listen_args) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.listen(&cx, args.events), |()| Ok(Vec::new()))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
     }
 }

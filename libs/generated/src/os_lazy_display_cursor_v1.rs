@@ -46,8 +46,11 @@ pub const CURSOR_SHAPE_RESIZE_NESW: u32 = 7;
 
 /// `SetCursor` method id.
 pub const METHOD_SETCURSOR: u32 = 1;
-/// How long a client waits for `SetCursor`'s reply, in milliseconds.
-pub const METHOD_SETCURSOR_DEADLINE_MS: u32 = 1000;
+/// How long a client waits for `SetCursor`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_SETCURSOR_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
+/// Whether a client resends `SetCursor` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SETCURSOR_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 
 /// Set the shape shown while the pointer is over `surface`'s content. The
 /// caller must own the surface (`EACCES` otherwise); an unknown surface is
@@ -138,9 +141,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// The shape stays until the next call or until the surface goes away;
     /// `Default` restores the arrow.
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn set_cursor(&self, surface: u64, shape: u32) -> Result<(), ClientError> {
-        self.set_cursor_within(surface, shape, libmessenger::client::Deadline::millis(METHOD_SETCURSOR_DEADLINE_MS as u64))
+        self.set_cursor_within(surface, shape, METHOD_SETCURSOR_DEADLINE)
     }
 
     /// [`Self::set_cursor`] with the caller's deadline instead of the IDL's.
@@ -149,8 +152,48 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SETCURSOR, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SETCURSOR, wire_body, wire_objects, within, METHOD_SETCURSOR_RETRY)
             ?;
         Ok(())
+    }
+}
+
+#[cfg(feature = "display_cursor_v1_server")]
+/// What a program answering `os.lazy.display.cursor.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Set the shape shown while the pointer is over `surface`'s content. The
+    /// caller must own the surface (`EACCES` otherwise); an unknown surface is
+    /// `ENOENT` and a `shape` that is not a `CursorShape` value is `EINVAL`.
+    /// The shape stays until the next call or until the surface goes away;
+    /// `Default` restores the arrow.
+    fn set_cursor(&mut self, cx: &libmessenger::server::Caller, surface: u64, shape: u32) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, surface, shape,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "display_cursor_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_SETCURSOR if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_cursor_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set_cursor(&cx, args.surface, args.shape), |()| Ok(Vec::new()))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
     }
 }

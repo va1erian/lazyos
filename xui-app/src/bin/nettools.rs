@@ -104,7 +104,7 @@ impl App for NetTools {
             Msg::Fetched(outcome) => self.show_fetched(outcome),
             Msg::ToggleServer => self.toggle_server(),
             Msg::Close => {
-                println!("NETTOOLS:CLOSE:PASS");
+                trace::pass!(Channel::Nettools, "CLOSE");
                 ui.quit();
             }
         }
@@ -208,7 +208,7 @@ impl NetTools {
                 self.next_ping();
             }
             Err(why) => {
-                println!("NETTOOLS:PING:FAIL");
+                trace::line!(Channel::Nettools, "PING:FAIL");
                 self.w.ping_result.get().set_text(&why);
             }
         }
@@ -228,8 +228,9 @@ impl NetTools {
             Ok(echo) => {
                 run.answered += 1;
                 run.total_rtt += echo.rtt_ms;
-                println!(
-                    "NETTOOLS:PING:PASS host={} rtt={}",
+                trace::line!(
+                    Channel::Nettools,
+                    "PING:PASS host={} rtt={}",
                     model::dotted(echo.from),
                     echo.rtt_ms
                 );
@@ -243,7 +244,7 @@ impl NetTools {
                 )
             }
             Err(error) => {
-                println!("NETTOOLS:PING:FAIL");
+                trace::line!(Channel::Nettools, "PING:FAIL");
                 format!(
                     "No reply: {} ({}/{})",
                     error.describe(),
@@ -273,8 +274,9 @@ impl NetTools {
         let name = self.w.name.get().text().trim().to_string();
         let text = match stack::resolve(&name, LOOKUP_TIMEOUT_MS) {
             Ok(addrs) if !addrs.is_empty() => {
-                println!(
-                    "NETTOOLS:LOOKUP:PASS name={} addrs={}",
+                trace::line!(
+                    Channel::Nettools,
+                    "LOOKUP:PASS name={} addrs={}",
                     format::clip(&name, 64),
                     addrs.len()
                 );
@@ -283,7 +285,7 @@ impl NetTools {
             }
             Ok(_) => String::from("no address"),
             Err(error) => {
-                println!("NETTOOLS:LOOKUP:FAIL");
+                trace::line!(Channel::Nettools, "LOOKUP:FAIL");
                 error.describe()
             }
         };
@@ -318,7 +320,7 @@ impl NetTools {
                 self.fetching = true;
             }
             Err(why) => {
-                println!("NETTOOLS:FETCH:FAIL");
+                trace::line!(Channel::Nettools, "FETCH:FAIL");
                 self.w.fetch_result.get().set_text(&why);
             }
         }
@@ -329,8 +331,9 @@ impl NetTools {
         match outcome {
             Ok(done) => {
                 let s = &done.summary;
-                println!(
-                    "NETTOOLS:FETCH:PASS code={} bytes={}",
+                trace::line!(
+                    Channel::Nettools,
+                    "FETCH:PASS code={} bytes={}",
                     s.code.unwrap_or(0),
                     done.bytes
                 );
@@ -342,7 +345,7 @@ impl NetTools {
                 self.w.preview.get().set_items(&rows);
             }
             Err(why) => {
-                println!("NETTOOLS:FETCH:FAIL");
+                trace::line!(Channel::Nettools, "FETCH:FAIL");
                 self.w.fetch_result.get().set_text(&format::clip(&why, 90));
             }
         }
@@ -413,7 +416,7 @@ impl NetTools {
 fn main() {
     xui_app::app(Channel::Nettools, "Net Tools")
         .size(WINDOW.0, WINDOW.1)
-        .run(|ui, _backend| {
+        .run(|ui, _| {
             let widgets = Widgets::default();
             ui.root(widgets.layout())
                 .inspect_err(|error| trace::fail!(Channel::Nettools, "BUILD", "{error}"))?;

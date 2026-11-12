@@ -3,6 +3,7 @@
 //! while the prompt is up. The answer returns as [`Msg::Done`].
 
 use std::rc::Rc;
+use xui_host::evidence;
 
 use xui_core::app::Ui;
 use xui_core::HasText;
@@ -95,7 +96,7 @@ impl SettingsApp {
                         String::from("Your theme already is the default for everyone.")
                     }
                     Ok(done) => {
-                        println!("SETTINGS:THEME:DEFAULT:PASS keys={}", done.written);
+                        evidence!("THEME:DEFAULT:PASS keys={}", done.written);
                         let note = if done.kept_picture {
                             " Your own picture stays yours."
                         } else {

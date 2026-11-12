@@ -14,12 +14,13 @@
 /// surface asked for over its content. Failures are returned as a structured
 /// error field (id 15) like the display interface's.
 interface os.lazy.display.cursor.v1 {
+    default deadline=1s;
     /// Set the shape shown while the pointer is over `surface`'s content. The
     /// caller must own the surface (`EACCES` otherwise); an unknown surface is
     /// `ENOENT` and a `shape` that is not a `CursorShape` value is `EINVAL`.
     /// The shape stays until the next call or until the surface goes away;
     /// `Default` restores the arrow.
-    method SetCursor(surface: U64 = 1, shape: CursorShape = 2) -> () = 1 deadline=1s;
+    method SetCursor(surface: U64 = 1, shape: CursorShape = 2) -> () = 1 deadline=1s retry=safe;
 
     /// A pointer shape. Numeric values are the wire values and stay
     /// append-only; `libs/cursorgfx` draws each one.

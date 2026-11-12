@@ -18,7 +18,8 @@ use user::messenger::accounts::{wire, UserRecord};
 use user::messenger::client::Native;
 use user::messenger::services::init::Client as InitClient;
 
-use user::messenger::{errno, keyd, Message};
+use user::messenger::{errno, keyd};
+use user::sys::Cred;
 
 use super::{authn, record, store, Refusal, State};
 
@@ -29,10 +30,10 @@ const HOME_TICKS: u64 = 6000;
 /// `Create`.
 pub(crate) fn create(
     state: &mut State,
-    message: &Message,
+    caller: Cred,
     args: &wire::CreateArgs,
 ) -> Result<UserRecord, Refusal> {
-    let who = authorized(state, message, Change::Create { admin: args.admin })?;
+    let who = authorized(state, caller, Change::Create { admin: args.admin })?;
     check_secret(&args.secret)?;
     let mut db = database(state)?.clone();
     let mut user = db
@@ -62,10 +63,10 @@ pub(crate) fn create(
 /// `Delete`: the account, its verifier, and its home as asked.
 pub(crate) fn delete(
     state: &mut State,
-    message: &Message,
+    caller: Cred,
     args: &wire::DeleteArgs,
 ) -> Result<(), Refusal> {
-    let who = authorized(state, message, Change::Delete)?;
+    let who = authorized(state, caller, Change::Delete)?;
     let op = match args.home.as_str() {
         "keep" => None,
         "archive" => Some("archive"),
@@ -99,10 +100,9 @@ pub(crate) fn delete(
 /// `SetPassword`: a user's own with the old one, anyone's from `elevd`.
 pub(crate) fn set_password(
     state: &mut State,
-    message: &Message,
+    caller: Cred,
     args: &wire::SetPasswordArgs,
 ) -> Result<(), Refusal> {
-    let caller = message.caller();
     let change = Change::SetPassword {
         target: &args.name,
         with_old: args.old.is_some(),
@@ -142,10 +142,10 @@ pub(crate) fn set_password(
 /// `SetAdmin`.
 pub(crate) fn set_admin(
     state: &mut State,
-    message: &Message,
+    caller: Cred,
     args: &wire::SetAdminArgs,
 ) -> Result<(), Refusal> {
-    let who = authorized(state, message, Change::SetAdmin)?;
+    let who = authorized(state, caller, Change::SetAdmin)?;
     let mut db = database(state)?.clone();
     db.set_admin(&args.name, args.admin).map_err(op_refusal)?;
     store::persist(&db).map_err(|text| Refusal(errno::EIO, text))?;
@@ -160,9 +160,8 @@ pub(crate) fn set_admin(
     Ok(())
 }
 
-/// Authorize `change` for the sender of `message`, logging a refusal.
-fn authorized(state: &State, message: &Message, change: Change<'_>) -> Result<Who, Refusal> {
-    let caller = message.caller();
+/// Authorize `change` for `caller`, logging a refusal.
+fn authorized(state: &State, caller: Cred, change: Change<'_>) -> Result<Who, Refusal> {
     let who = authn::who(&caller);
     match authorize(database(state)?, who, change) {
         Ok(_) => Ok(who),
@@ -207,9 +206,7 @@ fn provision(name: &str, secret: &str) -> Result<Verifier, Refusal> {
         Refusal::new(errno::EIO, "the key service could not store the password")
     };
     let client = keyd::Client::try_connect(Native).map_err(unavailable)?;
-    let text = client
-        .provision_within(name, secret, Deadline::Never)
-        .map_err(unavailable)?;
+    let text = client.provision(name, secret).map_err(unavailable)?;
     Verifier::parse(&text).ok_or_else(|| Refusal::new(errno::EIO, "keyd returned no verifier"))
 }
 

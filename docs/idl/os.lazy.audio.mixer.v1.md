@@ -41,6 +41,17 @@ structured error field (see `services::error_field`): an unknown stream is
 
 - Served under the registry name `os.lazy.audio` (together with `os.lazy.audio.v1`); registered once.
 
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| ListStreams | this interface | - | 5000 ms | safe |
+| SetStreamVolume | this interface | - | 5000 ms | safe |
+| GetMaster | this interface | - | 5000 ms | safe |
+| SetMaster | this interface | - | 5000 ms | safe |
+| ListOutputs | this interface | - | 5000 ms | safe |
+| SelectOutput | this interface | - | 5000 ms | safe |
+
 ## struct `StreamStatus`
 
 - `stream: U32`

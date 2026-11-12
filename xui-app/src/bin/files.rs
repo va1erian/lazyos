@@ -51,7 +51,7 @@ use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use xui_app::trace::Channel;
+use xui_app::trace::{self, Channel};
 
 use xui_app::backend::{DragOffer, DropEvent, LazyOSBackend};
 use xui_app::platform::launcher::LazyLauncher;
@@ -76,12 +76,12 @@ impl Launcher for ReportingLauncher {
     fn open(&self, path: &Path) -> io::Result<()> {
         match LazyLauncher::new().open(path) {
             Ok(()) => {
-                println!("FILES:OPEN:PASS:{}", path.display());
+                trace::pass!(Channel::Files, "OPEN", "{}", path.display());
                 Ok(())
             }
             Err(error) => {
                 if error.kind() == io::ErrorKind::Unsupported {
-                    println!("FILES:OPEN:REJECTED:{}", path.display());
+                    trace::line!(Channel::Files, "OPEN:REJECTED:{}", path.display());
                 }
                 Err(error)
             }
@@ -105,7 +105,7 @@ fn gesture(
     if widget != state.view || paths.is_empty() {
         return None;
     }
-    println!("FILES:DRAG:PASS:{}", paths.len());
+    trace::pass!(Channel::Files, "DRAG", "{}", paths.len());
     if state.collapsed() {
         let _ = state.proxy.send(Msg::RestoreSelection);
     }
@@ -144,22 +144,27 @@ fn dropped(explorer: &Explorer, window: WindowId, event: &DropEvent) {
             };
             let report = drop_into(&urilist::decode(bytes), &state.dir, intent);
             for (path, error) in &report.failed {
-                println!("FILES:COPY:FAIL:{}:{error}", path.display());
+                trace::fail!(Channel::Files, "COPY", "{}:{error}", path.display());
             }
-            println!(
-                "FILES:DROP:PASS:{}:{}",
+            trace::pass!(
+                Channel::Files,
+                "DROP",
+                "{}:{}",
                 report.copied + report.moved,
                 report.failed.len()
             );
-            println!(
-                "FILES:DROP:MOVED:{}:COPIED:{}:SKIPPED:{}",
-                report.moved, report.copied, report.skipped
+            trace::line!(
+                Channel::Files,
+                "DROP:MOVED:{}:COPIED:{}:SKIPPED:{}",
+                report.moved,
+                report.copied,
+                report.skipped
             );
             // Every window refreshes: a move empties the source folder's
             // window too.
             explorer.refresh_all();
         }
-        Err(code) => println!("FILES:DROP:FAIL:{code}"),
+        Err(code) => trace::fail!(Channel::Files, "DROP", "{code}"),
     }
 }
 
@@ -191,7 +196,8 @@ fn main() {
 
     xui_app::app(Channel::Files, "Files")
         .size(WINDOW.0, WINDOW.1)
-        .run(move |ui, backend| {
+        .run(move |ui, cx| {
+            let backend = cx.backend();
             let launcher = ReportingLauncher {
                 backend: Rc::clone(backend),
             };
@@ -221,9 +227,9 @@ fn main() {
                     let path = dir.join(&name);
                     let (window, found) = explorer.reveal_root(ui, dir, &name);
                     if found {
-                        println!("FILES:REVEAL:PASS:{}", path.display());
+                        trace::pass!(Channel::Files, "REVEAL", "{}", path.display());
                     } else {
-                        println!("FILES:REVEAL:MISSING:{}", path.display());
+                        trace::line!(Channel::Files, "REVEAL:MISSING:{}", path.display());
                     }
                     window
                 }

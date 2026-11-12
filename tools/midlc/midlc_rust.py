@@ -401,6 +401,9 @@ def emit_rust(interface: Interface, client: bool = True) -> str:
     """The interface's module. `client=False` leaves out the typed `Client`
     (it sits behind a cargo feature of the generated crate, which the
     conformance corpus's inline copies do not have)."""
+    # Imported here: the client emitter builds on this module's helpers.
+    from midlc_rust_client import has_client
+
     lines = [
         f"/// `{interface.name}` (interface id `{interface.id:#x}`).",
         "#[rustfmt::skip]",
@@ -442,7 +445,7 @@ def emit_rust(interface: Interface, client: bool = True) -> str:
     for method in interface.methods:
         lines.append(f"    /// `{method.name}` method id.")
         lines.append(f"    pub const METHOD_{method.name.upper()}: u32 = {method.method_id};")
-        lines += emit_method_attrs(method)
+        lines += emit_method_attrs(method, has_client(interface))
     lines.append("")
     lines += emit_errors(interface)
     for method in interface.methods:
@@ -471,10 +474,14 @@ def emit_rust(interface: Interface, client: bool = True) -> str:
     if lines[-1] == "":
         lines.pop()
     if client:
-        # Imported here: the client emitter builds on this module's helpers.
         from midlc_rust_client import emit_client
 
         tail = emit_client(interface)
+        if tail:
+            lines += [""] + tail
+        from midlc_rust_server import emit_server
+
+        tail = emit_server(interface)
         if tail:
             lines += [""] + tail
     lines.append("}")

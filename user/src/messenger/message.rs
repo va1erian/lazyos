@@ -135,6 +135,40 @@ impl Message {
     }
 }
 
+/// The native runtime's side of the generated servers
+/// (`libmessenger::server`): a received message is what `dispatch` reads.
+impl libmessenger::server::Incoming for Message {
+    fn interface_id(&self) -> u64 {
+        Message::interface_id(self)
+    }
+
+    fn method(&self) -> u32 {
+        Message::method(self)
+    }
+
+    fn caller(&self) -> libmessenger::server::Caller {
+        let cred = self.caller;
+        libmessenger::server::Caller {
+            uid: cred.uid,
+            gid: cred.gid,
+            caps: cred.caps,
+            label_id: cred.label_id,
+            session: cred.session,
+            sender: self.sender,
+        }
+    }
+
+    fn decode<T>(
+        &self,
+        decoder: impl FnOnce(&[u8], &[Object]) -> core::result::Result<T, libmessenger::Error>,
+    ) -> core::result::Result<T, libmessenger::Error> {
+        let mut objects = self.objects.borrow_mut();
+        let value = decoder(&self.parcel.body, &objects)?;
+        objects.clear();
+        Ok(value)
+    }
+}
+
 impl Drop for Message {
     fn drop(&mut self) {
         for object in self.objects.get_mut().drain(..) {

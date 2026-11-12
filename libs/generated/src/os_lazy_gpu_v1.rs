@@ -400,8 +400,18 @@ pub fn decode_state(body: &[u8]) -> Result<State, Error> {
 
 /// `GetState` method id.
 pub const METHOD_GETSTATE: u32 = 746022616;
+/// How long a client waits for `GetState`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_GETSTATE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `GetState` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_GETSTATE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `GetBeam` method id.
 pub const METHOD_GETBEAM: u32 = 400769696;
+/// How long a client waits for `GetBeam`'s reply: at most 5000 ms (`deadline` in the `.midl`).
+pub const METHOD_GETBEAM_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(5000);
+/// Whether a client resends `GetBeam` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_GETBEAM_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 
 /// A running pipe was found and decoded; the pipe fields below
 /// mean nothing otherwise.
@@ -532,9 +542,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// mode set.
     /// The state `gpud` adopted when it started.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn get_state(&self) -> Result<State, ClientError> {
-        self.get_state_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.get_state_within(METHOD_GETSTATE_DEADLINE)
     }
 
     /// [`Self::get_state`] with the caller's deadline instead of the IDL's.
@@ -543,7 +553,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_GETSTATE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_GETSTATE, wire_body, wire_objects, within, METHOD_GETSTATE_RETRY)
             ?;
         let reply = decode_get_state_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.state)
@@ -552,9 +562,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// The adopted pipe's beam, read now. `ENODEV` when no pipe was
     /// adopted.
     ///
-    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn get_beam(&self) -> Result<Beam, ClientError> {
-        self.get_beam_within(libmessenger::client::DEFAULT_DEADLINE)
+        self.get_beam_within(METHOD_GETBEAM_DEADLINE)
     }
 
     /// [`Self::get_beam`] with the caller's deadline instead of the IDL's.
@@ -563,9 +573,68 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_GETBEAM, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_GETBEAM, wire_body, wire_objects, within, METHOD_GETBEAM_RETRY)
             ?;
         let reply = decode_get_beam_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.beam)
+    }
+}
+
+#[cfg(feature = "gpu_v1_server")]
+/// What a program answering `os.lazy.gpu.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// A running pipe was found and decoded; the pipe fields below
+    /// mean nothing otherwise.
+    /// PCI device id and revision of the GPU.
+    /// Core display clock in kHz.
+    /// Bit `n`: pipe `n` (A = 0) is enabled.
+    /// The pipe (and transcoder) adopted, 0 = A.
+    /// The DDI port it drives (0 = A, 1 = B, ...; Gen9 has A to E,
+    /// display 13 A, B and the Type-C ports TC1 to TC4 as 3 to 6; a
+    /// register that names another value is passed on as read),
+    /// 4294967295 when the registers name none.
+    /// A `LinkMode` ordinal.
+    /// Bits per colour component, 0 when not a defined value.
+    /// Pixel clock in kHz and refresh rate in millihertz, 0 when the
+    /// PLL is not in a mode `gpud` can compute them from.
+    /// The link is in HDMI mode, so HDMI audio (stage G2) needs no
+    /// mode set.
+    /// The state `gpud` adopted when it started.
+    fn get_state(&mut self, cx: &libmessenger::server::Caller) -> Result<State, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// The adopted pipe's beam, read now. `ENODEV` when no pipe was
+    /// adopted.
+    fn get_beam(&mut self, cx: &libmessenger::server::Caller) -> Result<Beam, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "gpu_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_GETSTATE if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.get_state(&cx), |value| encode_get_state_reply(&GetStateReply { state: value }))
+        }
+        METHOD_GETBEAM if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.get_beam(&cx), |value| encode_get_beam_reply(&GetBeamReply { beam: value }))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
     }
 }

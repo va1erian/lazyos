@@ -7,6 +7,7 @@ service "os.lazy.confd" implements os.lazy.confd.v1;
 /// Change notifications are best-effort: a subscriber observes
 /// `(path, deleted)` and must re-read the value.
 interface os.lazy.confd.v1 {
+    default deadline=2s;
     /// Store failures, carried in the reply's error field. They sit outside
     /// the errno range so a client can tell a store rejection from a
     /// transport failure.
@@ -30,18 +31,18 @@ interface os.lazy.confd.v1 {
 
     /// Read the value at `path`. An absent path has an empty `value`.
     /// A path the caller may not read fails with `Denied`.
-    method Get(path: String = 1) -> (value: Option<Value> = 1) deadline=2s;
+    method Get(path: String = 1) -> (value: Option<Value> = 1) deadline=2s retry=safe;
     /// Create or overwrite `path`; the change is persisted before the reply.
-    method Set(path: String = 1, value: Value = 2) -> () deadline=2s;
+    method Set(path: String = 1, value: Value = 2) -> () deadline=2s retry=safe;
     /// Remove `path`; deleting an absent path succeeds.
-    method Delete(path: String = 1) -> () deadline=2s;
+    method Delete(path: String = 1) -> () deadline=2s retry=safe;
     /// Every path the caller may read under `prefix`, in sorted order.
-    method List(prefix: String = 1) -> (paths: Array<String> = 1) deadline=2s;
+    method List(prefix: String = 1) -> (paths: Array<String> = 1) deadline=2s retry=safe;
     /// Where the store lives: the directory confd chose and whether it
     /// survives a reboot (`/conf`; `false` when it fell back to the ramfs
     /// `/transient/conf`).
     /// Not restricted by path, so any caller may ask.
-    method Info() -> (store_dir: String = 1, persistent: Bool = 2) deadline=2s;
+    method Info() -> (store_dir: String = 1, persistent: Bool = 2) deadline=2s retry=safe;
 
     /// One typed value. `kind` selects which optional payload field is set.
     struct Value {

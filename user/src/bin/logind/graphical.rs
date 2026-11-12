@@ -309,7 +309,7 @@ impl Desktop {
                 return Err((errno::EACCES, "refused"));
             }
         };
-        match accounts.authenticate_within(&args.user, &args.secret, Deadline::Never) {
+        match accounts.authenticate(&args.user, &args.secret) {
             Ok(true) => {}
             // `accountsd`'s brake holds for this name (U1): say so, and do
             // not count it as one more wrong password.

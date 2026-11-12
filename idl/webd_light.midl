@@ -46,6 +46,7 @@ service "app.os.lazy.webd.light" implements os.lazy.webd.light.v1;
 /// `ENODEV` until the app calls `DestroyView`. Failures reply with the
 /// standard error field (id 15, `docs/midl.md`).
 interface os.lazy.webd.light.v1 {
+    default deadline=5s;
     /// Make a view of `width` x `height` pixels and return its id (non-zero,
     /// chosen by webd and never reused). `events` is the endpoint webd sends
     /// this view's events on; it is closed when the view ends. The view shows

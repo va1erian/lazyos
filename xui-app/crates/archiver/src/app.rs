@@ -17,9 +17,9 @@ use xui_core::HasText;
 use crate::cells::Cells;
 use crate::drag::DragState;
 use crate::folder::{self, Column, Row};
-use crate::host::Host;
 use crate::job::{Finished, Job};
 use crate::ui::{self, Dialogs, Widgets};
+use xui_host::{report, SharedHost};
 
 /// The list view's header height (xui's `ListView` draws it at 24 dip).
 const LIST_HEADER: xui_core::Dip = xui_core::Dip(24.0);
@@ -77,7 +77,7 @@ pub enum Msg {
 
 /// The Archiver.
 pub struct ArchiverApp {
-    pub(crate) host: Host,
+    pub(crate) host: SharedHost,
     pub(crate) w: Widgets,
     pub(crate) dialogs: Dialogs,
     pub(crate) archive: Option<Arc<Archive>>,
@@ -109,10 +109,10 @@ impl ArchiverApp {
     /// drag-and-drop hooks read.
     pub fn build(
         ui: &mut Ui<Msg>,
-        host: Host,
+        host: SharedHost,
         drag: Rc<RefCell<DragState>>,
     ) -> Result<ArchiverApp> {
-        let (w, dialogs) = ui::build(ui, &host)?;
+        let (w, dialogs) = ui::build(ui, &*host)?;
         ui.on_close(|| Some(Msg::Close));
         let dialog_open = Rc::new(Cell::new(false));
         {
@@ -305,7 +305,7 @@ impl App for ArchiverApp {
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         if !matches!(msg, Msg::Progress | Msg::Selection(_)) {
-            (self.host.log)(&format!("ARCHIVER:MSG:{}", short(&msg)));
+            report!(self.host, "MSG:{}", short(&msg));
         }
         crate::commands::dispatch(self, msg, ui);
         self.sync(ui);

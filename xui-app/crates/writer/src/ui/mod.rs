@@ -23,7 +23,8 @@ use xui_rich_text::{RichTextEditor, ViewMode};
 
 use crate::app::{Msg, Writer, shortcut};
 use crate::files::word_count;
-use crate::host::Host;
+use crate::services::Services;
+use xui_host::SharedHost;
 
 pub use tools::{
     ALIGNS, BLOCK_ICONS, BLOCKS, DEFAULT_SIZE, FAMILIES, SIZES, Tips, Tools, WRAPS, family_index,
@@ -86,12 +87,12 @@ fn new_editor(ui: &Ui<Msg>) -> Result<RichTextEditor<Msg>> {
 
 /// Builds the app's widgets, wires the window's keys and close button, and
 /// mounts the layout.
-pub fn build(ui: &Ui<Msg>, host: Host) -> Result<Writer> {
+pub fn build(ui: &Ui<Msg>, host: SharedHost, services: Services) -> Result<Writer> {
     let tools = Tools::default();
     let print_bar = print_bar::PrintBar::default();
     let editor = Handle::new();
     let status = Handle::new();
-    let dialogs = dialogs::build(ui, &host)?;
+    let dialogs = dialogs::build(ui, &*host)?;
     let mounted = ui.mount(column().children((
         command_toolbar().height(TOOLBAR_HEIGHT),
         tools.row().fixed(FORMAT_HEIGHT),
@@ -118,6 +119,7 @@ pub fn build(ui: &Ui<Msg>, host: Host) -> Result<Writer> {
         print_bar,
         printing: None,
         host,
+        services,
         path: None,
         dirty: false,
         summary: None,

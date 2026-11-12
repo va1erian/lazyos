@@ -1,0 +1,9 @@
+[package]
+name = "atomicfile"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-or-later"
+description = "The one atomic file write of the desktop apps: a temp file beside the target, synced, renamed over it, the directory synced (std only, no dependencies)"
+
+[dependencies]

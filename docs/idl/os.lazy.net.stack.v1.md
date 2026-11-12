@@ -39,15 +39,18 @@ when the resolver replies, `ETIMEDOUT` when `timeout_ms` passes.
 
 - Served under the registry name `os.lazy.net.stack` (together with `os.lazy.net.socket.v1`); registered once.
 
-## Scopes and deadlines
+## Scopes, deadlines and retries
 
-| Method | Scope interface | Scope id | Deadline |
-|---|---|---|---|
-| Interfaces | this interface | - | 500 ms |
-| Addresses | this interface | - | 500 ms |
-| Routes | this interface | - | 500 ms |
-| Stats | this interface | - | 500 ms |
-| Renew | this interface | - | 500 ms |
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Interfaces | this interface | - | 500 ms | safe |
+| Addresses | this interface | - | 500 ms | safe |
+| Routes | this interface | - | 500 ms | safe |
+| Stats | this interface | - | 500 ms | safe |
+| Ping | this interface | - | 5000 ms | safe |
+| Resolve | this interface | - | 5000 ms | safe |
+| Renew | this interface | - | 500 ms | never |
+| Reattach | this interface | - | 5000 ms | never |
 
 ## Topics
 

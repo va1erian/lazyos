@@ -6,6 +6,7 @@
 //! is not a pointer event on a panel: the shell subscription's events, the
 //! `os.lazy.shell` requests, the clock, the theme and the desktop folder.
 
+use crate::trace::{self, Channel};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -127,7 +128,7 @@ impl DesktopApp {
         }
         ctx.bar_changed();
         if windows > 0 {
-            println!("SHELL:RESTART:PASS windows={windows}");
+            trace::line!(Channel::Shell, "RESTART:PASS windows={windows}");
         }
         // From here the folder is scanned off this thread (the first load,
         // above, ran inline so the first frame has its icons).

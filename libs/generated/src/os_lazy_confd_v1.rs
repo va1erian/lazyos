@@ -199,24 +199,39 @@ pub fn decode_change(body: &[u8]) -> Result<Change, Error> {
 
 /// `Get` method id.
 pub const METHOD_GET: u32 = 915881719;
-/// How long a client waits for `Get`'s reply, in milliseconds.
-pub const METHOD_GET_DEADLINE_MS: u32 = 2000;
+/// How long a client waits for `Get`'s reply: at most 2000 ms (`deadline` in the `.midl`).
+pub const METHOD_GET_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(2000);
+/// Whether a client resends `Get` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_GET_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Set` method id.
 pub const METHOD_SET: u32 = 682729123;
-/// How long a client waits for `Set`'s reply, in milliseconds.
-pub const METHOD_SET_DEADLINE_MS: u32 = 2000;
+/// How long a client waits for `Set`'s reply: at most 2000 ms (`deadline` in the `.midl`).
+pub const METHOD_SET_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(2000);
+/// Whether a client resends `Set` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_SET_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Delete` method id.
 pub const METHOD_DELETE: u32 = 1469573738;
-/// How long a client waits for `Delete`'s reply, in milliseconds.
-pub const METHOD_DELETE_DEADLINE_MS: u32 = 2000;
+/// How long a client waits for `Delete`'s reply: at most 2000 ms (`deadline` in the `.midl`).
+pub const METHOD_DELETE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(2000);
+/// Whether a client resends `Delete` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_DELETE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `List` method id.
 pub const METHOD_LIST: u32 = 220805025;
-/// How long a client waits for `List`'s reply, in milliseconds.
-pub const METHOD_LIST_DEADLINE_MS: u32 = 2000;
+/// How long a client waits for `List`'s reply: at most 2000 ms (`deadline` in the `.midl`).
+pub const METHOD_LIST_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(2000);
+/// Whether a client resends `List` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_LIST_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 /// `Info` method id.
 pub const METHOD_INFO: u32 = 266462757;
-/// How long a client waits for `Info`'s reply, in milliseconds.
-pub const METHOD_INFO_DEADLINE_MS: u32 = 2000;
+/// How long a client waits for `Info`'s reply: at most 2000 ms (`deadline` in the `.midl`).
+pub const METHOD_INFO_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(2000);
+/// Whether a client resends `Info` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_INFO_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Safe;
 
 /// The service errors of this interface (`errors` in the `.midl`). A failed
 /// call carries one of these codes in the standard error field.
@@ -639,9 +654,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// Read the value at `path`. An absent path has an empty `value`.
     /// A path the caller may not read fails with `Denied`.
     ///
-    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn get(&self, path: &str) -> Result<core::option::Option<Value>, ClientError> {
-        self.get_within(path, libmessenger::client::Deadline::millis(METHOD_GET_DEADLINE_MS as u64))
+        self.get_within(path, METHOD_GET_DEADLINE)
     }
 
     /// [`Self::get`] with the caller's deadline instead of the IDL's.
@@ -650,7 +665,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_GET, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_GET, wire_body, wire_objects, within, METHOD_GET_RETRY)
             .map_err(|error| error.lift(ServiceError::from_code))?;
         let reply = decode_get_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.value)
@@ -658,9 +673,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
 
     /// Create or overwrite `path`; the change is persisted before the reply.
     ///
-    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn set(&self, path: &str, value: &Value) -> Result<(), ClientError> {
-        self.set_within(path, value, libmessenger::client::Deadline::millis(METHOD_SET_DEADLINE_MS as u64))
+        self.set_within(path, value, METHOD_SET_DEADLINE)
     }
 
     /// [`Self::set`] with the caller's deadline instead of the IDL's.
@@ -669,16 +684,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_SET, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_SET, wire_body, wire_objects, within, METHOD_SET_RETRY)
             .map_err(|error| error.lift(ServiceError::from_code))?;
         Ok(())
     }
 
     /// Remove `path`; deleting an absent path succeeds.
     ///
-    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn delete(&self, path: &str) -> Result<(), ClientError> {
-        self.delete_within(path, libmessenger::client::Deadline::millis(METHOD_DELETE_DEADLINE_MS as u64))
+        self.delete_within(path, METHOD_DELETE_DEADLINE)
     }
 
     /// [`Self::delete`] with the caller's deadline instead of the IDL's.
@@ -687,16 +702,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_DELETE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_DELETE, wire_body, wire_objects, within, METHOD_DELETE_RETRY)
             .map_err(|error| error.lift(ServiceError::from_code))?;
         Ok(())
     }
 
     /// Every path the caller may read under `prefix`, in sorted order.
     ///
-    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn list(&self, prefix: &str) -> Result<alloc::vec::Vec<alloc::string::String>, ClientError> {
-        self.list_within(prefix, libmessenger::client::Deadline::millis(METHOD_LIST_DEADLINE_MS as u64))
+        self.list_within(prefix, METHOD_LIST_DEADLINE)
     }
 
     /// [`Self::list`] with the caller's deadline instead of the IDL's.
@@ -705,7 +720,7 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_LIST, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_LIST, wire_body, wire_objects, within, METHOD_LIST_RETRY)
             .map_err(|error| error.lift(ServiceError::from_code))?;
         let reply = decode_list_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
         Ok(reply.paths)
@@ -716,9 +731,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `/transient/conf`).
     /// Not restricted by path, so any caller may ask.
     ///
-    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`); resent once to a restarted service (`retry=safe`).
     pub fn info(&self) -> Result<InfoReply, ClientError> {
-        self.info_within(libmessenger::client::Deadline::millis(METHOD_INFO_DEADLINE_MS as u64))
+        self.info_within(METHOD_INFO_DEADLINE)
     }
 
     /// [`Self::info`] with the caller's deadline instead of the IDL's.
@@ -727,8 +742,115 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_INFO, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_INFO, wire_body, wire_objects, within, METHOD_INFO_RETRY)
             .map_err(|error| error.lift(ServiceError::from_code))?;
         decode_info_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+}
+
+#[cfg(feature = "confd_v1_server")]
+impl ServiceError {
+    /// The sentence the declared error is answered with: its doc line in the `.midl`.
+    pub const fn describe(self) -> &'static str {
+        match self {
+            ServiceError::NotFound => "No value is stored at the path.",
+            ServiceError::BadPath => "The path is not a valid confd path.",
+            ServiceError::TooLarge => "The value or the store exceeds a confd size limit.",
+            ServiceError::Denied => "The caller may not access that path.",
+            ServiceError::Io => "The store could not be read or written; safe to retry.",
+            ServiceError::BadValue => "The value is malformed (a `kind` whose payload is missing).",
+        }
+    }
+}
+
+#[cfg(feature = "confd_v1_server")]
+impl From<ServiceError> for libmessenger::server::Fault {
+    fn from(error: ServiceError) -> Self {
+        libmessenger::server::Fault::new(error.code(), error.describe())
+    }
+}
+
+#[cfg(feature = "confd_v1_server")]
+/// What a program answering `os.lazy.confd.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Read the value at `path`. An absent path has an empty `value`.
+    /// A path the caller may not read fails with `Denied`.
+    fn get(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<core::option::Option<Value>, libmessenger::server::Fault> {
+        let _ = (cx, path,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Create or overwrite `path`; the change is persisted before the reply.
+    fn set(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String, value: Value) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, path, value,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Remove `path`; deleting an absent path succeeds.
+    fn delete(&mut self, cx: &libmessenger::server::Caller, path: alloc::string::String) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx, path,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Every path the caller may read under `prefix`, in sorted order.
+    fn list(&mut self, cx: &libmessenger::server::Caller, prefix: alloc::string::String) -> Result<alloc::vec::Vec<alloc::string::String>, libmessenger::server::Fault> {
+        let _ = (cx, prefix,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// Where the store lives: the directory confd chose and whether it
+    /// survives a reboot (`/conf`; `false` when it fell back to the ramfs
+    /// `/transient/conf`).
+    /// Not restricted by path, so any caller may ask.
+    fn info(&mut self, cx: &libmessenger::server::Caller) -> Result<InfoReply, libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "confd_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_GET if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_get_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.get(&cx, args.path), |value| encode_get_reply(&GetReply { value }))
+        }
+        METHOD_SET if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_set_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.set(&cx, args.path, args.value), |()| Ok(Vec::new()))
+        }
+        METHOD_DELETE if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_delete_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.delete(&cx, args.path), |()| Ok(Vec::new()))
+        }
+        METHOD_LIST if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_list_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.list(&cx, args.prefix), |value| encode_list_reply(&ListReply { paths: value }))
+        }
+        METHOD_INFO if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.info(&cx), |value| encode_info_reply(&value))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
     }
 }

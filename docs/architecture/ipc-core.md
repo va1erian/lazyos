@@ -196,6 +196,27 @@ switch) is 0.3 to 0.5 µs; the rest of a round trip is two syscalls and two
 context switches. Tests: `ipc_channel_suite::indexed` (slot reuse, a million
 calls with exact quota and heap accounting, callers ended mid-call).
 
+**Waiting for a name** (`ipc/registry/wait.rs`, native op `OP_WAIT_FOR` = 27).
+`WaitFor(name)` (`idl/registry.midl`) is `Resolve` that parks: `wait_for` takes
+a `Ticket` in the registry's waiter table (under the registry lock, before the
+first lookup, so a `Register` in between is seen by one or the other), looks
+the name up, and sleeps on one wait queue until `register` (which collects the
+slots waiting for *its* name under the lock and notifies them after releasing
+it: wait queue, then task table, never inside the registry lock) or the
+deadline. The caller's name policy is asked at the syscall edge and again each
+time the name is found, before any handle opens. A ticket is dropped on every
+way out; a task that died parked is dropped by `forget_waiter` (channel
+teardown) or the access-time prune of dead slots. Bounds: one ticket per task,
+16 per process (keyed on the address-space root, not the thread-group id, which moves when the lowest thread exits), 512 in all of which 128 are for platform tasks, those with no label and no login session (`EAGAIN`).
+A kill reaches the wait through the `Interrupted` wake (`must_unwind`,
+`ECANCELED`); any other `Interrupted` wake (a signal, or `wait` refusing to
+park while a handler frame is deferred) ends it with `EINTR` after one more
+lookup, since looping with interrupts off would never end. The gate judges
+`WAIT_FOR` as `RESOLVE` and refuses a target other than the caller. Tests: `ipc_registry_wait_*` in
+`tests/registry_suite/wait_for.rs` (wake, other names, deadline, policy
+re-check, limits, release) and two soaks (240 waits with register/withdraw
+churn; 2,000 rounds of six tasks' tickets on eight names).
+
 **Per-connection channels** (issue #483, `channels/connect.rs`,
 `ipc/connect.rs`, native op `OP_CONNECT` = 20). `Connect(name)`
 (`idl/registry.midl`) mints a fresh channel per client instead of aliasing the

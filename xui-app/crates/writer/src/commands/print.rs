@@ -2,7 +2,7 @@
 
 //! The Print command: the print bar, and a job driven by the window's timer.
 //! Each tick renders at most one page into the print spooler
-//! ([`Host::print_queue`](crate::Host)), so the window stays responsive while
+//! ([`Services::print_queue`](crate::Services)), so the window stays responsive while
 //! a long document prints. Once every page is there the job is closed and
 //! the spooler owns it: the app may quit and the printer still gets the
 //! whole document. Until then nothing has reached the printer, and quitting
@@ -25,6 +25,7 @@ use crate::app::{Msg, Writer};
 use crate::names;
 use crate::print::render::{DPI, Format, render_page};
 use crate::print::{media_name, parse_pages, user_name};
+use xui_host::report;
 
 /// How often a running job is ticked.
 const TICK_MILLIS: u32 = 50;
@@ -66,7 +67,7 @@ pub fn toggle_bar(app: &mut Writer, ui: &mut Ui<Msg>) {
     }
     let printer = bar.printer.get();
     if printer.text().trim().is_empty()
-        && let Some(last) = (app.host.last_printer)()
+        && let Some(last) = (app.services.last_printer)()
     {
         printer.set_text(&last);
     }
@@ -116,7 +117,7 @@ pub fn start(app: &mut Writer, ui: &mut Ui<Msg>) {
             app.printing = Some(session);
         }
         Err(error) => {
-            println!("WRITER:PRINT:FAIL:{error}");
+            report!(app.host, "PRINT:FAIL:{error}");
             app.print_bar.set_status(&error);
         }
     }
@@ -142,7 +143,7 @@ fn session(app: &Writer, ui: &Ui<Msg>) -> Result<Session, String> {
             quality: Some(options.quality),
         },
     };
-    let queue = Rc::clone(&app.host.print_queue);
+    let queue = Rc::clone(&app.services.print_queue);
     let job = queue.open(&request)?;
     if let Err(error) = queue.write(job, raster::SYNC) {
         let _ = queue.cancel(job);
@@ -236,7 +237,7 @@ fn prepare(app: &mut Writer, ui: &mut Ui<Msg>) {
         let _ = session.queue.cancel(session.job);
         end(app, ui, Err(error.clone()), &error);
     } else if session.queued {
-        println!("WRITER:PRINT:QUEUED:{total}");
+        report!(app.host, "PRINT:QUEUED:{total}");
         app.print_bar
             .set_status("Queued: the printer gets it even if you quit now");
     } else if session.next < total {
@@ -255,9 +256,9 @@ fn end(app: &mut Writer, ui: &mut Ui<Msg>, outcome: Result<(), String>, shown: &
     app.print_bar.set_status(shown);
     match outcome {
         Ok(()) => {
-            (app.host.remember_printer)(&session.printer);
-            println!("WRITER:PRINT:PASS:{}", session.pages.len());
+            (app.services.remember_printer)(&session.printer);
+            report!(app.host, "PRINT:PASS:{}", session.pages.len());
         }
-        Err(error) => println!("WRITER:PRINT:FAIL:{error}"),
+        Err(error) => report!(app.host, "PRINT:FAIL:{error}"),
     }
 }

@@ -5,12 +5,12 @@ Every Messenger call in `xui-app` and `lazyrad-os` is bounded: a call without
 a bound parks the UI thread until the service answers, and a window cannot
 paint while it waits. A call goes through a generated client
 (`messenger_generated::<interface>::Client`), which waits the `deadline` its
-`.midl` states for the method, or the 5 s default when the `.midl` states none
-(`libmessenger::client::DEFAULT_DEADLINE`). So this scan refuses:
+`.midl` resolves for the method (its own, else the interface `default`;
+`midlc` refuses a method that resolves none). So this scan refuses:
 
-* a call of a generated method that the `.midl` gives no `deadline=` (the call
-  would silently take the default): state the number in `idl/*.midl`, or call
-  `<method>_within(.., Deadline)` where one caller needs its own;
+* a call of a generated method whose `.midl` resolves `deadline=never` (the
+  call would park the UI thread for ever): call `<method>_within(.., Deadline)`
+  with a bound, or move the call to a worker thread;
 * the unbounded shape, an explicit `Deadline::Never`, outside `ALLOWLIST`
   (worker threads and begun, non-parking calls, each with its reason);
 * the deadline-less literal forms (`call_until(x, 0)`, a zero-deadline
@@ -95,23 +95,28 @@ def snake(name: str) -> str:
     return f"{out}_call" if out in RESERVED else out
 
 
-def unbounded_methods(root: Path) -> dict[str, set[str]]:
+def never_methods(root: Path) -> dict[str, set[str]]:
     """Per generated module (`os_lazy_foo_v1`), the names of its request/reply
-    methods that the `.midl` gives no `deadline=`: a generated client waits the
-    5 s default for them. A `oneway` method has no wait to bound."""
+    methods whose `.midl` resolves `deadline=never`: the method's own, or the
+    interface's `default deadline=never;` when the method states none. A
+    `oneway` method has no wait to bound."""
     found: dict[str, set[str]] = {}
     for file in sorted((root / IDL_DIR).glob("*.midl")):
         text = "\n".join(strip_comments(file.read_text(encoding="utf-8").splitlines()))
         for iface in re.finditer(r"^interface\s+([\w.]+)\s*\{", text, re.M):
             end = text.find("\n}", iface.end())
             body = text[iface.end() : end if end >= 0 else len(text)]
+            default = re.search(r"^\s*default\b([^;]*);", body, re.M)
+            default_never = default is not None and re.search(r"deadline=never\b", default.group(1)) is not None
             names = set()
             for method in re.finditer(r"^\s*method\s+(\w+)\(", body, re.M):
                 stop = body.index(";", method.end())
                 declaration = body[method.start() : stop]
-                if "deadline=" in declaration or re.search(r"(?<![A-Za-z_])oneway(?![A-Za-z_])", declaration):
+                if re.search(r"(?<![A-Za-z_])oneway(?![A-Za-z_])", declaration):
                     continue
-                names.add(snake(method.group(1)))
+                own = re.search(r"deadline=(\w+)", declaration)
+                if (own.group(1) == "never") if own else default_never:
+                    names.add(snake(method.group(1)))
             found[iface.group(1).replace(".", "_")] = names
     return found
 
@@ -120,7 +125,7 @@ def scan(root: Path) -> list[Hit]:
     """Every offending site under the call trees of `root`, comments stripped."""
     hits: list[Hit] = []
     literals = [re.compile(p) for p in LITERAL_DEADLINE_ZERO]
-    unbounded = unbounded_methods(root)
+    unbounded = never_methods(root)
     for tree in CALL_DIRS:
         base = root / tree
         if not base.is_dir():
@@ -170,8 +175,8 @@ def scan_file(
                         rel,
                         line_no,
                         text,
-                        f"`{method.group(1)}` of {candidates[method.group(1)]} has no `deadline=` "
-                        "in its .midl (the call would wait the 5 s default)",
+                        f"`{method.group(1)}` of {candidates[method.group(1)]} is `deadline=never` "
+                        "in its .midl (it would park the UI thread for ever)",
                     )
                 )
     return hits
@@ -236,9 +241,9 @@ def main() -> int:
         print(f"    {hit.text}")
     if hits:
         print(
-            "A Messenger call on a UI thread has no stated bound (issue #720): "
-            "state `deadline=` for the method in its .midl, call "
-            "`<method>_within(.., Deadline::ticks(n))`, or move it to a worker "
+            "A Messenger call on a UI thread has no bound (issue #720): "
+            "call `<method>_within(.., Deadline::ticks(n))` for a method the "
+            ".midl declares `deadline=never`, or move it to a worker "
             "thread; `Deadline::Never` needs an ALLOWLIST entry with a reason."
         )
         return 1

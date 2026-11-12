@@ -21,7 +21,8 @@ use xui_core::Dip;
 
 use crate::app::Msg;
 use crate::folder::Column;
-use crate::host::Host;
+use xui_host::dialogs::preset;
+use xui_host::AppHost;
 
 const TOOLBAR_HEIGHT: Dip = Dip(36.0);
 const ADDRESS_HEIGHT: Dip = Dip(26.0);
@@ -132,13 +133,8 @@ fn readable_extensions() -> Vec<&'static str> {
 }
 
 /// Builds the dialogs, hidden.
-fn dialogs(ui: &Ui<Msg>, host: &Host) -> Result<Dialogs> {
-    let picker = |dialog: FileDialog<Msg>| {
-        dialog
-            .file_system(Rc::clone(&host.file_system))
-            .initial_dir(host.start_dir.clone())
-            .on_cancel(|| Some(Msg::PickerClosed))
-    };
+fn dialogs(ui: &Ui<Msg>, host: &dyn AppHost) -> Result<Dialogs> {
+    let picker = |dialog: FileDialog<Msg>| preset(dialog, host, None, || Some(Msg::PickerClosed));
     let readable = readable_extensions();
     let open = picker(FileDialog::open_file(ui, "Open archive")?)
         .require_existing(true)
@@ -171,7 +167,7 @@ fn dialogs(ui: &Ui<Msg>, host: &Host) -> Result<Dialogs> {
 }
 
 /// Builds the window's widgets and mounts the layout.
-pub fn build(ui: &Ui<Msg>, host: &Host) -> Result<(Widgets, Dialogs)> {
+pub fn build(ui: &Ui<Msg>, host: &dyn AppHost) -> Result<(Widgets, Dialogs)> {
     let list = Handle::new();
     let address = Handle::new();
     let welcome = Handle::new();

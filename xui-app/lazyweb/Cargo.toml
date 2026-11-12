@@ -28,6 +28,7 @@ path = "src/main.rs"
 
 [dependencies]
 lazydownloads = { path = "../crates/downloads" }
+atomicfile = { path = "../crates/atomicfile" }
 # A page's notification as a toast, and its limits (shared with webd).
 lazywebnotify = { path = "../crates/webnotify" }
 # One xui revision for every crate, so a single `xui_core` links.

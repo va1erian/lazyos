@@ -112,10 +112,13 @@ fn run() -> messenger::Result<()> {
             stop_all(&table, &mut automount, &reason);
             return Ok(());
         }
-        let reply =
-            handler::dispatch(&mut table, &mut automount, &message).unwrap_or_else(|error| {
-                services::error_reply(message.interface_id(), message.method(), error)
-            });
+        let reply = user::messenger::mount::wire::dispatch(
+            &mut handler::Handler {
+                table: &mut table,
+                automount: &mut automount,
+            },
+            &message,
+        );
         if let Some(txn) = message.txn {
             // A caller whose deadline passed is a normal race, not a failure.
             let _ = server.reply(txn, &reply);

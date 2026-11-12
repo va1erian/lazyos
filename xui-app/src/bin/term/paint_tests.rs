@@ -467,7 +467,7 @@ fn bench_full_frame() {
         let mut copy = Term::new(80, 19);
         copy.feed(b"x");
         let (_, ms) = render_with(replay(&term), &shot, 30, "term-bench.png");
-        println!("PAINT:FRAME {name}: {ms:.2} ms per full frame");
+        println!("term paint frame {name}: {ms:.2} ms per full frame");
         drop(copy);
     }
 }

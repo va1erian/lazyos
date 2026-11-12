@@ -17,13 +17,13 @@ answers the query `messengerctl sessions` renders.
 
 - Served under the registry name `os.lazy.logind`; registered once.
 
-## Scopes and deadlines
+## Scopes, deadlines and retries
 
-| Method | Scope interface | Scope id | Deadline |
-|---|---|---|---|
-| Sessions | this interface | - | 1000 ms |
-| Login | this interface | - | 30000 ms |
-| Logout | this interface | - | 3000 ms |
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Sessions | this interface | - | 1000 ms | safe |
+| Login | this interface | - | 30000 ms | never |
+| Logout | this interface | - | 3000 ms | never |
 
 ## Topics
 

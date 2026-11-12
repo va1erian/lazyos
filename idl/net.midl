@@ -69,8 +69,9 @@ service "os.lazy.net.stack" implements os.lazy.net.stack.v1, os.lazy.net.socket.
 /// Failures of calls are returned as the shared structured error field
 /// (`services::error_field`) instead of the declared reply fields.
 interface os.lazy.net.nic.v1 {
+    default deadline=5s;
     /// Describe the card: MAC, MTU, link state and the negotiated feature set.
-    method Info() -> (info: NicInfo = 1);
+    method Info() -> (info: NicInfo = 1) retry=safe;
     /// Choose which received frames reach the client: an `RxMode` ordinal.
     /// The reply says whether the driver applied it (a device without a
     /// filter table treats `Filtered` as `Promiscuous` and answers `false`).
@@ -89,7 +90,7 @@ interface os.lazy.net.nic.v1 {
     /// gone.
     method DetachRing(ring: U32 = 1) -> ();
     /// Frame and error counters since the driver started.
-    method Stats() -> (stats: NicStats = 1);
+    method Stats() -> (stats: NicStats = 1) retry=safe;
     /// Event, client to driver: the client queued frames in the transmit ring
     /// of `ring`. Ignored from anyone but the owner.
     method Kick(ring: U32 = 1) -> () oneway;
@@ -190,21 +191,22 @@ interface os.lazy.net.nic.v1 {
 /// multiples of 10 ms. `Resolve` (N3) parks the same way: the answer comes
 /// when the resolver replies, `ETIMEDOUT` when `timeout_ms` passes.
 interface os.lazy.net.stack.v1 {
+    default deadline=5s;
     /// The interfaces the stack drives, one per attached card.
-    method Interfaces() -> (list: Array<InterfaceInfo> = 1) deadline=500ms;
+    method Interfaces() -> (list: Array<InterfaceInfo> = 1) deadline=500ms retry=safe;
     /// The addresses configured on every interface.
-    method Addresses() -> (list: Array<AddressInfo> = 1) deadline=500ms;
+    method Addresses() -> (list: Array<AddressInfo> = 1) deadline=500ms retry=safe;
     /// The routing table: every interface's on-link route and default route,
     /// the default routes ordered by metric (the lowest wins).
-    method Routes() -> (list: Array<RouteInfo> = 1) deadline=500ms;
+    method Routes() -> (list: Array<RouteInfo> = 1) deadline=500ms retry=safe;
     /// Stack counters since it started.
-    method Stats() -> (stats: StackStats = 1) deadline=500ms;
+    method Stats() -> (stats: StackStats = 1) deadline=500ms retry=safe;
     /// Send one ICMP echo request to `dst` (four octets) with `payload_len`
     /// bytes of payload (0 to 1400) and wait for its reply. `timeout_ms`
     /// (10 to 60000) bounds the wait. Fails with `EINVAL` for a bad argument,
     /// `ENETUNREACH` when there is no address or route yet, `EAGAIN` when this
     /// caller has 4 pings outstanding or all callers together have 8, and `ETIMEDOUT` when no reply came.
-    method Ping(dst: Bytes = 1, payload_len: U32 = 2, timeout_ms: U32 = 3) -> (result: EchoResult = 1);
+    method Ping(dst: Bytes = 1, payload_len: U32 = 2, timeout_ms: U32 = 3) -> (result: EchoResult = 1) retry=safe;
     /// Look `name` up (A records) at the resolvers DHCP or the static
     /// configuration gave. `name` is a host name of at most 253 bytes made of
     /// dot-separated labels of 1 to 63 letters, digits and hyphens (`EINVAL`
@@ -214,7 +216,7 @@ interface os.lazy.net.stack.v1 {
     /// resolver says the name has no address, and `ETIMEDOUT` when no answer
     /// came. The reply lists the addresses found, four octets each. A dotted
     /// quad needs no query and is answered at once.
-    method Resolve(name: String = 1, timeout_ms: U32 = 2) -> (addrs: Array<Bytes> = 1);
+    method Resolve(name: String = 1, timeout_ms: U32 = 2) -> (addrs: Array<Bytes> = 1) retry=safe;
     /// Ask for a fresh DHCP lease (drops the current one). Gated by the ACL.
     method Renew() -> () deadline=500ms;
     /// Drop the attachment to the NIC driver and establish it again, as after
@@ -397,6 +399,7 @@ interface os.lazy.net.stack.v1 {
 /// before `Connect`, `EPIPE` for a `Send` after the stream was shut for
 /// writing, `EMSGSIZE` for a datagram that does not fit.
 interface os.lazy.net.socket.v1 {
+    default deadline=5s;
     /// Make a socket of `kind` (a `SockKind` ordinal). The reply is the id
     /// every other call names.
     method Open(kind: U32 = 1) -> (sock: U32 = 1);
@@ -433,14 +436,14 @@ interface os.lazy.net.socket.v1 {
     /// sends FIN after the queued bytes; the socket stays open for reading.
     method Shutdown(sock: U32 = 1, how: U32 = 2) -> ();
     /// The socket's own address and port (`EINVAL` before `Bind`/`Connect`).
-    method LocalAddr(sock: U32 = 1) -> (addr: SockAddr = 1);
+    method LocalAddr(sock: U32 = 1) -> (addr: SockAddr = 1) retry=safe;
     /// The peer's address and port (`ENOTCONN` when there is none).
-    method PeerAddr(sock: U32 = 1) -> (addr: SockAddr = 1);
+    method PeerAddr(sock: U32 = 1) -> (addr: SockAddr = 1) retry=safe;
     /// Release the socket. A stream closes gracefully (FIN); a parked call on
     /// it is answered with `EBADF`.
     method Close(sock: U32 = 1) -> ();
     /// Counters since `netd` started; anyone may read them.
-    method Stats() -> (stats: SocketStats = 1);
+    method Stats() -> (stats: SocketStats = 1) retry=safe;
 
     /// An IPv4 address and port. `addr` is four octets, network order; all
     /// zero is "any" where that is allowed.

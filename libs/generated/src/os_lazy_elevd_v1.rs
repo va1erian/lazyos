@@ -86,12 +86,18 @@ pub fn decode_record(body: &[u8]) -> Result<Record, Error> {
 
 /// `Request` method id.
 pub const METHOD_REQUEST: u32 = 38093138;
-/// How long a client waits for `Request`'s reply, in milliseconds.
-pub const METHOD_REQUEST_DEADLINE_MS: u32 = 400000;
+/// How long a client waits for `Request`'s reply: at most 400000 ms (`deadline` in the `.midl`).
+pub const METHOD_REQUEST_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(400000);
+/// Whether a client resends `Request` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_REQUEST_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 /// `Release` method id.
 pub const METHOD_RELEASE: u32 = 1830722334;
-/// How long a client waits for `Release`'s reply, in milliseconds.
-pub const METHOD_RELEASE_DEADLINE_MS: u32 = 1000;
+/// How long a client waits for `Release`'s reply: at most 1000 ms (`deadline` in the `.midl`).
+pub const METHOD_RELEASE_DEADLINE: libmessenger::client::Deadline = libmessenger::client::Deadline::millis(1000);
+/// Whether a client resends `Release` to a restarted service after the peer died
+/// handling it (`retry` in the `.midl`; `Never` unless stated).
+pub const METHOD_RELEASE_RETRY: libmessenger::client::Retry = libmessenger::client::Retry::Never;
 
 /// Perform `operation` (a row of the operation table, e.g.
 /// `account.create`, `conf.set`, `time.set`) with its `args`, after an
@@ -297,9 +303,9 @@ impl<T: libmessenger::client::Transport> Client<T> {
     /// `values` carries the operation's results (`conf.list`'s paths,
     /// `conf.get`'s kind and value).
     ///
-    /// Waits for the reply at most 400000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 400000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn request(&self, operation: &str, args: &[alloc::string::String]) -> Result<RequestReply, ClientError> {
-        self.request_within(operation, args, libmessenger::client::Deadline::millis(METHOD_REQUEST_DEADLINE_MS as u64))
+        self.request_within(operation, args, METHOD_REQUEST_DEADLINE)
     }
 
     /// [`Self::request`] with the caller's deadline instead of the IDL's.
@@ -308,16 +314,16 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         let wire_reply = self
             .conn
-            .call(INTERFACE_ID, METHOD_REQUEST, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_REQUEST, wire_body, wire_objects, within, METHOD_REQUEST_RETRY)
             ?;
         decode_request_reply(&wire_reply.body).map_err(ClientError::bad_reply)
     }
 
     /// End the caller's standing approvals now (an elevated editor closing).
     ///
-    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`); resent to a restarted service only if the request never left (`retry=never`).
     pub fn release(&self) -> Result<(), ClientError> {
-        self.release_within(libmessenger::client::Deadline::millis(METHOD_RELEASE_DEADLINE_MS as u64))
+        self.release_within(METHOD_RELEASE_DEADLINE)
     }
 
     /// [`Self::release`] with the caller's deadline instead of the IDL's.
@@ -326,8 +332,61 @@ impl<T: libmessenger::client::Transport> Client<T> {
         let wire_objects = Vec::new();
         self
             .conn
-            .call(INTERFACE_ID, METHOD_RELEASE, wire_body, wire_objects, within)
+            .call(INTERFACE_ID, METHOD_RELEASE, wire_body, wire_objects, within, METHOD_RELEASE_RETRY)
             ?;
         Ok(())
+    }
+}
+
+#[cfg(feature = "elevd_v1_server")]
+/// What a program answering `os.lazy.elevd.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// Perform `operation` (a row of the operation table, e.g.
+    /// `account.create`, `conf.set`, `time.set`) with its `args`, after an
+    /// administrator approved it on the prompt. Every change asks every time;
+    /// only the elevated editor's view (`conf.elevate`, then `conf.list` and
+    /// `conf.get`) covers the same caller (uid, label and session; never an
+    /// unlabelled one) for five minutes, until its session ends or it calls
+    /// `Release`. `detail` describes what was done,
+    /// `values` carries the operation's results (`conf.list`'s paths,
+    /// `conf.get`'s kind and value).
+    fn request(&mut self, cx: &libmessenger::server::Caller, operation: alloc::string::String, args: alloc::vec::Vec<alloc::string::String>) -> Result<RequestReply, libmessenger::server::Fault> {
+        let _ = (cx, operation, args,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+
+    /// End the caller's standing approvals now (an elevated editor closing).
+    fn release(&mut self, cx: &libmessenger::server::Caller) -> Result<(), libmessenger::server::Fault> {
+        let _ = (cx,);
+        Err(libmessenger::server::Fault::errno(libmessenger::client::Errno::NOSYS))
+    }
+}
+
+#[cfg(feature = "elevd_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_REQUEST if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_request_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            libmessenger::server::finish(id, method, server.request(&cx, args.operation, args.args), |value| encode_request_reply(&value))
+        }
+        METHOD_RELEASE if id == INTERFACE_ID => {
+            libmessenger::server::finish(id, method, server.release(&cx), |()| Ok(Vec::new()))
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
     }
 }

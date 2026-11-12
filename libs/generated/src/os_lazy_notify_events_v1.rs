@@ -123,3 +123,81 @@ pub fn decode_closed_args(body: &[u8]) -> Result<ClosedArgs, Error> {
 /// and the declared kinds, in object-list order.
 pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
 ];
+
+#[cfg(feature = "notify_events_v1_server")]
+/// What a program answering `os.lazy.notify.events.v1` implements: one function per method, with the
+/// kernel-stamped [`Caller`](libmessenger::server::Caller) first and the decoded arguments after it.
+/// A method left out answers `ENOSYS`. [`dispatch`] does the framing, so a body only decides.
+#[allow(clippy::too_many_arguments)]
+pub trait Server {
+    /// The user clicked the toast's body.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn activated(&mut self, cx: &libmessenger::server::Caller, id: u64) {
+        let _ = (cx, id,);
+    }
+
+    /// The user pressed action `action` of toast `id`; the toast closes.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn action_invoked(&mut self, cx: &libmessenger::server::Caller, id: u64, action: u32) {
+        let _ = (cx, id, action,);
+    }
+
+    /// The toast is gone; `reason` is a `CloseReason` value. It is sent once
+    /// per toast, also for one that was never shown (`Muted`).
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn closed(&mut self, cx: &libmessenger::server::Caller, id: u64, reason: u32) {
+        let _ = (cx, id, reason,);
+    }
+
+    /// Liveness probe; nothing to answer.
+    ///
+    /// `oneway`: it has no reply, so it returns nothing.
+    fn ping(&mut self, cx: &libmessenger::server::Caller) {
+        let _ = (cx,);
+    }
+}
+
+#[cfg(feature = "notify_events_v1_server")]
+/// Answers one request of this interface through `server`: checks the header's interface (or
+/// the method's ACL scope id; another is `EINVAL`), decodes the arguments (a bad body is
+/// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
+/// as the standard error field. A method this interface does not declare is `ENOSYS`.
+/// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// Objects of the request are claimed by the decode and passed by value.
+pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
+    let id = message.interface_id();
+    let method = message.method();
+    let cx = message.caller();
+    match method {
+        METHOD_ACTIVATED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_activated_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.activated(&cx, args.id);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_ACTIONINVOKED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_action_invoked_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.action_invoked(&cx, args.id, args.action);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_CLOSED if id == INTERFACE_ID => {
+            let Ok(args) = message.decode(|body, _| decode_closed_args(body)) else {
+                return libmessenger::server::bad_request(id, method);
+            };
+            server.closed(&cx, args.id, args.reason);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        METHOD_PING if id == INTERFACE_ID => {
+            server.ping(&cx);
+            libmessenger::server::reply(id, method, Vec::new())
+        }
+        _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
+        _ => libmessenger::server::wrong_interface(id, method),
+    }
+}
