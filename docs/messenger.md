@@ -290,12 +290,23 @@ language over TLV fields (`level == ERROR && unit == "netd"`), compiled by
 **Retained values:** publishers may mark a message retained; new subscribers get
 it immediately (state-like topics such as `system/health/netd`).
 
-**Byte budget:** the broker's memory is charged per task: a retained value to
-its publisher, a subscription's queue to its owner, each within an allowance
-(an app at most 64 retained values; retained values cannot be removed), with a
-reserve of the total only platform tasks (no label, no login session) can use.
-A queue over its allowance drops its oldest events like any overflow; only a
-retained publish over its publisher's budget is refused (`ENOMEM`).
+**Budgets (per tenant):** the broker charges a *tenant*, never a task slot (a
+slot names one thread and is reused after the task exits). An app's tenant is
+the kernel-stamped `(label, uid, session)`, so every thread and process of one
+app in one session shares one budget; a platform task (no label, no login
+session) is its own tenant. A tenant holds at most 32 subscriptions (64 for a
+platform task), 32 retained values and 1 MiB (retained values plus queues;
+platform 2 MiB), and apps together never take the last 128 subscription rows,
+256 topic rows or 2 MiB, which only platform tasks may use. A queue over its
+allowance drops its oldest events like any overflow; only a retained publish
+over its tenant's budget is refused (`ENOMEM`). Retained values cannot be
+removed and outlive the task that published them, and so does their charge.
+Who may pull, ack or unsubscribe a subscription is a separate rule: only the
+task (slot and tenant) that created it. The kernel does not tell `messengerd`
+when a task exits, so a bell-less subscription of a dead task lives on until
+its tenant's cap bounds it; one with a bell is reaped when the bell's far end
+closes. Apps of different labels or sessions are different tenants and can
+still fill the apps' shared part between them.
 
 **Backpressure and scope:** a full bounded queue drops (counted in stats);
 system topics default to `conflate` so a slow subscriber cannot stall

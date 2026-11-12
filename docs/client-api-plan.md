@@ -990,23 +990,39 @@ A fresh-context review of the runtime, the generator and `messengerd` found:
   does not park a pull the kernel is about to end. `MAX_PENDING` equals the
   subscription cap, and `central::Feed` treats `EAGAIN` as transient.
 * `messengerd` rolls a subscription back when `Subscribe`'s reply is not
-  delivered and caps a task at 64 subscriptions (`EAGAIN`). Its byte budget
-  (8 MiB) is charged per owner, not as one pool anyone can fill (second review
-  round): a retained value is charged to the task that published it, a queue
-  to the task that subscribed. A task may have 1 MiB held for it (2 MiB for a
-  platform task: no label and no session, the rule the kernel uses for the
-  `WaitFor` reserve), an app at most 64 retained values (they cannot be
-  removed; the IDL has no clear and none was added), and the last 2 MiB of the
-  budget is for platform tasks only. A queue with no room sheds its own oldest
-  events as counted drops (replacing an event or overflowing the depth counts
-  by the net change) and never refuses the publisher or a subscribe; only a
-  retained publish over its publisher's own budget gets `ENOMEM`. A
-  subscription whose bell end is closed is reaped on the `EPIPE` of the next
-  ring. The tables live in `libs/topicsbroker` (host unit and soak tests,
-  with the byte ledger audited against the queues) and `messengerctl` checks
-  the flood case at run time as `TOPIC:QUOTA`. A retained value stays charged
-  to its publisher's slot after the task exits (the slot id can be reused;
-  bounded by the allowance).
+  delivered. Its resource accounting (8 MiB, subscription and topic rows) is
+  charged per **tenant**, not per task slot (third review round: a slot is
+  one thread and is reused, so 16 threads of one app filled the retained
+  table, the subscription table and the app byte pool for everyone, and a
+  task that reused a slot inherited its predecessor's charges). A tenant is
+  the kernel-stamped `(label, uid, session)` of an app (all its threads and
+  processes share one budget) or one platform task slot (no label and no
+  session, the rule the kernel uses for the `WaitFor` reserve); it comes from
+  `libmessenger::server::Caller`, never from the body. An app tenant may hold
+  32 subscriptions (`EAGAIN`), 32 retained values (they cannot be removed; the
+  IDL has no clear and none was added) and 1 MiB (retained values plus
+  queues); a platform task 64 subscriptions and 2 MiB. Platform tasks have
+  reserved rows in every table: apps cannot take the last 128 of the 512
+  subscription rows, the last 256 of the 1024 topic rows (retained values and
+  the `ListTopics` table) or the last 2 MiB of the 8 MiB. Authorization is a
+  separate identity: only the creating client (slot **and** tenant) may pull,
+  ack, set the bell of or unsubscribe a subscription, so a task that reuses an
+  exited task's slot as another app cannot touch its subscriptions, and starts
+  with a clean budget. A queue with no room sheds its own oldest events as
+  counted drops (replacing an event or overflowing the depth counts by the net
+  change) and never refuses the publisher or a subscribe for bytes; only a
+  retained publish over its tenant's budget gets `ENOMEM`. A subscription
+  whose bell end is closed is reaped on the `EPIPE` of the next ring. The
+  tables live in `libs/topicsbroker` (host unit tests, tenant DoS tests and a
+  soak that reuses slots across tenants, reaps and hits unencodable events,
+  with the byte ledger audited against the queues after every step) and
+  `messengerctl` checks the flood case at run time as `TOPIC:QUOTA`. A
+  retained value stays charged to its tenant after the task exits.
+  **Follow-up:** the kernel offers `messengerd` no task-exit notification
+  (a cred lookup by slot cannot tell a dead slot from a reused one), so a
+  bell-less subscription of an exited task is not reaped; the per-tenant cap
+  (32) is what bounds it. A peer-death notice for a sender slot, or a
+  per-session sweep at logout, would close it and needs kernel work.
 * The xui `Subscriber` stamps `POLL_HINT_NS` on its polling `NextEvent`s too; a
   reply it cannot parse is `-EPROTO` (a broker refusal `-EINVAL` is the only
   one the follow hub treats as permanent). `elevd` reads the session feed once
