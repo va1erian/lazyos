@@ -3265,14 +3265,14 @@
         "name": "Info",
         "id": 266462757,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 3000,
         "retry": "safe"
       },
       {
         "name": "Attach",
         "id": 145305188,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 3000,
         "objects": [
           {
             "name": "events",
@@ -3286,74 +3286,74 @@
         "name": "Detach",
         "id": 475812562,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "SetCountry",
         "id": 820455787,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "Scan",
         "id": 1830061320,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "AbortScan",
         "id": 1659626708,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "ScanResults",
         "id": 536623814,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 3000,
         "retry": "safe"
       },
       {
         "name": "Join",
         "id": 805458841,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "TxMgmt",
         "id": 583187128,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "SetState",
         "id": 1345327380,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "SetKey",
         "id": 1206977594,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "DelKey",
         "id": 36584897,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "Leave",
         "id": 2049913440,
         "oneway": false,
-        "deadline_ms": 5000
+        "deadline_ms": 3000
       },
       {
         "name": "Stats",
         "id": 267161228,
         "oneway": false,
-        "deadline_ms": 5000,
+        "deadline_ms": 3000,
         "retry": "safe"
       },
       {

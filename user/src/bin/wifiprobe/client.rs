@@ -6,9 +6,9 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
-use libmessenger::Parcel;
-use user::messenger::services::init::error_field;
-use user::messenger::{self, registry, Endpoint, Error};
+use libmessenger::client::CallError;
+use user::messenger::wifi::{self, Radio};
+use user::messenger::{self, Endpoint, Error};
 use user::sys;
 use user::wifi::hw::{self, wire};
 
@@ -21,7 +21,7 @@ pub enum Event {
 }
 
 pub struct HwClient {
-    endpoint: Endpoint,
+    radio: Radio,
     events: Endpoint,
     buf: Vec<u8>,
 }
@@ -30,16 +30,23 @@ fn text(error: Error) -> String {
     String::from(error.message())
 }
 
+fn call_text(error: CallError) -> String {
+    String::from(error.message())
+}
+
 impl HwClient {
     /// Resolve the radio `ifname`, retrying for up to `wait_ms`.
     pub fn connect(ifname: &str, wait_ms: u64) -> Result<HwClient, String> {
-        let name = hw::service_name(ifname);
         let give_up = sys::monotonic_ms() + wait_ms;
-        let endpoint = loop {
-            match registry::resolve(&name) {
-                Ok(endpoint) => break endpoint,
+        let radio = loop {
+            match wifi::connect_radio(ifname) {
+                Ok(radio) => break radio,
                 Err(error) if sys::monotonic_ms() >= give_up => {
-                    return Err(format!("resolve {name}: {}", error.message()));
+                    return Err(format!(
+                        "resolve {}: {}",
+                        hw::service_name(ifname),
+                        error.message()
+                    ));
                 }
                 Err(_) => {
                     let _ = sys::sleep_ns(200_000_000);
@@ -48,69 +55,37 @@ impl HwClient {
         };
         let (mine, theirs) = messenger::create_pair().map_err(text)?;
         let client = HwClient {
-            endpoint,
+            radio,
             events: mine,
             buf: vec![0; messenger::DEFAULT_BUFFER],
         };
-        let (body, objects) = wire::encode_attach_args(&wire::AttachArgs {
-            events: theirs.handle(),
-        })
-        .map_err(|e| format!("encode: {e:?}"))?;
-        let mut request = hw::parcel(wire::METHOD_ATTACH, body, false);
-        request.objects = objects;
-        client.call(request).map_err(|e| format!("Attach: {e}"))?;
+        client
+            .radio
+            .attach(theirs.handle())
+            .map_err(|e| format!("Attach: {}", e.message()))?;
         Ok(client)
     }
 
-    fn call(&self, request: Parcel) -> Result<Parcel, String> {
-        let reply = self.endpoint.call(&request, None).map_err(text)?;
-        match error_field(&reply).map_err(text)? {
-            Some(code) => Err(format!("errno {code}")),
-            None => Ok(reply),
-        }
-    }
-
-    fn simple(&self, method: u32, body: Vec<u8>) -> Result<Parcel, String> {
-        self.call(hw::parcel(method, body, false))
-    }
-
     pub fn info(&self) -> Result<wire::HwInfo, String> {
-        let reply = self.simple(wire::METHOD_INFO, Vec::new())?;
-        Ok(wire::decode_info_reply(&reply.body)
-            .map_err(|e| format!("{e:?}"))?
-            .info)
+        self.radio.info().map_err(call_text)
     }
 
     pub fn set_country(&self, alpha2: &str) -> Result<(), String> {
-        let body = wire::encode_set_country_args(&wire::SetCountryArgs {
-            alpha2: String::from(alpha2),
-        })
-        .map_err(|e| format!("{e:?}"))?;
-        self.simple(wire::METHOD_SETCOUNTRY, body).map(|_| ())
+        self.radio.set_country(alpha2).map_err(call_text)
     }
 
     pub fn scan(&self, request: wire::ScanRequest) -> Result<u32, String> {
-        let body =
-            wire::encode_scan_args(&wire::ScanArgs { request }).map_err(|e| format!("{e:?}"))?;
-        let reply = self.simple(wire::METHOD_SCAN, body)?;
-        Ok(wire::decode_scan_reply(&reply.body)
-            .map_err(|e| format!("{e:?}"))?
-            .scan_id)
+        self.radio.scan(&request).map_err(call_text)
     }
 
     /// Every result of `scan_id`, page by page.
     pub fn scan_results(&self, scan_id: u32) -> Result<Vec<wire::ScanEntry>, String> {
         let mut all = Vec::new();
         loop {
-            let body = wire::encode_scan_results_args(&wire::ScanResultsArgs {
-                scan_id,
-                first: all.len() as u32,
-                max: 64,
-            })
-            .map_err(|e| format!("{e:?}"))?;
-            let reply = self.simple(wire::METHOD_SCANRESULTS, body)?;
-            let page =
-                wire::decode_scan_results_reply(&reply.body).map_err(|e| format!("{e:?}"))?;
+            let page = self
+                .radio
+                .scan_results(scan_id, all.len() as u32, 64)
+                .map_err(call_text)?;
             let more = page.more && !page.results.is_empty();
             all.extend(page.results);
             if !more {
@@ -126,27 +101,19 @@ impl HwClient {
             band,
             width: wire::WIDTH_MHZ20,
         };
-        let body =
-            wire::encode_join_args(&wire::JoinArgs { request }).map_err(|e| format!("{e:?}"))?;
-        self.simple(wire::METHOD_JOIN, body).map(|_| ())
+        self.radio.join(&request).map_err(call_text)
     }
 
     pub fn tx(&self, kind: u32, frame: Vec<u8>) -> Result<(), String> {
-        let body = wire::encode_tx_mgmt_args(&wire::TxMgmtArgs { kind, frame })
-            .map_err(|e| format!("{e:?}"))?;
-        self.simple(wire::METHOD_TXMGMT, body).map(|_| ())
+        self.radio.tx_mgmt(kind, &frame).map_err(call_text)
     }
 
     pub fn set_state(&self, state: u32, aid: u32) -> Result<(), String> {
-        let body = wire::encode_set_state_args(&wire::SetStateArgs { state, aid })
-            .map_err(|e| format!("{e:?}"))?;
-        self.simple(wire::METHOD_SETSTATE, body).map(|_| ())
+        self.radio.set_state(state, aid).map_err(call_text)
     }
 
     pub fn leave(&self, reason: u32) -> Result<(), String> {
-        let body =
-            wire::encode_leave_args(&wire::LeaveArgs { reason }).map_err(|e| format!("{e:?}"))?;
-        self.simple(wire::METHOD_LEAVE, body).map(|_| ())
+        self.radio.leave(reason).map_err(call_text)
     }
 
     pub fn set_key(
@@ -157,16 +124,9 @@ impl HwClient {
         rsc: &[u8],
         addr: &[u8; 6],
     ) -> Result<(), String> {
-        let args = wire::SetKeyArgs {
-            kind,
-            index,
-            cipher: wire::CIPHER_CCMP128,
-            key: key.to_vec(),
-            rsc: rsc.to_vec(),
-            addr: addr.to_vec(),
-        };
-        let body = wire::encode_set_key_args(&args).map_err(|e| format!("{e:?}"))?;
-        self.simple(wire::METHOD_SETKEY, body).map(|_| ())
+        self.radio
+            .set_key(kind, index, wire::CIPHER_CCMP128, key, rsc, addr)
+            .map_err(call_text)
     }
 
     /// The next event before `deadline_ms` (monotonic), `None` on timeout.
