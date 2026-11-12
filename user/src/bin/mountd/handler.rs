@@ -6,62 +6,69 @@ use alloc::vec::Vec;
 use user::trace;
 
 use mounttable::{daemon_args, daemon_env, validate_kind, Kind, Table};
-use user::messenger::mount::{self as api, wire};
-use user::messenger::{errno, Error, Message, Parcel, Result};
+use libmessenger::server::{Caller, Fault};
+use user::messenger::mount::wire;
+use user::messenger::{errno, Error, Result as MResult};
 use user::sys::{self, Personality, SpawnCred};
 
 use crate::volumes::Automount;
 
-/// Route one inbound message. `Ok(parcel)` is the reply; `Err` becomes the
-/// structured error reply the caller sees.
-pub(super) fn dispatch(
-    table: &mut Table,
-    automount: &mut Automount,
-    message: &Message,
-) -> Result<Parcel> {
-    if message.interface_id() != api::INTERFACE {
-        return Err(Error::Errno(-errno::EINVAL));
+/// The service's state, answering requests (the generated [`wire::Server`]).
+pub(super) struct Handler<'a> {
+    pub(super) table: &'a mut Table,
+    pub(super) automount: &'a mut Automount,
+}
+
+impl wire::Server for Handler<'_> {
+    fn mount(
+        &mut self,
+        cx: &Caller,
+        name: String,
+        host: String,
+        port: u32,
+        user: String,
+        password: String,
+        kind: String,
+        share: String,
+    ) -> Result<String, Fault> {
+        let args = wire::MountArgs {
+            name,
+            host,
+            port,
+            user,
+            password,
+            kind,
+            share,
+        };
+        Ok(mount(self.table, cx, &args)?)
     }
-    let method = message.method();
-    let body = match method {
-        wire::METHOD_MOUNT => {
-            let args = wire::decode_mount_args(&message.parcel.body).map_err(Error::Parcel)?;
-            let path = mount(table, message, &args)?;
-            wire::encode_mount_reply(&wire::MountReply { path }).map_err(Error::Parcel)?
-        }
-        wire::METHOD_UNMOUNT => {
-            let args = wire::decode_unmount_args(&message.parcel.body).map_err(Error::Parcel)?;
-            unmount(table, message, &args.name)?;
-            Vec::new()
-        }
-        wire::METHOD_LIST => wire::encode_list_reply(&wire::ListReply {
-            mounts: table.entries().iter().map(info).collect(),
+
+    fn unmount(&mut self, cx: &Caller, name: String) -> Result<(), Fault> {
+        Ok(unmount(self.table, cx, &name)?)
+    }
+
+    fn list(&mut self, _: &Caller) -> Result<Vec<wire::MountInfo>, Fault> {
+        Ok(self.table.entries().iter().map(info).collect())
+    }
+
+    fn volumes(&mut self, cx: &Caller) -> Result<Vec<wire::VolumeInfo>, Fault> {
+        Ok(self.automount.listing(cx.uid))
+    }
+
+    fn eject(&mut self, cx: &Caller, disk: String, force: bool) -> Result<wire::EjectReply, Fault> {
+        let disk = mounttable::volumes::parse_disk_name(&disk).ok_or(Error::Errno(-errno::EINVAL))?;
+        let done = self.automount.eject(disk, cx.uid, force)?;
+        Ok(wire::EjectReply {
+            state: String::from(done.state),
+            detail: done.detail,
         })
-        .map_err(Error::Parcel)?,
-        wire::METHOD_VOLUMES => wire::encode_volumes_reply(&wire::VolumesReply {
-            volumes: automount.listing(message.caller().uid),
-        })
-        .map_err(Error::Parcel)?,
-        wire::METHOD_EJECT => {
-            let args = wire::decode_eject_args(&message.parcel.body).map_err(Error::Parcel)?;
-            let disk = mounttable::volumes::parse_disk_name(&args.disk)
-                .ok_or(Error::Errno(-errno::EINVAL))?;
-            let done = automount.eject(disk, message.caller().uid, args.force)?;
-            wire::encode_eject_reply(&wire::EjectReply {
-                state: String::from(done.state),
-                detail: done.detail,
-            })
-            .map_err(Error::Parcel)?
-        }
-        _ => return Err(Error::Errno(-errno::EINVAL)),
-    };
-    Ok(api::parcel(method, body))
+    }
 }
 
 /// Check the request, start its daemon as the requester's mount, and record
 /// it as connecting. The owner is the kernel-stamped caller, never a field
 /// of the request.
-fn mount(table: &mut Table, message: &Message, args: &wire::MountArgs) -> Result<String> {
+fn mount(table: &mut Table, caller: &Caller, args: &wire::MountArgs) -> MResult<String> {
     let request = validate_kind(
         &args.kind,
         &args.name,
@@ -76,7 +83,6 @@ fn mount(table: &mut Table, message: &Message, args: &wire::MountArgs) -> Result
         Error::Errno(-errno::EINVAL)
     })?;
     table.admit(&request).map_err(table_error)?;
-    let caller = message.caller();
     let program = match request.kind {
         Kind::Ftp => fhs::bin::FTPFUSE,
         Kind::Smb => fhs::bin::SMBFUSE,
@@ -106,10 +112,8 @@ fn mount(table: &mut Table, message: &Message, args: &wire::MountArgs) -> Result
     Ok(crate::mount_point(&request.name))
 }
 
-fn unmount(table: &mut Table, message: &Message, name: &str) -> Result<()> {
-    let daemon = table
-        .remove(name, message.caller().uid)
-        .map_err(table_error)?;
+fn unmount(table: &mut Table, caller: &Caller, name: &str) -> MResult<()> {
+    let daemon = table.remove(name, caller.uid).map_err(table_error)?;
     if let Some(pid) = daemon {
         // Its exit is reaped later and matches no mount any more.
         let _ = sys::kill(pid, sys::SIG_TERM);
