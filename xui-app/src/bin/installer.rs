@@ -97,13 +97,17 @@ impl Installer {
     /// Builds the app, performing the initial `List`, then `Inspect` when the
     /// app was launched with a package path (the list tells the consent
     /// screen whether the package updates a built-in app).
-    fn build(ui: &mut Ui<Msg>, start: Option<std::path::PathBuf>) -> Result<Installer, String> {
+    fn build(
+        ui: &mut Ui<Msg>,
+        cx: &xui_app::AppContext,
+        start: Option<std::path::PathBuf>,
+    ) -> Result<Installer, String> {
         let mut model = Model::new();
         reload(&mut model);
         if let Some(path) = start {
             inspect(&mut model, &path.to_string_lossy());
         }
-        let picker = Picker::build(ui)?;
+        let picker = Picker::build(ui, cx)?;
         install_hooks(ui, picker.gate());
         let view = build_view(ui, &model)?;
         let shown = model.screen;
@@ -390,10 +394,10 @@ fn main() -> ExitCode {
     xui_app::app(Channel::Installer, "Installer")
         .size(WINDOW.0, WINDOW.1)
         .min_size(480, 360)
-        .run(move |ui, _backend| {
+        .run(move |ui, cx| {
             // Resizable; the screens' layouts follow the client area. The
             // minimum keeps the consent screen's lists readable.
-            Installer::build(ui, start).map_err(|error| {
+            Installer::build(ui, cx, start).map_err(|error| {
                 trace::fail!(Channel::Installer, "BUILD", "{error}");
                 BackendError::Other(error)
             })

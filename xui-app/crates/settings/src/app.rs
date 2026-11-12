@@ -18,6 +18,7 @@
 //! The window itself follows the theme it edits ([`theme_ops::xui_theme_for`]).
 
 use std::rc::Rc;
+use xui_host::evidence;
 
 use uitheme::Mode;
 use xui_core::app::{App, Ui};
@@ -326,12 +327,12 @@ impl App for SettingsApp {
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         // Serial evidence that input reached the app (see `xui_settings.json`).
-        println!("SETTINGS:MSG:{msg:?}");
+        evidence!("MSG:{msg:?}");
         let store = Rc::clone(&self.store);
         let store = store.as_ref();
         match msg {
             Msg::Close => {
-                println!("SETTINGS:CLOSE:PASS");
+                evidence!("CLOSE:PASS");
                 ui.quit();
             }
             Msg::Section(i) => {

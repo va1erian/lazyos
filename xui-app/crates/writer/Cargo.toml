@@ -1,7 +1,7 @@
 # LazyWriter's portable core (issue #533): the app state, commands, file logic
 # and widget tree, ported from xui's `crates/xui-rich-text/examples/wordpad`.
 # The `writer` binary in `xui-app/src/bin/writer.rs` supplies the LazyOS side
-# (backend, fonts, atomic writes, the default folder) through `Host`, so this
+# (backend, fonts, atomic writes, the default folder) through `AppHost`, so this
 # crate builds and tests on the host.
 [package]
 name = "xui-writer"
@@ -22,6 +22,7 @@ xui-canvas = { git = "https://github.com/va1erian/xui", rev = "832c61f29419bf31a
 ipp = { path = "../../../libs/ipp", features = ["std"] }
 raster = { path = "../../../libs/raster" }
 printd = { path = "../printd" }
+xui-host = { path = "../host" }
 
 [dev-dependencies]
 # The loopback IPP printer the print tests send to.

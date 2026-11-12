@@ -9,6 +9,12 @@ use xui_rich_text::format::{FormatError, to_json};
 use xui_rich_text::model::{Document, EditOp};
 
 use super::*;
+use xui_host::testing::StdHost;
+
+/// A host over plain `std::fs`.
+fn std_host(dir: &Path) -> SharedHost {
+    std::rc::Rc::new(StdHost::new(dir))
+}
 
 /// A unique folder under the system temp dir, removed on drop.
 struct TempDir(PathBuf);
@@ -97,10 +103,10 @@ fn a_missing_file_is_a_read_error() {
 #[test]
 fn a_saved_document_opens_again_with_its_picture() {
     let dir = TempDir::new("roundtrip");
-    let host = Host::std(&dir.0);
+    let host = std_host(&dir.0);
     let path = dir.file("doc.lzw");
     let doc = document_with_picture();
-    save_document(&host, &path, &doc).unwrap();
+    save_document(&*host, &path, &doc).unwrap();
     let back = open_document(&path).unwrap();
     assert_eq!(back.to_plain_text(), doc.to_plain_text());
     assert_eq!(back.objects().len(), 1);
@@ -119,7 +125,7 @@ fn a_txt_file_opens_as_plain_text() {
 #[test]
 fn export_writes_markdown_and_an_images_folder() {
     let dir = TempDir::new("export");
-    let host = Host::std(&dir.0);
+    let host = std_host(&dir.0);
     let md = dir.file("trip.md");
     export_markdown(&host, &md, &document_with_picture()).unwrap();
     let text = std::fs::read_to_string(&md).unwrap();
@@ -131,7 +137,7 @@ fn export_writes_markdown_and_an_images_folder() {
 #[test]
 fn export_without_pictures_makes_no_folder() {
     let dir = TempDir::new("export-plain");
-    let host = Host::std(&dir.0);
+    let host = std_host(&dir.0);
     let md = dir.file("plain.md");
     export_markdown(&host, &md, &Document::from_plain_text("Just words")).unwrap();
     assert!(std::fs::read_to_string(&md).unwrap().contains("Just words"));
@@ -145,7 +151,7 @@ fn an_images_folder_that_is_a_symlink_is_refused() {
     let elsewhere = dir.file("elsewhere");
     std::fs::create_dir(&elsewhere).unwrap();
     std::os::unix::fs::symlink(&elsewhere, dir.file("trip_images")).unwrap();
-    let host = Host::std(&dir.0);
+    let host = std_host(&dir.0);
     let error = export_markdown(&host, &dir.file("trip.md"), &document_with_picture()).unwrap_err();
     assert!(error.contains("symbolic link"), "{error}");
     assert_eq!(
@@ -159,9 +165,9 @@ fn an_images_folder_that_is_a_symlink_is_refused() {
 #[test]
 fn a_failed_write_is_reported() {
     let dir = TempDir::new("fail");
-    let mut host = Host::std(&dir.0);
-    host.write = std::rc::Rc::new(|_, _| Err("disk full".to_owned()));
-    let error = save_document(&host, &dir.file("x.lzw"), &Document::new()).unwrap_err();
+    let host: SharedHost =
+        std::rc::Rc::new(StdHost::new(&dir.0).on_write(|_, _| Err("disk full".to_owned())));
+    let error = save_document(&*host, &dir.file("x.lzw"), &Document::new()).unwrap_err();
     assert_eq!(error, "disk full");
     let error = export_markdown(&host, &dir.file("x.md"), &document_with_picture()).unwrap_err();
     assert_eq!(error, "disk full");

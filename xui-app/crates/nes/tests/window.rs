@@ -74,9 +74,10 @@ impl Host for Fake {
     fn app_dir(&self) -> PathBuf {
         self.dir.clone()
     }
-    fn default_dir(&self) -> PathBuf {
-        self.dir.clone()
+    fn recent(&self) -> Vec<PathBuf> {
+        Vec::new()
     }
+    fn remember(&self, _rom: &std::path::Path) {}
     fn sample_rom(&self) -> Option<PathBuf> {
         None
     }
@@ -168,7 +169,12 @@ fn drive(dir: PathBuf, step: impl FnOnce(&Stage<'_, Msg>, &Rig) + 'static) -> Im
                 muted: false,
             };
             let session = Session::new(dir.clone(), 48_000.0);
-            let app = NesApp::build(ui, Rc::new(RefCell::new(host)), session)?;
+            let app = NesApp::build(
+                ui,
+                Rc::new(RefCell::new(host)),
+                Rc::new(xui_host::testing::StdHost::new(dir)),
+                session,
+            )?;
             *build_rig.screen.borrow_mut() = Some(app.screen());
             Ok(app)
         },

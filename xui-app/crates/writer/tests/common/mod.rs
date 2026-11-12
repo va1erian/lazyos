@@ -13,8 +13,9 @@ use xui_canvas::snapshot::{Snapshot, Stage, render_with};
 use xui_core::backend::BackendError;
 use xui_core::widget::{Edit, Label, StatusBar, ToggleButton};
 use xui_core::{Dip, Image, Theme};
+use xui_host::testing::StdHost;
 use xui_rich_text::RichTextEditor;
-use xui_writer::{Host, Msg};
+use xui_writer::{Msg, Services, SharedHost};
 
 /// The window size the LazyOS binary asks for.
 pub const WIDTH: f32 = 960.0;
@@ -111,12 +112,12 @@ pub fn pump(stage: &Stage<'_, Msg>) {
     stage.hover(500, 500);
 }
 
-/// A host over `dir` with the bundled families.
-pub fn host(dir: &std::path::Path) -> Host {
-    let mut host = Host::std(dir);
-    host.serif_family = "Droid Serif".into();
-    host.mono_family = "JetBrains Mono".into();
-    host
+/// A host over `dir` and the bundled families.
+pub fn host(dir: &std::path::Path) -> (SharedHost, Services) {
+    let mut services = Services::std();
+    services.serif_family = "Droid Serif".into();
+    services.mono_family = "JetBrains Mono".into();
+    (Rc::new(StdHost::new(dir).channel("WRITER")), services)
 }
 
 /// Renders the whole window in `theme` after `step` drives it.
@@ -130,7 +131,10 @@ pub fn render(
     render_with(
         Snapshot::new(Dip(WIDTH), Dip(HEIGHT)).theme(theme),
         move |ui| {
-            let app = xui_writer::ui::build(ui, host(&dir))?;
+            let app = {
+                let (host, services) = host(&dir);
+                xui_writer::ui::build(ui, host, services)?
+            };
             *built.borrow_mut() = Some(Rig {
                 editor: Rc::clone(&app.editor),
                 status: Rc::clone(&app.status),

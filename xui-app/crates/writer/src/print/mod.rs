@@ -3,7 +3,7 @@
 //! Printing to an IPP Everywhere printer such as the HP DeskJet 3700
 //! (docs/printing-plan.md): the print bar's choices ([`Options`]) and
 //! rendering pages to PWG Raster ([`render`]). The job itself is the print
-//! spooler's (`printd`, through [`crate::Host::print_queue`]).
+//! spooler's (`printd`, through [`crate::Services::print_queue`]).
 //!
 //! Pages are rendered on the UI thread, one per timer tick, because the
 //! document and its shaper live there; the encoded bytes go to the spooler,

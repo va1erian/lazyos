@@ -169,7 +169,8 @@ fn ask(path: &Path, package: Package) -> ExitCode {
     xui_app::app(Channel::Installer, "Run from development")
         .size(560, 400)
         .min_size(420, 300)
-        .run(move |ui, backend| {
+        .run(move |ui, cx| {
+            let backend = cx.backend();
             let permissions = package.permissions.len();
             backend.on_first_frame(move || {
                 trace::line!(Channel::Installer, "DEVELOP:ASK perms={permissions}")

@@ -4,6 +4,7 @@
 
 use audioclient::{control_wire as control, MixerControl, Transport};
 use trayclient::{menu_row, wire};
+use xui_app::context::user_key;
 use xui_app::platform::confd_store::ConfdStore;
 use xui_app::trace::{self, Channel};
 use xui_settings::store::{ConfigStore, Value};
@@ -89,7 +90,7 @@ impl Outputs {
 
 fn key() -> Option<String> {
     let uid = ConfdStore::new().uid()?;
-    Some(format!("user/{uid}/audio/output"))
+    Some(user_key(uid, "audio", "output"))
 }
 
 /// The output this user picked last.

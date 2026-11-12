@@ -16,11 +16,11 @@ use xui_core::backend::{Result, WidgetId};
 use xui_core::geometry::{Rect, Size};
 use xui_core::layout::Constraints;
 use xui_core::widget::{
-    Button, CheckBox, Dialog, Edit, FileDialog, Label, Menu, MenuId, Placeable,
+    Button, CheckBox, Dialog, DialogAction, Edit, Label, Menu, MenuId, Placeable,
 };
 use xui_core::Dip;
 
-use xui_core::widget::StdFileSystem;
+use xui_app::AppContext;
 
 use crate::app::{FindBar, Msg, Notepad};
 
@@ -132,7 +132,7 @@ fn new_editor(ui: &Ui<Msg>) -> Result<EditorPane<Msg>> {
 }
 
 /// Builds the app's widgets and mounts the layout.
-pub fn build(ui: &Ui<Msg>) -> Result<Notepad> {
+pub fn build(ui: &Ui<Msg>, cx: &AppContext) -> Result<Notepad> {
     let editor = Handle::new();
     let find = FindHandles::default();
     let status = Handle::new();
@@ -152,7 +152,7 @@ pub fn build(ui: &Ui<Msg>) -> Result<Notepad> {
         "This document has unsaved changes. Discard them?",
     )?
     .on_action(dialog_msg);
-    let message = Dialog::message(ui, "Error", "")?.on_action(dialog_msg);
+    let message = cx.error(ui, "Error", || Some(Msg::Dialog(DialogAction::Cancel)))?;
 
     let dialog_open = Rc::new(Cell::new(false));
     let find_open = Rc::new(Cell::new(false));
@@ -166,12 +166,10 @@ pub fn build(ui: &Ui<Msg>) -> Result<Notepad> {
             None
         }
     };
-    let open_dialog = FileDialog::open_file(ui, "Open")?
-        .file_system(Rc::new(StdFileSystem))
+    let open_dialog = cx
+        .open_dialog(ui, "Open", &[], cancel)?
         .initial_dir(START_DIR)
-        .require_existing(true)
-        .on_accept(|path| Some(Msg::OpenChosen(path)))
-        .on_cancel(cancel);
+        .on_accept(|path| Some(Msg::OpenChosen(path)));
     let cancel = {
         let editor = Rc::clone(&editor);
         let dialog_open = Rc::clone(&dialog_open);
@@ -181,13 +179,15 @@ pub fn build(ui: &Ui<Msg>) -> Result<Notepad> {
             None
         }
     };
-    let save_dialog = FileDialog::save_file(ui, "Save As")?
-        .file_system(Rc::new(StdFileSystem))
+    let save_dialog = cx
+        .save_dialog(
+            ui,
+            "Save As",
+            &[("Text files", &["txt", "md", "rs"]), ("All files", &[])],
+            cancel,
+        )?
         .initial_dir(START_DIR)
-        .filter("Text files", &["txt", "md", "rs"])
-        .filter("All files", &[])
-        .on_accept(|path| Some(Msg::SaveChosen(path)))
-        .on_cancel(cancel);
+        .on_accept(|path| Some(Msg::SaveChosen(path)));
     ui.on_close(|| Some(Msg::CloseRequested));
     {
         let dialog_open = Rc::clone(&dialog_open);

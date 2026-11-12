@@ -34,8 +34,8 @@ fn main() {
         // The editor re-flows its text area and line numbers to the window size.
         .min_size(400, 300)
         .opens(Msg::OpenChosen)
-        .run(|ui, _| {
-            let mut notepad = ui::build(ui)?;
+        .run(|ui, cx| {
+            let mut notepad = ui::build(ui, cx)?;
             // Title the window ("Untitled - Editor") before the first frame.
             commands::refresh(&mut notepad, ui);
             Ok(notepad)

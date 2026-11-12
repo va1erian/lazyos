@@ -41,6 +41,14 @@ if trace::enabled(Channel::Ui) { /* work that only feeds a trace */ }
   (`UI:STALL`) and `lazyrad_os::marker::Markers` are thin layers over it:
   use them, do not reimplement them. A `Markers` panic hook (`install_panic_hook`)
   reports a crash on the console.
+- **A portable crate reports through its host.** A crate under
+  `xui-app/crates/` that `xui-app` depends on cannot call `xui_app::trace`.
+  With an `xui_host::AppHost` in reach it calls `xui_host::report!(host,
+  "OPEN:PASS:{path}")`; from a free function or a worker answer it calls
+  `xui_host::evidence!("MSG:{msg:?}")`. The text is what follows the channel
+  prefix, and `AppContext` writes it as a `trace::line!` on the app's channel
+  (docs/client-api-plan.md 4.2). Host tests use `xui_host::testing::StdHost`,
+  which records the lines with the prefix.
 - **A line with free text keeps it last and unquoted** (`name=<text>`):
   session scripts parse to the end of the line. Use `trace::line!` for that
   shape, `event!` for `key=value` fields.

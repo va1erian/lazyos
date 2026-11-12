@@ -7,7 +7,7 @@
 //! ([`app`]), the commands ([`commands`]), the file logic ([`files`],
 //! [`names`], [`probe`]), the page setup choices ([`page`]) and the widget
 //! tree ([`ui`]). What it needs from the
-//! system it runs on comes in through [`Host`]; the LazyOS `writer` binary
+//! system it runs on comes in through [`AppHost`] and [`Services`]; the LazyOS `writer` binary
 //! (`xui-app/src/bin/writer.rs`) supplies the backend, fonts, atomic writes
 //! and the start folder.
 //!
@@ -18,12 +18,13 @@
 pub mod app;
 pub mod commands;
 pub mod files;
-pub mod host;
 pub mod names;
 pub mod page;
 pub mod print;
 pub mod probe;
+pub mod services;
 pub mod ui;
 
 pub use app::{Msg, Writer};
-pub use host::Host;
+pub use services::Services;
+pub use xui_host::{AppHost, SharedHost};

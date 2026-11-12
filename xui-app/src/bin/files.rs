@@ -196,7 +196,8 @@ fn main() {
 
     xui_app::app(Channel::Files, "Files")
         .size(WINDOW.0, WINDOW.1)
-        .run(move |ui, backend| {
+        .run(move |ui, cx| {
+            let backend = cx.backend();
             let launcher = ReportingLauncher {
                 backend: Rc::clone(backend),
             };

@@ -14,7 +14,7 @@ use xui_core::widget::{Button, ComboBox, Lucide, Placeable, ToggleButton, Toolti
 use xui_rich_text::model::{Align, BlockKind, ListKind, Side, StyleSummary, Tri, Wrap};
 
 use crate::app::{Mark, Msg};
-use crate::host::Host;
+use crate::services::Services;
 
 /// The block kinds the picker offers, in order.
 pub const BLOCKS: [&str; 5] = ["Normal", "Heading 1", "Heading 2", "Heading 3", "Quote"];
@@ -183,7 +183,7 @@ impl Tools {
     }
 
     /// Shows `s` in the controls; a mixed attribute shows as off.
-    pub fn sync(&self, s: &StyleSummary, host: &Host) {
+    pub fn sync(&self, s: &StyleSummary, services: &Services) {
         let on = |tri: &Tri<bool>| matches!(tri, Tri::Uniform(true));
         for (button, tri) in self
             .marks
@@ -214,7 +214,7 @@ impl Tools {
         if let Tri::Uniform(family) = &s.family {
             self.family
                 .get()
-                .select(family_index(family.as_deref(), host));
+                .select(family_index(family.as_deref(), services));
         }
         if let Tri::Uniform(size) = s.size
             && let Some(index) = SIZES.iter().position(|&v| v == size.0)
@@ -242,10 +242,10 @@ impl Tools {
 
 /// The picker index of a run's family: Serif or Mono by the host's names,
 /// anything else (the default face) Sans.
-pub fn family_index(family: Option<&str>, host: &Host) -> usize {
+pub fn family_index(family: Option<&str>, services: &Services) -> usize {
     match family {
-        Some(name) if name == host.serif_family => 1,
-        Some(name) if name == host.mono_family => 2,
+        Some(name) if name == services.serif_family => 1,
+        Some(name) if name == services.mono_family => 2,
         _ => 0,
     }
 }
@@ -307,13 +307,13 @@ mod tests {
 
     #[test]
     fn a_family_maps_to_its_picker_entry() {
-        let mut host = Host::std("/");
-        host.serif_family = "Droid Serif".into();
-        host.mono_family = "JetBrains Mono".into();
-        assert_eq!(family_index(None, &host), 0);
-        assert_eq!(family_index(Some("Droid Sans"), &host), 0);
-        assert_eq!(family_index(Some("Droid Serif"), &host), 1);
-        assert_eq!(family_index(Some("JetBrains Mono"), &host), 2);
+        let mut services = Services::std();
+        services.serif_family = "Droid Serif".into();
+        services.mono_family = "JetBrains Mono".into();
+        assert_eq!(family_index(None, &services), 0);
+        assert_eq!(family_index(Some("Droid Sans"), &services), 0);
+        assert_eq!(family_index(Some("Droid Serif"), &services), 1);
+        assert_eq!(family_index(Some("JetBrains Mono"), &services), 2);
         assert_eq!(FAMILIES.len(), 3);
     }
 }

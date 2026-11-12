@@ -163,7 +163,8 @@ fn paint(canvas: &mut dyn Canvas, theme: Theme, state: &State) {
 fn main() {
     xui_app::app(Channel::Widget, "widget")
         .size(WINDOW.0, WINDOW.1)
-        .run(|ui, backend| {
+        .run(|ui, cx| {
+            let backend = cx.backend();
             let state = Rc::new(RefCell::new(State::load()));
             {
                 let state = Rc::clone(&state);

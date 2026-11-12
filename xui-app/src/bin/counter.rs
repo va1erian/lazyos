@@ -97,7 +97,8 @@ fn layout(
 fn main() {
     xui_app::app(Channel::Xuiapp, "xui counter")
         .size(WINDOW.0, WINDOW.1)
-        .run(|ui, backend| {
+        .run(|ui, cx| {
+            let backend = cx.backend();
             // The sessions wait for this line, not `XUIAPP:UP:PASS`.
             backend.on_first_frame(|| trace::line!(Channel::Xuiapp, "COUNTER:PASS"));
             let scale = backend.scale() as i32;

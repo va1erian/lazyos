@@ -16,12 +16,13 @@
 //! `NES:QUIT:PASS` on quit; `NES:FAIL:<what>` for anything refused.
 
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use xui_app::platform::audio::{Audio, Params, PlaybackStream};
 use xui_app::platform::dirs;
 use xui_app::trace::{self, Channel};
+use xui_host::recent::Recent;
 use xui_nes::host::{Host, Report};
 use xui_nes::{Msg, NesApp, Session, WINDOW};
 
@@ -42,6 +43,8 @@ struct Platform {
     /// The app's directory (`$HOME/.apps/os.lazy.nes`).
     dir: PathBuf,
     muted: bool,
+    /// The ROMs opened last, kept in the app's settings (`confd`).
+    recent: Option<Rc<Recent>>,
 }
 
 /// An open mixer stream, converted to whatever the mixer granted.
@@ -61,6 +64,7 @@ impl Platform {
             stream: None,
             dir,
             muted: false,
+            recent: None,
         };
         let Some(audio) = Audio::try_connect() else {
             trace::fail!(Channel::Nes, "SOUND", "no mixer");
@@ -177,8 +181,14 @@ impl Host for Platform {
         self.dir.clone()
     }
 
-    fn default_dir(&self) -> PathBuf {
-        xui_app::platform::dirs::default_dir()
+    fn recent(&self) -> Vec<PathBuf> {
+        self.recent.as_ref().map(|r| r.list()).unwrap_or_default()
+    }
+
+    fn remember(&self, rom: &Path) {
+        if let Some(recent) = &self.recent {
+            recent.push(rom);
+        }
     }
 
     fn sample_rom(&self) -> Option<PathBuf> {
@@ -210,10 +220,12 @@ fn main() {
         .min_size(320, 260)
         .opens(Msg::RomChosen)
         .drops(rom_dropped)
-        .run(|ui, _| {
+        .run(|ui, cx| {
+            let mut platform = platform;
+            platform.recent = Some(cx.recent());
             let host: Rc<RefCell<dyn Host>> = Rc::new(RefCell::new(platform));
             let session = Session::new(host.borrow().app_dir(), rate);
-            NesApp::build(ui, host, session).inspect_err(|error| {
+            NesApp::build(ui, host, cx.host(), session).inspect_err(|error| {
                 trace::fail!(Channel::Nes, "BUILD", "{error}");
             })
         })

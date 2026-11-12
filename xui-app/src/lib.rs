@@ -16,6 +16,8 @@
 pub mod backend;
 pub mod client_window;
 pub mod compact;
+pub mod context;
+pub use context::AppContext;
 pub mod cursor;
 pub mod dashboard;
 pub mod devinfo;
