@@ -119,10 +119,22 @@ pub fn from_wire(value: &wire::Value) -> Option<Value> {
     }
 }
 
+impl ConfdStore {
+    /// `Ok(None)` for a key that is not there, `Err` for a read that failed
+    /// (a timeout, a refusal): [`ConfigStore::get`] cannot tell them apart.
+    pub fn try_get(&self, key: &str) -> Result<Option<Value>, SettingsError> {
+        match self.call(|confd| confd.get(key))? {
+            None => Ok(None),
+            Some(wire) => from_wire(&wire)
+                .map(Some)
+                .ok_or_else(|| format!("confd value of {key} is malformed")),
+        }
+    }
+}
+
 impl ConfigStore for ConfdStore {
     fn get(&self, key: &str) -> Option<Value> {
-        let value = self.call(|confd| confd.get(key)).ok()??;
-        from_wire(&value)
+        self.try_get(key).ok().flatten()
     }
 
     fn set(&self, key: &str, value: Value) -> Result<(), SettingsError> {

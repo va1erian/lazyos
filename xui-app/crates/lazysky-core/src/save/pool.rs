@@ -185,7 +185,7 @@ fn fetch_and_write(http: &Http, job: &SaveJob) -> Result<u64, String> {
     if let Some(dir) = job.path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
-    if let Err(e) = atomicfile::write(&job.path, &response.body) {
+    if let Err(e) = atomicfile::write_durable(&job.path, &response.body) {
         return Err(format!("{}: {e}", job.path.display()));
     }
     Ok(response.body.len() as u64)

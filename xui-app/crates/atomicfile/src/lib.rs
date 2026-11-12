@@ -3,12 +3,17 @@
 //! The one atomic file write of the desktop apps.
 //!
 //! A reader of the target sees the old bytes or the new ones, never half a
-//! file, and a power cut cannot leave the new name on empty data: the temp
-//! file is created exclusively next to the target (so the rename stays on one
-//! filesystem and a planted link at a guessed name is never followed), written,
-//! synced and given the target's permissions, renamed over it, and the
-//! directory is synced so the rename itself reaches the disk. A target that is
-//! a symlink is refused: LazyOS never writes through a link.
+//! file. The temp file is created exclusively next to the target (so the
+//! rename stays on one filesystem and a planted link at a guessed name is
+//! never followed), private (mode 0600) until it has the target's permissions,
+//! written, and renamed over the target. A target that is a symlink is
+//! refused: LazyOS never writes through a link.
+//!
+//! [`write`] is write-back, like every other write on LazyOS (the block cache
+//! commits within seconds): for settings, caches and history. [`write_durable`]
+//! also syncs the file before the rename and the directory after it, so a
+//! power cut cannot leave the new name on empty data: for a document the user
+//! saved.
 //!
 //! On any failure the temp file is removed and the original is untouched.
 
@@ -20,8 +25,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// How many temp names a write tries before giving up.
 const TEMP_TRIES: usize = 8;
 
-/// Writes `bytes` to `path` atomically (see the module docs).
+/// Writes `bytes` to `path` atomically, leaving the disk write to the cache
+/// (see the module docs).
 pub fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_with(path, bytes, false)
+}
+
+/// [`write`] that has the bytes and the rename on the disk when it returns:
+/// a user's document. Slow (two syncs); never on a UI thread.
+pub fn write_durable(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_with(path, bytes, true)
+}
+
+fn write_with(path: &Path, bytes: &[u8], durable: bool) -> io::Result<()> {
     let permissions = match fs::symlink_metadata(path) {
         Ok(meta) if meta.file_type().is_symlink() => {
             return Err(io::Error::new(
@@ -33,21 +49,20 @@ pub fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
         Err(_) => None,
     };
     let (temp, mut file) = create_temp(path)?;
-    let result = file
-        .write_all(bytes)
+    let result = permissions
+        .map_or(Ok(()), |permissions| file.set_permissions(permissions))
+        .and_then(|()| file.write_all(bytes))
         .and_then(|()| file.flush())
-        .and_then(|()| file.sync_all())
-        .and_then(|()| match permissions {
-            Some(permissions) => fs::set_permissions(&temp, permissions),
-            None => Ok(()),
-        });
+        .and_then(|()| if durable { file.sync_all() } else { Ok(()) });
     drop(file);
     let result = result.and_then(|()| fs::rename(&temp, path));
     if result.is_err() {
         let _ = fs::remove_file(&temp);
         return result;
     }
-    sync_dir(path);
+    if durable {
+        sync_dir(path);
+    }
     Ok(())
 }
 
@@ -64,11 +79,11 @@ fn create_temp(target: &Path) -> io::Result<(PathBuf, fs::File)> {
             .unwrap_or_default();
         name.push(format!(".tmp-{}-{n}", std::process::id()));
         let temp = target.with_file_name(name);
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp)
-        {
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        match options.open(&temp) {
             Ok(file) => return Ok((temp, file)),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => last = Some(error),
             Err(error) => return Err(error),
@@ -152,6 +167,37 @@ mod tests {
         }
         write(&path, b"ok").unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"ok");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_durable_write_replaces_too() {
+        let dir = scratch("durable");
+        let path = dir.join("a.txt");
+        write_durable(&path, b"one").unwrap();
+        write_durable(&path, b"two").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"two");
+        assert_eq!(names(&dir), ["a.txt"]);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_new_file_is_private_and_an_old_one_keeps_its_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("mode");
+        let path = dir.join("new");
+        write(&path, b"x").unwrap();
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        write(&path, b"y").unwrap();
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o644
+        );
         let _ = fs::remove_dir_all(dir);
     }
 

@@ -81,11 +81,6 @@ pub(crate) struct Setup {
     pub(crate) ask_before_close: bool,
     pub(crate) client_only: bool,
     pub(crate) display_wait: Duration,
-    /// The `confd` subtree name under `user/<uid>/` (the channel's prefix in
-    /// lower case unless the app says otherwise).
-    pub(crate) settings_id: Option<String>,
-    /// The package's system name, the folder under `<home>/.apps`.
-    pub(crate) system_name: Option<String>,
 }
 
 impl Setup {
@@ -158,11 +153,29 @@ pub fn app(channel: Channel, title: &str) -> AppBuilder {
             ask_before_close: false,
             client_only: false,
             display_wait: Duration::ZERO,
-            settings_id: None,
-            system_name: None,
         },
         files: NoFiles,
         at_exit: None,
+    }
+}
+
+impl AppBuilder<NoFiles> {
+    /// A tray app with a window it opens on demand (`Resident::window`). Only
+    /// before [`AppBuilder::opens`] and [`AppBuilder::drops`], which a tray
+    /// app has no use for.
+    pub fn resident(self) -> ResidentApp {
+        ResidentApp {
+            setup: self.setup,
+            windowed: true,
+        }
+    }
+
+    /// A tray app with no window at all, so it needs no display permission.
+    pub fn windowless(self) -> ResidentApp {
+        ResidentApp {
+            setup: self.setup,
+            windowed: false,
+        }
     }
 }
 
@@ -203,43 +216,12 @@ impl<F> AppBuilder<F> {
         self
     }
 
-    /// The name of the app's `confd` subtree (`user/<uid>/<id>/..`, what
-    /// `AppContext::settings` reads and writes) when it is not the channel's
-    /// prefix in lower case: the volume applet keeps `audio`.
-    pub fn settings_id(mut self, id: &str) -> Self {
-        self.setup.settings_id = Some(id.to_owned());
-        self
-    }
-
-    /// The app's package system name (`os.lazy.nes`): the folder
-    /// `AppContext::dirs().app_data()` names under `<home>/.apps`.
-    pub fn system_name(mut self, name: &str) -> Self {
-        self.setup.system_name = Some(name.to_owned());
-        self
-    }
-
     /// Cleanup that runs once the window is closed and the display released,
     /// before `QUIT`. Returning `false` reports a failed exit (status 1, no
     /// `QUIT`): LazyWeb's children that outlived the window.
     pub fn at_exit(mut self, cleanup: impl FnOnce() -> bool + 'static) -> Self {
         self.at_exit = Some(Box::new(cleanup));
         self
-    }
-
-    /// A tray app with a window it opens on demand (`Resident::window`).
-    pub fn resident(self) -> ResidentApp {
-        ResidentApp {
-            setup: self.setup,
-            windowed: true,
-        }
-    }
-
-    /// A tray app with no window at all, so it needs no display permission.
-    pub fn windowless(self) -> ResidentApp {
-        ResidentApp {
-            setup: self.setup,
-            windowed: false,
-        }
     }
 
     /// For a host that runs its own event loop on the connected backend (the
@@ -294,6 +276,9 @@ impl<F> AppBuilder<F> {
     }
 }
 
+/// The longest an exit waits for queued settings saves.
+const SAVE_GRACE: Duration = Duration::from_millis(500);
+
 /// Releases the display, runs the app's cleanup and exits: `RUN:FAIL`
 /// (status 1) when the loop failed, `QUIT` (status 0) otherwise.
 fn exit<E: std::fmt::Display>(
@@ -303,6 +288,9 @@ fn exit<E: std::fmt::Display>(
     at_exit: Option<Box<dyn FnOnce() -> bool>>,
 ) -> ! {
     backend.unbind();
+    // The worker threads end with the process: let the settings queued in the
+    // app's last moments reach `confd` first.
+    xui_host::settings::flush(SAVE_GRACE);
     let clean = at_exit.is_none_or(|cleanup| cleanup());
     let ran = outcome.is_ok();
     let status = finish(setup.channel, outcome);
@@ -342,6 +330,7 @@ impl ResidentApp {
         if let Some(backend) = &res.backend {
             backend.unbind();
         }
+        xui_host::settings::flush(SAVE_GRACE);
         trace::pass!(channel, "QUIT");
         std::process::exit(0)
     }

@@ -10,8 +10,8 @@ use crate::platform::confd_store::ConfdStore;
 pub(super) struct ConfdKv;
 
 impl KeyValue for ConfdKv {
-    fn get(&self, key: &str) -> Option<Value> {
-        ConfigStore::get(&ConfdStore::new(), key)
+    fn get(&self, key: &str) -> Result<Option<Value>, String> {
+        ConfdStore::new().try_get(key)
     }
 
     fn set(&self, key: &str, value: Value) -> Result<(), String> {

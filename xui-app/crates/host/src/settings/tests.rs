@@ -41,9 +41,12 @@ fn a_change_lands_in_one_key_per_field_and_reads_back() {
         p.window.width = 640;
         p.printer = Some("lp".into());
     });
-    assert_eq!(kv.get("user/1000/demo/window/width"), Some(Value::I64(640)));
     assert_eq!(
-        kv.get("user/1000/demo/font"),
+        kv.get("user/1000/demo/window/width").unwrap(),
+        Some(Value::I64(640))
+    );
+    assert_eq!(
+        kv.get("user/1000/demo/font").unwrap(),
         Some(Value::Str("Mono".into()))
     );
     let again = open(&kv);
@@ -84,7 +87,7 @@ fn only_what_changed_is_written() {
     // An unchanged field is not written back over another writer's value.
     settings.update(|p| p.wrap = true);
     assert_eq!(
-        kv.get("user/7/demo/font"),
+        kv.get("user/7/demo/font").unwrap(),
         Some(Value::Str("outside".into()))
     );
 }
@@ -94,9 +97,9 @@ fn unsetting_an_option_deletes_its_key() {
     let kv = Rc::new(MemKv::new(7));
     let settings = open(&kv);
     settings.update(|p| p.printer = Some("lp".into()));
-    assert!(kv.get("user/7/demo/printer").is_some());
+    assert!(kv.get("user/7/demo/printer").unwrap().is_some());
     settings.update(|p| p.printer = None);
-    assert!(kv.get("user/7/demo/printer").is_none());
+    assert!(kv.get("user/7/demo/printer").unwrap().is_none());
 }
 
 #[test]
@@ -115,8 +118,8 @@ fn the_worker_saves_off_the_calling_thread() {
 
     struct Shared(Arc<Mutex<BTreeMap<String, Value>>>);
     impl KeyValue for Shared {
-        fn get(&self, key: &str) -> Option<Value> {
-            self.0.lock().unwrap().get(key).cloned()
+        fn get(&self, key: &str) -> Result<Option<Value>, String> {
+            Ok(self.0.lock().unwrap().get(key).cloned())
         }
         fn set(&self, key: &str, value: Value) -> Result<(), String> {
             self.0.lock().unwrap().insert(key.to_owned(), value);
@@ -146,4 +149,107 @@ fn the_worker_saves_off_the_calling_thread() {
         map.lock().unwrap().get("user/5/demo/font"),
         Some(&Value::Str("Serif".into()))
     );
+}
+
+#[test]
+fn a_failed_read_is_not_a_missing_key_and_is_never_written_over() {
+    let kv = Rc::new(MemKv::new(7));
+    kv.put("user/7/demo/font", Value::Str("Mono".into()));
+    kv.put("user/7/demo/wrap", Value::Bool(true));
+    kv.fail_reads(true);
+    let settings = open(&kv);
+    assert_eq!(settings.get().font, "");
+    kv.fail_reads(false);
+    settings.update(|p| p.scale = 2.0);
+    // The save wrote the field the user changed and left the unreadable
+    // ones at their default alone.
+    assert_eq!(
+        kv.get("user/7/demo/font").unwrap(),
+        Some(Value::Str("Mono".into()))
+    );
+    assert_eq!(kv.get("user/7/demo/wrap").unwrap(), Some(Value::Bool(true)));
+    assert!(kv.get("user/7/demo/scale").unwrap().is_some());
+}
+
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
+struct Optional {
+    ratio: Option<f64>,
+    list: Option<Vec<String>>,
+    count: Option<u32>,
+    name: String,
+}
+
+#[test]
+fn optional_floats_and_lists_round_trip() {
+    let kv = Rc::new(MemKv::new(3));
+    let settings: Settings<Optional> =
+        Settings::open(kv.as_ref(), "opt", Saver::Inline(kv.clone()));
+    let want = Optional {
+        ratio: Some(1.5),
+        list: Some(vec!["a".into(), "b".into()]),
+        count: Some(4),
+        name: "n".into(),
+    };
+    settings.set(want.clone());
+    let again: Settings<Optional> = Settings::open(kv.as_ref(), "opt", Saver::Inline(kv.clone()));
+    assert_eq!(*again.get(), want);
+}
+
+#[test]
+fn one_bad_leaf_does_not_reset_the_others() {
+    let kv = Rc::new(MemKv::new(3));
+    kv.put("user/3/opt/ratio", Value::Str("not a number".into()));
+    kv.put("user/3/opt/count", Value::Str("lots".into()));
+    kv.put("user/3/opt/name", Value::Str("kept".into()));
+    let settings: Settings<Optional> =
+        Settings::open(kv.as_ref(), "opt", Saver::Inline(kv.clone()));
+    assert_eq!(settings.get().name, "kept");
+    assert_eq!(settings.get().ratio, None);
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct WithMap {
+    by_name: BTreeMap<String, u32>,
+}
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "not supported")]
+fn a_map_field_is_refused() {
+    let kv = Rc::new(MemKv::new(3));
+    let settings: Settings<WithMap> = Settings::open(kv.as_ref(), "map", Saver::Inline(kv.clone()));
+    settings.update(|p| {
+        p.by_name.insert("../x".into(), 1);
+    });
+}
+
+#[test]
+fn flush_waits_for_the_queued_saves() {
+    use std::time::Duration;
+    struct Slow(Arc<Mutex<BTreeMap<String, Value>>>);
+    impl KeyValue for Slow {
+        fn get(&self, _: &str) -> Result<Option<Value>, String> {
+            Ok(None)
+        }
+        fn set(&self, key: &str, value: Value) -> Result<(), String> {
+            std::thread::sleep(Duration::from_millis(150));
+            self.0.lock().unwrap().insert(key.to_owned(), value);
+            Ok(())
+        }
+        fn delete(&self, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn uid(&self) -> Option<u32> {
+            Some(5)
+        }
+    }
+    let map = Arc::new(Mutex::new(BTreeMap::new()));
+    let factory_map = Arc::clone(&map);
+    let factory: Factory = Arc::new(move || Box::new(Slow(Arc::clone(&factory_map))));
+    let settings: Settings<Prefs> =
+        Settings::open(&Slow(Arc::clone(&map)), "demo", Saver::Worker(factory));
+    settings.update(|p| p.font = "Serif".into());
+    assert!(map.lock().unwrap().is_empty());
+    flush(Duration::from_secs(5));
+    assert!(map.lock().unwrap().contains_key("user/5/demo/font"));
 }

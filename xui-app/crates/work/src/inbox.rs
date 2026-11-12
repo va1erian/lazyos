@@ -8,7 +8,7 @@
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 use xui_core::app::Proxy;
 
@@ -46,8 +46,12 @@ pub fn inbox_with<T: Send + 'static>(
         queue: Mutex::new(VecDeque::new()),
         rung: AtomicBool::new(false),
     });
-    let pusher = Arc::clone(&shared);
+    // Weak: a dropped `Inbox` is how a worker learns nobody wants results.
+    let pusher = Arc::downgrade(&shared);
     let sink = Sink::from_fn(move |value| {
+        let Some(pusher) = Weak::upgrade(&pusher) else {
+            return false;
+        };
         pusher
             .queue
             .lock()
@@ -112,5 +116,13 @@ mod tests {
         assert_eq!(rings.load(Ordering::SeqCst), 2);
         assert_eq!(inbox.drain().len(), 98);
         assert!(inbox.is_empty());
+    }
+
+    #[test]
+    fn a_dropped_inbox_makes_send_return_false() {
+        let (sink, inbox) = inbox_with(|| true);
+        assert!(sink.send(1));
+        drop(inbox);
+        assert!(!sink.send(2));
     }
 }

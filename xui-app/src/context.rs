@@ -11,15 +11,13 @@
 //!
 //! * [`AppContext::settings`]: a typed store over `confd` at
 //!   `user/<uid>/<settings id>/..`, loaded once and saved off the UI thread;
-//! * [`AppContext::dirs`]: home, documents, downloads, app data, transient;
 //! * [`AppContext::recent`]: the app's recent files, kept through settings;
-//! * [`AppContext::open_dialog`], [`AppContext::save_dialog`] and
-//!   [`AppContext::error`]: the dialog presets;
+//! * [`AppContext::open_dialog`] and [`AppContext::save_dialog`]: the dialog
+//!   presets (the error dialog is `xui_host::error::ErrorDialog`);
 //! * [`AppContext::host`]: the context as the [`AppHost`] the portable app
 //!   crates take (file system, start folder, launcher, atomic write, and the
 //!   evidence seam that turns a crate's report into a `trace` line).
 
-mod dirs;
 mod kv;
 
 use std::cell::OnceCell;
@@ -34,13 +32,11 @@ use xui_core::backend::Result;
 use xui_core::widget::{FileDialog, FileSystem, StdFileSystem};
 use xui_explorer::platform::Launcher;
 use xui_host::dialogs::{self, Filter};
-use xui_host::error::ErrorDialog;
 use xui_host::evidence;
 use xui_host::recent::Recent;
 use xui_host::settings::{Factory, KeyValue, MemKv, Saver, Settings};
 use xui_host::{AppHost, Report};
 
-pub use dirs::Dirs;
 pub use kv::user_key;
 use kv::ConfdKv;
 
@@ -56,7 +52,6 @@ pub struct AppContext {
     backend: Rc<LazyOSBackend>,
     channel: Channel,
     settings_id: String,
-    system_name: Option<String>,
     recent: OnceCell<Rc<Recent>>,
 }
 
@@ -69,11 +64,7 @@ impl AppContext {
         AppContext {
             backend,
             channel: setup.channel,
-            settings_id: setup
-                .settings_id
-                .clone()
-                .unwrap_or_else(|| setup.channel.prefix().to_ascii_lowercase()),
-            system_name: setup.system_name.clone(),
+            settings_id: setup.channel.prefix().to_ascii_lowercase(),
             recent: OnceCell::new(),
         }
     }
@@ -104,11 +95,6 @@ impl AppContext {
     pub fn settings<T: Serialize + DeserializeOwned + Default>(&self) -> Settings<T> {
         let (kv, saver) = backing();
         Settings::open(kv.as_ref(), &self.settings_id, saver)
-    }
-
-    /// The well-known folders.
-    pub fn dirs(&self) -> Dirs {
-        Dirs::new(self.system_name.clone())
     }
 
     /// The files the app opened or saved last, newest first, at most
@@ -147,17 +133,6 @@ impl AppContext {
         on_cancel: impl Fn() -> Option<M> + 'static,
     ) -> Result<FileDialog<M>> {
         dialogs::save_dialog(ui, &*self.host(), title, filters, on_cancel)
-    }
-
-    /// The error dialog: show it with anything that displays, a `CallError`
-    /// included.
-    pub fn error<M: 'static>(
-        &self,
-        ui: &Ui<M>,
-        title: &str,
-        on_close: impl Fn() -> Option<M> + 'static,
-    ) -> Result<ErrorDialog<M>> {
-        ErrorDialog::new(ui, title, on_close)
     }
 
     fn recent_dir(&self) -> Option<PathBuf> {
