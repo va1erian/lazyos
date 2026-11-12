@@ -22,6 +22,34 @@ impl<Req: Send + 'static> Queue<Req> {
     pub fn start<M, B>(
         to: &B,
         name: &str,
+        handle: impl FnMut(Req) -> M + Send + 'static,
+    ) -> io::Result<Queue<Req>>
+    where
+        B: Mailbox<M>,
+        M: 'static,
+    {
+        Queue::start_inner(to, name, false, handle)
+    }
+
+    /// Like [`start`](Queue::start), but a request that finds newer ones
+    /// waiting is skipped: only the newest of a burst is served (a
+    /// document being switched through quickly loads the last one).
+    pub fn start_latest<M, B>(
+        to: &B,
+        name: &str,
+        handle: impl FnMut(Req) -> M + Send + 'static,
+    ) -> io::Result<Queue<Req>>
+    where
+        B: Mailbox<M>,
+        M: 'static,
+    {
+        Queue::start_inner(to, name, true, handle)
+    }
+
+    fn start_inner<M, B>(
+        to: &B,
+        name: &str,
+        latest: bool,
         mut handle: impl FnMut(Req) -> M + Send + 'static,
     ) -> io::Result<Queue<Req>>
     where
@@ -33,7 +61,12 @@ impl<Req: Send + 'static> Queue<Req> {
         std::thread::Builder::new()
             .name(name.to_owned())
             .spawn(move || {
-                while let Ok(request) = inbox.recv() {
+                while let Ok(mut request) = inbox.recv() {
+                    if latest {
+                        while let Ok(newer) = inbox.try_recv() {
+                            request = newer;
+                        }
+                    }
                     if !mailbox.post(handle(request)) {
                         return;
                     }

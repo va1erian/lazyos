@@ -47,7 +47,7 @@ and leaves the radio idle: scanning stops, the BSS is left, all keys are
 deleted.
 
 **Events.** `Attach` carries the client's event channel; the driver sends
-the `oneway` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,
+the `event` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,
 `Deauthenticated`) on it. They carry the same bounds as calls: a frame is
 at most `HwInfo.max_mgmt` bytes, never truncated and never delivered
 partially; one that does not fit is dropped and counted. Anyone in radio
@@ -84,10 +84,10 @@ Failures of calls are returned as the shared structured error field
 | DelKey | 36584897 | sync | `(kind: U32, index: U32) -> ()` |
 | Leave | 2049913440 | sync | `(reason: U32) -> ()` |
 | Stats | 267161228 | sync | `() -> (stats: HwStats)` |
-| ScanDone | 2037373080 | oneway | `(scan_id: U32, aborted: Bool) -> ()` |
-| RxMgmt | 1961753042 | oneway | `(kind: U32, rssi_dbm: I32, frame: Bytes) -> ()` |
-| BeaconLoss | 683463118 | oneway | `() -> ()` |
-| Deauthenticated | 1135744209 | oneway | `(reason: U32) -> ()` |
+| ScanDone | 2037373080 | event | `(scan_id: U32, aborted: Bool) -> ()` |
+| RxMgmt | 1961753042 | event | `(kind: U32, rssi_dbm: I32, frame: Bytes) -> ()` |
+| BeaconLoss | 683463118 | event | `() -> ()` |
+| Deauthenticated | 1135744209 | event | `(reason: U32) -> ()` |
 
 ## Service
 

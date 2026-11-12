@@ -175,7 +175,7 @@ interface os.lazy.webd.view.v1 {
     /// copies `rects` from the slot. `offset_x`/`offset_y` is the page's scroll
     /// offset these pixels were painted at; `at_bottom` when the page cannot
     /// scroll further down from there.
-    method Frame(view: U64 = 1, slot: U32 = 2, seq: U64 = 3, width: U32 = 4, height: U32 = 5, whole: Bool = 6, shift: Option<Shift> = 7, rects: Array<Rect> = 8, offset_x: I32 = 9, offset_y: I32 = 10, at_bottom: Bool = 11) -> () = 100 oneway;
+    method Frame(view: U64 = 1, slot: U32 = 2, seq: U64 = 3, width: U32 = 4, height: U32 = 5, whole: Bool = 6, shift: Option<Shift> = 7, rects: Array<Rect> = 8, offset_x: I32 = 9, offset_y: I32 = 10, at_bottom: Bool = 11) -> () = 100 event;
     /// Event: what the page says about itself. `url` is the address on show,
     /// `committed_url` the page on screen; `progress` in thousandths;
     /// `secure` when the committed page came over verified HTTPS. `commits`
@@ -183,64 +183,64 @@ interface os.lazy.webd.view.v1 {
     /// the same address counts, a script's pushState or a link to an anchor
     /// does not (an app tells a new document by it, not by its address).
     /// Texts are cut at 48 KiB.
-    method State(view: U64 = 1, title: String = 2, loading: Bool = 3, finished: U32 = 4, error: String = 5, url: String = 6, committed_url: String = 7, can_back: Bool = 8, can_forward: Bool = 9, progress: U32 = 10, secure: Bool = 11, commits: U32 = 12) -> () = 101 oneway;
+    method State(view: U64 = 1, title: String = 2, loading: Bool = 3, finished: U32 = 4, error: String = 5, url: String = 6, committed_url: String = 7, can_back: Bool = 8, can_forward: Bool = 9, progress: U32 = 10, secure: Bool = 11, commits: U32 = 12) -> () = 101 event;
     /// Event: the page scrolled (as on the light interface).
-    method Scroll(view: U64 = 1, x: I32 = 2, y: I32 = 3, at_bottom: Bool = 4) -> () = 102 oneway;
+    method Scroll(view: U64 = 1, x: I32 = 2, y: I32 = 3, at_bottom: Bool = 4) -> () = 102 event;
     /// Event: as on the light interface (a full view's navigation is not
     /// locked, so webd does not send it today).
-    method LinkClicked(view: U64 = 1, url: String = 2) -> () = 103 oneway;
-    method ClipboardWrite(view: U64 = 1, text: String = 2) -> () = 104 oneway;
-    method ViewLost(view: U64 = 1, reason: U32 = 2) -> () = 105 oneway;
-    method Ping() -> () = 106 oneway;
+    method LinkClicked(view: U64 = 1, url: String = 2) -> () = 103 event;
+    method ClipboardWrite(view: U64 = 1, text: String = 2) -> () = 104 event;
+    method ViewLost(view: U64 = 1, reason: U32 = 2) -> () = 105 event;
+    method Ping() -> () = 106 event;
     /// Event: band slot `slot` holds `height` rows of the page from document
     /// row `doc_y`, painted at horizontal offset `doc_x`, `width` wide.
-    method Band(view: U64 = 1, slot: U32 = 2, doc_x: I32 = 3, doc_y: I32 = 4, width: U32 = 5, height: U32 = 6) -> () = 107 oneway;
+    method Band(view: U64 = 1, slot: U32 = 2, doc_x: I32 = 3, doc_y: I32 = 4, width: U32 = 5, height: U32 = 6) -> () = 107 event;
     /// Event: the pointer is over a link (its address) or no longer ("").
-    method Hover(view: U64 = 1, url: String = 2) -> () = 108 oneway;
+    method Hover(view: U64 = 1, url: String = 2) -> () = 108 event;
     /// Event: the page wants this pointer shape (a `CursorShape`).
-    method Cursor(view: U64 = 1, shape: U32 = 2) -> () = 109 oneway;
+    method Cursor(view: U64 = 1, shape: U32 = 2) -> () = 109 event;
     /// Event: the page asked for a new window (`target=_blank`,
     /// `window.open`); nothing opened. `gesture`: a click or key started it.
-    method NewWindowRequested(view: U64 = 1, url: String = 2, gesture: Bool = 3) -> () = 110 oneway;
+    method NewWindowRequested(view: U64 = 1, url: String = 2, gesture: Bool = 3) -> () = 110 event;
     /// Event: a navigation outside the view's policy is held (`Handoff.Ask`);
     /// answer with `NavigationAnswer` within 10 seconds or it is refused.
     /// `kind` is a `NavigationKind`.
-    method NavigationRequested(view: U64 = 1, request: U64 = 2, url: String = 3, kind: U32 = 4, gesture: Bool = 5) -> () = 111 oneway;
+    method NavigationRequested(view: U64 = 1, request: U64 = 2, url: String = 3, kind: U32 = 4, gesture: Bool = 5) -> () = 111 event;
     /// Event: the page opened a JavaScript dialog (a `DialogKind`) and waits
     /// for `DialogReply`.
-    method Dialog(view: U64 = 1, dialog: U64 = 2, kind: U32 = 3, message: String = 4, default_value: String = 5) -> () = 112 oneway;
+    method Dialog(view: U64 = 1, dialog: U64 = 2, kind: U32 = 3, message: String = 4, default_value: String = 5) -> () = 112 event;
     /// Event: a download began, into the person's Downloads folder under a
     /// `.part` name. `total` is the announced size or -1.
-    method DownloadStarted(view: U64 = 1, download: U64 = 2, url: String = 3, name: String = 4, total: I64 = 5) -> () = 113 oneway;
-    method DownloadProgress(view: U64 = 1, download: U64 = 2, received: I64 = 3, total: I64 = 4) -> () = 114 oneway;
+    method DownloadStarted(view: U64 = 1, download: U64 = 2, url: String = 3, name: String = 4, total: I64 = 5) -> () = 113 event;
+    method DownloadProgress(view: U64 = 1, download: U64 = 2, received: I64 = 3, total: I64 = 4) -> () = 114 event;
     /// Event: every byte is in `name` (a file of the Downloads folder).
-    method DownloadDone(view: U64 = 1, download: U64 = 2, name: String = 3) -> () = 115 oneway;
-    method DownloadFailed(view: U64 = 1, download: U64 = 2, reason: String = 3) -> () = 116 oneway;
+    method DownloadDone(view: U64 = 1, download: U64 = 2, name: String = 3) -> () = 115 event;
+    method DownloadFailed(view: U64 = 1, download: U64 = 2, reason: String = 3) -> () = 116 event;
     /// Event: a page asked to show notifications for `origin`.
-    method NotifyPermissionRequest(view: U64 = 1, origin: String = 2) -> () = 117 oneway;
+    method NotifyPermissionRequest(view: U64 = 1, origin: String = 2) -> () = 117 event;
     /// Event: the person clicked notification `notification` (webd posted it
     /// as a toast titled with the site); the page's click handler ran.
-    method NotifyClicked(view: U64 = 1, notification: U64 = 2) -> () = 118 oneway;
+    method NotifyClicked(view: U64 = 1, notification: U64 = 2) -> () = 118 event;
     /// Event: what became of rule list `list` (a `BlockingStatus`).
-    method BlockingList(view: U64 = 1, list: String = 2, status: U32 = 3) -> () = 119 oneway;
+    method BlockingList(view: U64 = 1, list: String = 2, status: U32 = 3) -> () = 119 event;
     /// Event: the number of loads the lists blocked on the page on show.
-    method Blocked(view: U64 = 1, count: U32 = 2) -> () = 120 oneway;
+    method Blocked(view: U64 = 1, count: U32 = 2) -> () = 120 event;
     /// Event: the page's process stopped answering, or answers again.
-    method Responsive(view: U64 = 1, responsive: Bool = 2) -> () = 121 oneway;
+    method Responsive(view: U64 = 1, responsive: Bool = 2) -> () = 121 event;
     /// Event: webd gave `url` to the program the person chose for it
     /// (`Handoff.Browser`).
-    method HandedOff(view: U64 = 1, url: String = 2) -> () = 122 oneway;
+    method HandedOff(view: U64 = 1, url: String = 2) -> () = 122 event;
     /// Event (a view made with `notify_in_client`): the page asked to show
     /// notification `notification` and its profile allowed `origin`; the app
     /// shows it (as its own toast, titled by the app, not by the page) and
     /// answers with `NotifyState`. `page_url` is the page that asked, `tag` the
     /// page's tag; the texts are the page's own and are cut at 16 KiB each.
-    method NotifyShow(view: U64 = 1, notification: U64 = 2, origin: String = 3, page_url: String = 4, title: String = 5, body: String = 6, tag: String = 7) -> () = 123 oneway;
+    method NotifyShow(view: U64 = 1, notification: U64 = 2, origin: String = 3, page_url: String = 4, title: String = 5, body: String = 6, tag: String = 7) -> () = 123 event;
     /// Event: the page closed notification `notification` itself.
-    method NotifyCancel(view: U64 = 1, notification: U64 = 2) -> () = 124 oneway;
+    method NotifyCancel(view: U64 = 1, notification: U64 = 2) -> () = 124 event;
     /// Event: the page's object for `notification` is gone (its document went
     /// away); the toast is the person's now and a click reaches no script.
-    method NotifyGone(view: U64 = 1, notification: U64 = 2) -> () = 125 oneway;
+    method NotifyGone(view: U64 = 1, notification: U64 = 2) -> () = 125 event;
     /// Event: the page has answered every wheel turn up to `seq` (`Wheel`), and
     /// its main frame is scrolled to `(x, y)` now, before the frame that shows
     /// it arrives. The app that shows its picture ahead of the page keeps it
@@ -248,7 +248,7 @@ interface os.lazy.webd.view.v1 {
     /// page went (back, when the page did not scroll: its end, a box that
     /// scrolled instead, a script that cancelled the wheel). A page whose
     /// process ended answers everything at once.
-    method WheelDone(view: U64 = 1, seq: U64 = 2, x: I32 = 3, y: I32 = 4) -> () = 126 oneway;
+    method WheelDone(view: U64 = 1, seq: U64 = 2, x: I32 = 3, y: I32 = 4) -> () = 126 event;
 
     /// How a full view is made; fixed for its life.
     struct ViewConfig {

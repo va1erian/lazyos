@@ -80,7 +80,7 @@ Failures of calls are returned as the shared structured error field
 | DetachRing | 162562056 | sync | `(ring: U32) -> ()` |
 | Stats | 267161228 | sync | `() -> (stats: NicStats)` |
 | Kick | 754690623 | oneway | `(ring: U32) -> ()` |
-| Notify | 314575196 | oneway | `(ring: U32, events: U32) -> ()` |
+| Notify | 314575196 | event | `(ring: U32, events: U32) -> ()` |
 
 ## Service
 

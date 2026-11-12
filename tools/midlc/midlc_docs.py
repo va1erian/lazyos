@@ -19,7 +19,7 @@ def emit_markdown(interface: Interface) -> str:
         args = ", ".join(f"{p.name}: {p.ty}" for p in m.params)
         rets = ", ".join(f"{p.name}: {p.ty}" for p in m.returns)
         lines.append(
-            f"| {m.name} | {m.method_id} | {'oneway' if m.oneway else 'sync'} "
+            f"| {m.name} | {m.method_id} | {'event' if m.event else 'oneway' if m.oneway else 'sync'} "
             f"| `({args}) -> ({rets})` |"
         )
     lines += markdown_services(interface)
@@ -134,6 +134,8 @@ def emit_manifest(interface: Interface) -> dict:
 def method_entry(method) -> dict:
     """A manifest method row; `objects` only when the request carries some."""
     entry = {"name": method.name, "id": method.method_id, "oneway": method.oneway}
+    if method.event:
+        entry["event"] = True
     if method.scope is not None:
         entry["scope"] = method.scope
         entry["scope_id"] = f"{method.scope_id:#x}"

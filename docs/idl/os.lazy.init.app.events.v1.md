@@ -8,5 +8,5 @@ What `init` sends an app on the channel it transferred with `Watch`.
 
 | Method | Id | Kind | Signature |
 |---|---|---|---|
-| Reopen | 1 | oneway | `(args: String) -> ()` |
-| Quit | 2 | oneway | `(grace_ms: U32) -> ()` |
+| Reopen | 1 | event | `(args: String) -> ()` |
+| Quit | 2 | event | `(grace_ms: U32) -> ()` |

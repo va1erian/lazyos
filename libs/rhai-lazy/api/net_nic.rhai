@@ -124,17 +124,6 @@ fn kick(ring) {
     msg::connect("os.lazy.net.nic.v1").invoke("Kick", [ring])
 }
 
-/// `Notify(ring: U32, events: U32) -> () oneway`
-///
-/// Event, driver to client: something needs the client's attention.
-/// `events` is a bitmap: bit *n* is set for the `NotifyBit` with ordinal
-/// *n*. Reserved bits are zero; a client ignores them.
-///
-/// One-way: returns `()` once the message is queued.
-fn notify(ring, events) {
-    msg::connect("os.lazy.net.nic.v1").invoke("Notify", [ring, events])
-}
-
 // Not callable from a script (the request carries a channel, buffer
 // or ring): AttachRing.
 

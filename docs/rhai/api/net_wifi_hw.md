@@ -47,7 +47,7 @@ and leaves the radio idle: scanning stops, the BSS is left, all keys are
 deleted.
 
 **Events.** `Attach` carries the client's event channel; the driver sends
-the `oneway` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,
+the `event` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,
 `Deauthenticated`) on it. They carry the same bounds as calls: a frame is
 at most `HwInfo.max_mgmt` bytes, never truncated and never delivered
 partially; one that does not fit is dropped and counted. Anyone in radio
@@ -359,90 +359,6 @@ Returns `stats`: `HwStats` (map (`HwStats`)).
 
 ```rhai
 let result = sys::net_wifi_hw::stats();
-```
-
-### `scan_done(scan_id, aborted)`
-
-`ScanDone(scan_id: U32, aborted: Bool) -> () oneway`
-
-Event, driver to client: the scan finished (`aborted` false) or was
-stopped (`aborted` true, or the radio could not finish); its results
-are readable with `ScanResults` until the next `Scan`.
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `scan_id` | `U32` | int |
-| `aborted` | `Bool` | bool |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::net_wifi_hw::scan_done(scan_id, aborted);
-```
-
-### `rx_mgmt(kind, rssi_dbm, frame)`
-
-`RxMgmt(kind: U32, rssi_dbm: I32, frame: Bytes) -> () oneway`
-
-Event, driver to client: a management or EAPOL frame addressed to this
-station arrived from the joined BSS, and the client can be waiting for
-it: an authentication or (re)association response only after
-`TxMgmt` sent its request, an action frame once `Associated`, EAPOL
-once the AP answered the association; a retransmission of the last
-unprotected frame is dropped. `kind` is a `FrameKind` ordinal,
-`rssi_dbm` the signal in dBm. The frame has the shape `TxMgmt` takes:
-a whole management frame (from the MAC header, no FCS), or EAPOL as
-an 802.3 frame (destination, source, ethertype 0x888E, then the
-EAPOL PDU), decrypted. The bytes are unparsed and hostile.
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `kind` | `U32` | int |
-| `rssi_dbm` | `I32` | int |
-| `frame` | `Bytes` | blob |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::net_wifi_hw::rx_mgmt(kind, rssi_dbm, frame);
-```
-
-### `beacon_loss()`
-
-`BeaconLoss() -> () oneway`
-
-Event, driver to client: the radio stopped hearing the AP (the
-firmware's missed-beacon threshold). The client decides what to do.
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::net_wifi_hw::beacon_loss();
-```
-
-### `deauthenticated(reason)`
-
-`Deauthenticated(reason: U32) -> () oneway`
-
-Event, driver to client: the AP deauthenticated or disassociated us.
-`reason` is the IEEE 802.11 reason code, taken from the frame by the
-firmware (the one field of a frame the driver reports; the frame
-itself is also delivered as `RxMgmt`).
-
-Arguments:
-
-| Name | IDL type | Script value |
-|---|---|---|
-| `reason` | `U32` | int |
-
-One-way: the call returns `()` once the message is queued.
-
-```rhai
-let result = sys::net_wifi_hw::deauthenticated(reason);
 ```
 
 Not callable from a script (the request carries a kernel object): `Attach`.

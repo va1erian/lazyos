@@ -1138,77 +1138,6 @@ impl<T: libmessenger::client::Transport> Client<T> {
         self.conn
             .send(INTERFACE_ID, METHOD_FOCUS, wire_body, wire_objects)
     }
-
-    /// Event: slot `slot` of `view` holds frame number `seq` (counting from 1)
-    /// of `width` x `height` pixels. The slot is the app's until `ReleaseSlot`.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn frame(&self, view: u64, slot: u32, seq: u64, width: u32, height: u32) -> Result<(), ClientError> {
-        let wire_body = encode_frame_args(&FrameArgs { view, slot, seq, width, height }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_FRAME, wire_body, wire_objects)
-    }
-
-    /// Event: what the page says about itself. `loading` while a load is in
-    /// progress; `finished` counts the loads that have finished (so the first
-    /// paint of a `LoadHtml` can be told from the old page's); `error` is
-    /// empty or a short reason a load failed. Texts are cut at 48 KiB.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn state(&self, view: u64, title: &str, loading: bool, finished: u32, error: &str) -> Result<(), ClientError> {
-        let wire_body = encode_state_args(&StateArgs { view, title: title.into(), loading, finished, error: error.into() }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_STATE, wire_body, wire_objects)
-    }
-
-    /// Event: the page scrolled to `(x, y)` in document pixels; `at_bottom`
-    /// when it cannot scroll further.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn scroll(&self, view: u64, x: i32, y: i32, at_bottom: bool) -> Result<(), ClientError> {
-        let wire_body = encode_scroll_args(&ScrollArgs { view, x, y, at_bottom }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_SCROLL, wire_body, wire_objects)
-    }
-
-    /// Event: a link was clicked, a form submitted or a meta refresh fired,
-    /// and nothing loaded. `url` is absolute.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn link_clicked(&self, view: u64, url: &str) -> Result<(), ClientError> {
-        let wire_body = encode_link_clicked_args(&LinkClickedArgs { view, url: url.into() }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_LINKCLICKED, wire_body, wire_objects)
-    }
-
-    /// Event: the user copied `text` out of the page.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn clipboard_write(&self, view: u64, text: &str) -> Result<(), ClientError> {
-        let wire_body = encode_clipboard_write_args(&ClipboardWriteArgs { view, text: text.into() }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_CLIPBOARDWRITE, wire_body, wire_objects)
-    }
-
-    /// Event: the view cannot go on (`reason` is a `LostReason`). The id stays
-    /// the app's to `DestroyView`; the app makes a new view and loads again.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn view_lost(&self, view: u64, reason: u32) -> Result<(), ClientError> {
-        let wire_body = encode_view_lost_args(&ViewLostArgs { view, reason }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_VIEWLOST, wire_body, wire_objects)
-    }
-
-    /// Event: liveness probe, about once a second; nothing to answer. `EPIPE`
-    /// on the endpoint tells webd the app is gone and ends its views.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn ping(&self) -> Result<(), ClientError> {
-        let wire_body = Vec::new();
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_PING, wire_body, wire_objects)
-    }
 }
 
 #[cfg(feature = "webd_light_v1_server")]
@@ -1287,49 +1216,6 @@ pub trait Server {
     ///
     /// `oneway`: it has no reply, so it returns nothing.
     fn focus(&mut self, cx: &libmessenger::server::Caller, view: u64, focused: bool);
-
-    /// Event: slot `slot` of `view` holds frame number `seq` (counting from 1)
-    /// of `width` x `height` pixels. The slot is the app's until `ReleaseSlot`.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn frame(&mut self, cx: &libmessenger::server::Caller, view: u64, slot: u32, seq: u64, width: u32, height: u32);
-
-    /// Event: what the page says about itself. `loading` while a load is in
-    /// progress; `finished` counts the loads that have finished (so the first
-    /// paint of a `LoadHtml` can be told from the old page's); `error` is
-    /// empty or a short reason a load failed. Texts are cut at 48 KiB.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn state(&mut self, cx: &libmessenger::server::Caller, view: u64, title: alloc::string::String, loading: bool, finished: u32, error: alloc::string::String);
-
-    /// Event: the page scrolled to `(x, y)` in document pixels; `at_bottom`
-    /// when it cannot scroll further.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn scroll(&mut self, cx: &libmessenger::server::Caller, view: u64, x: i32, y: i32, at_bottom: bool);
-
-    /// Event: a link was clicked, a form submitted or a meta refresh fired,
-    /// and nothing loaded. `url` is absolute.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn link_clicked(&mut self, cx: &libmessenger::server::Caller, view: u64, url: alloc::string::String);
-
-    /// Event: the user copied `text` out of the page.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn clipboard_write(&mut self, cx: &libmessenger::server::Caller, view: u64, text: alloc::string::String);
-
-    /// Event: the view cannot go on (`reason` is a `LostReason`). The id stays
-    /// the app's to `DestroyView`; the app makes a new view and loads again.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn view_lost(&mut self, cx: &libmessenger::server::Caller, view: u64, reason: u32);
-
-    /// Event: liveness probe, about once a second; nothing to answer. `EPIPE`
-    /// on the endpoint tells webd the app is gone and ends its views.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn ping(&mut self, cx: &libmessenger::server::Caller);
 }
 
 #[cfg(feature = "webd_light_v1_server")]
@@ -1338,6 +1224,7 @@ pub trait Server {
 /// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
 /// as the standard error field. A method this interface does not declare is `ENOSYS`.
 /// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// A server-to-client `event` has no arm either (`ENOSYS`).
 /// Objects of the request are claimed by the decode and passed by value.
 pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
     let id = message.interface_id();
@@ -1421,52 +1308,6 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
                 return libmessenger::server::bad_request(id, method);
             };
             server.focus(&cx, args.view, args.focused);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_FRAME if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_frame_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.frame(&cx, args.view, args.slot, args.seq, args.width, args.height);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_STATE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_state_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.state(&cx, args.view, args.title, args.loading, args.finished, args.error);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_SCROLL if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_scroll_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.scroll(&cx, args.view, args.x, args.y, args.at_bottom);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_LINKCLICKED if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_link_clicked_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.link_clicked(&cx, args.view, args.url);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_CLIPBOARDWRITE if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_clipboard_write_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.clipboard_write(&cx, args.view, args.text);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_VIEWLOST if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_view_lost_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.view_lost(&cx, args.view, args.reason);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_PING if id == INTERFACE_ID => {
-            server.ping(&cx);
             libmessenger::server::reply(id, method, Vec::new())
         }
         _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),

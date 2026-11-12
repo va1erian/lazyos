@@ -1155,97 +1155,6 @@ impl<T: libmessenger::client::Transport> Client<T> {
         self.conn
             .send(INTERFACE_ID, METHOD_NOTESESSIONLAYOUT, wire_body, wire_objects)
     }
-
-    /// Shell event: a registered chord was pressed.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn hotkey_fired(&self, id: u64) -> Result<(), ClientError> {
-        let wire_body = encode_hotkey_fired_args(&HotkeyFiredArgs { id }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_HOTKEYFIRED, wire_body, wire_objects)
-    }
-
-    /// Shell event: the client owning `surface` asked for a grab of `kind`
-    /// (a `GrantKind`) for `session`; answer with `ApproveGrant`. The
-    /// request is withdrawn if focus moves first.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn grant_requested(&self, session: u64, kind: u32, surface: u64) -> Result<(), ClientError> {
-        let wire_body = encode_grant_requested_args(&GrantRequestedArgs { session, kind, surface }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_GRANTREQUESTED, wire_body, wire_objects)
-    }
-
-    /// Shell event: the reserved escape chord (Ctrl+Alt+Esc) was pressed. It
-    /// reverted any grab (`GrabChanged` follows when one was held) and is
-    /// never delivered to a client.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn escape_chord(&self) -> Result<(), ClientError> {
-        let wire_body = Vec::new();
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_ESCAPECHORD, wire_body, wire_objects)
-    }
-
-    /// Shell event: `surface` now receives keys through an input session, so
-    /// the compositor must stop synthesising legacy `KeyDown`/`KeyUp` for it.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn session_opened(&self, surface: u64) -> Result<(), ClientError> {
-        let wire_body = encode_session_opened_args(&SessionOpenedArgs { surface }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_SESSIONOPENED, wire_body, wire_objects)
-    }
-
-    /// Shell event: the last input session of `surface` ended; legacy key
-    /// delivery applies again.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn session_closed(&self, surface: u64) -> Result<(), ClientError> {
-        let wire_body = encode_session_closed_args(&SessionClosedArgs { surface }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_SESSIONCLOSED, wire_body, wire_objects)
-    }
-
-    /// Shell event: the pointer changed. One cursor for every pointing device
-    /// (`docs/usb-hid-plan.md`): `x`, `y` are screen pixels inside the bounds,
-    /// `buttons` the bits held after this event (`1` left, `2` right,
-    /// `4` middle, `8` back, `0x10` forward; diff it for the edge), `wheel` and
-    /// `wheel_h` the notches since the previous event (positive is up / right).
-    /// Motion is coalesced; the position and wheel apply *before* the button
-    /// change. Only the compositor receives it: the window under the cursor is
-    /// its decision. `ts_ns`/`seq` are the newest raw record's.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn pointer_event(&self, x: i32, y: i32, buttons: u32, wheel: i32, wheel_h: i32, ts_ns: u64, seq: u64) -> Result<(), ClientError> {
-        let wire_body = encode_pointer_event_args(&PointerEventArgs { x, y, buttons, wheel, wheel_h, ts_ns, seq }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_POINTEREVENT, wire_body, wire_objects)
-    }
-
-    /// Shell event: `surface` now holds the keyboard grab (absent: nobody
-    /// does). While a grab is held the compositor must not act on its own
-    /// chords from the kernel key stream either: they belong to the grabber.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn grab_changed(&self, surface: core::option::Option<u64>) -> Result<(), ClientError> {
-        let wire_body = encode_grab_changed_args(&GrabChangedArgs { surface }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_GRABCHANGED, wire_body, wire_objects)
-    }
-
-    /// Shell event: a key went down on some keyboard (PS/2 or USB; sent after
-    /// `inputd` handled it, so a key held back while the shell asked for the
-    /// keys was already dropped). The kernel key stream only carries PS/2, so
-    /// this is how the compositor sees that someone is typing, for the idle
-    /// timer and to wake a blank screen.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn key_activity(&self) -> Result<(), ClientError> {
-        let wire_body = Vec::new();
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_KEYACTIVITY, wire_body, wire_objects)
-    }
 }
 
 #[cfg(feature = "input_shell_v1_server")]
@@ -1351,65 +1260,6 @@ pub trait Server {
     ///
     /// `oneway`: it has no reply, so it returns nothing.
     fn note_session_layout(&mut self, cx: &libmessenger::server::Caller, layout: core::option::Option<alloc::string::String>);
-
-    /// Shell event: a registered chord was pressed.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn hotkey_fired(&mut self, cx: &libmessenger::server::Caller, id: u64);
-
-    /// Shell event: the client owning `surface` asked for a grab of `kind`
-    /// (a `GrantKind`) for `session`; answer with `ApproveGrant`. The
-    /// request is withdrawn if focus moves first.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn grant_requested(&mut self, cx: &libmessenger::server::Caller, session: u64, kind: u32, surface: u64);
-
-    /// Shell event: the reserved escape chord (Ctrl+Alt+Esc) was pressed. It
-    /// reverted any grab (`GrabChanged` follows when one was held) and is
-    /// never delivered to a client.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn escape_chord(&mut self, cx: &libmessenger::server::Caller);
-
-    /// Shell event: `surface` now receives keys through an input session, so
-    /// the compositor must stop synthesising legacy `KeyDown`/`KeyUp` for it.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn session_opened(&mut self, cx: &libmessenger::server::Caller, surface: u64);
-
-    /// Shell event: the last input session of `surface` ended; legacy key
-    /// delivery applies again.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn session_closed(&mut self, cx: &libmessenger::server::Caller, surface: u64);
-
-    /// Shell event: the pointer changed. One cursor for every pointing device
-    /// (`docs/usb-hid-plan.md`): `x`, `y` are screen pixels inside the bounds,
-    /// `buttons` the bits held after this event (`1` left, `2` right,
-    /// `4` middle, `8` back, `0x10` forward; diff it for the edge), `wheel` and
-    /// `wheel_h` the notches since the previous event (positive is up / right).
-    /// Motion is coalesced; the position and wheel apply *before* the button
-    /// change. Only the compositor receives it: the window under the cursor is
-    /// its decision. `ts_ns`/`seq` are the newest raw record's.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn pointer_event(&mut self, cx: &libmessenger::server::Caller, x: i32, y: i32, buttons: u32, wheel: i32, wheel_h: i32, ts_ns: u64, seq: u64);
-
-    /// Shell event: `surface` now holds the keyboard grab (absent: nobody
-    /// does). While a grab is held the compositor must not act on its own
-    /// chords from the kernel key stream either: they belong to the grabber.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn grab_changed(&mut self, cx: &libmessenger::server::Caller, surface: core::option::Option<u64>);
-
-    /// Shell event: a key went down on some keyboard (PS/2 or USB; sent after
-    /// `inputd` handled it, so a key held back while the shell asked for the
-    /// keys was already dropped). The kernel key stream only carries PS/2, so
-    /// this is how the compositor sees that someone is typing, for the idle
-    /// timer and to wake a blank screen.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn key_activity(&mut self, cx: &libmessenger::server::Caller);
 }
 
 #[cfg(feature = "input_shell_v1_server")]
@@ -1418,6 +1268,7 @@ pub trait Server {
 /// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
 /// as the standard error field. A method this interface does not declare is `ENOSYS`.
 /// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// A server-to-client `event` has no arm either (`ENOSYS`).
 /// Objects of the request are claimed by the decode and passed by value.
 pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
     let id = message.interface_id();
@@ -1515,56 +1366,6 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
                 return libmessenger::server::bad_request(id, method);
             };
             server.note_session_layout(&cx, args.layout);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_HOTKEYFIRED if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_hotkey_fired_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.hotkey_fired(&cx, args.id);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_GRANTREQUESTED if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_grant_requested_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.grant_requested(&cx, args.session, args.kind, args.surface);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_ESCAPECHORD if id == INTERFACE_ID => {
-            server.escape_chord(&cx);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_SESSIONOPENED if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_session_opened_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.session_opened(&cx, args.surface);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_SESSIONCLOSED if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_session_closed_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.session_closed(&cx, args.surface);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_POINTEREVENT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_pointer_event_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.pointer_event(&cx, args.x, args.y, args.buttons, args.wheel, args.wheel_h, args.ts_ns, args.seq);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_GRABCHANGED if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_grab_changed_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.grab_changed(&cx, args.surface);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_KEYACTIVITY if id == INTERFACE_ID => {
-            server.key_activity(&cx);
             libmessenger::server::reply(id, method, Vec::new())
         }
         _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),

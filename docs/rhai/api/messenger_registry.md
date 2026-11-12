@@ -130,8 +130,6 @@ Returns `entries`: `Array<Entry>` (array of map (`Entry`)).
 let result = sys::messenger_registry::list();
 ```
 
-Not callable from a script (the request carries a kernel object): `Connected`.
-
 ## Types
 
 ### `Entry`

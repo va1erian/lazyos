@@ -1040,125 +1040,6 @@ impl<T: libmessenger::client::Transport> Client<T> {
             ?;
         Ok(())
     }
-
-    /// Event: a key changed state. `code` is the physical key, `sym` its
-    /// keysym under the active layout (a Unicode scalar for character keys,
-    /// an X11-style `0xFFxx` value otherwise, `0` when the key has no meaning
-    /// on the current level), `mods` the modifier and lock bits in force after
-    /// this event (`1` Shift, `2` Ctrl, `4` Alt, `8` Super, `0x10` AltGr,
-    /// `0x20` CapsLock, `0x40` NumLock, `0x80` ScrollLock), `state` a
-    /// `KeyState`, `ts_ns` the kernel timestamp and `seq` the raw sequence
-    /// number. Auto-repeat is always flagged `Repeat`, never `Down`.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn key_event(&self, code: u32, sym: u32, mods: u32, state: u32, ts_ns: u64, seq: u64) -> Result<(), ClientError> {
-        let wire_body = encode_key_event_args(&KeyEventArgs { code, sym, mods, state, ts_ns, seq }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_KEYEVENT, wire_body, wire_objects)
-    }
-
-    /// Event: composed text (UTF-8) for a character-producing press or repeat.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn text_input(&self, utf8: &str) -> Result<(), ClientError> {
-        let wire_body = encode_text_input_args(&TextInputArgs { utf8: utf8.into() }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_TEXTINPUT, wire_body, wire_objects)
-    }
-
-    /// Event: keyboard focus arrived. `down` lists the physical keys held right
-    /// now, so the client seeds its key state.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn keyboard_enter(&self, down: &[u32]) -> Result<(), ClientError> {
-        let wire_body = encode_keyboard_enter_args(&KeyboardEnterArgs { down: down.to_vec() }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_KEYBOARDENTER, wire_body, wire_objects)
-    }
-
-    /// Event: keyboard focus left. The client **must release every key** it
-    /// believes is down; `inputd` also cancels repeat.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn keyboard_leave(&self) -> Result<(), ClientError> {
-        let wire_body = Vec::new();
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_KEYBOARDLEAVE, wire_body, wire_objects)
-    }
-
-    /// Event: the layout changed (a `confd` write, live).
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn layout_changed(&self, layout: &str) -> Result<(), ClientError> {
-        let wire_body = encode_layout_changed_args(&LayoutChangedArgs { layout: layout.into() }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_LAYOUTCHANGED, wire_body, wire_objects)
-    }
-
-    /// Event: the session's grab of kind `kind` started (`active`) or ended;
-    /// `reason` is a `GrantReason`.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn grant_changed(&self, kind: u32, active: bool, reason: u32) -> Result<(), ClientError> {
-        let wire_body = encode_grant_changed_args(&GrantChangedArgs { kind, active, reason }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_GRANTCHANGED, wire_body, wire_objects)
-    }
-
-    /// Event: a gamepad axis changed (only the focused session that attached
-    /// a pad page receives it).
-    /// `device` is the pad's id (as in the state page), `code` the Generic
-    /// Desktop usage (`0x30` X, `0x31` Y, `0x32` Z, `0x33` Rx, `0x34` Ry,
-    /// `0x35` Rz, `0x36` Slider, `0x37` Dial), `value` `-32768..=32767` with
-    /// `0` the axis's rest, the deadzone already applied (Y and Ry are
-    /// positive down). The hat is not an axis event: it arrives as the
-    /// d-pad buttons (`GamepadButton` codes 33..=36). Changes are coalesced
-    /// per drain: one event per axis, the newest value.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn gamepad_axis(&self, device: u32, code: u32, value: i32, ts_ns: u64, seq: u64) -> Result<(), ClientError> {
-        let wire_body = encode_gamepad_axis_args(&GamepadAxisArgs { device, code, value, ts_ns, seq }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_GAMEPADAXIS, wire_body, wire_objects)
-    }
-
-    /// Event: a gamepad button changed (only the focused session that
-    /// attached a pad page receives it). `code` is the HID button usage `1..=32`, or `33` d-pad up, `34`
-    /// down, `35` left, `36` right (the hat, one edge per direction;
-    /// diagonals press two). Edges are never merged.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn gamepad_button(&self, device: u32, code: u32, pressed: bool, ts_ns: u64, seq: u64) -> Result<(), ClientError> {
-        let wire_body = encode_gamepad_button_args(&GamepadButtonArgs { device, code, pressed, ts_ns, seq }).map_err(ClientError::bad_request)?;
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_GAMEPADBUTTON, wire_body, wire_objects)
-    }
-
-    /// Event: gamepad input arrived with this session's focus: read the
-    /// state page to seed. Sent to a session that attached a pad page
-    /// whenever keyboard focus enters it, when it attaches one while it
-    /// already has focus, and right after a `GamepadLeave` that was a resync.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn gamepad_enter(&self) -> Result<(), ClientError> {
-        let wire_body = Vec::new();
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_GAMEPADENTER, wire_body, wire_objects)
-    }
-
-    /// Event: focus left, or events were lost. The client **must release
-    /// every pad button** it believes is down and centre the axes; the page
-    /// was cleared first. After a dropped-events resync (the keyboard's
-    /// `KeyboardLeave` + `KeyboardEnter` pair) it is followed at once by a
-    /// `GamepadEnter` with the page live again; the page is cleared before
-    /// the Leave and restored before the Enter either way.
-    /// Sent one way: it returns once the message is queued, never waiting for the service.
-    pub fn gamepad_leave(&self) -> Result<(), ClientError> {
-        let wire_body = Vec::new();
-        let wire_objects = Vec::new();
-        self.conn
-            .send(INTERFACE_ID, METHOD_GAMEPADLEAVE, wire_body, wire_objects)
-    }
 }
 
 #[cfg(feature = "input_v1_server")]
@@ -1236,85 +1117,6 @@ pub trait Server {
     /// overflow it). The opt-in lasts until the session closes; a session that
     /// attaches while it holds the keyboard is sent `GamepadEnter` once.
     fn attach_gamepad_state(&mut self, cx: &libmessenger::server::Caller, session: u64, state: libmessenger::Buffer) -> Result<(), libmessenger::server::Fault>;
-
-    /// Event: a key changed state. `code` is the physical key, `sym` its
-    /// keysym under the active layout (a Unicode scalar for character keys,
-    /// an X11-style `0xFFxx` value otherwise, `0` when the key has no meaning
-    /// on the current level), `mods` the modifier and lock bits in force after
-    /// this event (`1` Shift, `2` Ctrl, `4` Alt, `8` Super, `0x10` AltGr,
-    /// `0x20` CapsLock, `0x40` NumLock, `0x80` ScrollLock), `state` a
-    /// `KeyState`, `ts_ns` the kernel timestamp and `seq` the raw sequence
-    /// number. Auto-repeat is always flagged `Repeat`, never `Down`.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn key_event(&mut self, cx: &libmessenger::server::Caller, code: u32, sym: u32, mods: u32, state: u32, ts_ns: u64, seq: u64);
-
-    /// Event: composed text (UTF-8) for a character-producing press or repeat.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn text_input(&mut self, cx: &libmessenger::server::Caller, utf8: alloc::string::String);
-
-    /// Event: keyboard focus arrived. `down` lists the physical keys held right
-    /// now, so the client seeds its key state.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn keyboard_enter(&mut self, cx: &libmessenger::server::Caller, down: alloc::vec::Vec<u32>);
-
-    /// Event: keyboard focus left. The client **must release every key** it
-    /// believes is down; `inputd` also cancels repeat.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn keyboard_leave(&mut self, cx: &libmessenger::server::Caller);
-
-    /// Event: the layout changed (a `confd` write, live).
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn layout_changed(&mut self, cx: &libmessenger::server::Caller, layout: alloc::string::String);
-
-    /// Event: the session's grab of kind `kind` started (`active`) or ended;
-    /// `reason` is a `GrantReason`.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn grant_changed(&mut self, cx: &libmessenger::server::Caller, kind: u32, active: bool, reason: u32);
-
-    /// Event: a gamepad axis changed (only the focused session that attached
-    /// a pad page receives it).
-    /// `device` is the pad's id (as in the state page), `code` the Generic
-    /// Desktop usage (`0x30` X, `0x31` Y, `0x32` Z, `0x33` Rx, `0x34` Ry,
-    /// `0x35` Rz, `0x36` Slider, `0x37` Dial), `value` `-32768..=32767` with
-    /// `0` the axis's rest, the deadzone already applied (Y and Ry are
-    /// positive down). The hat is not an axis event: it arrives as the
-    /// d-pad buttons (`GamepadButton` codes 33..=36). Changes are coalesced
-    /// per drain: one event per axis, the newest value.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn gamepad_axis(&mut self, cx: &libmessenger::server::Caller, device: u32, code: u32, value: i32, ts_ns: u64, seq: u64);
-
-    /// Event: a gamepad button changed (only the focused session that
-    /// attached a pad page receives it). `code` is the HID button usage `1..=32`, or `33` d-pad up, `34`
-    /// down, `35` left, `36` right (the hat, one edge per direction;
-    /// diagonals press two). Edges are never merged.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn gamepad_button(&mut self, cx: &libmessenger::server::Caller, device: u32, code: u32, pressed: bool, ts_ns: u64, seq: u64);
-
-    /// Event: gamepad input arrived with this session's focus: read the
-    /// state page to seed. Sent to a session that attached a pad page
-    /// whenever keyboard focus enters it, when it attaches one while it
-    /// already has focus, and right after a `GamepadLeave` that was a resync.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn gamepad_enter(&mut self, cx: &libmessenger::server::Caller);
-
-    /// Event: focus left, or events were lost. The client **must release
-    /// every pad button** it believes is down and centre the axes; the page
-    /// was cleared first. After a dropped-events resync (the keyboard's
-    /// `KeyboardLeave` + `KeyboardEnter` pair) it is followed at once by a
-    /// `GamepadEnter` with the page live again; the page is cleared before
-    /// the Leave and restored before the Enter either way.
-    ///
-    /// `oneway`: it has no reply, so it returns nothing.
-    fn gamepad_leave(&mut self, cx: &libmessenger::server::Caller);
 }
 
 #[cfg(feature = "input_v1_server")]
@@ -1323,6 +1125,7 @@ pub trait Server {
 /// `EINVAL`), calls the handler, and frames its value as the reply or its [`Fault`](libmessenger::server::Fault)
 /// as the standard error field. A method this interface does not declare is `ENOSYS`.
 /// A `oneway` method yields an empty reply a runtime drops when the message was no call.
+/// A server-to-client `event` has no arm either (`ENOSYS`).
 /// Objects of the request are claimed by the decode and passed by value.
 pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::Incoming) -> libmessenger::Parcel {
     let id = message.interface_id();
@@ -1373,67 +1176,6 @@ pub fn dispatch<S: Server>(server: &mut S, message: &impl libmessenger::server::
                 return libmessenger::server::bad_request(id, method);
             };
             libmessenger::server::finish(id, method, server.attach_gamepad_state(&cx, args.session, args.state), |()| Ok(Vec::new()))
-        }
-        METHOD_KEYEVENT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_key_event_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.key_event(&cx, args.code, args.sym, args.mods, args.state, args.ts_ns, args.seq);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_TEXTINPUT if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_text_input_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.text_input(&cx, args.utf8);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_KEYBOARDENTER if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_keyboard_enter_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.keyboard_enter(&cx, args.down);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_KEYBOARDLEAVE if id == INTERFACE_ID => {
-            server.keyboard_leave(&cx);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_LAYOUTCHANGED if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_layout_changed_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.layout_changed(&cx, args.layout);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_GRANTCHANGED if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_grant_changed_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.grant_changed(&cx, args.kind, args.active, args.reason);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_GAMEPADAXIS if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_gamepad_axis_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.gamepad_axis(&cx, args.device, args.code, args.value, args.ts_ns, args.seq);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_GAMEPADBUTTON if id == INTERFACE_ID => {
-            let Ok(args) = message.decode(|body, _| decode_gamepad_button_args(body)) else {
-                return libmessenger::server::bad_request(id, method);
-            };
-            server.gamepad_button(&cx, args.device, args.code, args.pressed, args.ts_ns, args.seq);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_GAMEPADENTER if id == INTERFACE_ID => {
-            server.gamepad_enter(&cx);
-            libmessenger::server::reply(id, method, Vec::new())
-        }
-        METHOD_GAMEPADLEAVE if id == INTERFACE_ID => {
-            server.gamepad_leave(&cx);
-            libmessenger::server::reply(id, method, Vec::new())
         }
         _ if id == INTERFACE_ID => libmessenger::server::unknown_method(id, method),
         _ => libmessenger::server::wrong_interface(id, method),
