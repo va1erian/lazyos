@@ -415,14 +415,21 @@ states the flags its calls carry: native calls send none, so the kernel still
 refuses one that would close a wait cycle, and the std runtime's UI loops send
 `ALLOW_NESTED` as before.
 
-Waiting for a service that has not registered yet should block on the
-registry, not sleep. The kernel-served registry (`idl/registry.midl`) has no
-way to wait for a name, so after C1 each transport still polls inside
-`resolve` for its one runtime bound (10 s; 10 ms sleeps in std, one tick
-natively), the only polling loop per runtime. Stage C1b adds the wait (a
-retained `system/registry/registered/{name}` topic, or a `WaitFor(name)`
-method answered when the name appears), so the "never poll on a timer" rule
-holds here too. `Errno` is a named newtype
+Waiting for a service that has not registered yet blocks on the registry, it
+does not sleep. **Built in C1b:** the registry method `WaitFor(name)`
+(`idl/registry.midl`, op `WAIT_FOR` 27, frozen ABI 2) is a `Resolve` whose
+caller the kernel parks until a `Register` of that name or the call's
+deadline (`ETIMEDOUT`), and both transports' `resolve` call it with the
+10 s connect bound; `Deadline::Poll` stays one plain `Resolve`. The sleep
+and `park_tick` loops are gone, so the "never poll on a timer" rule holds
+here too. A retained topic was not chosen: it would need a subscription, a
+bell and a race-free "already registered" read, where one parked syscall
+re-checks the table itself. The kernel side (`kernel/src/ipc/registry/
+wait.rs`) takes a ticket in the registry's waiter table before the first
+look (no lost wake-up), wakes only the waiters of the registered name after
+the registry lock is released, re-applies the caller's name policy when the
+name appears, and bounds waiters at one per task, 16 per process and 512 in all, 128 of them reserved for platform tasks, i.e. no label and no login session (a user's own programs share the open part; many same-uid processes can still fill it) (`EAGAIN`, on which both transports fall back to plain `Resolve` retries, the only sleep left); a signal ends the wait with `EINTR` and the transports run an interrupt hook (std: `sched_yield`, because an `int 0x80` return never lays out a Linux handler frame) and re-issue it with the same deadline (`libmessenger::client::resolve_waiting`). A name that never registers now ends a connect with `ETIMEDOUT`, where the polling runtimes ended with `ENOENT` (the generic text in `user::messenger::Error` covers both).
+`Errno` is a named newtype
 (`Errno::INVAL`), so `Err(-22)` disappears; `CallError` implements `Display`
 with the friendly text section 12 of `messenger.md` describes.
 
@@ -682,7 +689,7 @@ leaves `main` green.
 | Stage | Content | Removes |
 |---|---|---|
 | C1 | `Transport`, `Connection`, `CallError`, `Errno`, `Mock` in `libmessenger`; native and std transports; registry-subscription wait | the four connect/cache implementations, `CONNECT_TICKS` copies |
-| C1b | Kernel registry: wait for a name to register (topic or `WaitFor`), with kernel correctness and stress tests; both transports block on it | the resolve sleep loops |
+| C1b (built) | Kernel registry: `WaitFor` parks a resolve until the name registers, with kernel correctness and stress tests (`ipc_registry_wait_*`); both transports block on it | the resolve sleep loops |
 | C2a | midlc: `service`, `errors`, `scope`, `deadline` syntax and their generated constants; per-interface modules and features | service-name literals, `fnv1a64` copies, confd/clipboard constant copies |
 | C2b | **Built.** Rust client generation over C1's `Transport` (blocking forms; `_begin` waits for an asynchronous transport call); host tests through `Mock` (`libs/generated/tests/client.rs`); `timed` and `notify` migrated as proof | (enables C3) |
 | C3 | Migrate clients interface by interface (confd, init, topics, clipboard first: the most duplicated); `user::messenger::*` and `xui_app::platform::*` keep only domain adapters. **Native half built for** confd, mimed, pkgd, accountsd, keyd, logind, mountd, devd, gpud, usb audio, init, healthd, logd, sysmond and the clipboard (`user/src/messenger/<svc>.rs` is `pub type Client = wire::Client<Native>` plus domain meaning; slow calls keep `Deadline::Never`, `Nested` carries the clipboard's `ALLOW_NESTED`). Not yet: `net`/`netstack`/`netsock`/`netstd`, `wifi`, `display`, `input`, the `audioclient`/`trayclient` seams, and the xui lane | per-module `fn header`/`fn parcel`/`error_code`, `Service::call_*` |

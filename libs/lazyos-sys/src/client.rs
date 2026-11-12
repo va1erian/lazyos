@@ -3,11 +3,13 @@
 //! [`libmessenger::client::Connection`]s on. The native `user` runtime has
 //! its own over its `Endpoint`; both speak the same trait.
 
-use std::time::Duration;
 use std::vec;
 
-use libmessenger::client::{CallFailure, Deadline, Errno, Handle, Retry, Transport};
+use libmessenger::client::{
+    resolve_waiting, CallFailure, Deadline, Errno, Handle, Retry, Transport,
+};
 use libmessenger::Parcel;
+use std::time::Duration;
 
 use crate::msg::parcel;
 use crate::time::clock;
@@ -22,8 +24,9 @@ const REPLY_BUF: usize = 64 * 1024;
 /// of the std runtime.
 const CONNECT_BOUND: Deadline = Deadline::secs(10);
 
-/// Pause between two attempts to resolve a name that is not registered yet.
-const RESOLVE_PAUSE: Duration = Duration::from_millis(10);
+/// Pause between plain resolves while the kernel has no room for another
+/// waiter (`EAGAIN`): the overload path only, never the normal wait.
+const OVERLOAD_PAUSE: Duration = Duration::from_millis(10);
 
 /// The std transport. Stateless: the handle cache is the `Connection`'s.
 #[derive(Clone, Copy, Debug, Default)]
@@ -40,24 +43,26 @@ impl Transport for Std {
         libmessenger::flags::ALLOW_NESTED
     }
 
-    /// The runtime's one bounded wait for a name. The kernel-served registry
-    /// has no "wait for name" operation, so this retries every
-    /// [`RESOLVE_PAUSE`] until `until`; `docs/client-api-plan.md` 3.4 is the
-    /// follow-up that replaces the sleep with a wake-up.
+    /// A name that is not registered yet is waited for in the kernel
+    /// (`WaitFor`): the thread parks until it registers or `until` passes,
+    /// and nothing polls. [`Deadline::Poll`] is one plain `Resolve`.
     fn resolve(&self, name: &str, until: Deadline) -> Result<Handle, Errno> {
-        let stop = until.absolute_ticks(clock());
-        loop {
-            match parcel::resolve(name) {
-                Ok(handle) => return Ok(handle),
-                Err(code) => {
-                    let expired = until == Deadline::Poll || (stop != 0 && clock() >= stop);
-                    if expired {
-                        return Err(Errno::from_syscall(code));
-                    }
-                    std::thread::sleep(RESOLVE_PAUSE);
-                }
-            }
+        if until == Deadline::Poll {
+            return parcel::resolve(name).map_err(Errno::from_syscall);
         }
+        // Fixed once, so a re-issued wait keeps the caller's bound.
+        let stop = until.absolute_ticks(clock());
+        resolve_waiting(
+            || parcel::wait_for(name, stop).map_err(Errno::from_syscall),
+            || parcel::resolve(name).map_err(Errno::from_syscall),
+            || stop != 0 && clock() >= stop,
+            || std::thread::sleep(OVERLOAD_PAUSE),
+            // `EINTR` leaves through `int 0x80`, which never runs a Linux
+            // handler; a Linux syscall's return does (`deliver_linux`), and
+            // `sched_yield` is the cheapest one. Without it a pending handler
+            // runs only when the wait ends.
+            std::thread::yield_now,
+        )
     }
 
     /// A `retry=never` method issues the two halves of the kernel call, so a

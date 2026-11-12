@@ -52,6 +52,8 @@ pub fn forget_task(slot: usize) {
     // A task that died parked in `recv` or `await_reply` is still on the
     // Messenger queue: its wait loop will never remove it.
     MESSENGER.forget(slot);
+    // A task that died parked in `WaitFor` the same way (its ticket too).
+    crate::ipc::registry::forget_waiter(slot);
     // The same for every doorbell and wait queue a dead task may have been
     // parked on: its wait loop never ran to withdraw the registration, and the
     // slot may be reused. Long-lived per-slot state (the `WAIT_FD` watcher

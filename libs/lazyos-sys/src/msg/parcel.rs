@@ -99,6 +99,27 @@ pub fn resolve(name: &str) -> Result<u64, i64> {
     registry_op(op::RESOLVE, registry::METHOD_RESOLVE, body)
 }
 
+/// [`resolve`] for a name that may not be registered yet: the kernel parks
+/// this task until `name` registers or `deadline` (an absolute PIT tick; `0`
+/// waits for ever) passes (`-ETIMEDOUT`), with no polling.
+pub fn wait_for(name: &str, deadline: u64) -> Result<u64, i64> {
+    let body = registry::encode_wait_for_args(&registry::WaitForArgs { name: name.into() })
+        .map_err(|_| -EINVAL)?;
+    let parcel = request(
+        registry::INTERFACE_ID,
+        registry::METHOD_WAITFOR,
+        flags::ALLOW_NESTED,
+        body,
+    );
+    Ok(super::registry_until(
+        op::WAIT_FOR,
+        REGISTRY_TARGET_SELF,
+        &encode(&parcel)?,
+        deadline,
+    )?
+    .value)
+}
+
 /// Open a private connection to `name` (issue #483): an endpoint this task
 /// alone holds; the service receives the other end.
 pub fn connect(name: &str) -> Result<u64, i64> {

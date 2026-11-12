@@ -12,11 +12,13 @@ mod count;
 mod group;
 mod restart;
 mod soak;
+mod waitfor;
 
 pub use count::{threadsig_count_soak, threadsig_counts_sent_signals};
 use group::*;
 pub use restart::threadsig_sibling_takes_the_signal_without_interrupting;
 pub use soak::threadsig_soak;
+pub(crate) use waitfor::WAITFOR_CASES;
 
 /// A mask set on one thread changes no other thread's; a thread starts with
 /// its creator's mask and a fork with the calling thread's; `ppoll`'s

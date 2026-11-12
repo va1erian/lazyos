@@ -365,6 +365,30 @@ services|health|log` reads them back.
   not in the call path. Services dispatch by `(interface_id, method)`;
   unknown method is `ERR_NO_METHOD`. A service may implement v1 and v2 of
   an interface at once during a migration.
+- **Waiting for a name** (`WaitFor`, op `WAIT_FOR` 27, `idl/registry.midl`,
+  `kernel/src/ipc/registry/wait.rs`): a program that starts before its service
+  does not poll `Resolve`. `WaitFor(name)` is a `Resolve` whose caller sleeps
+  on the registry until a `Register` of that name (no other name wakes it) or
+  the call's deadline (`ETIMEDOUT`; deadline `0` waits for ever); the reply is
+  a `Resolve` reply. The name policy runs before the wait and again when the
+  name appears, so a waiter learns nothing a `Resolve` would not tell it
+  (`EACCES` ends the wait). One wait per task, 16 per process (threads are
+  slots) and 512 in all, 128 of which only unlabelled tasks may take
+  (`EAGAIN` beyond: the client runtimes then fall back to bounded plain
+  `Resolve` retries); the 128-place reserve is for platform tasks (no label,
+  no login session), so a user's own programs share the open part and the
+  reserve is a mitigation, not a guarantee against many same-uid processes;
+  a signal ends the wait with `EINTR` and the client runs its interrupt hook
+  (std: `sched_yield`, whose Linux return lays out a handler frame; `int 0x80`
+  returns never do) and issues it again with the same deadline;
+  a connect to a name that never registers now ends with `ETIMEDOUT` where
+  the polling runtime ended with `ENOENT` (a `Deadline::Poll` resolve is still
+  `ENOENT`); a ticket is released when the wait
+  ends, when the task is killed (`ECANCELED`) or torn down. Kernel gate only,
+  and only for the caller's own table (`EINVAL` otherwise): `messengerd`
+  answers a forwarded `WaitFor` with `ENOSYS`, since the wait would park the
+  daemon. Both client transports use
+  it for `Connection::connect`; `Deadline::Poll` stays a plain `Resolve`.
 - **Activation and leases:** `Resolve` can start a service on demand via
   `init`; handles and names are reference-counted, and process death
   releases them all (and may mark the service unhealthy for supervision).
@@ -495,7 +519,7 @@ All introspection is *itself* Messenger interfaces, subject to policy:
 
 | Interface | Purpose |
 |---|---|
-| `os.lazy.messenger.registry.v1` | Register, Resolve, Connect, Connected, Unregister, List |
+| `os.lazy.messenger.registry.v1` | Register, Resolve, WaitFor, Connect, Connected, Unregister, List |
 | `os.lazy.messenger.topics.v1` | Publish, Subscribe, Unsubscribe, NextEvent, Ack, ListTopics, Stats, Ping, Bell |
 
 Both are in `idl/`. The kernel-side slice is live: the `messenger` syscall's
@@ -549,7 +573,7 @@ is the shape.
   8 endpoints, pending calls and doorbells and return a ready mask;
   [architecture/wait-any.md](architecture/wait-any.md)), `CONNECT` 20
   (section 8), `ENDPOINT_FD` 21 (section 15), `BUFFER_CREATE` 22,
-  `BUFFER_MAP` 23 and `BUFFER_CLOSE` 24 (section 2).
+  `BUFFER_MAP` 23 and `BUFFER_CLOSE` 24 (section 2), `WAIT_FOR` 27 (section 8).
 - **Service supervision calls:** beside the Messenger family, `init` has
   `spawn`/`spawnv`, `wait`, `clock` and `args` (mechanism only: restart
   policy, dependencies and health live in `init`;
