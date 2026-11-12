@@ -6,7 +6,7 @@ use user::messenger;
 use user::sys;
 use user::trace;
 
-use super::broker::Broker;
+use super::handlers::Broker;
 
 /// Self-soak cycles when the manifest asks for `soak` without a count.
 const SOAK_DEFAULT_CYCLES: u64 = 4096;

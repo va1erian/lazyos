@@ -3570,7 +3570,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "Publish",
                 id: 1818372520,
                 oneway: false,
-                doc: "Publish `payload` under the literal `topic`; `retained` also remembers\nit as the topic's retained value. Returns how many subscriptions the\nevent reached. Never resent, and the broker cannot undo a publish whose\nreply was lost: a timeout means \"maybe published\". A full broker (its\nbyte budget for retained values and queued events) refuses with\n`ENOMEM`.",
+                doc: "Publish `payload` under the literal `topic`; `retained` also remembers\nit as the topic's retained value. Returns how many subscriptions the\nevent reached. Never resent, and the broker cannot undo a publish whose\nreply was lost: a timeout means \"maybe published\". The broker's byte\nbudget is charged per task: a retained value to its publisher, a\nsubscription's queue to its owner. A retained value over its\npublisher's allowance (or its count of 64 for an app; retained values\ncannot be removed) refuses with `ENOMEM`; a full subscriber queue never\nrefuses a publish, it drops its oldest events (counted in `Stats`).",
                 params: &[Field { name: "topic", id: 1, ty: Ty::String }, Field { name: "payload", id: 2, ty: Ty::Bytes }, Field { name: "retained", id: 3, ty: Ty::Bool }],
                 returns: &[Field { name: "matched", id: 1, ty: Ty::U64 }],
                 objects: &[],

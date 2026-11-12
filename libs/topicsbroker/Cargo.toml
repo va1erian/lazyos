@@ -1,0 +1,10 @@
+[package]
+name = "topicsbroker"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-or-later"
+description = "The topics broker's tables for messengerd: filters, QoS queues, retained values and the per-owner byte budget, host-tested"
+
+[dependencies]
+messenger-generated = { path = "../generated", default-features = false, features = ["messenger_topics_v1"] }

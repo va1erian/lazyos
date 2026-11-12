@@ -24,9 +24,12 @@ id.
 Publish `payload` under the literal `topic`; `retained` also remembers
 it as the topic's retained value. Returns how many subscriptions the
 event reached. Never resent, and the broker cannot undo a publish whose
-reply was lost: a timeout means "maybe published". A full broker (its
-byte budget for retained values and queued events) refuses with
-`ENOMEM`.
+reply was lost: a timeout means "maybe published". The broker's byte
+budget is charged per task: a retained value to its publisher, a
+subscription's queue to its owner. A retained value over its
+publisher's allowance (or its count of 64 for an app; retained values
+cannot be removed) refuses with `ENOMEM`; a full subscriber queue never
+refuses a publish, it drops its oldest events (counted in `Stats`).
 
 Arguments:
 

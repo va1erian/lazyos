@@ -9,18 +9,68 @@ use messenger_generated::os_lazy_messenger_topics_v1 as generated;
 use user::messenger::{self, errno, topics_client};
 use user::sys;
 
-use super::broker::{
-    Broker, Delivery, Outcome, Pending, Subscription, MAX_BYTES, MAX_PENDING, MAX_PER_OWNER,
-    MAX_SUBSCRIPTIONS,
-};
+use topicsbroker::{Filter, Pulled, Refusal};
+
 use super::filter::{
-    holds_nic_name, is_system_topic, may_publish_system, nic_link_ifname, valid_topic, Filter,
+    holds_nic_name, is_system_topic, may_publish_system, nic_link_ifname, valid_topic,
 };
 use super::wire;
+
+/// The broker's tables, ringing doorbells through Messenger endpoints.
+pub(super) type Broker = topicsbroker::Broker<messenger::Endpoint>;
+
+/// What one broker request produced: an optional immediate reply plus any
+/// parked pulls that the request satisfied.
+#[derive(Default)]
+pub(super) struct Outcome {
+    reply: Option<libmessenger::Parcel>,
+    wakes: Vec<topicsbroker::Wake<libmessenger::Parcel>>,
+    /// An event handed out in the request's own `NextEvent` reply; it is
+    /// committed only when that reply reaches the caller.
+    delivery: Option<Delivery>,
+    /// A subscription this request created: rolled back when its reply
+    /// cannot be delivered (the caller timed out or is gone), or the
+    /// caller never learns the id and the entry leaks.
+    created: Option<u64>,
+}
+
+/// One event handed to a subscriber; popped from its queue when the reply
+/// carrying it succeeds (a failed reply means the poll was abandoned, and the
+/// event must stay for the next one).
+#[derive(Clone, Copy)]
+struct Delivery {
+    subscription: u64,
+    sequence: u64,
+}
 
 /// A refusal with the broker's errno-style code and its friendly text.
 fn refuse(code: i64) -> Fault {
     Fault::from(messenger::Error::Topics(code))
+}
+
+/// The errno-style code of a broker refusal.
+fn refusal(why: Refusal) -> Fault {
+    refuse(match why {
+        Refusal::NoRoom => errno::ENOMEM,
+        Refusal::Busy => errno::EAGAIN,
+        Refusal::NotFound => errno::ENOENT,
+        Refusal::NotOwner => errno::EPERM,
+        Refusal::Invalid => errno::EINVAL,
+    })
+}
+
+/// Whether the caller is a platform task: no label and no login session (the
+/// services `init` starts before login), the rule the kernel uses for the
+/// `WaitFor` reserve. Its events are charged to the larger system budget.
+fn is_platform(cx: &Caller) -> bool {
+    cx.label_id == 0 && cx.session == 0
+}
+
+/// Close a doorbell the broker handed back (replaced, dropped or orphaned).
+fn close_bell(bell: Option<messenger::Endpoint>) {
+    if let Some(bell) = bell {
+        let _ = bell.close();
+    }
 }
 
 /// One request being served: the broker's tables, and what the request
@@ -35,16 +85,7 @@ struct Request<'a> {
 impl Request<'_> {
     /// The index of subscription `id`, which only its `owner` may touch.
     fn owned(&self, id: u64, owner: u64) -> Result<usize, Fault> {
-        let index = self
-            .broker
-            .subscriptions
-            .iter()
-            .position(|sub| sub.id == id)
-            .ok_or_else(|| refuse(errno::ENOENT))?;
-        if self.broker.subscriptions[index].owner != owner {
-            return Err(refuse(errno::EPERM));
-        }
-        Ok(index)
+        self.broker.index_of(id, owner).map_err(refusal)
     }
 }
 
@@ -95,14 +136,14 @@ impl generated::Server for Request<'_> {
         if !may_publish(cx, &topic) {
             return Err(refuse(errno::EACCES));
         }
-        // `ENOMEM`, not a silent drop: the publisher learns the broker is
-        // full. A publish is never retried, so a timeout means "maybe
-        // published" (idl/topics.midl).
-        if !self.broker.has_room(&topic, payload.len(), retained) {
-            return Err(refuse(errno::ENOMEM));
-        }
-        let matched = self.broker.publish(&topic, cx.sender, payload, retained);
-        self.outcome.wakes = self.broker.satisfy();
+        // `ENOMEM` only for a retained value over its publisher's own budget:
+        // queues shed their oldest events instead. A publish is never
+        // retried, so a timeout means "maybe published" (idl/topics.midl).
+        let matched = self
+            .broker
+            .publish(&topic, cx.sender, is_platform(cx), payload, retained)
+            .map_err(refusal)?;
+        self.outcome.wakes = self.broker.satisfy(|event| wire::reply_event(event).ok());
         Ok(matched)
     }
 
@@ -119,29 +160,21 @@ impl generated::Server for Request<'_> {
         let txn = self.txn.unwrap_or(0);
         topics_client::authorize(cx.sender, topics_client::MODE_SUBSCRIBE, &filter, txn)
             .map_err(|_| refuse(errno::EACCES))?;
-        let broker = &mut *self.broker;
-        if broker.subscriptions.len() >= MAX_SUBSCRIPTIONS {
-            return Err(refuse(errno::ENOMEM));
-        }
-        // One task cannot take the whole table, nor a full memory budget.
-        if broker.owned_by(cx.sender) >= MAX_PER_OWNER {
-            return Err(refuse(errno::EAGAIN));
-        }
-        if broker.bytes_used() >= MAX_BYTES {
-            return Err(refuse(errno::ENOMEM));
-        }
-        let id = broker.next_subscription;
-        broker.next_subscription += 1;
-        broker
-            .subscriptions
-            .push(Subscription::new(id, cx.sender, parsed, qos));
-        broker.replay_retained(broker.subscriptions.len() - 1, id);
+        let id = self
+            .broker
+            .subscribe(cx.sender, is_platform(cx), parsed, qos)
+            .map_err(refusal)?;
         self.outcome.created = Some(id);
         Ok(id)
     }
 
     fn unsubscribe(&mut self, cx: &Caller, subscription: u64) -> Result<(), Fault> {
-        Ok(self.broker.remove(subscription, cx.sender)?)
+        close_bell(
+            self.broker
+                .remove(subscription, cx.sender)
+                .map_err(refusal)?,
+        );
+        Ok(())
     }
 
     /// Served by [`pull`]: it may park the caller, which a reply value cannot
@@ -151,9 +184,9 @@ impl generated::Server for Request<'_> {
     }
 
     fn ack(&mut self, cx: &Caller, subscription: u64, sequence: u64) -> Result<(), Fault> {
-        let index = self.owned(subscription, cx.sender)?;
-        self.broker.subscriptions[index].ack(sequence);
-        Ok(())
+        self.broker
+            .ack(subscription, cx.sender, sequence)
+            .map_err(refusal)
     }
 
     fn list_topics(&mut self, _: &Caller) -> Result<Vec<generated::TopicInfo>, Fault> {
@@ -187,17 +220,18 @@ impl generated::Server for Request<'_> {
 fn pull(broker: &mut Broker, message: &messenger::Message) -> Result<Outcome, Fault> {
     let id = wire::subscription_id(&message.parcel).map_err(Fault::from)?;
     let sender = message.sender;
-    let index = broker
-        .subscriptions
-        .iter()
-        .position(|sub| sub.id == id)
-        .ok_or_else(|| refuse(errno::ENOENT))?;
-    if broker.subscriptions[index].owner != sender {
-        return Err(refuse(errno::EPERM));
-    }
+    // A poll (the caller's deadline already passed) is ended by the kernel
+    // when this turn returns, so the broker must not park it.
+    let poll = message.parcel.header.deadline_ns == libmessenger::client::POLL_HINT_NS;
     let mut outcome = Outcome::default();
-    match broker.subscriptions[index].peek() {
-        Some(event) => {
+    match broker
+        .pull(id, sender, poll, message.txn)
+        .map_err(refusal)?
+    {
+        Pulled::Head(index) => {
+            let Some(event) = broker.subscriptions[index].peek() else {
+                return Ok(outcome);
+            };
             let sequence = event.sequence;
             match wire::reply_event(event) {
                 Ok(parcel) => {
@@ -216,33 +250,10 @@ fn pull(broker: &mut Broker, message: &messenger::Message) -> Result<Outcome, Fa
                 }
             }
         }
-        None => {
-            // The owner drained the queue: the next event rings its bell
-            // again.
-            broker.subscriptions[index].rung = false;
-            // A poll (the caller's deadline already passed) is ended by the
-            // kernel when this turn returns, so parking it would leave a
-            // dead transaction in the table.
-            if message.parcel.header.deadline_ns == libmessenger::client::POLL_HINT_NS {
-                return Ok(outcome);
-            }
-            let txn = message.txn.ok_or_else(|| refuse(errno::EINVAL))?;
-            // One parked pull per (subscription, owner): the client's
-            // retry/timeout replaces its own stale entry.
-            broker
-                .pending
-                .retain(|p| !(p.subscription == id && p.owner == sender));
-            if broker.pending.len() >= MAX_PENDING {
-                return Err(refuse(errno::EAGAIN));
-            }
-            broker.pending.push(Pending {
-                subscription: id,
-                owner: sender,
-                txn,
-            });
-            // No reply: the kernel keeps the caller parked until a publish
-            // wakes it (or its deadline expires).
-        }
+        // No reply: for a poll the caller's turn simply ends, for a parked
+        // pull the kernel keeps the caller asleep until a publish wakes it
+        // (or its deadline expires).
+        Pulled::Empty | Pulled::Parked => {}
     }
     Ok(outcome)
 }
@@ -300,13 +311,13 @@ fn serve_request(
                     if let Some(delivery) = outcome.delivery {
                         broker.commit(delivery.subscription, delivery.sequence);
                     }
-                } else if let Some(id) = outcome.created {
+                } else {
                     // The caller never got the id: nobody can unsubscribe.
-                    let _ = broker.remove(id, message.sender);
+                    close_bell(broker.settle_created(outcome.created, message.sender, false));
                 }
-            } else if let Some(id) = outcome.created {
+            } else {
                 // A subscribe sent one way has no reply to carry the id.
-                let _ = broker.remove(id, message.sender);
+                close_bell(broker.settle_created(outcome.created, message.sender, false));
             }
         }
         Err(fault) => {
@@ -323,13 +334,16 @@ fn serve_request(
 /// closes it, so nothing can leak handles here.
 fn serve_bell(endpoint: &messenger::Endpoint, broker: &mut Broker, message: &messenger::Message) {
     let result = match wire::decode_bell_args(message) {
-        Ok((id, bell)) => {
-            let installed = broker.set_bell(id, message.sender, bell);
-            if installed.is_err() {
-                let _ = bell.close();
+        Ok((id, bell)) => match broker.set_bell(id, message.sender, bell) {
+            Ok(old) => {
+                close_bell(old);
+                Ok(())
             }
-            installed.map_err(Fault::from)
-        }
+            Err(why) => {
+                let _ = bell.close();
+                Err(refusal(why))
+            }
+        },
         Err(_) => Err(refuse(errno::EINVAL)),
     };
     if let Some(txn) = message.txn {
@@ -348,7 +362,9 @@ fn ring_bells(broker: &mut Broker) {
         };
         if let Err(error) = bell.send(&note) {
             if error.errno() == Some(-errno::EPIPE) {
-                broker.drop_bell(id);
+                // The owner's end is gone: it dropped the subscription (or
+                // died), and nobody can pull or unsubscribe it any more.
+                close_bell(broker.reap(id));
             }
         }
     }
