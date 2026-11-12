@@ -338,15 +338,21 @@ impl Endpoint {
     }
 }
 
-/// A [`DEFAULT_BUFFER`]-byte reply buffer the kernel fills, allocated but not
-/// zeroed (P7.4): zero-filling 16 KiB on every [`Endpoint::call`] was most of
-/// a small call's userspace cost, and only the bytes the kernel reports
+/// The reply room of [`Endpoint::call`] and [`Endpoint::await_reply`]: a full
+/// [`DEFAULT_BUFFER`] payload (a socket `Read` of its 16 KiB chunk) plus the
+/// header and TLV framing around it, so the largest reply a service sends
+/// for a buffer-sized request still fits.
+const REPLY_BUFFER: usize = DEFAULT_BUFFER + 4096;
+
+/// A [`REPLY_BUFFER`]-byte reply buffer the kernel fills, allocated but not
+/// zeroed (P7.4): zero-filling it on every [`Endpoint::call`] was most of a
+/// small call's userspace cost, and only the bytes the kernel reports
 /// written are ever read.
 struct ReplyBuffer(Vec<u8>);
 
 impl ReplyBuffer {
     fn new() -> ReplyBuffer {
-        ReplyBuffer(Vec::with_capacity(DEFAULT_BUFFER))
+        ReplyBuffer(Vec::with_capacity(REPLY_BUFFER))
     }
 
     fn ptr(&mut self) -> u64 {
