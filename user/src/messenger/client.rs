@@ -3,6 +3,8 @@
 //! [`libmessenger::client::Connection`] on, and the one bounded wait for a
 //! service that has not registered yet.
 
+use core::cell::Cell;
+
 use libmessenger::client::{
     resolve_waiting as wait_resolving, CallFailure, Deadline, Errno, Handle, Retry, Transport,
 };
@@ -69,11 +71,16 @@ impl Transport for Nested {
 /// dropping the connection releases it only when [`Held::resolved`] says the
 /// handle came from name resolution (a handle obtained by name is released,
 /// never closed, or the service's own endpoint would report a closed peer).
-#[derive(Clone, Copy, Debug)]
+///
+/// A released handle number is free for the kernel to reuse, so once the
+/// connection evicts (the peer died) a released `Held` is spent: it resolves
+/// to `EPIPE` rather than hand out a number that may name another channel.
+#[derive(Debug)]
 pub struct Held {
     handle: Handle,
     release: bool,
     flags: u16,
+    spent: Cell<bool>,
 }
 
 impl Held {
@@ -83,6 +90,7 @@ impl Held {
             handle: endpoint.handle(),
             release: false,
             flags: 0,
+            spent: Cell::new(false),
         }
     }
 
@@ -92,6 +100,7 @@ impl Held {
             handle: endpoint.handle(),
             release: true,
             flags: 0,
+            spent: Cell::new(false),
         }
     }
 
@@ -112,6 +121,9 @@ impl Transport for Held {
     }
 
     fn resolve(&self, _name: &str, _until: Deadline) -> core::result::Result<Handle, Errno> {
+        if self.spent.get() {
+            return Err(Errno::PIPE);
+        }
         Ok(self.handle)
     }
 
@@ -131,6 +143,7 @@ impl Transport for Held {
 
     fn release(&self, handle: Handle) {
         if self.release {
+            self.spent.set(true);
             Native.release(handle);
         }
     }
