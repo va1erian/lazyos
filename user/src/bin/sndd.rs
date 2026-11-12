@@ -41,7 +41,7 @@ use user::trace;
 
 use pcm::tone::Tone;
 use user::messenger::audio::{self as api};
-use user::messenger::{self, errno, registry, services, Error as MsgError};
+use user::messenger::{self, errno, registry, Error as MsgError};
 use user::sys;
 use virtio_snd::params::{audio_direction, audio_format, Request};
 use virtio_snd::wire::{direction, PcmInfo};
@@ -276,9 +276,7 @@ fn serve(card: Card, infos: &[PcmInfo]) -> Result<(), Error> {
         let park = if service.busy() { 1 } else { IDLE_TICKS };
         match server.recv_with(&mut buffer, Some(sys::clock() + park)) {
             Ok(message) => {
-                let reply = service.dispatch(&message).unwrap_or_else(|error| {
-                    services::error_reply(message.interface_id(), message.method(), error)
-                });
+                let reply = user::messenger::audio::wire::dispatch(&mut service, &message);
                 if let Some(txn) = message.txn {
                     server.reply_or_drop(txn, &reply).map_err(fail)?;
                 }
