@@ -6071,6 +6071,8 @@ name = "xui-paint"
 version = "0.0.0"
 dependencies = [
  "cosmic-text",
+ "crc32fast",
+ "flate2",
  "tiny-skia",
  "xui-app-testkit",
  "xui-canvas",

@@ -2,17 +2,40 @@
 
 //! A small zip container: a stored-only writer and a bounded reader.
 //!
-//! Why not `lazyarc`: it reads and writes through `std::fs::File` and pulls in
-//! flate2, lzma and zstd, while this crate is `xui-core` only and does no I/O
-//! (`tests/no_io.rs`, `tests/deps.rs`). An OpenRaster file needs only entries
-//! written in a fixed order, uncompressed, which is ~80 lines.
+//! Why not `lazyarc`: its zip reads and writes through `std::fs::File` and the
+//! crate carries lzma and zstd, while this crate does no I/O (`tests/no_io.rs`)
+//! and holds the whole file in memory. An OpenRaster file needs only entries
+//! written in a fixed order, uncompressed. The deflate and CRC-32 code is the
+//! same `flate2` and `crc32fast` `lazyarc` uses, so the app links one copy.
 //!
 //! The reader works from the central directory, as every zip tool does, and
 //! treats the file as hostile: offsets and sizes are checked against the
 //! buffer, no entry may inflate past the caller's limit, and the CRC-32 must
 //! match. Zip64, encryption and multi-disk archives are refused.
 
-use super::inflate::{crc32, inflate};
+use std::io::Read;
+
+use flate2::read::DeflateDecoder;
+
+/// The CRC-32 (IEEE) of `data`.
+fn crc32(data: &[u8]) -> u32 {
+    crc32fast::hash(data)
+}
+
+/// Inflates raw DEFLATE `data`, refusing output past `limit` bytes (a zip
+/// bomb is cut off at the limit, never buffered whole).
+pub(super) fn inflate(data: &[u8], limit: usize) -> Result<Vec<u8>, &'static str> {
+    let mut out = Vec::with_capacity(limit.min(1 << 16));
+    let cap = u64::try_from(limit).map_or(u64::MAX, |n| n.saturating_add(1));
+    DeflateDecoder::new(data)
+        .take(cap)
+        .read_to_end(&mut out)
+        .map_err(|_| "corrupt deflate data")?;
+    if out.len() > limit {
+        return Err("the entry inflates past its limit");
+    }
+    Ok(out)
+}
 
 const LOCAL: u32 = 0x0403_4b50;
 const CENTRAL: u32 = 0x0201_4b50;
@@ -312,12 +335,71 @@ mod tests {
     }
 
     #[test]
-    fn a_deflated_entry_is_read() {
-        // A one-entry archive whose data is the deflated "hello hello hello hello\n".
-        let deflated = [
-            0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0xc8, 0x40, 0x27, 0xb9, 0x00,
-        ];
-        let text = b"hello hello hello hello\n";
+    fn crc32_matches_the_known_values() {
+        assert_eq!(crc32(b""), 0);
+        assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
+    }
+
+    /// `zlib.compressobj(9, DEFLATED, -15)` of `b"hello hello hello hello\n"`:
+    /// one fixed-Huffman block with a back-reference.
+    const FIXED: [u8; 11] = [
+        0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0xc8, 0x40, 0x27, 0xb9, 0x00,
+    ];
+
+    /// The same encoder over 300 skewed bytes (`random.seed(5)`, choices from
+    /// `aaaaaaabbbbccde \n`): a dynamic-Huffman block.
+    const DYNAMIC: [u8; 136] = [
+        0x2d, 0x8f, 0xd1, 0x0d, 0xc0, 0x40, 0x08, 0x42, 0xff, 0x9d, 0xc2, 0xd5, 0x00, 0xdd, 0x7f,
+        0x85, 0x82, 0xbd, 0x36, 0x4d, 0x14, 0xf1, 0x49, 0xa9, 0xc2, 0x12, 0x80, 0x9a, 0x82, 0x8b,
+        0x21, 0xe4, 0x76, 0xf1, 0x1e, 0x66, 0x08, 0x59, 0x1d, 0x37, 0x69, 0xfd, 0x8a, 0x4d, 0x74,
+        0x47, 0x90, 0x30, 0xfe, 0xce, 0xcf, 0x55, 0xa9, 0xb8, 0xb1, 0xc7, 0x5d, 0x3a, 0xff, 0x21,
+        0xd8, 0xc1, 0x64, 0x75, 0x3d, 0x42, 0x47, 0x73, 0x31, 0xba, 0x93, 0x8b, 0xda, 0x36, 0x94,
+        0xad, 0xb8, 0x32, 0x6d, 0x96, 0xf7, 0xf5, 0x1f, 0xe3, 0x09, 0xe4, 0x9a, 0x29, 0xca, 0x5b,
+        0x2b, 0x16, 0xea, 0x72, 0x9b, 0x53, 0x73, 0x47, 0x16, 0x7c, 0x68, 0x17, 0x3e, 0x38, 0xeb,
+        0x68, 0x26, 0x38, 0x25, 0x27, 0x2c, 0x67, 0xa2, 0xdb, 0x19, 0x6d, 0x56, 0x2f, 0xd2, 0xc9,
+        0x9a, 0xf1, 0x99, 0x56, 0x12, 0xb7, 0xbd, 0xbc, 0x3f, 0x34, 0x31, 0xdc, 0x04, 0x62, 0xe3,
+        0x03,
+    ];
+
+    #[test]
+    fn deflate_blocks_decode_and_the_limit_holds() {
+        assert_eq!(
+            inflate(&FIXED, 1000).unwrap(),
+            b"hello hello hello hello\n".to_vec()
+        );
+        let out = inflate(&DYNAMIC, 1000).unwrap();
+        assert_eq!(out.len(), 300);
+        assert_eq!(crc32(&out), 0x5c42_b816);
+        assert!(inflate(&DYNAMIC, 299).is_err(), "limit");
+        let mut stored = vec![0x01, 5, 0, 0xFA, 0xFF];
+        stored.extend_from_slice(b"abcde");
+        assert_eq!(inflate(&stored, 5).unwrap(), b"abcde");
+        assert!(inflate(&stored, 4).is_err(), "limit");
+        stored[3] = 0;
+        assert!(inflate(&stored, 99).is_err(), "bad complement");
+    }
+
+    #[test]
+    fn hostile_deflate_streams_are_refused_not_panicked() {
+        assert!(inflate(&[], 10).is_err());
+        assert!(inflate(&[0x07], 10).is_err(), "block type 3");
+        assert!(inflate(&[0xFF; 64], 1 << 20).is_err());
+        assert!(inflate(&[0x03, 0x02], 10).is_err(), "back-reference");
+        for n in 0..FIXED.len() {
+            assert!(inflate(&FIXED[..n], 100).is_err(), "prefix {n}");
+        }
+        for n in 0..DYNAMIC.len() {
+            let _ = inflate(&DYNAMIC[..n], 1000);
+        }
+        for i in 0..DYNAMIC.len() * 8 {
+            let mut data = DYNAMIC;
+            data[i / 8] ^= 1 << (i % 8);
+            let _ = inflate(&data, 1000);
+        }
+    }
+
+    /// A one-entry archive (entry `x`) whose `deflated` data inflates to `text`.
+    fn deflated_archive(deflated: &[u8], text: &[u8]) -> Vec<u8> {
         let mut out = Vec::new();
         push32(&mut out, LOCAL);
         for v in [20u16, 0, 8, 0, DOS_DATE] {
@@ -352,9 +434,34 @@ mod tests {
         push32(&mut out, size as u32);
         push32(&mut out, start as u32);
         push16(&mut out, 0);
+        out
+    }
+
+    #[test]
+    fn a_deflated_entry_is_read() {
+        // The deflated "hello hello hello hello\n" another encoder made.
+        let text = b"hello hello hello hello\n";
+        let out = deflated_archive(&FIXED, text);
         let zip = ZipReader::new(&out).unwrap();
         assert_eq!(zip.read("x", 1000).unwrap().unwrap(), text);
         assert!(zip.read("x", 5).is_err());
+    }
+
+    #[test]
+    fn an_entry_deflated_by_flate2_round_trips_and_a_bomb_is_cut_off() {
+        use flate2::{Compression, write::DeflateEncoder};
+        use std::io::Write;
+        let text: Vec<u8> = (0..200_000u32).map(|i| (i % 7) as u8 + b'a').collect();
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::best());
+        encoder.write_all(&text).unwrap();
+        let deflated = encoder.finish().unwrap();
+        assert!(deflated.len() < text.len() / 10);
+        let out = deflated_archive(&deflated, &text);
+        let zip = ZipReader::new(&out).unwrap();
+        assert_eq!(zip.read("x", 1 << 20).unwrap().unwrap(), text);
+        assert!(zip.read("x", 1000).is_err(), "over the caller's limit");
+        // A directory that understates the size cannot make the decoder buffer more.
+        assert!(inflate(&deflated, 100).is_err());
     }
 
     #[test]
