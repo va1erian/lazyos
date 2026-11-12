@@ -13,85 +13,79 @@ use alloc::vec::Vec;
 use user::trace;
 
 use inputmap::grab::{Change, Reason, Refused, Requested};
+use libmessenger::client::Errno;
+use libmessenger::server::Fault;
 use user::messenger::input::{shell_wire, wire};
-use user::messenger::{errno, Error, Message, Result};
 
 use super::hub::Hub;
 
 impl Hub {
     /// `RequestGrant`: ask the compositor on behalf of the caller's own,
     /// focused session.
-    pub(super) fn request_grant(&mut self, message: &Message) -> Result<Vec<u8>> {
-        let args = wire::decode_request_grant_args(&message.parcel.body).map_err(Error::Parcel)?;
-        self.own_session(args.session, message.sender)?;
-        if args.kind != wire::GRANT_KIND_KEYBOARD {
-            return Err(Error::Errno(-errno::EINVAL));
+    pub(super) fn request_keyboard_grant(
+        &mut self,
+        session: u64,
+        kind: u32,
+        sender: u64,
+    ) -> Result<(), Fault> {
+        self.own_session(session, sender)?;
+        if kind != wire::GRANT_KIND_KEYBOARD {
+            return Err(Fault::errno(Errno::INVAL));
         }
         let focused = self.router.focused_session();
-        match self.grabs.request(args.session, focused) {
-            Err(Refused::NotFocused) => Err(Error::Errno(-errno::EACCES)),
-            Ok(Requested::AlreadyHeld) => Ok(Vec::new()),
+        match self.grabs.request(session, focused) {
+            Err(Refused::NotFocused) => Err(Fault::errno(Errno::ACCES)),
+            Ok(Requested::AlreadyHeld) => Ok(()),
             Ok(Requested::Pending { withdrawn }) => {
                 if let Some(change) = withdrawn {
-                    self.grant_changed(change);
+                    self.grant_change(change);
                 }
                 let surface = self
                     .router
-                    .session(args.session)
+                    .session(session)
                     .and_then(|s| s.surface)
                     .unwrap_or(0);
                 trace::line!(
                     trace::Channel::Inputd,
                     "GRAB:REQUEST session={} surface={surface}",
-                    args.session
+                    session
                 );
                 if !self.shell_attached() {
                     // Nobody to approve it: a grab is never self-granted.
-                    if let Some(change) = self.grabs.approve(args.session, false, focused) {
-                        self.grant_changed(change);
+                    if let Some(change) = self.grabs.approve(session, false, focused) {
+                        self.grant_change(change);
                     }
-                    return Ok(Vec::new());
+                    return Ok(());
                 }
                 self.shell_event(
                     shell_wire::METHOD_GRANTREQUESTED,
                     shell_wire::encode_grant_requested_args(&shell_wire::GrantRequestedArgs {
-                        session: args.session,
-                        kind: args.kind,
+                        session,
+                        kind,
                         surface,
                     }),
                 );
-                Ok(Vec::new())
+                Ok(())
             }
         }
     }
 
-    /// `ReleaseGrant`: the caller's session gives up its grab or request.
-    pub(super) fn release_grant(&mut self, message: &Message) -> Result<Vec<u8>> {
-        let args = wire::decode_release_grant_args(&message.parcel.body).map_err(Error::Parcel)?;
-        self.own_session(args.session, message.sender)?;
-        if let Some(change) = self.grabs.release(args.session) {
-            self.grant_changed(change);
-        }
-        Ok(Vec::new())
-    }
-
     /// `ApproveGrant`, from the attached compositor (the caller checked).
-    pub(super) fn approve_grant(&mut self, body: &[u8]) -> Result<Vec<u8>> {
-        let args = shell_wire::decode_approve_grant_args(body).map_err(Error::Parcel)?;
+    pub(super) fn approve(&mut self, session: u64, allow: bool) -> Result<(), Fault> {
         let focused = self.router.focused_session();
         let change = self
             .grabs
-            .approve(args.session, args.allow, focused)
-            .ok_or(Error::Errno(-errno::ENOENT))?;
-        self.grant_changed(change);
-        Ok(Vec::new())
+            .approve(session, allow, focused)
+            .ok_or_else(|| Fault::errno(Errno::NOENT))?;
+        self.grant_change(change);
+        Ok(())
     }
 
     /// The reserved escape chord: revert any grab, tell the compositor.
     pub(super) fn escape_chord(&mut self) {
         trace::line!(trace::Channel::Inputd, "GRAB:ESCAPE");
         if let Some(change) = self.grabs.escape() {
-            self.grant_changed(change);
+            self.grant_change(change);
         }
         self.shell_event(shell_wire::METHOD_ESCAPECHORD, Ok(Vec::new()));
     }
@@ -100,7 +94,7 @@ impl Hub {
     pub(super) fn grants_follow_focus(&mut self) {
         let focused = self.router.focused_session();
         if let Some(change) = self.grabs.focus_changed(focused) {
-            self.grant_changed(change);
+            self.grant_change(change);
         }
     }
 
@@ -108,13 +102,13 @@ impl Hub {
     /// compositor).
     pub(super) fn grants_forget(&mut self, session: u64) {
         if let Some(change) = self.grabs.closed(session) {
-            self.grant_changed(change);
+            self.grant_change(change);
         }
     }
 
     /// Apply one change: the engine's hotkey bypass, the client's event, the
     /// compositor's view of the holder.
-    fn grant_changed(&mut self, change: Change) {
+    pub(super) fn grant_change(&mut self, change: Change) {
         let holder = self.grabs.holder();
         self.engine.set_grabbed(holder.is_some());
         if change.active {

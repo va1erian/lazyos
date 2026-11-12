@@ -7,10 +7,11 @@
 
 use alloc::vec::Vec;
 
+use libmessenger::server::{fault_reply, Fault};
 use netstack::stack::{LookupOutcome, ResolveError};
 use netstack::NetLookupResult;
 use user::messenger::netstack::{self as api, wire};
-use user::messenger::{errno, services, Endpoint, Error as MsgError, Message, Parcel};
+use user::messenger::{errno, Endpoint, Error as MsgError};
 
 use super::service::Netd;
 
@@ -33,36 +34,27 @@ pub(super) struct ParkedLookup {
 
 impl Netd {
     /// Start a lookup and park the call.
-    pub(super) fn resolve(&mut self, message: &Message, now_ms: i64) -> Result<Option<Parcel>> {
-        let args = wire::decode_resolve_args(&message.parcel.body).map_err(MsgError::Parcel)?;
-        let Some(txn) = message.txn else {
+    pub(super) fn start_lookup(&mut self, sender: u64, name: &str, timeout_ms: u32) -> Result<()> {
+        let Some(txn) = self.call.txn else {
             return Err(err(errno::EINVAL));
         };
-        if !(10..=60_000).contains(&args.timeout_ms) {
+        if !(10..=60_000).contains(&timeout_ms) {
             return Err(err(errno::EINVAL));
         }
-        let mine = self
-            .lookups
-            .iter()
-            .filter(|l| l.sender == message.sender)
-            .count();
+        let mine = self.lookups.iter().filter(|l| l.sender == sender).count();
         if mine >= PER_CALLER_LOOKUPS {
             return Err(err(errno::EAGAIN));
         }
         let id = self
             .net
-            .resolve(&args.name, u64::from(args.timeout_ms), now_ms)
+            .resolve(name, u64::from(timeout_ms), self.call.now_ms)
             .map_err(|error| match error {
                 ResolveError::BadName => err(errno::EINVAL),
                 ResolveError::NoResolver => err(ENETUNREACH),
                 ResolveError::Busy => err(errno::EAGAIN),
             })?;
-        self.lookups.push(ParkedLookup {
-            id,
-            txn,
-            sender: message.sender,
-        });
-        Ok(None)
+        self.lookups.push(ParkedLookup { id, txn, sender });
+        Ok(())
     }
 
     /// Answer the lookups the stack has finished with.
@@ -82,7 +74,7 @@ impl Netd {
                 LookupOutcome::TimedOut => Err(err(errno::ETIMEDOUT)),
             };
             let reply = reply.unwrap_or_else(|error| {
-                services::error_reply(api::INTERFACE, wire::METHOD_RESOLVE, error)
+                fault_reply(api::INTERFACE, wire::METHOD_RESOLVE, &Fault::from(error))
             });
             let _ = server.reply_or_drop(parked.txn, &reply);
         }

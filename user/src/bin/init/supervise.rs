@@ -7,9 +7,10 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::central;
 use user::trace;
 
-use user::messenger::{router, services};
+use user::messenger::services;
 use user::sys;
 
 use svcpolicy::{backoff, decide, tells_desktop, Exit, Outcome};
@@ -22,7 +23,7 @@ use super::state::{Phase, Service, MAX_RESTARTS};
 /// until no more can start (a single pass suffices for an ordered manifest,
 /// but this is order-independent). Launched app rows are spawned by `launch`,
 /// never here (they have no dependencies).
-pub(super) fn start_ready(services: &mut [Service], broker: &mut router::TopicBroker) {
+pub(super) fn start_ready(services: &mut [Service], broker: &mut central::Publisher) {
     loop {
         let mut started = false;
         for index in 0..services.len() {
@@ -77,7 +78,7 @@ fn manifest_cred(name: &str) -> Option<sys::Cred> {
 pub(super) fn spawn_service(
     services: &mut [Service],
     index: usize,
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
 ) {
     let cred = services[index]
         .cred
@@ -201,7 +202,7 @@ pub(super) fn child_exited(
     services: &mut [Service],
     pid: u64,
     status: u64,
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
 ) -> Option<Failure> {
     let index = services.iter().position(|service| {
         service.pid == pid && matches!(service.phase, Phase::Running | Phase::Stopping)
@@ -302,7 +303,7 @@ fn quit_completed(
     services: &mut [Service],
     index: usize,
     status: u64,
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
 ) {
     let row = &mut services[index];
     let how = if row.killed {
@@ -328,7 +329,7 @@ fn stopped_for_shutdown(
     services: &mut [Service],
     index: usize,
     status: u64,
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
 ) {
     let row = &mut services[index];
     sys::write_str(&format!(
@@ -357,7 +358,7 @@ pub(super) fn wake_deadline(services: &[Service]) -> Option<u64> {
 /// `system/events/service/<name>` topic: the typed payload carries the detail
 /// `healthd` needs (pid, restart count) without a follow-up query.
 pub(super) fn publish_state(
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     service: &Service,
     state: &str,
     pid: u64,

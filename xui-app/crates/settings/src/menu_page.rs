@@ -9,6 +9,7 @@
 //! so nothing typed is lost.
 
 use std::rc::Rc;
+use xui_host::evidence;
 
 use deskmenu::Entry;
 use xui_core::app::Ui;
@@ -235,7 +236,7 @@ impl MenuPage {
 /// answer too (the marker lives here so the evidence site does not move;
 /// see `finish` in `app/elevated.rs`).
 pub fn report_saved(entries: usize) {
-    println!("SETTINGS:MENU:SAVED:{entries}");
+    evidence!("MENU:SAVED:{entries}");
 }
 
 impl MenuPage {

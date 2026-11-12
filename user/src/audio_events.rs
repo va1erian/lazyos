@@ -19,8 +19,7 @@ use audiomix::events::{Event, Kind};
 use messenger_generated::os_lazy_audio_v1 as wire;
 
 use crate::central;
-use crate::messenger::{registry, topics_client};
-use crate::sys;
+use libmessenger::client::Deadline;
 
 /// The mixer's `{card}`: the streams applications open on `os.lazy.audio`.
 pub const MIXER_CARD: &str = "mixer";
@@ -36,7 +35,7 @@ const PUBLISH_TICKS: u64 = 5;
 /// Ticks between probes for a `Period` subscriber while there was none.
 const PROBE_TICKS: u64 = 100;
 /// Ticks between attempts to reach the broker while it is away.
-const CONNECT_TICKS: u64 = 100;
+const RETRY_TICKS: u64 = 100;
 
 /// One card's event topic.
 pub struct EventPublisher {
@@ -105,16 +104,15 @@ impl EventPublisher {
             if now < self.next_connect {
                 return None;
             }
-            self.next_connect = now + CONNECT_TICKS;
-            let endpoint = registry::resolve(topics_client::NAME).ok()?;
-            self.bus = Some(central::Bus::from_endpoint(endpoint));
+            self.next_connect = now + RETRY_TICKS;
+            self.bus = Some(central::Bus::connect().ok()?);
         }
         let bus = self.bus.as_mut()?;
-        match bus.publish_by(
+        match bus.publish_within(
             &topic,
             &payload,
             wire::TOPIC_SYSTEM_AUDIO_EVENT_RETAINED,
-            Some(sys::clock() + PUBLISH_TICKS),
+            Deadline::ticks(PUBLISH_TICKS),
         ) {
             Ok(matched) => Some(matched),
             Err(_) => {

@@ -1,3 +1,5 @@
+service "os.lazy.pkgd" implements os.lazy.pkgd.v1;
+
 /// The application package manager (`docs/packages.md`, phase 3 of the
 /// package system).
 ///
@@ -11,11 +13,12 @@
 /// typed reply; a package that fails validation reports every problem in
 /// `PackageInfo.problems` instead of an error so the installer can list them.
 interface os.lazy.pkgd.v1 {
+    default deadline=5s;
     /// Open and validate the `.lzp` at `path` without changing anything. Root
     /// may name any absolute path; anyone else a file under `/transient` or
     /// their own home folder (the path is normalised first). `problems` is empty for a package that
     /// could be installed; otherwise it lists every reason it cannot be.
-    method Inspect(path: String = 1) -> (info: PackageInfo = 1);
+    method Inspect(path: String = 1) -> (info: PackageInfo = 1) deadline=12s retry=safe;
     /// Install the package at `path` (the same source rule as `Inspect`):
     /// extract it to its install directory under `/apps`, copy its
     /// `docs/*.md` to `/docs/apps/<system_name>/`, record it, register its
@@ -23,16 +26,16 @@ interface os.lazy.pkgd.v1 {
     /// `system/events/pkg/install`. Fails if the same `system_name` is already
     /// installed at this version and digest. Needs the caller to be the
     /// session owner or root; `pkgd` audits who asked.
-    method Install(path: String = 1) -> (app: Installed = 1);
+    method Install(path: String = 1) -> (app: Installed = 1) deadline=120s;
     /// Remove `system_name`: stop its running instances, unregister its MIME
     /// verbs, revoke its policy, delete its install directory and its
     /// documentation, then publish `system/events/pkg/remove`. User data
     /// under `/home` is kept.
-    method Remove(system_name: String = 1) -> ();
+    method Remove(system_name: String = 1) -> () deadline=12s;
     /// Every installed app, in install order.
-    method List() -> (apps: Array<Installed> = 1);
+    method List() -> (apps: Array<Installed> = 1) deadline=12s retry=safe;
     /// One installed app by `system_name`, if present.
-    method Installed(system_name: String = 1) -> (app: Option<Installed> = 1);
+    method Installed(system_name: String = 1) -> (app: Option<Installed> = 1) deadline=12s retry=safe;
     /// The name of the policy label with the kernel id `label_id`
     /// (`app:<system_name>`, `tool:<system_name>`, ...). Reading a label's
     /// name takes `CAP_SETUID`, which `elevd` deliberately lacks, so it asks
@@ -40,13 +43,13 @@ interface os.lazy.pkgd.v1 {
     /// lets an administrator's approval stand (`libs/elevpolicy`,
     /// `approvals`). Answered to `elevd` alone; `ENOENT` for an id the
     /// kernel does not know.
-    method LabelName(label_id: U32 = 1) -> (label: String = 1);
+    method LabelName(label_id: U32 = 1) -> (label: String = 1) retry=safe;
     /// Whether this start's core package provisioning is finished, and what
     /// it did (`docs/packages.md`, core packages). `pkgd` answers it while it
     /// provisions, so a client such as `init`'s autostart can wait for it
     /// without blocking; `Install` and `Remove` are refused with `EAGAIN`
     /// until `done`.
-    method Provisioned() -> (state: ProvisionState = 1);
+    method Provisioned() -> (state: ProvisionState = 1) retry=safe;
     /// Approve a development run of the package at `path` (the same source
     /// rule as `Inspect`; issue #529): validate it, compile its permissions and
     /// load them for the label `dev:<system_name>`, which an IDE whose
@@ -60,12 +63,12 @@ interface os.lazy.pkgd.v1 {
     /// only, are dropped (and the label's rules revoked) when the session that
     /// gave them logs out, and every one is audited as
     /// `system/events/pkg/develop`.
-    method Develop(path: String = 1, confirm: Bool = 2) -> (label: String = 1, approved: Bool = 2);
+    method Develop(path: String = 1, confirm: Bool = 2) -> (label: String = 1, approved: Bool = 2) deadline=12s;
     /// The user declined the development consent for the package at `path`
     /// (same caller and source rules as `Develop`). Nothing is loaded; the
     /// refusal is audited and published as `system/events/pkg/denied` under
     /// the package's `system_name`, so the IDE waiting for the approval stops.
-    method DevelopDeclined(path: String = 1) -> ();
+    method DevelopDeclined(path: String = 1) -> () deadline=12s;
     /// `elevd`'s install of a package an administrator approved on the
     /// trusted prompt (docs/accounts-plan.md U2, review of #659); refused
     /// with `EPERM` from anyone else. `digest` is the SHA-256 `Inspect`
@@ -80,7 +83,7 @@ interface os.lazy.pkgd.v1 {
     /// developer-tool package is installed only when it is `true` and any
     /// other package only when it is `false`, so a tool is never installed
     /// from a prompt that did not warn about it.
-    method InstallApproved(path: String = 1, digest: String = 2, core: Bool = 3, devtool: Bool = 4) -> (app: Installed = 1);
+    method InstallApproved(path: String = 1, digest: String = 2, core: Bool = 3, devtool: Bool = 4) -> (app: Installed = 1) deadline=never;
     /// `dbgd`'s install of a package a developer uploaded to a box built for
     /// remote control (docs/dbgd-plan.md, v2 app swapping): accepted from
     /// `dbgd` alone and only when `/boot/lazyos.cfg` says
@@ -89,7 +92,7 @@ interface os.lazy.pkgd.v1 {
     /// the bytes must hash to `digest` (SHA-256, hex), as for
     /// `InstallApproved`. Unlike every other install it may replace a core
     /// app, which is what a developer iterating on one needs.
-    method InstallDebug(path: String = 1, digest: String = 2) -> (app: Installed = 1);
+    method InstallDebug(path: String = 1, digest: String = 2) -> (app: Installed = 1) deadline=never;
 
     /// Where an installed app came from. `Core`: its `system_name` is shipped
     /// in `/system/packages`, so it cannot be removed (a newer version the

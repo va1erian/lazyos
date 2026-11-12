@@ -37,6 +37,21 @@ structured error field (see `services::error_field`): an unknown stream is
 | ListOutputs | 124559009 | sync | `() -> (outputs: Array<Output>)` |
 | SelectOutput | 234575836 | sync | `(id: String) -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.audio` (together with `os.lazy.audio.v1`); registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| ListStreams | this interface | - | 2000 ms | safe |
+| SetStreamVolume | this interface | - | 2000 ms | never |
+| GetMaster | this interface | - | 2000 ms | safe |
+| SetMaster | this interface | - | 2000 ms | safe |
+| ListOutputs | this interface | - | 2000 ms | safe |
+| SelectOutput | this interface | - | 2000 ms | safe |
+
 ## struct `StreamStatus`
 
 - `stream: U32`

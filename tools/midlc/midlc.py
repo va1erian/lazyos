@@ -25,6 +25,10 @@ Usage:
 given, `--schema`, `--rhai-api` or `--rhai-docs`) output differs, so
 generated code cannot silently drift; CI runs it on every pull request.
 
+`--out` writes the crate's root file and, beside it, one file per interface and
+per shared module (`midlc_split`); the `[features]` block of the crate's
+`Cargo.toml` is rewritten between its markers.
+
 Grammar (small on purpose):
 
     interface os.lazy.echo.v1 {
@@ -35,6 +39,10 @@ Grammar (small on purpose):
         struct Event { topic: String, at: U64 }
         enum Level { Info, Warn, Error }
     }
+
+Beside methods, an interface may declare `errors { NotFound = 1001 }`, and a
+file `service "os.lazy.echo" implements os.lazy.echo.v1;`; a method takes the
+attributes `scope "os.lazy.x.v1"`, `deadline=500ms` (or `never`) and `retry=safe`, and an interface a `default deadline=2s;` line (`midlc_decls`).
 
 `Channel<interface>`, `Buffer` and `Ring<...>` are the kernel objects a request
 carries (its parcel's object list); they are parameter types, legal in a
@@ -57,6 +65,7 @@ import json
 import sys
 from pathlib import Path
 
+from midlc_decls import attach_services
 from midlc_docs import emit_manifest, emit_markdown
 from midlc_errors import ERRORS_SUPPORT
 from midlc_lexer import TOKEN, Token, lex
@@ -78,6 +87,8 @@ from midlc_model import (
 )
 from midlc_parser import Parser, check_type, validate
 from midlc_pin import pin_files
+from midlc_rust_decls import SERVICES_SUPPORT, emit_service_table
+from midlc_split import FILE_HEADER, check_features, feature_name, mod_declaration, module_file, rewrite_features, split_module, stale_generated
 from midlc_schema import emit_schema
 from midlc_rhai import emit_rhai_api
 from midlc_rhai_pages import emit_rhai_pages
@@ -115,27 +126,58 @@ def parse_all(inputs: list[Path], warnings: list[str] | None = None) -> list[Int
     """Every interface of `inputs`; non-fatal findings (implicit field ids)
     are appended to `warnings` when given, prefixed with their file."""
     interfaces = []
+    services = []
     for path in inputs:
         parser = Parser(lex(path.read_text(encoding="utf-8")))
         interfaces += parser.parse_interfaces()
+        services += parser.services
         if warnings is not None:
             warnings += [f"{path}: {warning}" for warning in parser.warnings]
+    # A service may implement another file's interface, so this too needs them all.
+    attach_services(interfaces, services)
     # A channel may carry another file's interface, so this check needs them all.
     check_channel_targets(interfaces)
     return interfaces
 
 
-def generate(inputs: list[Path], warnings: list[str] | None = None) -> tuple[str, list[dict], dict[str, str]]:
+def generate(inputs: list[Path], warnings: list[str] | None = None) -> tuple[dict[str, str], list[dict], dict[str, str]]:
+    """The generated crate as `{file name: text}` (`lib.rs` is the root, see
+    `midlc_split`), the manifest entries and the Markdown pages."""
     interfaces = parse_all(inputs, warnings)
-    modules = "\n\n".join(emit_rust(i) for i in interfaces)
-    # The shared topic runtime comes before the modules that use it, and the
-    # crate-level declaration table after them.
-    rust = (
-        HEADER + ERRORS_SUPPORT + "\n" + TOPIC_SUPPORT + "\n" + OBJECT_SUPPORT + "\n" + RING_SUPPORT
-        + "\n" + modules + "\n\n" + emit_topic_table(interfaces)
-        + "\n" + emit_object_table(interfaces)
-    )
-    return rust, [emit_manifest(i) for i in interfaces], {i.name: emit_markdown(i) for i in interfaces}
+    check_features(interfaces)
+    files: dict[str, str] = {}
+    root = [HEADER.rstrip("\n"), ""]
+    # The shared runtime comes before the interface modules that use it.
+    for support in (ERRORS_SUPPORT, TOPIC_SUPPORT, OBJECT_SUPPORT, RING_SUPPORT, SERVICES_SUPPORT):
+        name, prefix, body = split_module(support)
+        files[f"{name}.rs"] = module_file(body)
+        root += mod_declaration(prefix, name)
+    tables = "\n".join((emit_topic_table(interfaces), emit_object_table(interfaces), emit_service_table(interfaces)))
+    files["declared.rs"] = FILE_HEADER + "\nuse crate::{objects, services, topics};\n\n" + tables
+    root += ["mod declared;", "pub use declared::*;", ""]
+    for interface in interfaces:
+        name, prefix, body = split_module(emit_rust(interface))
+        files[f"{name}.rs"] = module_file(body)
+        root += mod_declaration(prefix, name, feature_name(interface))
+    files["lib.rs"] = "\n".join(root).rstrip("\n") + "\n"
+    return files, [emit_manifest(i) for i in interfaces], {i.name: emit_markdown(i) for i in interfaces}
+
+
+def crate_names(out: Path, crate: dict[str, str]) -> dict[str, str]:
+    """`crate` keyed by the file names it is written under (`--out` names the root)."""
+    return {(out.name if name == "lib.rs" else name): text for name, text in crate.items()}
+
+
+def crate_files(out: Path, crate: dict[str, str], interfaces: list[Interface]) -> dict[Path, str]:
+    """Every file of the generated crate by path: its sources beside `--out`
+    and, when the crate's `Cargo.toml` has the feature markers, that file."""
+    files = {out.parent / name: text for name, text in crate_names(out, crate).items()}
+    cargo = out.parent.parent / "Cargo.toml"
+    if cargo.is_file():
+        rewritten = rewrite_features(cargo.read_text(encoding="utf-8"), interfaces)
+        if rewritten is not None:
+            files[cargo] = rewritten
+    return files
 
 
 def stale_files(directory: Path, files: dict[str, str]) -> list[str]:
@@ -179,7 +221,8 @@ def main() -> int:
         if args.pin_field_ids:
             pin_files(args.inputs)
             return 0
-        rust, manifests, docs = generate(args.inputs, warnings)
+        crate, manifests, docs = generate(args.inputs, warnings)
+        rust = crate_files(args.out, crate, parse_all(args.inputs)) if args.out else {}
         schema = emit_schema(parse_all(args.inputs)) if args.schema else ""
         rhai_api = emit_rhai_api(parse_all(args.inputs)) if args.rhai_api else {}
         rhai_pages = emit_rhai_pages(parse_all(args.inputs)) if args.rhai_docs else {}
@@ -190,8 +233,9 @@ def main() -> int:
         print(f"midlc: warning: {warning}", file=sys.stderr)
 
     if args.check:
-        targets = [(flag, path, text) for flag, path, text in
-                   (("--out", args.out, rust), ("--schema", args.schema, schema)) if path]
+        targets = [("--out", path, text) for path, text in sorted(rust.items())]
+        if args.schema:
+            targets.append(("--schema", args.schema, schema))
         if args.rhai_api:
             targets += [("--rhai-api", args.rhai_api / name, text) for name, text in sorted(rhai_api.items())]
         if args.rhai_docs:
@@ -204,6 +248,12 @@ def main() -> int:
             print("midlc: --check needs --out, --schema, --rhai-api, --rhai-docs, --manifest and/or --docs",
                   file=sys.stderr)
             return 1
+        if args.out:
+            stale = stale_generated(args.out.parent, crate_names(args.out, crate))
+            if stale:
+                print(f"midlc: {args.out.parent} has files midlc no longer generates: {', '.join(stale)}",
+                      file=sys.stderr)
+                return 1
         for directory, files in ((args.rhai_api, rhai_api), (args.rhai_docs, rhai_pages)):
             stale = stale_files(directory, files) if directory else []
             if stale:
@@ -213,7 +263,8 @@ def main() -> int:
             if not path.is_file() or path.read_text(encoding="utf-8") != text:
                 print(
                     f"midlc: {path} is out of date; regenerate with:\n"
-                    f"  python tools/midlc/midlc.py {flag} {path} {' '.join(str(p) for p in args.inputs)}",
+                    f"  python tools/midlc/midlc.py {flag} {args.out if flag == '--out' else path} "
+                    f"{' '.join(str(p) for p in args.inputs)}",
                     file=sys.stderr,
                 )
                 return 1
@@ -222,11 +273,14 @@ def main() -> int:
 
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(rust, encoding="utf-8")
-        print(f"midlc: wrote {args.out}")
+        for name in stale_generated(args.out.parent, crate_names(args.out, crate)):
+            (args.out.parent / name).unlink()
+        for path, text in rust.items():
+            path.write_text(text, encoding="utf-8", newline="\n")
+        print(f"midlc: wrote {len(rust)} file(s) to {args.out.parent}")
     if args.schema:
         args.schema.parent.mkdir(parents=True, exist_ok=True)
-        args.schema.write_text(schema, encoding="utf-8")
+        args.schema.write_text(schema, encoding="utf-8", newline="\n")
         print(f"midlc: wrote {args.schema}")
     if args.rhai_api:
         write_rhai_api(args.rhai_api, rhai_api)
@@ -234,12 +288,12 @@ def main() -> int:
         write_rhai_api(args.rhai_docs, rhai_pages)
     if args.manifest:
         args.manifest.parent.mkdir(parents=True, exist_ok=True)
-        args.manifest.write_text(json.dumps(manifests, indent=2) + "\n", encoding="utf-8")
+        args.manifest.write_text(json.dumps(manifests, indent=2) + "\n", encoding="utf-8", newline="\n")
         print(f"midlc: wrote {args.manifest}")
     if args.docs:
         args.docs.mkdir(parents=True, exist_ok=True)
         for name, text in docs.items():
-            (args.docs / f"{name}.md").write_text(text, encoding="utf-8")
+            (args.docs / f"{name}.md").write_text(text, encoding="utf-8", newline="\n")
         print(f"midlc: wrote {len(docs)} doc page(s) to {args.docs}")
     return 0
 

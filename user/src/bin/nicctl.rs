@@ -24,6 +24,7 @@ use alloc::format;
 use core::panic::PanicInfo;
 use user::trace;
 
+use user::messenger::net as api;
 use user::sys;
 
 #[path = "nicctl/common.rs"]
@@ -138,9 +139,9 @@ fn arp() -> Result<(), alloc::string::String> {
         .as_slice()
         .try_into()
         .map_err(|_| alloc::string::String::from("bad MAC"))?;
-    let mut attachment = client.attach(16).map_err(fail("attach"))?;
+    let mut attachment = api::attach(&client, 16).map_err(fail("attach"))?;
     let answered = arp_exchange(&client, &mut attachment, mac, GATEWAY_IP);
-    let _ = client.detach(attachment.ring);
+    let _ = client.detach_ring(attachment.ring);
     attachment.close();
     let from = answered?;
     trace::print!(

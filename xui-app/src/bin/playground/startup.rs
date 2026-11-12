@@ -5,13 +5,11 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Instant;
 
-use xui_app::backend::LazyOSBackend;
-use xui_app::devtool::{Notice, Provenance, ReviewGate};
-use xui_app::trace::{self, Channel};
+use xui_app::devtool::{self, Notice, Provenance, ReviewGate};
+use xui_app::trace::Channel;
 use xui_core::app::Ui;
 use xui_core::arrange::Handle;
 use xui_core::backend::{Event, Result, WidgetId};
-use xui_core::widget::{FileDialog, StdFileSystem};
 use xui_core::{Key, Modifiers};
 use xui_playground::arrival::Known;
 use xui_playground::docs::Block;
@@ -32,13 +30,9 @@ const WELCOME: &str = "// Messenger Playground. Write Rhai here and press Run (F
 // Pick an interface on the left and use Insert call, or open the Gallery.\n\
 for name in msg::services() {\n    print(name);\n}\n";
 
-pub fn build(ui: &mut Ui<Msg>, backend: &Rc<LazyOSBackend>) -> Result<Playground> {
-    // Below this the panes clip.
-    backend.set_size_hints(900, 560, 0, 0);
-    backend.on_first_frame(|| trace::pass!(Channel::Playground, "UP"));
-    if let Some(theme) = backend.desktop_theme() {
-        ui.set_theme(theme);
-    }
+pub fn build(ui: &mut Ui<Msg>, cx: &xui_app::AppContext) -> Result<Playground> {
+    let backend = cx.backend();
+    devtool::announce(Channel::Playground);
     // One notice for the tool's windows: the strip's state, remembered per user.
     let notice = Notice::for_tool(crate::notice::SYSTEM_NAME);
     crate::notice::announce_stored(&notice);
@@ -47,21 +41,16 @@ pub fn build(ui: &mut Ui<Msg>, backend: &Rc<LazyOSBackend>) -> Result<Playground
     ui.root(w.layout(&notice, &panes.saved))?;
     let editor = Rc::clone(&w.editor.get().0);
 
-    let open_dialog = FileDialog::open_file(ui, "Open script")?
-        .file_system(Rc::new(StdFileSystem))
+    let rhai: &[(&str, &[&str])] = &[("Rhai scripts", &["rhai"])];
+    let open_dialog = cx
+        .open_dialog(ui, "Open script", rhai, || Some(Msg::DialogDone))?
         .initial_dir(crate::files::scripts_dir())
-        .filter("Rhai scripts", &["rhai"])
-        .filter("All files", &[])
-        .require_existing(true)
-        .on_accept(|path| Some(Msg::OpenChosen(path)))
-        .on_cancel(|| Some(Msg::DialogDone));
-    let save_dialog = FileDialog::save_file(ui, "Save script")?
-        .file_system(Rc::new(StdFileSystem))
+        .on_accept(|path| Some(Msg::OpenChosen(path)));
+    let save_dialog = cx
+        .save_dialog(ui, "Save script", rhai, || Some(Msg::DialogDone))?
         .initial_dir(crate::files::scripts_dir())
         .suggested_name("script.rhai")
-        .filter("Rhai scripts", &["rhai"])
-        .on_accept(|path| Some(Msg::SaveChosen(path)))
-        .on_cancel(|| Some(Msg::DialogDone));
+        .on_accept(|path| Some(Msg::SaveChosen(path)));
 
     ui.on_key(|key, modifiers| shortcut(key, modifiers));
     ui.on_close(|| Some(Msg::Close));

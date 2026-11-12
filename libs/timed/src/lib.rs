@@ -30,9 +30,6 @@ pub const CLOCK24_KEY: &str = "sys/time/clock24";
 /// The `confd` key that adds seconds to the taskbar clock (default `false`).
 pub const SHOW_SECONDS_KEY: &str = "sys/time/show_seconds";
 
-/// The retained topic `timed` publishes each minute.
-pub const TICK_TOPIC: &str = "time/tick";
-
 /// Seconds between `time/tick` events.
 pub const TICK_SECS: i64 = 60;
 

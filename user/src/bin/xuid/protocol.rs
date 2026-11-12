@@ -1,26 +1,26 @@
 //! Display protocol helpers and kernel event decoding (issue #194 split): the
-//! reply builders, the raw kernel input record decoder and the privilege
-//! check. The wire itself is the generated `display::wire` (issue #287).
+//! raw kernel input record decoder, the privilege check and the refusal
+//! builder. The wire itself is the generated `display::wire` (issue #287).
 
 use alloc::vec::Vec;
-use libmessenger::Parcel;
-use user::messenger::display::{self, Color};
-use user::messenger::Message;
+use libmessenger::server::{Caller, Fault};
+use user::messenger::display::Color;
 use user::sys;
 
-/// Whether `cred` authorizes the compositor's administrative operations
+/// Whether `cx` authorizes the compositor's administrative operations
 /// (issue #175) on its own: any subscription role, the shell-only calls.
 /// A system service holding `CAP_SETUID`, never a uid (issue #623): a root
 /// login session holds no capability, and its LazyShell gets the shell role
 /// like any other session's, as the display's session.
-pub(super) fn privileged(cred: &sys::Cred) -> bool {
-    cred.caps & sys::CAP_SETUID != 0
+pub(super) fn privileged(cx: &Caller) -> bool {
+    cx.caps & sys::CAP_SETUID != 0
 }
 
-/// [`privileged`] for the caller the kernel stamped on `message`.
-pub(super) fn is_privileged(message: &Message) -> bool {
-    privileged(&message.caller())
+/// A refusal with the positive errno `code` (`user::messenger::errno`).
+pub(super) fn refuse(code: i64) -> Fault {
+    Fault::from_syscall(code)
 }
+
 /// The kind of a raw kernel input record.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum EventKind {
@@ -111,24 +111,4 @@ mod raw_kind {
 /// Pack a colour into the `0xRRGGBB` form `GetTheme` reports.
 pub(super) fn color_u32(color: Color) -> u32 {
     ((color.r as u32) << 16) | ((color.g as u32) << 8) | color.b as u32
-}
-
-/// An empty reply carrying only the header.
-pub(super) fn empty_reply(method: u32) -> Parcel {
-    display::reply(method, Vec::new())
-}
-
-/// An error reply: an `Error` TLV with a positive code, as the daemon
-/// convention in this codebase uses.
-pub(super) fn error_reply(method: u32, code: i64) -> Parcel {
-    display::error_reply(method, code)
-}
-
-/// A success reply carrying an encoded generated `body`; an encode failure
-/// (an oversized body) is reported as `EINVAL` rather than a silent empty one.
-pub(super) fn typed_reply(method: u32, body: Result<Vec<u8>, libmessenger::Error>) -> Parcel {
-    match body {
-        Ok(body) => display::reply(method, body),
-        Err(_) => error_reply(method, user::messenger::errno::EINVAL),
-    }
 }

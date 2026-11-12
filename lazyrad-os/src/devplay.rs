@@ -34,6 +34,7 @@ use lazyrad_ide::run::{
     stderr_event, stdout_event, ChildProcess, EventSink, LaunchError, LaunchMode, Launcher,
     RunEvent, RunId, SendError,
 };
+use messenger_generated::os_lazy_pkgd_v1 as pkgd_wire;
 use rhai::{Dynamic, Map};
 use rhai_lazy::msg::gate::Gate;
 use rhai_lazy::msg::{topics, Fabric, Service, Subscription, Wait};
@@ -44,8 +45,10 @@ use crate::launcher::{player_args, Pipe};
 
 /// Where the development package is written: readable by `pkgd` by design.
 pub const STAGING_DIR: &str = fhs::mount::TRANSIENT;
-/// The events `pkgd` publishes (`idl/pkgd.midl`).
-const PKG_EVENTS: &str = "system/events/pkg/+";
+/// The filter on the events `pkgd` publishes (`idl/pkgd.midl`).
+fn pkg_events() -> Result<String, String> {
+    pkgd_wire::filter_system_events_pkg("+").map_err(|error| format!("{error:?}"))
+}
 /// How long a run waits for the user to answer the consent, in PIT ticks.
 const APPROVAL_TICKS: u64 = 300 * 100;
 /// The environment the player keeps.
@@ -110,8 +113,12 @@ impl Launcher for DevLauncher {
             .map(|gate| Rc::new(Fabric::new(Rc::new(gate))))
             .ok_or_else(|| launch_error(player, "not running on LazyOS"))?;
         // Subscribe before asking, so the answer cannot be missed.
-        let events = topics::subscribe(&fabric, PKG_EVENTS, &Map::new())
-            .map_err(|error| launch_error(player, format!("the package events: {error}")))?;
+        let events = topics::subscribe(
+            &fabric,
+            &pkg_events().map_err(|why| launch_error(player, why))?,
+            &Map::new(),
+        )
+        .map_err(|error| launch_error(player, format!("the package events: {error}")))?;
         let path = staged.to_string_lossy().into_owned();
         ask_for_approval(&fabric, &path).map_err(|why| launch_error(player, why))?;
         let label = format!("dev:{}", built.system_name);

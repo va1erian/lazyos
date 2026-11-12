@@ -1,19 +1,27 @@
-//! [`Client`]: an app's connection to the compositor, built on the generated
-//! `os.lazy.display.v1` stubs.
+//! [`Client`]: an app's connection to the compositor: the generated
+//! `os.lazy.display.v1` client with [`Rect`]s for the wire's separate
+//! coordinates and the surface roles named.
 
 use alloc::vec::Vec;
 
-use libmessenger::{flags, Buffer, Parcel};
+use libmessenger::client::{CallError, Connection};
+use libmessenger::Buffer;
+use messenger_generated::os_lazy_display_cursor_v1 as cursor;
 
-use super::super::{errno, registry, Endpoint, Error, Result};
 use super::canvas::Rect;
 use super::events::{SurfaceInfo, Theme};
-use super::{error_field, request, wire, CONNECT_TICKS};
+use super::wire;
+use crate::messenger::client::Nested;
+use crate::messenger::Endpoint;
+
+type Result<T> = core::result::Result<T, CallError>;
 
 /// An app's connection to the compositor.
-#[derive(Clone, Copy)]
 pub struct Client {
-    endpoint: Endpoint,
+    wire: wire::Client<Nested>,
+    /// The cursor scope's client: the same service name, another interface,
+    /// resolved on first use.
+    cursor: cursor::Client<Nested>,
 }
 
 /// Clamp a caller's size to the wire's `u32`; the compositor bounds it to the
@@ -22,30 +30,31 @@ fn wire_u32(value: u64) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
 }
 
+/// A rectangle as the wire's unsigned fields (a negative size is empty).
+fn wire_rect(rect: Rect) -> wire::Rect {
+    wire::Rect {
+        x: rect.x.max(0) as u32,
+        y: rect.y.max(0) as u32,
+        w: rect.w.max(0) as u32,
+        h: rect.h.max(0) as u32,
+    }
+}
+
 impl Client {
-    /// The compositor's endpoint, for the sibling modules' calls.
-    pub(super) fn endpoint(&self) -> Endpoint {
-        self.endpoint
+    /// The generated client underneath, for a call this wrapper has no
+    /// method for.
+    pub fn wire(&self) -> &wire::Client<Nested> {
+        &self.wire
     }
 
-    /// Resolve [`super::NAME`] into this task, retrying briefly while the
-    /// compositor starts, and wrap the endpoint.
+    /// Resolve [`super::NAME`], waiting the runtime's connect bound
+    /// ([`crate::messenger::client::CONNECT_BOUND`]) while the compositor
+    /// starts.
     pub fn connect() -> Result<Client> {
-        let deadline = crate::sys::clock().saturating_add(CONNECT_TICKS);
-        loop {
-            match registry::resolve(super::NAME) {
-                Ok(endpoint) => return Ok(Client { endpoint }),
-                Err(error) => {
-                    if crate::sys::clock() >= deadline {
-                        return Err(error);
-                    }
-                    // Park one tick on the child-exit queue: no children
-                    // means this is a clean sleep (the "no clock yet"
-                    // pattern the other clients use).
-                    let _ = crate::sys::wait(crate::sys::clock() + 1);
-                }
-            }
-        }
+        Ok(Client {
+            wire: wire::Client::connect(Nested)?,
+            cursor: cursor::Client::from_connection(Connection::new(Nested, cursor::SERVICE_NAME)),
+        })
     }
 
     /// A `CreateSurface(width, height, title, events)` request. The event
@@ -101,22 +110,17 @@ impl Client {
         events: &Endpoint,
         role: u32,
     ) -> Result<u64> {
-        let (body, objects) = wire::encode_create_surface_args(&wire::CreateSurfaceArgs {
-            width: wire_u32(width),
-            height: wire_u32(height),
-            title: title.into(),
+        let surface = self.wire.create_surface(
+            wire_u32(width),
+            wire_u32(height),
+            title,
             role,
-            popup: None,
-            events: events.handle(),
-        })
-        .map_err(Error::Parcel)?;
-        let reply = self.call(request(wire::METHOD_CREATESURFACE, body, objects))?;
-        let surface = wire::decode_create_surface_reply(&reply.body)
-            .map_err(Error::Parcel)?
-            .surface;
+            None,
+            events.handle(),
+        )?;
         // Surface ids start at 1: a missing id is a malformed reply.
         if surface == 0 {
-            return Err(Error::Errno(-errno::EINVAL));
+            return Err(CallError::Transport(libmessenger::client::Errno::BADMSG));
         }
         Ok(surface)
     }
@@ -129,70 +133,41 @@ impl Client {
     /// observer that never replaces the shell. Registering again replaces the
     /// endpoint.
     pub fn subscribe(&self, role: &str, events: &Endpoint) -> Result<()> {
-        let (body, objects) = wire::encode_subscribe_args(&wire::SubscribeArgs {
-            subscriber_role: role.into(),
-            events: events.handle(),
-        })
-        .map_err(Error::Parcel)?;
-        self.call(request(wire::METHOD_SUBSCRIBE, body, objects))
-            .map(|_| ())
+        self.wire.subscribe(role, events.handle())
     }
 
     /// `ListSurfaces` (shell-only): every surface the compositor knows,
     /// bottom first (the desktop, the windows in z-order, the panels), with
     /// the composited geometry (issue #167).
     pub fn list_surfaces(&self) -> Result<Vec<SurfaceInfo>> {
-        let parcel = request(wire::METHOD_LISTSURFACES, Vec::new(), Vec::new());
-        let reply = self.endpoint.call(&parcel, None)?;
-        if let Some(code) = error_field(&reply) {
-            return Err(Error::Errno(-code));
-        }
-        Ok(wire::decode_list_surfaces_reply(&reply.body)
-            .map_err(Error::Parcel)?
-            .surfaces)
+        self.wire.list_surfaces()
     }
 
     /// `GetWorkArea`: the rectangle windows may occupy: what the shell set
     /// with [`Client::set_work_area`], else the whole screen.
     pub fn get_work_area(&self) -> Result<Rect> {
-        let reply = self.call(request(wire::METHOD_GETWORKAREA, Vec::new(), Vec::new()))?;
-        let area = wire::decode_get_work_area_reply(&reply.body).map_err(Error::Parcel)?;
+        let area = self.wire.get_work_area()?;
         Ok(Rect::new(area.x, area.y, area.w, area.h))
     }
 
     /// `GetTheme`: xuid's current chrome palette, so the shell's own
     /// surfaces can match it (issue #167).
     pub fn get_theme(&self) -> Result<Theme> {
-        let reply = self.call(request(wire::METHOD_GETTHEME, Vec::new(), Vec::new()))?;
-        let theme = wire::decode_get_theme_reply(&reply.body).map_err(Error::Parcel)?;
-        Ok(Theme::from_reply(&theme))
+        Ok(Theme::from_reply(&self.wire.get_theme()?))
     }
 
     /// Share `buffer` (a handle from the `display` syscall's
     /// `create_buffer`) with the compositor as `surface`'s pixels. The
     /// sender keeps its handle and mapping; the compositor gains one.
     pub fn attach_buffer(&self, surface: u64, buffer: u64, len: u64) -> Result<()> {
-        let (body, objects) = wire::encode_attach_buffer_args(&wire::AttachBufferArgs {
-            surface,
-            pixels: Buffer::whole(buffer, len),
-        })
-        .map_err(Error::Parcel)?;
-        self.call(request(wire::METHOD_ATTACHBUFFER, body, objects))
-            .map(|_| ())
+        self.wire.attach_buffer(surface, Buffer::whole(buffer, len))
     }
 
     /// Tell the compositor the `damage` rectangle of `surface` is ready.
     pub fn commit(&self, surface: u64, damage: Rect) -> Result<()> {
-        let body = wire::encode_commit_args(&wire::CommitArgs {
-            surface,
-            x: damage.x.max(0) as u32,
-            y: damage.y.max(0) as u32,
-            w: damage.w.max(0) as u32,
-            h: damage.h.max(0) as u32,
-        })
-        .map_err(Error::Parcel)?;
-        self.call(request(wire::METHOD_COMMIT, body, Vec::new()))
-            .map(|_| ())
+        let damage = wire_rect(damage);
+        self.wire
+            .commit(surface, damage.x, damage.y, damage.w, damage.h)
     }
 
     /// `SetSizeHints`: declare `surface` resizable within the given content
@@ -210,30 +185,16 @@ impl Client {
         max_w: u32,
         max_h: u32,
     ) -> Result<()> {
-        let body = wire::encode_set_size_hints_args(&wire::SetSizeHintsArgs {
-            surface,
-            min_w,
-            min_h,
-            max_w,
-            max_h,
-        })
-        .map_err(Error::Parcel)?;
-        self.call(request(wire::METHOD_SETSIZEHINTS, body, Vec::new()))
-            .map(|_| ())
+        self.wire
+            .set_size_hints(surface, min_w, min_h, max_w, max_h)
     }
 
     /// `AttachBufferSlot`: share `buffer` with the compositor as buffer slot
     /// `slot` (`0..surfbuf::MAX_SLOTS`) of `surface` (issue #361). Fails with
     /// `EBUSY` while `slot` is the surface's current buffer.
     pub fn attach_slot(&self, surface: u64, slot: u32, buffer: u64, len: u64) -> Result<()> {
-        let (body, objects) = wire::encode_attach_buffer_slot_args(&wire::AttachBufferSlotArgs {
-            surface,
-            slot,
-            pixels: Buffer::whole(buffer, len),
-        })
-        .map_err(Error::Parcel)?;
-        self.call(request(wire::METHOD_ATTACHBUFFERSLOT, body, objects))
-            .map(|_| ())
+        self.wire
+            .attach_buffer_slot(surface, slot, Buffer::whole(buffer, len))
     }
 
     /// `Present` (issue #361): a one-way, pipelined commit. Makes `slot` the
@@ -243,33 +204,13 @@ impl Client {
     /// event endpoint: `BufferRelease` for the slot this replaced, then
     /// `FrameDone(seq)`.
     pub fn present(&self, surface: u64, slot: u32, seq: u64, damage: &[Rect]) -> Result<()> {
-        let damage = damage
-            .iter()
-            .map(|rect| wire::Rect {
-                x: rect.x.max(0) as u32,
-                y: rect.y.max(0) as u32,
-                w: rect.w.max(0) as u32,
-                h: rect.h.max(0) as u32,
-            })
-            .collect();
-        let body = wire::encode_present_args(&wire::PresentArgs {
-            surface,
-            slot,
-            seq,
-            damage,
-        })
-        .map_err(Error::Parcel)?;
-        let mut parcel = request(wire::METHOD_PRESENT, body, Vec::new());
-        parcel.header.flags |= flags::ONE_WAY;
-        self.endpoint.send(&parcel)
+        let damage: Vec<wire::Rect> = damage.iter().copied().map(wire_rect).collect();
+        self.wire.present(surface, slot, seq, &damage)
     }
 
     /// Drop `surface`; the compositor forgets it and repaints.
     pub fn destroy_surface(&self, surface: u64) -> Result<()> {
-        let body = wire::encode_destroy_surface_args(&wire::DestroySurfaceArgs { surface })
-            .map_err(Error::Parcel)?;
-        self.call(request(wire::METHOD_DESTROYSURFACE, body, Vec::new()))
-            .map(|_| ())
+        self.wire.destroy_surface(surface)
     }
 
     /// `DragStart(surface, token, mime)`: hand `surface`'s in-progress
@@ -277,106 +218,63 @@ impl Client {
     /// `Drop` carrying `token`. The payload is offered to `clipboardd`
     /// first (issue #145); the compositor never sees the bytes.
     pub fn drag_start(&self, surface: u64, token: u64, mime: &str) -> Result<()> {
-        let body = wire::encode_drag_start_args(&wire::DragStartArgs {
-            surface,
-            token,
-            mime: mime.into(),
-        })
-        .map_err(Error::Parcel)?;
-        self.call(request(wire::METHOD_DRAGSTART, body, Vec::new()))
-            .map(|_| ())
+        self.wire.drag_start(surface, token, mime)
     }
 
     /// `DragCancel(surface)`: cancel the drag that started at `surface`.
     pub fn drag_cancel(&self, surface: u64) -> Result<()> {
-        let body = wire::encode_drag_cancel_args(&wire::DragCancelArgs { surface })
-            .map_err(Error::Parcel)?;
-        self.call(request(wire::METHOD_DRAGCANCEL, body, Vec::new()))
-            .map(|_| ())
+        self.wire.drag_cancel(surface)
     }
 
     /// `PlaceSurface`: move this task's panel so its top-left is at screen
     /// `(x, y)` (clamped on screen).
     pub fn place_surface(&self, surface: u64, x: i32, y: i32) -> Result<()> {
-        let body = wire::encode_place_surface_args(&wire::PlaceSurfaceArgs { surface, x, y });
-        self.call_unit(wire::METHOD_PLACESURFACE, body)
+        self.wire.place_surface(surface, x, y)
     }
 
     /// `ActivateSurface` (shell-only): restore, raise and focus a window.
     pub fn activate_surface(&self, surface: u64) -> Result<()> {
-        let body = wire::encode_activate_surface_args(&wire::ActivateSurfaceArgs { surface });
-        self.call_unit(wire::METHOD_ACTIVATESURFACE, body)
+        self.wire.activate_surface(surface)
     }
 
     /// `ActivateApp` (shell-only): restore, raise and focus every window of
     /// the app with package label `label` in `session`.
     pub fn activate_app(&self, label: u32, session: u64) -> Result<()> {
-        let body = wire::encode_activate_app_args(&wire::ActivateAppArgs { label, session });
-        self.call_unit(wire::METHOD_ACTIVATEAPP, body)
+        self.wire.activate_app(label, session)
     }
 
     /// `MinimizeSurface` (shell-only): minimize a window, like its title-bar
     /// button.
     pub fn minimize_surface(&self, surface: u64) -> Result<()> {
-        let body = wire::encode_minimize_surface_args(&wire::MinimizeSurfaceArgs { surface });
-        self.call_unit(wire::METHOD_MINIMIZESURFACE, body)
+        self.wire.minimize_surface(surface)
     }
 
     /// `SetWorkArea` (shell-only): where windows may go, e.g. the screen
     /// minus the shell's taskbar.
     pub fn set_work_area(&self, area: Rect) -> Result<()> {
-        let (x, y, w, h) = (area.x, area.y, area.w, area.h);
-        let body = wire::encode_set_work_area_args(&wire::SetWorkAreaArgs { x, y, w, h });
-        self.call_unit(wire::METHOD_SETWORKAREA, body)
+        self.wire.set_work_area(area.x, area.y, area.w, area.h)
     }
 
     /// `SetIconGeometry` (shell-only): where `surface`'s taskbar entry is,
     /// so its minimize/restore zoom flies there; an empty rect forgets it.
     pub fn set_icon_geometry(&self, surface: u64, rect: Rect) -> Result<()> {
-        let (x, y, w, h) = (rect.x, rect.y, rect.w, rect.h);
-        let args = wire::SetIconGeometryArgs {
-            surface,
-            x,
-            y,
-            w,
-            h,
-        };
-        let body = wire::encode_set_icon_geometry_args(&args);
-        self.call_unit(wire::METHOD_SETICONGEOMETRY, body)
+        self.wire
+            .set_icon_geometry(surface, rect.x, rect.y, rect.w, rect.h)
     }
 
     /// `HintLaunchOrigin` (shell-only): the next window any task opens soon
     /// zooms out of `rect` (the menu row or icon that launched it).
     pub fn hint_launch_origin(&self, rect: Rect) -> Result<()> {
-        let args = wire::HintLaunchOriginArgs {
-            x: rect.x,
-            y: rect.y,
-            w: rect.w.max(0) as u32,
-            h: rect.h.max(0) as u32,
-        };
-        let body = wire::encode_hint_launch_origin_args(&args);
-        self.call_unit(wire::METHOD_HINTLAUNCHORIGIN, body)
+        self.wire
+            .hint_launch_origin(rect.x, rect.y, rect.w.max(0) as u32, rect.h.max(0) as u32)
     }
 
-    /// A call with an encoded `body` and nothing in the reply.
-    fn call_unit(
-        &self,
-        method: u32,
-        body: core::result::Result<Vec<u8>, libmessenger::Error>,
-    ) -> Result<()> {
-        let body = body.map_err(Error::Parcel)?;
-        self.call(request(method, body, Vec::new())).map(|_| ())
-    }
-
-    /// One synchronous call; a structured error reply becomes
-    /// [`Error::Errno`]. The small reply buffer is enough for every call but
-    /// `ListSurfaces`, which reads its own.
-    fn call(&self, parcel: Parcel) -> Result<Parcel> {
-        let mut buf = [0u8; 256];
-        let reply = self.endpoint.call_with(&parcel, &mut buf, None)?;
-        match error_field(&reply) {
-            Some(code) => Err(Error::Errno(-code)),
-            None => Ok(reply),
-        }
+    /// Show `shape` (a `CursorShape` wire value) while the pointer is over
+    /// `surface`'s content. The call travels on the cursor scope's interface
+    /// id, so the kernel refuses an app whose package did not ask for the
+    /// scope (`EACCES`); the compositor also checks that the task owns the
+    /// surface.
+    pub fn set_cursor(&self, surface: u64, shape: u32) -> Result<()> {
+        self.cursor.set_cursor(surface, shape)
     }
 }

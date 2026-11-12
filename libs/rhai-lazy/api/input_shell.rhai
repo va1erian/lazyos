@@ -19,6 +19,9 @@
 // The interface every function of this module calls.
 export const INTERFACE = "os.lazy.input.shell.v1";
 
+// The registry name the interface is served under (`service` in the `.midl`).
+export const SERVICE = "os.lazy.input.shell.v1";
+
 /// The connected service: `invoke`, `invoke_oneway` and method sugar
 /// (`docs/rhai/msg.md`). Resolved once per process.
 fn connect() {
@@ -171,97 +174,6 @@ fn note_keys_held(held) {
 /// One-way: returns `()` once the message is queued.
 fn note_session_layout(layout) {
     msg::connect("os.lazy.input.shell.v1").invoke("NoteSessionLayout", [layout])
-}
-
-/// `HotkeyFired(id: U64) -> () oneway`
-///
-/// Shell event: a registered chord was pressed.
-///
-/// One-way: returns `()` once the message is queued.
-fn hotkey_fired(id) {
-    msg::connect("os.lazy.input.shell.v1").invoke("HotkeyFired", [id])
-}
-
-/// `GrantRequested(session: U64, kind: U32, surface: U64) -> () oneway`
-///
-/// Shell event: the client owning `surface` asked for a grab of `kind`
-/// (a `GrantKind`) for `session`; answer with `ApproveGrant`. The
-/// request is withdrawn if focus moves first.
-///
-/// One-way: returns `()` once the message is queued.
-fn grant_requested(session, kind, surface) {
-    msg::connect("os.lazy.input.shell.v1").invoke("GrantRequested", [session, kind, surface])
-}
-
-/// `EscapeChord() -> () oneway`
-///
-/// Shell event: the reserved escape chord (Ctrl+Alt+Esc) was pressed. It
-/// reverted any grab (`GrabChanged` follows when one was held) and is
-/// never delivered to a client.
-///
-/// One-way: returns `()` once the message is queued.
-fn escape_chord() {
-    msg::connect("os.lazy.input.shell.v1").invoke("EscapeChord", [])
-}
-
-/// `SessionOpened(surface: U64) -> () oneway`
-///
-/// Shell event: `surface` now receives keys through an input session, so
-/// the compositor must stop synthesising legacy `KeyDown`/`KeyUp` for it.
-///
-/// One-way: returns `()` once the message is queued.
-fn session_opened(surface) {
-    msg::connect("os.lazy.input.shell.v1").invoke("SessionOpened", [surface])
-}
-
-/// `SessionClosed(surface: U64) -> () oneway`
-///
-/// Shell event: the last input session of `surface` ended; legacy key
-/// delivery applies again.
-///
-/// One-way: returns `()` once the message is queued.
-fn session_closed(surface) {
-    msg::connect("os.lazy.input.shell.v1").invoke("SessionClosed", [surface])
-}
-
-/// `PointerEvent(x: I32, y: I32, buttons: U32, wheel: I32, wheel_h: I32, ts_ns: U64, seq: U64) -> () oneway`
-///
-/// Shell event: the pointer changed. One cursor for every pointing device
-/// (`docs/usb-hid-plan.md`): `x`, `y` are screen pixels inside the bounds,
-/// `buttons` the bits held after this event (`1` left, `2` right,
-/// `4` middle, `8` back, `0x10` forward; diff it for the edge), `wheel` and
-/// `wheel_h` the notches since the previous event (positive is up / right).
-/// Motion is coalesced; the position and wheel apply *before* the button
-/// change. Only the compositor receives it: the window under the cursor is
-/// its decision. `ts_ns`/`seq` are the newest raw record's.
-///
-/// One-way: returns `()` once the message is queued.
-fn pointer_event(x, y, buttons, wheel, wheel_h, ts_ns, seq) {
-    msg::connect("os.lazy.input.shell.v1").invoke("PointerEvent", [x, y, buttons, wheel, wheel_h, ts_ns, seq])
-}
-
-/// `GrabChanged(surface: Option<U64>) -> () oneway`
-///
-/// Shell event: `surface` now holds the keyboard grab (absent: nobody
-/// does). While a grab is held the compositor must not act on its own
-/// chords from the kernel key stream either: they belong to the grabber.
-///
-/// One-way: returns `()` once the message is queued.
-fn grab_changed(surface) {
-    msg::connect("os.lazy.input.shell.v1").invoke("GrabChanged", [surface])
-}
-
-/// `KeyActivity() -> () oneway`
-///
-/// Shell event: a key went down on some keyboard (PS/2 or USB; sent after
-/// `inputd` handled it, so a key held back while the shell asked for the
-/// keys was already dropped). The kernel key stream only carries PS/2, so
-/// this is how the compositor sees that someone is typing, for the idle
-/// timer and to wake a blank screen.
-///
-/// One-way: returns `()` once the message is queued.
-fn key_activity() {
-    msg::connect("os.lazy.input.shell.v1").invoke("KeyActivity", [])
 }
 
 // Not callable from a script (the request carries a channel, buffer

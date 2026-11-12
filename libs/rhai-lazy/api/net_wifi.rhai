@@ -45,6 +45,9 @@
 // The interface every function of this module calls.
 export const INTERFACE = "os.lazy.net.wifi.v1";
 
+// The registry name the interface is served under (`service` in the `.midl`).
+export const SERVICE = "os.lazy.net.wifi";
+
 /// The connected service: `invoke`, `invoke_oneway` and method sugar
 /// (`docs/rhai/msg.md`). Resolved once per process.
 fn connect() {
@@ -249,43 +252,43 @@ export const FAIL_REASON_RADIO = "Radio";
 
 export const FAIL_REASON_UNSUPPORTED = "Unsupported";
 
-// Filter for every event of the topic `system/net/{ifname}/wifi/state` (payload `WifiState`, qos latest, retained).
+// Filter for every event of the topic `system/net/{ifname}/wifi/state` (payload `WifiState`, qos buffered, retained).
 // Scans completed since the service started.
 // Networks in the merged list.
 // The interface's state, retained so a late subscriber (the tray applet
 // after login) sees it at once. `{ifname}` is the radio's interface name.
 export const STATE_PATTERN = "system/net/+/wifi/state";
 
-/// The topic name of `system/net/{ifname}/wifi/state` (payload `WifiState`, qos latest, retained) for these placeholder values.
+/// The topic name of `system/net/{ifname}/wifi/state` (payload `WifiState`, qos buffered, retained) for these placeholder values.
 fn state_topic(ifname) {
     `system/net/${ifname}/wifi/state`
 }
 
-/// Run `handler(event)` for each event of `system/net/{ifname}/wifi/state` (payload `WifiState`, qos latest, retained); `event.payload` is
+/// Run `handler(event)` for each event of `system/net/{ifname}/wifi/state` (payload `WifiState`, qos buffered, retained); `event.payload` is
 /// the decoded `WifiState`. Returns the `Subscription`.
 fn on_state(handler) {
     msg::on("system/net/+/wifi/state", handler)
 }
 
-/// Subscribe to `system/net/{ifname}/wifi/state` (payload `WifiState`, qos latest, retained) to pull events with `sub.next()`.
+/// Subscribe to `system/net/{ifname}/wifi/state` (payload `WifiState`, qos buffered, retained) to pull events with `sub.next()`.
 fn subscribe_state() {
     msg::subscribe("system/net/+/wifi/state")
 }
 
-/// Run `handler(event)` for each event of `system/net/{ifname}/wifi/state` (payload `WifiState`, qos latest, retained); `event.payload` is
+/// Run `handler(event)` for each event of `system/net/{ifname}/wifi/state` (payload `WifiState`, qos buffered, retained); `event.payload` is
 /// the decoded `WifiState`. Returns the `Subscription`.
 /// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
 fn on_state(ifname, handler) {
     msg::on(`system/net/${ifname}/wifi/state`, handler)
 }
 
-/// Subscribe to `system/net/{ifname}/wifi/state` (payload `WifiState`, qos latest, retained) to pull events with `sub.next()`.
+/// Subscribe to `system/net/{ifname}/wifi/state` (payload `WifiState`, qos buffered, retained) to pull events with `sub.next()`.
 /// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
 fn subscribe_state(ifname) {
     msg::subscribe(`system/net/${ifname}/wifi/state`)
 }
 
-/// Publish `payload` (a `WifiState`) on `system/net/{ifname}/wifi/state` (payload `WifiState`, qos latest, retained).
+/// Publish `payload` (a `WifiState`) on `system/net/{ifname}/wifi/state` (payload `WifiState`, qos buffered, retained).
 fn publish_state(ifname, payload) {
     msg::publish(`system/net/${ifname}/wifi/state`, payload)
 }

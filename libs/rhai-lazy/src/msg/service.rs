@@ -31,6 +31,7 @@ const NO_METHOD: Method = Method {
     name: "?",
     id: 0,
     oneway: false,
+    event: false,
     doc: "",
     params: &[],
     returns: &[],

@@ -4,6 +4,7 @@
 
 use lazyterm::search::DEFAULT_BUDGET;
 use xui_app::probe;
+use xui_app::trace::{self, Channel};
 use xui_core::app::Ui;
 
 use super::findbar::{self, Find, Step};
@@ -74,7 +75,7 @@ impl Terminal {
             let text_empty = self.chrome.borrow().find.as_ref().is_none_or(|f| f.text.is_empty());
             if !text_empty && self.found_reported != Some(count) {
                 self.found_reported = Some(count);
-                println!("TERM:FIND:{count}");
+                trace::line!(Channel::Term, "FIND:{count}");
             }
         } else {
             Timers::start(&self.timers.scan, ui, SCAN_MILLIS);
@@ -136,7 +137,7 @@ impl Terminal {
         let offset = (screen_top + first).saturating_sub(want_top) as usize;
         let offset = offset.min(max);
         self.offset.set(offset);
-        println!("TERM:SCROLL:{offset}");
+        trace::line!(Channel::Term, "SCROLL:{offset}");
     }
 }
 

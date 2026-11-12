@@ -7,7 +7,7 @@
 //! `LRIDE:HOME:WARN` when `$HOME` is unset), `LRIDE:UP:PASS` after the first
 //! frame reached the compositor, `LRIDE:OPEN:PASS:<project>` when a project
 //! opened, `LRIDE:RUN:PASS:<project>` when Run started the player and
-//! `LRIDE:CHILD:PASS:exit=<code>` when it ended, `LRIDE:EXIT:PASS` after a clean
+//! `LRIDE:CHILD:PASS:exit=<code>` when it ended, `LRIDE:QUIT:PASS` after a clean
 //! exit, `LRIDE:<STAGE>:FAIL:<why>` otherwise. Under the debugger a stop prints
 //! `LRIDE:BREAK:PASS:<item>:<line>` (a breakpoint), `LRIDE:STEP:PASS:<item>:<line>`
 //! (after a step), `LRIDE:PAUSE:PASS:<item>:<line>` (Break),
@@ -31,9 +31,8 @@ use lazyrad_os::handoff::HandoffInstaller;
 use lazyrad_os::marker::{self, Markers};
 use lazyrad_os::migrate::{migrate_legacy_data, Migration};
 use lazyrad_os::platform::{player_beside, Home, LazyOsPlatform};
-use xui_app::backend::LazyOSBackend;
-use xui_core::backend::{Backend, PlatformSpec};
-use xui_core::units::Dip;
+use xui_app::trace::Channel;
+use xui_core::backend::Backend;
 
 const MARK: Markers = marker::IDE;
 /// The flag of a windowless development run.
@@ -126,56 +125,44 @@ fn main() -> ExitCode {
     // The code editor needs a real monospace face next to the UI face; register
     // before the backend exists (the shaper builds its font database once).
     xui_app::font::register_mono();
-    let backend = match LazyOSBackend::connect() {
-        Ok(backend) => backend,
-        Err(code) => {
-            MARK.fail("BIND", &format!("code {code}"));
-            return ExitCode::FAILURE;
-        }
-    };
-    // Resizable and maximizable, like the other desktop apps.
-    backend.set_size_hints(640, 420, 0, 0);
-    // The IDE's "System" theme is the desktop's.
-    lazyrad_os::desktop_mode::set_theme(backend.desktop_theme());
-    backend.on_first_frame(|| MARK.pass("UP"));
     // `xuid` bounds a surface to the screen (1280x720 in the screenshot
     // sessions); leave room for the title bar and the taskbar.
-    let spec = PlatformSpec::new("LazyRAD").size(Dip(1100.0), Dip(600.0));
-    let observer: lazyrad_ide::IdeObserver = Rc::new(|event| match event {
-        IdeEvent::ProjectOpened(name) => MARK.pass_with("OPEN", name),
-        IdeEvent::RunStarted(name) => MARK.pass_with("RUN", name),
-        IdeEvent::RunExited(code) => MARK.pass_with("CHILD", &format!("exit={code:?}")),
-        IdeEvent::PackageReviewed(id, n) => {
-            MARK.pass_with("PKG:REVIEW", &format!("{id} permissions={n}"))
-        }
-        IdeEvent::PackageInstalled(id, true) => MARK.pass_with("PKG:INSTALL", id),
-        IdeEvent::PackageInstalled(id, false) => MARK.pass_with("PKG:SAVED", id),
-        IdeEvent::PackageFailed(why) => MARK.fail("PKG:INSTALL", why),
-        IdeEvent::AppLaunched(id) => MARK.pass_with("PKG:LAUNCH", id),
-        IdeEvent::DocumentEdited(name, chars) => MARK.pass_with("EDIT", &format!("{name} {chars}")),
-        IdeEvent::DebugStopped {
-            kind,
-            item,
-            line,
-            locals,
-        } => report_stop(*kind, item, *line, *locals),
-    });
-    let options = RunOptions {
-        spec,
-        open,
-        observer: Some(observer),
-        launcher: Some(lazyrad_os::playdev::launcher_for_this_process(&author)),
-        installer: Some(Rc::new(HandoffInstaller::on_lazyos())),
-        author,
-    };
-    match lazyrad_ide::run_with_options(Rc::new(backend) as Rc<dyn Backend>, options) {
-        Ok(()) => {
-            MARK.pass("EXIT");
-            ExitCode::SUCCESS
-        }
-        Err(error) => {
-            MARK.fail("RUN", &error.to_string());
-            ExitCode::FAILURE
-        }
-    }
+    xui_app::app(Channel::Lride, "LazyRAD")
+        .size(1100, 600)
+        // Resizable and maximizable, like the other desktop apps.
+        .min_size(640, 420)
+        .run_host(move |backend, spec| {
+            // The IDE's "System" theme is the desktop's.
+            lazyrad_os::desktop_mode::set_theme(backend.desktop_theme());
+            let observer: lazyrad_ide::IdeObserver = Rc::new(|event| match event {
+                IdeEvent::ProjectOpened(name) => MARK.pass_with("OPEN", name),
+                IdeEvent::RunStarted(name) => MARK.pass_with("RUN", name),
+                IdeEvent::RunExited(code) => MARK.pass_with("CHILD", &format!("exit={code:?}")),
+                IdeEvent::PackageReviewed(id, n) => {
+                    MARK.pass_with("PKG:REVIEW", &format!("{id} permissions={n}"))
+                }
+                IdeEvent::PackageInstalled(id, true) => MARK.pass_with("PKG:INSTALL", id),
+                IdeEvent::PackageInstalled(id, false) => MARK.pass_with("PKG:SAVED", id),
+                IdeEvent::PackageFailed(why) => MARK.fail("PKG:INSTALL", why),
+                IdeEvent::AppLaunched(id) => MARK.pass_with("PKG:LAUNCH", id),
+                IdeEvent::DocumentEdited(name, chars) => {
+                    MARK.pass_with("EDIT", &format!("{name} {chars}"))
+                }
+                IdeEvent::DebugStopped {
+                    kind,
+                    item,
+                    line,
+                    locals,
+                } => report_stop(*kind, item, *line, *locals),
+            });
+            let options = RunOptions {
+                spec,
+                open,
+                observer: Some(observer),
+                launcher: Some(lazyrad_os::playdev::launcher_for_this_process(&author)),
+                installer: Some(Rc::new(HandoffInstaller::on_lazyos())),
+                author,
+            };
+            lazyrad_ide::run_with_options(backend as Rc<dyn Backend>, options)
+        })
 }

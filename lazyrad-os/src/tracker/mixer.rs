@@ -15,8 +15,8 @@
 
 use std::collections::VecDeque;
 
-use audioclient::{Error, Params, PlaybackStream, Transport};
-use xui_app::platform::audio::{Audio, UNITY_GAIN};
+use audioclient::{Error, Params, Runtime, Transport};
+use xui_app::platform::audio::{self, PlaybackStream, UNITY_GAIN};
 
 use super::sink::Sink;
 
@@ -39,28 +39,28 @@ pub trait Stream {
     fn close(self: Box<Self>) -> Result<(), Error>;
 }
 
-impl<T: Transport> Stream for PlaybackStream<T> {
+impl<T: Transport, R: Runtime> Stream for audioclient::PlaybackStream<T, R> {
     fn ring_frames(&self) -> u64 {
         let grant = self.grant();
         u64::from(grant.period_bytes) * u64::from(grant.periods) / (2 * u64::from(grant.channels))
     }
     fn written(&self) -> u64 {
-        PlaybackStream::written(self)
+        audioclient::PlaybackStream::written(self)
     }
     fn free_frames(&mut self) -> Result<u64, Error> {
-        PlaybackStream::free_frames(self)
+        audioclient::PlaybackStream::free_frames(self)
     }
     fn try_write(&mut self, samples: &[i16]) -> Result<usize, Error> {
-        PlaybackStream::try_write(self, samples)
+        audioclient::PlaybackStream::try_write(self, samples)
     }
     fn start(&mut self) -> Result<(), Error> {
-        PlaybackStream::start(self)
+        audioclient::PlaybackStream::start(self)
     }
     fn set_volume(&mut self, gain_q16: u32) -> Result<(), Error> {
-        PlaybackStream::set_volume(self, gain_q16)
+        audioclient::PlaybackStream::set_volume(self, gain_q16)
     }
     fn close(self: Box<Self>) -> Result<(), Error> {
-        PlaybackStream::close(*self)
+        audioclient::PlaybackStream::close(*self)
     }
 }
 
@@ -70,11 +70,11 @@ pub type Opener = Box<dyn Fn(u32) -> Result<Option<Box<dyn Stream>>, String>>;
 /// The real mixer, over `xui_app::platform::audio`.
 pub fn audiod() -> Opener {
     Box::new(|rate| {
-        let Some(audio) = Audio::try_connect() else {
+        let Some(audio) = audio::try_connect() else {
             return Ok(None);
         };
         let params = Params::new(rate, 2).period_bytes(PERIOD_BYTES);
-        let stream = PlaybackStream::open(audio, params).map_err(failed("open"))?;
+        let stream: PlaybackStream = audio::open(audio, params).map_err(failed("open"))?;
         if stream.channels() != 2 {
             return Err("audio open: the mixer did not grant stereo".to_owned());
         }

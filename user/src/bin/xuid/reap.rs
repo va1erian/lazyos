@@ -31,7 +31,7 @@ pub(super) fn dead_surfaces(surfaces: &[Surface], scratch: &mut Vec<u8>) -> Vec<
 }
 
 /// Ping the event endpoint `events`; `false` when its peer is gone.
-fn alive(events: u64, scratch: &mut Vec<u8>) -> bool {
+pub(super) fn alive(events: u64, scratch: &mut Vec<u8>) -> bool {
     let sent = display::send_event(
         &Endpoint::from_raw(events),
         scratch,

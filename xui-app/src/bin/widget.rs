@@ -10,9 +10,9 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use xui_app::trace::{self, Channel};
 
 use xui_app::dashboard as dash;
-use xui_app::launch;
 use xui_app::sysinfo::{self, CpuSample};
 use xui_core::app::{App, Ui};
 use xui_core::backend::{Event, NodeKind, NodeSpec};
@@ -95,14 +95,11 @@ impl App for Widget {
             Msg::Tick => {
                 let mut state = self.state.borrow_mut();
                 state.reload();
-                println!("WIDGET:TICK:cpu={} mem={}", state.cpu, state.mem);
+                trace::line!(Channel::Widget, "TICK:cpu={} mem={}", state.cpu, state.mem);
                 drop(state);
                 ui.invalidate(self.root.id());
             }
-            Msg::Quit => {
-                println!("WIDGET:QUIT:PASS");
-                ui.quit();
-            }
+            Msg::Quit => ui.quit(),
         }
     }
 }
@@ -164,31 +161,34 @@ fn paint(canvas: &mut dyn Canvas, theme: Theme, state: &State) {
 }
 
 fn main() {
-    launch::run(xui_app::trace::Channel::Widget, "widget", WINDOW, |ui, backend| {
-        let state = Rc::new(RefCell::new(State::load()));
-        {
-            let state = Rc::clone(&state);
-            backend.on_first_frame(move || match state.borrow().error {
-                None => println!("WIDGET:UP:PASS"),
-                Some(code) => println!("WIDGET:UP:FAIL:{code}"),
-            });
-        }
+    xui_app::app(Channel::Widget, "widget")
+        .size(WINDOW.0, WINDOW.1)
+        .run(|ui, cx| {
+            let backend = cx.backend();
+            let state = Rc::new(RefCell::new(State::load()));
+            {
+                let state = Rc::clone(&state);
+                backend.on_first_frame(move || match state.borrow().error {
+                    None => trace::pass!(Channel::Widget, "UP"),
+                    Some(code) => trace::fail!(Channel::Widget, "UP", "{code}"),
+                });
+            }
 
-        let root = Control::new(ui, &NodeSpec::new(NodeKind::Custom, ui.client_rect()))?;
-        {
-            let state = Rc::clone(&state);
-            let theme = ui.theme_handle();
-            root.set_painter(Rc::new(move |canvas| {
-                paint(canvas, theme.get(), &state.borrow())
-            }));
-        }
-        root.on_events(|event| match event {
-            Event::Char('q') => Some(Msg::Quit),
-            _ => None,
-        });
-        root.focus();
-        ui.every(REFRESH_MILLIS, Msg::Tick);
-        ui.on_close(|| Some(Msg::Quit));
-        Ok(Widget { state, root })
-    })
+            let root = Control::new(ui, &NodeSpec::new(NodeKind::Custom, ui.client_rect()))?;
+            {
+                let state = Rc::clone(&state);
+                let theme = ui.theme_handle();
+                root.set_painter(Rc::new(move |canvas| {
+                    paint(canvas, theme.get(), &state.borrow())
+                }));
+            }
+            root.on_events(|event| match event {
+                Event::Char('q') => Some(Msg::Quit),
+                _ => None,
+            });
+            root.focus();
+            ui.every(REFRESH_MILLIS, Msg::Tick);
+            ui.on_close(|| Some(Msg::Quit));
+            Ok(Widget { state, root })
+        })
 }

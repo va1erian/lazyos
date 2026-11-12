@@ -15,8 +15,8 @@
 //! display.
 
 use std::rc::Rc;
+use xui_app::trace::{self, Channel};
 
-use xui_app::launch;
 use xui_app::platform::accounts::OsAccounts;
 use xui_app::platform::confd_store::ConfdStore;
 use xui_app::platform::elevd::ElevatingStore;
@@ -24,14 +24,15 @@ use xui_app::platform::system::OsSystem;
 use xui_settings::app::{SettingsApp, WINDOW};
 
 fn main() {
-    launch::run(xui_app::trace::Channel::Settings, "Settings", WINDOW, |ui, backend| {
-        backend.on_first_frame(|| println!("SETTINGS:UP:PASS"));
-        SettingsApp::build(
-            ui,
-            Rc::new(ElevatingStore(ConfdStore::new())),
-            Rc::new(OsSystem::new()),
-            Rc::new(OsAccounts),
-        )
-        .inspect_err(|error| println!("SETTINGS:BUILD:FAIL:{error}"))
-    })
+    xui_app::app(Channel::Settings, "Settings")
+        .size(WINDOW.0, WINDOW.1)
+        .run(|ui, _| {
+            SettingsApp::build(
+                ui,
+                Rc::new(ElevatingStore(ConfdStore::new())),
+                Rc::new(OsSystem::new()),
+                Rc::new(OsAccounts),
+            )
+            .inspect_err(|error| trace::fail!(Channel::Settings, "BUILD", "{error}"))
+        })
 }

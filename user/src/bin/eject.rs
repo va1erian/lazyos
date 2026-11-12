@@ -23,12 +23,12 @@ use alloc::format;
 use alloc::string::String;
 use core::panic::PanicInfo;
 
+use libmessenger::client::CallError;
+use user::messenger::client::Native;
+use user::messenger::errno;
 use user::messenger::mount::{self, wire::VolumeInfo};
-use user::messenger::{errno, registry, Error};
 use user::sys;
 
-/// Longest one request to `mountd` may take (100 Hz): it answers at once.
-const CALL_TICKS: u64 = 500;
 /// Longest an eject may take before the command gives up waiting (a slow
 /// stick's flush; `mountd` itself ends one after 45 s).
 const WAIT_TICKS: u64 = 5500;
@@ -71,7 +71,7 @@ fn run() -> Result<(), Exit> {
             _ => return Err(fail(2, String::from(USAGE))),
         }
     }
-    let service = registry::resolve(mount::NAME).map_err(|_| {
+    let service = mount::Client::try_connect(Native).map_err(|_| {
         fail(
             1,
             String::from(
@@ -79,8 +79,7 @@ fn run() -> Result<(), Exit> {
             ),
         )
     })?;
-    let deadline = || Some(sys::clock() + CALL_TICKS);
-    let volumes = mount::volumes(&service, deadline()).map_err(|e| refused(&e))?;
+    let volumes = service.volumes().map_err(|e| refused(&e))?;
     if list {
         for volume in &volumes {
             sys::write_str(&line(volume));
@@ -96,9 +95,9 @@ fn run() -> Result<(), Exit> {
     let volume = find(&volumes, &target)
         .ok_or_else(|| fail(1, format!("eject: {target}: no such volume\n")))?;
     let disk = volume.disk.clone();
-    let (state, detail) =
-        mount::eject(&service, &disk, force, deadline()).map_err(|e| refused(&e))?;
-    match state.as_str() {
+    let ejected = service.eject(&disk, force).map_err(|e| refused(&e))?;
+    let detail = ejected.detail;
+    match ejected.state.as_str() {
         "busy" => {
             let mut text = format!("eject: {disk} is busy:\n");
             for holder in detail.lines() {
@@ -149,11 +148,10 @@ fn line(volume: &VolumeInfo) -> String {
 }
 
 /// Poll the list until `disk` is `ejected`, or ends some other way.
-fn wait_ejected(service: &user::messenger::Endpoint, disk: &str) -> Result<(), Exit> {
+fn wait_ejected(service: &mount::Client, disk: &str) -> Result<(), Exit> {
     let give_up = sys::clock() + WAIT_TICKS;
     loop {
-        let volumes =
-            mount::volumes(service, Some(sys::clock() + CALL_TICKS)).map_err(|e| refused(&e))?;
+        let volumes = service.volumes().map_err(|e| refused(&e))?;
         match volumes.iter().find(|v| v.disk == disk) {
             // Gone from the list: the stick was pulled before it finished.
             None => {
@@ -187,12 +185,12 @@ fn wait_ejected(service: &user::messenger::Endpoint, disk: &str) -> Result<(), E
 }
 
 /// A failed request in words.
-fn refused(error: &Error) -> Exit {
-    let why = match error.errno() {
-        Some(code) if code == -errno::ENOENT => "no such disk",
-        Some(code) if code == -errno::EPERM => "not your volume",
-        Some(code) if code == -errno::EINVAL => "not a disk name",
-        Some(code) if code == -errno::EAGAIN => "the volume is still starting: try again",
+fn refused(error: &CallError) -> Exit {
+    let why = match error.code() {
+        code if code == -errno::ENOENT => "no such disk",
+        code if code == -errno::EPERM => "not your volume",
+        code if code == -errno::EINVAL => "not a disk name",
+        code if code == -errno::EAGAIN => "the volume is still starting: try again",
         _ => error.message(),
     };
     fail(1, format!("eject: {why}\n"))

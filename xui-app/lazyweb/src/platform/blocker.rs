@@ -4,10 +4,10 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use super::*;
+use xui_app::context::user_key;
 
 /// `confd`'s registered name: a store call blocks while it is not registered, so nothing is read or
 /// written unless it already is.
-pub(super) const CONFD: &str = "os.lazy.confd";
 
 /// The ad blocker's switches, as `confd` keys under `user/<uid>/lazyweb/blocker/`: the global
 /// switch (a bool), the sites left alone and the lists turned off (space separated text). They are
@@ -19,7 +19,7 @@ pub(super) struct ConfdSettings {
 
 impl ConfdSettings {
     fn key(&self, name: &str) -> String {
-        format!("user/{}/lazyweb/blocker/{name}", self.uid)
+        user_key(self.uid, "lazyweb", &format!("blocker/{name}"))
     }
 
     fn text(&self, name: &str) -> Option<String> {
@@ -56,10 +56,10 @@ impl Persist for ConfdSettings {
 
 /// `confd` when it is up and tells this task its uid; settings kept nowhere otherwise.
 pub(super) fn settings_store() -> Arc<dyn Persist> {
-    if Service::try_connect(CONFD).is_none() {
+    let store = ConfdStore::new();
+    if !store.registered() {
         return Arc::new(Volatile);
     }
-    let store = ConfdStore::new();
     match store.uid() {
         Some(uid) => Arc::new(ConfdSettings { store, uid }),
         None => Arc::new(Volatile),

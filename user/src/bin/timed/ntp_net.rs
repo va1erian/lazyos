@@ -8,19 +8,21 @@
 //! `netd` there is none), so a missing peer is retried quietly, not an error.
 
 use alloc::rc::Rc;
-use alloc::vec::Vec;
 
+use libmessenger::client::Deadline;
+use messenger_generated::os_lazy_net_stack_v1 as netstack_wire;
 use user::central::{Bus, Subscription};
-use user::messenger::{self};
-use user::messenger::{netsock, netstack, Endpoint, EXPIRED_DEADLINE};
+use user::messenger::client::Native;
+use user::messenger::{netsock, netstack, Endpoint};
 use user::sys;
 
 /// Every interface's address, retained, so a late start sees the present
 /// state and a lost lease arrives as an all-zero address.
-const ADDR_FILTER: &str = "system/net/+/addr";
+fn addr_filter() -> Option<alloc::string::String> {
+    netstack_wire::filter_system_net_addr("+").ok()
+}
 
-/// Ticks (100 Hz) between attempts to subscribe while that keeps failing:
-/// every attempt builds a broker connection with a buffer the heap keeps.
+/// Ticks (100 Hz) between attempts to subscribe while that keeps failing.
 const RETRY_TICKS: u64 = 3000;
 
 pub(super) struct NetWatch {
@@ -30,7 +32,6 @@ pub(super) struct NetWatch {
     /// One socket-service client for the life of the service: the client owns
     /// a 20 KiB reply buffer and the heap never gives it back.
     sockets: Option<Rc<netsock::Client>>,
-    buffer: Vec<u8>,
     next_subscribe_try: u64,
 }
 
@@ -41,7 +42,6 @@ impl NetWatch {
             bell: None,
             stack: None,
             sockets: None,
-            buffer: alloc::vec![0u8; messenger::DEFAULT_BUFFER],
             next_subscribe_try: 0,
         }
     }
@@ -60,7 +60,10 @@ impl NetWatch {
         let Ok(mut bus) = Bus::connect() else {
             return;
         };
-        let Ok(mut subscription) = bus.subscribe(ADDR_FILTER) else {
+        let Some(filter) = addr_filter() else {
+            return;
+        };
+        let Ok(mut subscription) = bus.subscribe(&filter) else {
             return;
         };
         match subscription.bell() {
@@ -93,10 +96,10 @@ impl NetWatch {
         if !rung {
             return false;
         }
-        subscription.take_ring(&mut self.buffer);
+        subscription.take_ring();
         let mut any = false;
         loop {
-            match subscription.recv_with(&mut self.buffer, Some(EXPIRED_DEADLINE)) {
+            match subscription.recv(Deadline::Poll) {
                 Ok(Some(_)) => any = true,
                 Ok(None) => break,
                 Err(_) => {
@@ -114,7 +117,7 @@ impl NetWatch {
     /// registered.
     pub(super) fn clients(&mut self) -> Option<(&netstack::Client, &Rc<netsock::Client>)> {
         if self.stack.is_none() {
-            self.stack = netstack::Client::connect().ok();
+            self.stack = netstack::Client::try_connect(Native).ok();
         }
         if self.sockets.is_none() {
             self.sockets = netsock::Client::connect().ok().map(Rc::new);

@@ -2,7 +2,6 @@
 //! its own HTTP client and writes it whole or not at all.
 
 use std::collections::VecDeque;
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::Sender;
@@ -11,7 +10,6 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use super::bulk::BulkState;
-use super::part_path;
 use crate::net::{Http, HttpOptions};
 use crate::{Event, Platform};
 
@@ -177,7 +175,7 @@ pub enum Outcome {
     Cancelled,
 }
 
-/// Fetches `job.url` and writes it to `job.path` through `<path>.part`.
+/// Fetches `job.url` and writes it to `job.path` atomically.
 /// Returns the byte count.
 fn fetch_and_write(http: &Http, job: &SaveJob) -> Result<u64, String> {
     let response = http.get(&job.url, &[("accept", "image/*")])?;
@@ -187,16 +185,7 @@ fn fetch_and_write(http: &Http, job: &SaveJob) -> Result<u64, String> {
     if let Some(dir) = job.path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
-    let part = part_path(&job.path);
-    let write = || -> std::io::Result<()> {
-        let mut file = std::fs::File::create(&part)?;
-        file.write_all(&response.body)?;
-        file.flush()?;
-        file.sync_all()?;
-        std::fs::rename(&part, &job.path)
-    };
-    if let Err(e) = write() {
-        let _ = std::fs::remove_file(&part);
+    if let Err(e) = atomicfile::write_durable(&job.path, &response.body) {
         return Err(format!("{}: {e}", job.path.display()));
     }
     Ok(response.body.len() as u64)

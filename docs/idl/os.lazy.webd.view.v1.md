@@ -101,33 +101,67 @@ reply with the standard error field (id 15).
 | RecoverGroup | 44 | sync | `(view: U64) -> ()` |
 | DetachSlots | 45 | sync | `(view: U64) -> (seq: U64)` |
 | SetUserAgent | 46 | sync | `(view: U64, user_agent: String) -> ()` |
-| Frame | 100 | oneway | `(view: U64, slot: U32, seq: U64, width: U32, height: U32, whole: Bool, shift: Option<Shift>, rects: Array<Rect>, offset_x: I32, offset_y: I32, at_bottom: Bool) -> ()` |
-| State | 101 | oneway | `(view: U64, title: String, loading: Bool, finished: U32, error: String, url: String, committed_url: String, can_back: Bool, can_forward: Bool, progress: U32, secure: Bool, commits: U32) -> ()` |
-| Scroll | 102 | oneway | `(view: U64, x: I32, y: I32, at_bottom: Bool) -> ()` |
-| LinkClicked | 103 | oneway | `(view: U64, url: String) -> ()` |
-| ClipboardWrite | 104 | oneway | `(view: U64, text: String) -> ()` |
-| ViewLost | 105 | oneway | `(view: U64, reason: U32) -> ()` |
-| Ping | 106 | oneway | `() -> ()` |
-| Band | 107 | oneway | `(view: U64, slot: U32, doc_x: I32, doc_y: I32, width: U32, height: U32) -> ()` |
-| Hover | 108 | oneway | `(view: U64, url: String) -> ()` |
-| Cursor | 109 | oneway | `(view: U64, shape: U32) -> ()` |
-| NewWindowRequested | 110 | oneway | `(view: U64, url: String, gesture: Bool) -> ()` |
-| NavigationRequested | 111 | oneway | `(view: U64, request: U64, url: String, kind: U32, gesture: Bool) -> ()` |
-| Dialog | 112 | oneway | `(view: U64, dialog: U64, kind: U32, message: String, default_value: String) -> ()` |
-| DownloadStarted | 113 | oneway | `(view: U64, download: U64, url: String, name: String, total: I64) -> ()` |
-| DownloadProgress | 114 | oneway | `(view: U64, download: U64, received: I64, total: I64) -> ()` |
-| DownloadDone | 115 | oneway | `(view: U64, download: U64, name: String) -> ()` |
-| DownloadFailed | 116 | oneway | `(view: U64, download: U64, reason: String) -> ()` |
-| NotifyPermissionRequest | 117 | oneway | `(view: U64, origin: String) -> ()` |
-| NotifyClicked | 118 | oneway | `(view: U64, notification: U64) -> ()` |
-| BlockingList | 119 | oneway | `(view: U64, list: String, status: U32) -> ()` |
-| Blocked | 120 | oneway | `(view: U64, count: U32) -> ()` |
-| Responsive | 121 | oneway | `(view: U64, responsive: Bool) -> ()` |
-| HandedOff | 122 | oneway | `(view: U64, url: String) -> ()` |
-| NotifyShow | 123 | oneway | `(view: U64, notification: U64, origin: String, page_url: String, title: String, body: String, tag: String) -> ()` |
-| NotifyCancel | 124 | oneway | `(view: U64, notification: U64) -> ()` |
-| NotifyGone | 125 | oneway | `(view: U64, notification: U64) -> ()` |
-| WheelDone | 126 | oneway | `(view: U64, seq: U64, x: I32, y: I32) -> ()` |
+| Frame | 100 | event | `(view: U64, slot: U32, seq: U64, width: U32, height: U32, whole: Bool, shift: Option<Shift>, rects: Array<Rect>, offset_x: I32, offset_y: I32, at_bottom: Bool) -> ()` |
+| State | 101 | event | `(view: U64, title: String, loading: Bool, finished: U32, error: String, url: String, committed_url: String, can_back: Bool, can_forward: Bool, progress: U32, secure: Bool, commits: U32) -> ()` |
+| Scroll | 102 | event | `(view: U64, x: I32, y: I32, at_bottom: Bool) -> ()` |
+| LinkClicked | 103 | event | `(view: U64, url: String) -> ()` |
+| ClipboardWrite | 104 | event | `(view: U64, text: String) -> ()` |
+| ViewLost | 105 | event | `(view: U64, reason: U32) -> ()` |
+| Ping | 106 | event | `() -> ()` |
+| Band | 107 | event | `(view: U64, slot: U32, doc_x: I32, doc_y: I32, width: U32, height: U32) -> ()` |
+| Hover | 108 | event | `(view: U64, url: String) -> ()` |
+| Cursor | 109 | event | `(view: U64, shape: U32) -> ()` |
+| NewWindowRequested | 110 | event | `(view: U64, url: String, gesture: Bool) -> ()` |
+| NavigationRequested | 111 | event | `(view: U64, request: U64, url: String, kind: U32, gesture: Bool) -> ()` |
+| Dialog | 112 | event | `(view: U64, dialog: U64, kind: U32, message: String, default_value: String) -> ()` |
+| DownloadStarted | 113 | event | `(view: U64, download: U64, url: String, name: String, total: I64) -> ()` |
+| DownloadProgress | 114 | event | `(view: U64, download: U64, received: I64, total: I64) -> ()` |
+| DownloadDone | 115 | event | `(view: U64, download: U64, name: String) -> ()` |
+| DownloadFailed | 116 | event | `(view: U64, download: U64, reason: String) -> ()` |
+| NotifyPermissionRequest | 117 | event | `(view: U64, origin: String) -> ()` |
+| NotifyClicked | 118 | event | `(view: U64, notification: U64) -> ()` |
+| BlockingList | 119 | event | `(view: U64, list: String, status: U32) -> ()` |
+| Blocked | 120 | event | `(view: U64, count: U32) -> ()` |
+| Responsive | 121 | event | `(view: U64, responsive: Bool) -> ()` |
+| HandedOff | 122 | event | `(view: U64, url: String) -> ()` |
+| NotifyShow | 123 | event | `(view: U64, notification: U64, origin: String, page_url: String, title: String, body: String, tag: String) -> ()` |
+| NotifyCancel | 124 | event | `(view: U64, notification: U64) -> ()` |
+| NotifyGone | 125 | event | `(view: U64, notification: U64) -> ()` |
+| WheelDone | 126 | event | `(view: U64, seq: U64, x: I32, y: I32) -> ()` |
+
+## Service
+
+- Served under the registry name `app.os.lazy.webd.view` (together with `os.lazy.webd.net.v1`, `os.lazy.webd.browser.v1`); registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| CreateView | this interface | - | 5000 ms | never |
+| DestroyView | this interface | - | 5000 ms | never |
+| AttachSlot | this interface | - | 5000 ms | never |
+| Resize | this interface | - | 5000 ms | never |
+| Load | this interface | - | 5000 ms | never |
+| LoadHtml | this interface | - | 5000 ms | never |
+| Reload | this interface | - | 5000 ms | never |
+| Stop | this interface | - | 5000 ms | never |
+| Back | this interface | - | 5000 ms | never |
+| Forward | this interface | - | 5000 ms | never |
+| Download | this interface | - | 5000 ms | never |
+| Recover | this interface | - | 5000 ms | never |
+| DialogReply | this interface | - | 5000 ms | never |
+| NavigationAnswer | this interface | - | 5000 ms | never |
+| NotifyPermission | this interface | - | 5000 ms | never |
+| DownloadCancel | this interface | - | 5000 ms | never |
+| SetBlocking | this interface | - | 5000 ms | never |
+| BlockingCompile | this interface | - | 5000 ms | never |
+| BlockingLoad | this interface | - | 5000 ms | never |
+| BlockingForget | this interface | - | 5000 ms | never |
+| NotifyForget | this interface | - | 5000 ms | never |
+| NotifyState | this interface | - | 5000 ms | never |
+| RecoverGroup | this interface | - | 5000 ms | never |
+| DetachSlots | this interface | - | 5000 ms | never |
+| SetUserAgent | this interface | - | 5000 ms | never |
 
 ## Objects
 

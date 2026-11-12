@@ -199,7 +199,7 @@ fn run() -> messenger::Result<()> {
             stop(&reason);
             return Ok(());
         }
-        let reply = state.dispatch(&message);
+        let reply = user::messenger::pkgd::wire::dispatch(&mut state, &message);
         if let Some(txn) = message.txn {
             // A failed reply means the caller timed out and its transaction is
             // gone: a normal race, not a fatal error.

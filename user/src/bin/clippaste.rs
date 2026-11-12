@@ -21,15 +21,15 @@ extern crate alloc;
 
 use alloc::format;
 use core::panic::PanicInfo;
+use messenger_generated::topics::NextError;
 use user::central;
+use user::messenger::clipboard::{Clipboard, Nested};
 use user::messenger::{self, clipboard, errno, Error};
 use user::sys;
 use user::trace;
 
 /// MIME type the demo copies and pastes.
 const DEMO_MIME: &str = "text/plain";
-/// PIT ticks `connect` retries while the supervisor's spawn settles.
-const CONNECT_ATTEMPTS: usize = 64;
 /// PIT ticks to wait for the changed event.
 const CHANGED_TICKS: u64 = 1000;
 /// The uid the denial probe switches to.
@@ -54,24 +54,30 @@ fn run() -> messenger::Result<()> {
     let client = connect()?;
     // Watch the session's retained changed topic on the central broker first
     // (issue #169); a late subscriber is handed the offer.
-    let mut changes_bus = central::Bus::connect_retry(64)?;
-    let session_text = format!("{}", client.session());
-    let changes = clipboard::subscribe_session_clipboard_changed(&mut changes_bus, &session_text)?;
-    let mut changed_buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
-    let event = match changes.recv_with(
-        &mut changed_buffer,
-        Some(sys::clock().saturating_add(CHANGED_TICKS)),
-    )? {
-        Some(event) => event,
-        None => fail("PASTE", "no changed event"),
+    let mut changes_bus = central::Bus::connect_waiting()?;
+    let session_text = format!("{}", clipboard::session().map_err(lower)?);
+    let mut changes =
+        clipboard::subscribe_session_clipboard_changed(&mut changes_bus, &session_text)?;
+    let deadline = sys::clock().saturating_add(CHANGED_TICKS);
+    // The typed stream: read until nothing is queued, park on its doorbell,
+    // read again.
+    let meta = loop {
+        match changes.next() {
+            Ok(Some(event)) => break event.value,
+            Ok(None) => {
+                if !changes.handle_mut().park(Some(deadline))? {
+                    fail("PASTE", "no changed event");
+                }
+            }
+            Err(NextError::Decode(error)) => return Err(Error::Parcel(error)),
+            Err(NextError::Transport(error)) => return Err(error),
+        }
     };
-    let meta =
-        clipboard::decode_session_clipboard_changed(&event.payload).map_err(Error::Parcel)?;
     let info = clipboard::from_wire_meta(meta);
     if !info.mimes.iter().any(|mime| mime == DEMO_MIME) {
         fail("PASTE", "offer lacks the demo MIME type");
     }
-    let bytes = client.paste_token(info.token, DEMO_MIME)?;
+    let bytes = client.paste_token(info.token, DEMO_MIME).map_err(lower)?;
     if !bytes.starts_with(b"lazy@") || bytes.len() <= b"lazy@".len() {
         fail("PASTE", "payload is not the lazily materialized value");
     }
@@ -82,6 +88,11 @@ fn run() -> messenger::Result<()> {
         bytes.len()
     );
 
+    // Release the broker-side subscription before the credential change
+    // below: the broker lets only the client that subscribed (its slot and
+    // tenant) unsubscribe, and this demo is about to become another session.
+    let _ = changes.into_handle().unsubscribe();
+
     // Cross-session policy probe: move to another session, then ask for the
     // same token. The service's `clipboard.read` scope must refuse it and log
     // the attempt (the credential transition itself is kernel-audited).
@@ -90,7 +101,7 @@ fn run() -> messenger::Result<()> {
         fail("DENIED", "could not enter the probe session");
     }
     match client.paste_token(info.token, DEMO_MIME) {
-        Err(Error::Errno(code)) if code == -errno::EACCES => {
+        Err(error) if error.code() == -errno::EACCES => {
             trace::line!(trace::Channel::Clip, "DENIED:PASS");
         }
         Ok(_) => fail("DENIED", "cross-session paste was allowed"),
@@ -99,11 +110,6 @@ fn run() -> messenger::Result<()> {
     // The large-offer probes run last: the session keeps one offer, so they
     // would evict the one the denial probe above names.
     big_offer_probes(&client)?;
-    // Release the broker-side subscription slot now that the paste and
-    // denial probe are done: this demo client is about to exit, but a leaked
-    // subscription would still fill the broker's bounded table on repeated
-    // runs.
-    let _ = changes.unsubscribe();
     Ok(())
 }
 
@@ -122,22 +128,23 @@ fn big_offer_probes(client: &clipboard::Client) -> messenger::Result<()> {
     // owned by this task until the buffer is closed below.
     let pages = unsafe { core::slice::from_raw_parts_mut(va as *mut u8, BIG_LEN) };
     pages.fill(0xAA);
-    let request = clipboard::offer_buffer_request(
-        "clippaste",
-        BIG_MIME,
-        libmessenger::Buffer::whole(handle, BIG_LEN as u64),
-    )?;
-    let token = clipboard::decode_token(&client.endpoint().call(&request, None)?)?;
+    let token = client
+        .offer_buffer(
+            "clippaste",
+            BIG_MIME,
+            libmessenger::Buffer::whole(handle, BIG_LEN as u64),
+        )
+        .map_err(lower)?;
     // The owner keeps using its pages.
     pages.fill(0x55);
     let _ = sys::buffer_close(handle);
-    let bytes = client.paste_token(token, BIG_MIME)?;
+    let bytes = client.paste_token(token, BIG_MIME).map_err(lower)?;
     if bytes.len() != BIG_LEN || bytes.iter().any(|&byte| byte != 0xAA) {
         fail("SNAPSHOT", "the paste is not what was copied");
     }
     sys::write_str(&format!("CLIP:SNAPSHOT:PASS bytes={}\n", bytes.len()));
     match client.paste_token(token, "image/png") {
-        Err(Error::Errno(code)) if code == -errno::ENOENT => sys::write_str("CLIP:MIME:PASS\n"),
+        Err(error) if error.code() == -errno::ENOENT => sys::write_str("CLIP:MIME:PASS\n"),
         Ok(_) => fail("MIME", "a MIME the offer lacks was served"),
         Err(error) => fail("MIME", error.message()),
     }
@@ -151,23 +158,13 @@ fn fail(name: &str, detail: &str) -> ! {
 }
 
 /// Resolve `clipboardd`, retrying while its registration lands.
-fn connect() -> messenger::Result<clipboard::Client> {
-    let mut last = Error::Errno(-errno::ENOENT);
-    for _ in 0..CONNECT_ATTEMPTS {
-        match clipboard::Client::connect() {
-            Ok(client) => return Ok(client),
-            Err(error) => last = error,
-        }
-        park_tick();
-    }
-    Err(last)
+/// A clipboard failure as this program's error type.
+fn lower(error: clipboard::ClientError) -> Error {
+    Error::Errno(error.code())
 }
 
-/// Nap one PIT tick's worth between retries ([`user::sys::nap`], a real sleep;
-/// this used to park on a throwaway channel pair, since userspace had no
-/// sleep call).
-fn park_tick() {
-    user::sys::nap();
+fn connect() -> messenger::Result<clipboard::Client> {
+    clipboard::Client::connect(Nested).map_err(lower)
 }
 
 #[panic_handler]

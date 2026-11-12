@@ -4,15 +4,17 @@
 //! `audiod`, which holds it while it runs. The owner is the kernel-stamped
 //! sender of `OpenStream`; nothing in a request body names a caller, so a
 //! client cannot act for another. Every failure leaves through
-//! [`user::messenger::services::error_reply`] as a structured errno.
+//! the generated `dispatch` as a structured errno.
 
 use alloc::vec::Vec;
 use user::trace;
 
 use audiomix::events::{Event, Kind};
 
-use user::messenger::audio::{self as api, wire};
-use user::messenger::{errno, Error as MsgError, Message, Parcel};
+use libmessenger::server::{Caller, Fault};
+use libmessenger::Buffer;
+use user::messenger::audio::wire;
+use user::messenger::{errno, Error as MsgError};
 use user::sys;
 use virtio_snd::params::{self, audio_direction, Request};
 use virtio_snd::wire::{direction, PcmInfo};
@@ -20,7 +22,7 @@ use virtio_snd::wire::{direction, PcmInfo};
 use super::card::Card;
 use super::session::{errno_of, Session};
 
-type Result<T> = core::result::Result<T, MsgError>;
+type Fallible<T> = core::result::Result<T, MsgError>;
 
 pub(super) struct Service {
     card: Card,
@@ -83,138 +85,109 @@ impl Service {
             }
         }
     }
+}
 
-    /// Route one request. `Ok` is the reply; `Err` becomes the error reply.
-    /// The ring `AttachRing` carries is the message's until its decoder
-    /// claims it: a refused request's ring closes when the message drops.
-    pub(super) fn dispatch(&mut self, message: &Message) -> Result<Parcel> {
-        self.route(message)
-    }
-
-    fn route(&mut self, message: &Message) -> Result<Parcel> {
-        if message.interface_id() != api::INTERFACE {
-            return Err(err(errno::EINVAL));
-        }
-        let method = message.method();
-        let body = &message.parcel.body;
-        let reply = match method {
-            wire::METHOD_INFO => self.info()?,
-            wire::METHOD_OPENSTREAM => self.open_stream(message)?,
-            wire::METHOD_ATTACHRING => {
-                let args = message.decode(wire::decode_attach_ring_args)?;
-                self.attach_ring(message, &args)?;
-                Vec::new()
-            }
-            wire::METHOD_COMMIT => {
-                let args = wire::decode_commit_args(body).map_err(MsgError::Parcel)?;
-                let consumed = owned(&mut self.session, message, args.stream)?
-                    .commit(&mut self.card, args.written_frames)?;
-                wire::encode_commit_reply(&wire::CommitReply { consumed })
-                    .map_err(MsgError::Parcel)?
-            }
-            wire::METHOD_START => {
-                let args = wire::decode_start_args(body).map_err(MsgError::Parcel)?;
-                owned(&mut self.session, message, args.stream)?.start(&mut self.card)?;
-                wire::encode_start_reply(&wire::StartReply { ok: true })
-                    .map_err(MsgError::Parcel)?
-            }
-            wire::METHOD_STOP => {
-                let args = wire::decode_stop_args(body).map_err(MsgError::Parcel)?;
-                owned(&mut self.session, message, args.stream)?.stop(&mut self.card)?;
-                wire::encode_stop_reply(&wire::StopReply { ok: true }).map_err(MsgError::Parcel)?
-            }
-            wire::METHOD_DRAIN => {
-                let args = wire::decode_drain_args(body).map_err(MsgError::Parcel)?;
-                owned(&mut self.session, message, args.stream)?.drain(&mut self.card)?;
-                wire::encode_drain_reply(&wire::DrainReply { ok: true })
-                    .map_err(MsgError::Parcel)?
-            }
-            wire::METHOD_POSITION => {
-                let args = wire::decode_position_args(body).map_err(MsgError::Parcel)?;
-                let frames = owned(&mut self.session, message, args.stream)?.position();
-                wire::encode_position_reply(&wire::PositionReply { frames })
-                    .map_err(MsgError::Parcel)?
-            }
-            wire::METHOD_SETVOLUME => {
-                let args = wire::decode_set_volume_args(body).map_err(MsgError::Parcel)?;
-                owned(&mut self.session, message, args.stream)?.set_volume(args.gain_q16)?;
-                Vec::new()
-            }
-            wire::METHOD_SETMUTE => {
-                let args = wire::decode_set_mute_args(body).map_err(MsgError::Parcel)?;
-                owned(&mut self.session, message, args.stream)?.set_mute(args.mute);
-                Vec::new()
-            }
-            wire::METHOD_CLOSESTREAM => {
-                let args = wire::decode_close_stream_args(body).map_err(MsgError::Parcel)?;
-                owned(&mut self.session, message, args.stream)?;
-                if let Some(session) = self.session.take() {
-                    session.close(&mut self.card);
-                }
-                Vec::new()
-            }
-            _ => return Err(err(errno::EINVAL)),
-        };
-        Ok(api::parcel(method, reply))
-    }
-
-    fn info(&self) -> Result<Vec<u8>> {
+/// The ring `AttachRing` carries is the message's until the generated
+/// decoder claims it: a refused request's ring closes when the message drops.
+impl wire::Server for Service {
+    fn info(&mut self, _: &Caller) -> Result<wire::AudioInfo, Fault> {
         let (_, info) = self.playback.as_ref().ok_or_else(|| err(errno::ENOTSUP))?;
-        wire::encode_info_reply(&wire::InfoReply {
-            info: wire::AudioInfo {
-                streams: 1,
-                formats: params::format_bitmap(info),
-                rates: params::rate_bitmap(info),
-                channels: u32::from(info.channels_max),
-                name: self.card.display_name(),
-            },
+        Ok(wire::AudioInfo {
+            streams: 1,
+            formats: params::format_bitmap(info),
+            rates: params::rate_bitmap(info),
+            channels: u32::from(info.channels_max),
+            name: self.card.display_name(),
         })
-        .map_err(MsgError::Parcel)
     }
 
-    fn open_stream(&mut self, message: &Message) -> Result<Vec<u8>> {
-        let args = wire::decode_open_stream_args(&message.parcel.body).map_err(MsgError::Parcel)?;
-        if args.dir == audio_direction::CAPTURE {
-            return Err(err(errno::ENOTSUP));
+    fn open_stream(
+        &mut self,
+        cx: &Caller,
+        dir: u32,
+        format: u32,
+        rate: u32,
+        channels: u32,
+        period_bytes: u32,
+    ) -> Result<wire::StreamGrant, Fault> {
+        if dir == audio_direction::CAPTURE {
+            return Err(err(errno::ENOTSUP).into());
         }
         let (index, info) = self.playback.ok_or_else(|| err(errno::ENOTSUP))?;
         if self.session.is_some() {
-            return Err(err(errno::EBUSY));
+            return Err(err(errno::EBUSY).into());
         }
         let request = Request {
-            direction: args.dir,
-            format: args.format,
-            rate_hz: args.rate,
-            channels: args.channels,
-            period_bytes: args.period_bytes,
+            direction: dir,
+            format,
+            rate_hz: rate,
+            channels,
+            period_bytes,
         };
-        let session = Session::open(&mut self.card, index, &info, message.sender, &request)
+        let session = Session::open(&mut self.card, index, &info, cx.sender, &request)
             .map_err(|e| errno_of(&e))?;
         let grant = session.grant();
         self.session = Some(session);
-        wire::encode_open_stream_reply(&wire::OpenStreamReply {
-            grant: wire::StreamGrant {
-                stream: index,
-                dir: audio_direction::PLAYBACK,
-                format: grant.format,
-                rate: grant.rate_hz,
-                channels: grant.channels,
-                period_bytes: grant.period_bytes,
-                periods: grant.periods,
-            },
+        Ok(wire::StreamGrant {
+            stream: index,
+            dir: audio_direction::PLAYBACK,
+            format: grant.format,
+            rate: grant.rate_hz,
+            channels: grant.channels,
+            period_bytes: grant.period_bytes,
+            periods: grant.periods,
         })
-        .map_err(MsgError::Parcel)
     }
 
     /// `AttachRing`: the decoded request owns the ring; every way out but
     /// success closes it.
-    fn attach_ring(&mut self, message: &Message, args: &wire::AttachRingArgs) -> Result<()> {
-        let outcome = owned(&mut self.session, message, args.stream)
-            .and_then(|session| session.attach(&args.ring));
+    fn attach_ring(&mut self, cx: &Caller, stream: u32, ring: Buffer) -> Result<(), Fault> {
+        let outcome =
+            owned(&mut self.session, cx, stream).and_then(|session| session.attach(&ring));
         if outcome.is_err() {
-            let _ = sys::buffer_close(args.ring.handle);
+            let _ = sys::buffer_close(ring.handle);
         }
-        outcome
+        Ok(outcome?)
+    }
+
+    fn commit(&mut self, cx: &Caller, stream: u32, written_frames: u64) -> Result<u64, Fault> {
+        Ok(owned(&mut self.session, cx, stream)?.commit(&mut self.card, written_frames)?)
+    }
+
+    fn start(&mut self, cx: &Caller, stream: u32) -> Result<bool, Fault> {
+        owned(&mut self.session, cx, stream)?.start(&mut self.card)?;
+        Ok(true)
+    }
+
+    fn stop(&mut self, cx: &Caller, stream: u32) -> Result<bool, Fault> {
+        owned(&mut self.session, cx, stream)?.stop(&mut self.card)?;
+        Ok(true)
+    }
+
+    fn drain(&mut self, cx: &Caller, stream: u32) -> Result<bool, Fault> {
+        owned(&mut self.session, cx, stream)?.drain(&mut self.card)?;
+        Ok(true)
+    }
+
+    fn position(&mut self, cx: &Caller, stream: u32) -> Result<u64, Fault> {
+        Ok(owned(&mut self.session, cx, stream)?.position())
+    }
+
+    fn set_volume(&mut self, cx: &Caller, stream: u32, gain_q16: u32) -> Result<(), Fault> {
+        Ok(owned(&mut self.session, cx, stream)?.set_volume(gain_q16)?)
+    }
+
+    fn set_mute(&mut self, cx: &Caller, stream: u32, mute: bool) -> Result<(), Fault> {
+        owned(&mut self.session, cx, stream)?.set_mute(mute);
+        Ok(())
+    }
+
+    fn close_stream(&mut self, cx: &Caller, stream: u32) -> Result<(), Fault> {
+        owned(&mut self.session, cx, stream)?;
+        if let Some(session) = self.session.take() {
+            session.close(&mut self.card);
+        }
+        Ok(())
     }
 }
 
@@ -223,14 +196,14 @@ impl Service {
 /// slot so the caller can keep using the card while it holds the result.
 fn owned<'a>(
     session: &'a mut Option<Session>,
-    message: &Message,
+    cx: &Caller,
     stream: u32,
-) -> Result<&'a mut Session> {
+) -> Fallible<&'a mut Session> {
     let session = session.as_mut().ok_or_else(|| err(errno::EINVAL))?;
     if session.index() != stream {
         return Err(err(errno::EINVAL));
     }
-    if session.owner != message.sender {
+    if session.owner != cx.sender {
         return Err(err(errno::EACCES));
     }
     session.touch();

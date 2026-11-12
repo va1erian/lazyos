@@ -124,11 +124,6 @@ impl RecordingEngine {
         std::mem::take(&mut self.lock().calls)
     }
 
-    /// What `children` answers.
-    pub fn set_children(&self, web: i32, network: i32) {
-        self.lock().children = (web, network);
-    }
-
     /// How many times `view` was created and how many times destroyed.
     pub fn creates_and_destroys(&self, view: u64) -> (usize, usize) {
         let calls = self.lock();

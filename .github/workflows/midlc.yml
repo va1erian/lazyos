@@ -35,6 +35,12 @@ jobs:
       - name: Ring declaration tests
         run: python tools/midlc/test_midlc_rings.py
 
+      - name: Service, errors, scope, deadline and crate layout tests
+        run: python tools/midlc/test_midlc_decls.py
+
+      - name: Rust client emitter tests
+        run: python tools/midlc/test_midlc_client.py
+
       - name: Package compatibility checker tests
         run: python tools/pkg/test_idl_compat.py
 

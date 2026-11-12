@@ -10,7 +10,7 @@ use super::error::{error_code, EINVAL, ENOENT, EPIPE};
 use super::registry::{release, resolve};
 
 /// The topics-broker well-known name.
-pub const TOPICS_NAME: &str = "os.lazy.messenger.topics";
+pub const TOPICS_NAME: &str = wire::SERVICE_NAME;
 /// Ticks a broker call waits before it gives up (`2 s` at 100 Hz), so a stalled
 /// broker cannot freeze the dashboard forever.
 const BROKER_CALL_TICKS: u64 = 200;

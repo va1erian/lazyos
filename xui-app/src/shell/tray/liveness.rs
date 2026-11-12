@@ -4,6 +4,7 @@
 //! app died (or closed its end), so its custom item goes. A resident app's
 //! default item stays until `init` reports it stopped.
 
+use crate::trace::{self, Channel};
 use libmessenger::{flags, Header, Parcel, VERSION};
 use messenger_generated::os_lazy_shell_tray_events_v1 as events;
 
@@ -53,7 +54,7 @@ pub fn alive(ctx: &Ctx, app: &str) -> bool {
 pub fn gone(ctx: &Ctx, app: &str) {
     ctx.tray.model.borrow_mut().clear(app);
     ctx.tray.drop_channel(app);
-    println!("SHELL:TRAY:CLEAR app={app} why=gone");
+    trace::line!(Channel::Shell, "TRAY:CLEAR app={app} why=gone");
 }
 
 /// Ping every channel when due; `true` when an item went away.

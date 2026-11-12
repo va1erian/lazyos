@@ -6,8 +6,9 @@
 use crate::{NETD_UID, NET_UID, ROOT_UID, WIFISIM_UID, WIFI_UID};
 
 /// The registry namespace of the cards: a driver serves its card as
-/// `os.lazy.net.nic/<ifname>`.
-pub const NIC_NAME_PREFIX: &str = "os.lazy.net.nic";
+/// `os.lazy.net.nic/<ifname>` (`service` in `idl/net.midl`).
+pub const NIC_NAME_PREFIX: &str =
+    crate::namespace(messenger_generated::os_lazy_net_nic_v1::SERVICE_INSTANCE_PREFIX);
 
 /// `NicInfo.kind` of an Ethernet-class card (`idl/net.midl`).
 pub const NIC_KIND_WIRED: u32 = 0;

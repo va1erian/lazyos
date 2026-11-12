@@ -20,11 +20,16 @@ std = ["alloc"]
 # Parcel-level Messenger helpers (`msg::parcel`): `call`, `send`, `reply` and
 # the kernel registry's `resolve`/`register`/`unregister`/`list`, encoded
 # with the generated `os.lazy.messenger.registry.v1` stubs.
-parcel = ["alloc", "dep:libmessenger", "dep:messenger-generated"]
+parcel = ["alloc", "dep:messenger-generated"]
+# The std `libmessenger::client::Transport` over `msg` (`client::Std`), shared by
+# `xui-app` and LazyRAD.
+client = ["std", "parcel"]
 # The device syscall's read-only inspection ops, decoded with `devinspect`.
 devinspect = ["alloc", "dep:devinspect"]
 
 [dependencies]
-libmessenger = { path = "../messenger", optional = true }
+# Always: the one errno table lives in `libmessenger::errno` (the crate has no
+# dependencies, so it cannot depend on this one).
+libmessenger = { path = "../messenger" }
 messenger-generated = { path = "../generated", optional = true }
 devinspect = { path = "../devinspect", optional = true }

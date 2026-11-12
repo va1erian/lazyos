@@ -13,17 +13,18 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use user::messenger::netstack;
 use user::messenger::{fabric_stats, TaskUsage};
 use user::{sys, sysinfo};
 
-use super::common::{connect, fail, nap, wait_for_address};
+use super::common::{connect, fail, local, nap, wait_for_address, PATIENT};
 
 const GATEWAY: [u8; 4] = [10, 0, 2, 2];
 
 /// What `netd` and `netdrv` hold right now: `(name, usage)` per live task
 /// with those names, in slot order.
 fn holdings() -> Result<Vec<(String, TaskUsage)>, String> {
-    let fabric = fabric_stats().map_err(fail("fabric stats"))?;
+    let fabric = fabric_stats().map_err(local("fabric stats"))?;
     let snapshot =
         sysinfo::snapshot().map_err(|code| format!("system snapshot: errno {}", -code))?;
     let mut out = Vec::new();
@@ -78,19 +79,18 @@ pub(super) fn run(iterations: u32) -> Result<u32, String> {
             before.len()
         ));
     }
-    let stats_before = client.stats().map_err(fail("stats"))?;
+    let stats_before = client.stats_within(PATIENT).map_err(fail("stats"))?;
     let mut renewals = 0u64;
     let mut reattachments = 0u64;
     for round in 1..=iterations {
         let what = |step: &str| format!("round {round}: {step}");
-        let echo = client
-            .ping(GATEWAY, 1 + (round * 37) % 1400, 3000)
+        let echo = netstack::ping(&client, GATEWAY, 1 + (round * 37) % 1400, 3000)
             .map_err(fail(&what("ping")))?;
         if echo.source != GATEWAY {
             return Err(what("the reply came from another address"));
         }
         if round % 10 == 0 {
-            client.renew().map_err(fail(&what("renew")))?;
+            client.renew_within(PATIENT).map_err(fail(&what("renew")))?;
             wait_for_address(&client).map_err(|e| what(&e))?;
             renewals += 1;
         }
@@ -99,7 +99,7 @@ pub(super) fn run(iterations: u32) -> Result<u32, String> {
             reattachments += 1;
             let deadline = sys::clock() + 800;
             while !client
-                .interfaces()
+                .interfaces_within(PATIENT)
                 .map_err(fail(&what("interfaces")))?
                 .first()
                 .is_some_and(|i| i.link)
@@ -114,7 +114,7 @@ pub(super) fn run(iterations: u32) -> Result<u32, String> {
         nap();
     }
     let after = holdings()?;
-    let stats_after = client.stats().map_err(fail("stats"))?;
+    let stats_after = client.stats_within(PATIENT).map_err(fail("stats"))?;
     for ((name, was), (_, now)) in before.iter().zip(after.iter()) {
         let leaked = |what: &str, was: u64, now: u64| {
             if was == now {

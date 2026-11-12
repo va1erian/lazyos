@@ -16,15 +16,21 @@
 // id, but the ACL layer scopes the service by capability, so a parcel's
 // header carries a *scope interface id* while its method id comes from this
 // file. `Offer` travels on `fnv1a64("os.lazy.clipboard.write.v1")`,
-// `Request` on `fnv1a64("os.lazy.clipboard.read.v1")`, `Serialize` (served by
-// an offer's owner, not the service) on the owner scope, and `Ping` and
-// `Current` on this interface's own id. The scope names are ACL names, not
-// wire fields, so they live as constants in `user/src/messenger/clipboard`.
+// `Request` on `fnv1a64("os.lazy.clipboard.read.v1")` (both declared with
+// `scope` on the method and generated as `METHOD_*_SCOPE`), `Serialize`
+// (served by an offer's owner, not the service) on the owner scope, a magic
+// id that is not a name hash and so has no `scope` syntax, and `Ping` and
+// `Current` on this interface's own id. The deadlines are what every client
+// gives the call: half a second for an ordinary one (a copy or paste key
+// runs on a UI thread), five seconds for one that moves a large payload.
 // Failures reply with the standard error field (id 15, `docs/midl.md`) instead of the
 // declared reply fields, which never use that id.
 
 // The interface every function of this module calls.
 export const INTERFACE = "os.lazy.clipboard.v1";
+
+// The registry name the interface is served under (`service` in the `.midl`).
+export const SERVICE = "os.lazy.clipboard";
 
 /// The connected service: `invoke`, `invoke_oneway` and method sugar
 /// (`docs/rhai/msg.md`). Resolved once per process.

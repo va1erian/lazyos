@@ -130,19 +130,6 @@ impl Tool {
         matches!(self, Tool::Pencil | Tool::Brush | Tool::Eraser)
     }
 
-    /// Whether the tool makes a selection.
-    pub const fn is_selector(self) -> bool {
-        matches!(
-            self,
-            Tool::RectSelect | Tool::EllipseSelect | Tool::Lasso | Tool::MagicWand
-        )
-    }
-
-    /// Whether the tool changes the view and never the picture.
-    pub const fn is_view(self) -> bool {
-        matches!(self, Tool::Zoom | Tool::Pan)
-    }
-
     /// Whether the tool moves the selection or its pixels.
     pub const fn is_move(self) -> bool {
         matches!(self, Tool::MovePixels | Tool::MoveSelection)

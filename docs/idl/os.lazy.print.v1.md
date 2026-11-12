@@ -23,6 +23,21 @@ the shared structured error field, `EINVAL` with one line for the user
 | Status | 6222351 | sync | `(job: U32) -> (info: JobInfo)` |
 | Jobs | 1256630173 | sync | `() -> (jobs: Array<JobInfo>)` |
 
+## Service
+
+- Served under the registry name `os.lazy.print`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Open | this interface | - | 10000 ms | never |
+| Write | this interface | - | 10000 ms | never |
+| Close | this interface | - | 10000 ms | never |
+| Cancel | this interface | - | 10000 ms | never |
+| Status | this interface | - | 10000 ms | safe |
+| Jobs | this interface | - | 5000 ms | safe |
+
 ## struct `Ticket`
 
 - `name: String`

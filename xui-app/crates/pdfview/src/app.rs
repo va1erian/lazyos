@@ -10,12 +10,13 @@ use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
 use xui_core::message::{Key, Modifiers};
 use xui_core::widget::DialogAction;
+use xui_work::Sink;
 
-use crate::host::Host;
 use crate::layout::{self, Zoom};
 use crate::ui::{self, Dialogs, Widgets};
 use crate::viewer::Viewer;
-use crate::worker::Pool;
+use crate::worker::{Done, Pool};
+use xui_host::{report, SharedHost};
 
 /// The window size the binary asks for.
 pub const WINDOW: (i32, i32) = (820, 640);
@@ -44,15 +45,15 @@ pub enum Msg {
     ActualSize,
     /// The view scrolled itself (wheel, scroll bar).
     Scrolled,
-    /// The view's drain timer fired.
-    Tick,
+    /// A render thread finished a tile.
+    Tile(Done),
     /// Files were dropped on the window.
     Dropped(Vec<PathBuf>),
     Close,
 }
 
 pub struct PdfApp {
-    host: Host,
+    host: SharedHost,
     pub(crate) w: Widgets,
     dialogs: Dialogs,
     /// The open document's path.
@@ -63,13 +64,16 @@ pub struct PdfApp {
 }
 
 impl PdfApp {
-    pub fn build(ui: &mut Ui<Msg>, host: Host) -> Result<PdfApp> {
-        let threads = match host.threads {
-            0 => Pool::default_threads(),
-            n => n,
-        };
-        let viewer = Rc::new(RefCell::new(Viewer::new(Rc::clone(&host.log), threads)));
-        let (w, dialogs) = ui::build_window(ui, &host, viewer)?;
+    /// The window with one render thread per spare CPU.
+    pub fn build(ui: &mut Ui<Msg>, host: SharedHost) -> Result<PdfApp> {
+        PdfApp::with_threads(ui, host, Pool::default_threads())
+    }
+
+    /// The window with `threads` render threads (tests pin it).
+    pub fn with_threads(ui: &mut Ui<Msg>, host: SharedHost, threads: usize) -> Result<PdfApp> {
+        let tiles = Sink::new(&ui.proxy(), Msg::Tile);
+        let viewer = Rc::new(RefCell::new(Viewer::new(Rc::clone(&host), threads, tiles)));
+        let (w, dialogs) = ui::build_window(ui, &*host, viewer)?;
         ui.on_close(|| Some(Msg::Close));
         let dialog_open = Rc::new(Cell::new(false));
         {
@@ -105,15 +109,6 @@ impl PdfApp {
         Rc::clone(&self.w.view.viewer)
     }
 
-    /// Whether render threads still have tiles to hand over.
-    pub fn draining(&self) -> bool {
-        self.w.view.draining()
-    }
-
-    fn log(&self, line: &str) {
-        (self.host.log)(line);
-    }
-
     /// Reads and opens `path`; a locked file asks for its password.
     fn open_path(&mut self, path: PathBuf) {
         match std::fs::read(&path) {
@@ -130,7 +125,7 @@ impl PdfApp {
             Ok(doc) => {
                 let pages = doc.page_count();
                 self.w.view.viewer.borrow_mut().open(doc);
-                self.log(&format!("PDF:OPEN:PASS:{}:{pages}", path.display()));
+                report!(self.host, "OPEN:PASS:{}:{pages}", path.display());
                 self.path = Some(path);
                 self.locked = None;
             }
@@ -141,7 +136,7 @@ impl PdfApp {
                 } else {
                     format!("That password does not open {name}. Try again:")
                 };
-                self.log(&format!("PDF:OPEN:PASSWORD:{}", path.display()));
+                report!(self.host, "OPEN:PASSWORD:{}", path.display());
                 self.locked = Some((path, retry));
                 self.dialogs.password.set_message(&text);
                 self.dialogs.password.open();
@@ -151,7 +146,7 @@ impl PdfApp {
     }
 
     fn failed(&mut self, path: &Path, reason: &str) {
-        self.log(&format!("PDF:OPEN:FAIL:{}:{reason}", path.display()));
+        report!(self.host, "OPEN:FAIL:{}:{reason}", path.display());
         let text = format!("{} could not be opened: {reason}.", file_name(path));
         self.w.view.viewer.borrow_mut().fail(text);
         self.path = None;
@@ -183,7 +178,7 @@ impl PdfApp {
     fn zoom(&self, zoom: Zoom) {
         self.w.view.viewer.borrow_mut().set_zoom(zoom);
         let factor = self.viewer().factor();
-        self.log(&format!("PDF:ZOOM:{:.0}", factor * 100.0));
+        report!(self.host, "ZOOM:{:.0}", factor * 100.0);
     }
 
     fn go_to(&self, page: usize) {
@@ -283,13 +278,12 @@ impl App for PdfApp {
             Msg::FitPage => self.zoom(Zoom::FitPage),
             Msg::ActualSize => self.zoom(Zoom::Factor(1.0)),
             Msg::Scrolled => {}
-            Msg::Tick => {
-                self.w.view.tick();
+            Msg::Tile(done) => {
+                self.w.view.accept(done);
                 // Tiles do not move the view: nothing else to mirror.
                 return;
             }
             Msg::Close => {
-                self.log("PDF:QUIT:PASS");
                 ui.quit();
                 return;
             }

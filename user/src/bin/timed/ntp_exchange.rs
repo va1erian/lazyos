@@ -145,7 +145,7 @@ impl Exchange {
             if !addrs.is_empty() || sys::monotonic_ms().saturating_sub(began) >= RESOLVE_BUDGET_MS {
                 break;
             }
-            let Ok(list) = stack.resolve(server.host, RESOLVE_TIMEOUT_MS) else {
+            let Ok(list) = netstack::resolve(stack, server.host, RESOLVE_TIMEOUT_MS) else {
                 continue;
             };
             for ip in list {

@@ -12,7 +12,7 @@
 // `AttachBuffer`, `Commit`, `DestroySurface`, `DragStart`, `DragCancel`,
 // `ListSurfaces`, `GetWorkArea`, `Subscribe`, `GetTheme`, `SetTitle`,
 // `HintOpenOrigin` and `SetSizeHints`. **Events** (compositor to app, or to
-// the shell subscriber) are `oneway` methods sent on the event endpoint the
+// the shell subscriber) are `event` methods sent on the event endpoint the
 // client transferred: `PointerMove`, `PointerDown`, `PointerUp`,
 // `PointerWheel`, `KeyDown`, `KeyUp`, `WindowClose`, `Configure`, the
 // drag-and-drop set
@@ -38,6 +38,9 @@
 // The interface every function of this module calls.
 export const INTERFACE = "os.lazy.display.v1";
 
+// The registry name the interface is served under (`service` in the `.midl`).
+export const SERVICE = "os.lazy.display.v1";
+
 /// The connected service: `invoke`, `invoke_oneway` and method sugar
 /// (`docs/rhai/msg.md`). Resolved once per process.
 fn connect() {
@@ -59,63 +62,6 @@ fn destroy_surface(surface) {
     msg::connect("os.lazy.display.v1").invoke("DestroySurface", [surface])
 }
 
-/// `PointerMove(x: I32, y: I32) -> () oneway`
-///
-/// Event: the pointer moved to `(x, y)`, relative to the focused surface.
-///
-/// One-way: returns `()` once the message is queued.
-fn pointer_move(x, y) {
-    msg::connect("os.lazy.display.v1").invoke("PointerMove", [x, y])
-}
-
-/// `PointerDown(x: I32, y: I32, button: U32) -> () oneway`
-///
-/// Event: pointer button `button` went down at `(x, y)`, relative to the
-/// surface.
-///
-/// One-way: returns `()` once the message is queued.
-fn pointer_down(x, y, button) {
-    msg::connect("os.lazy.display.v1").invoke("PointerDown", [x, y, button])
-}
-
-/// `PointerUp(x: I32, y: I32, button: U32) -> () oneway`
-///
-/// Event: pointer button `button` went up at `(x, y)`, relative to the
-/// surface.
-///
-/// One-way: returns `()` once the message is queued.
-fn pointer_up(x, y, button) {
-    msg::connect("os.lazy.display.v1").invoke("PointerUp", [x, y, button])
-}
-
-/// `KeyDown(key: U32) -> () oneway`
-///
-/// Event: key `key` was pressed (a character or a non-printable code).
-///
-/// One-way: returns `()` once the message is queued.
-fn key_down(key) {
-    msg::connect("os.lazy.display.v1").invoke("KeyDown", [key])
-}
-
-/// `KeyUp(key: U32) -> () oneway`
-///
-/// Event: key `key` was released.
-///
-/// One-way: returns `()` once the message is queued.
-fn key_up(key) {
-    msg::connect("os.lazy.display.v1").invoke("KeyUp", [key])
-}
-
-/// `WindowClose() -> () oneway`
-///
-/// Event: the window manager closed this surface (the X button or Alt+F4).
-/// The app is expected to exit or re-create it.
-///
-/// One-way: returns `()` once the message is queued.
-fn window_close() {
-    msg::connect("os.lazy.display.v1").invoke("WindowClose", [])
-}
-
 /// `DragStart(surface: U64, token: U64, mime: String) -> ()`
 ///
 /// Begin a compositor-mediated drag from `surface` carrying clipboard
@@ -130,57 +76,6 @@ fn drag_start(surface, token, mime) {
 /// Cancel the drag that started at `surface`.
 fn drag_cancel(surface) {
     msg::connect("os.lazy.display.v1").invoke("DragCancel", [surface])
-}
-
-/// `DragEnter(x: I32, y: I32, mime: String) -> () oneway`
-///
-/// Event: a drag carrying `mime` entered this surface at `(x, y)`.
-///
-/// One-way: returns `()` once the message is queued.
-fn drag_enter(x, y, mime) {
-    msg::connect("os.lazy.display.v1").invoke("DragEnter", [x, y, mime])
-}
-
-/// `DragOver(x: I32, y: I32) -> () oneway`
-///
-/// Event: a drag moved inside this surface to `(x, y)`.
-///
-/// One-way: returns `()` once the message is queued.
-fn drag_over(x, y) {
-    msg::connect("os.lazy.display.v1").invoke("DragOver", [x, y])
-}
-
-/// `DragLeave() -> () oneway`
-///
-/// Event: a drag left this surface.
-///
-/// One-way: returns `()` once the message is queued.
-fn drag_leave() {
-    msg::connect("os.lazy.display.v1").invoke("DragLeave", [])
-}
-
-/// `Drop(x: I32, y: I32, token: U64, mime: String, modifiers: Option<U32>, source: Option<U64>) -> () oneway`
-///
-/// Event: a drag was released over this surface at `(x, y)`; the target
-/// pastes `token` of type `mime` through the clipboard service.
-/// `modifiers` are the `MOD_*` key bits held at the release (the
-/// keyboard may be another client's, so the target cannot read them
-/// itself) and `source` is the surface the drag started from, so a
-/// client can tell a drag between its own windows from another app's.
-/// Both are absent from an older compositor.
-///
-/// One-way: returns `()` once the message is queued.
-fn drop(x, y, token, mime, modifiers, source) {
-    msg::connect("os.lazy.display.v1").invoke("Drop", [x, y, token, mime, modifiers, source])
-}
-
-/// `DragEnded(dropped: Bool) -> () oneway`
-///
-/// Event to the drag's source: the drag ended (`dropped`) or was cancelled.
-///
-/// One-way: returns `()` once the message is queued.
-fn drag_ended(dropped) {
-    msg::connect("os.lazy.display.v1").invoke("DragEnded", [dropped])
 }
 
 /// `ListSurfaces() -> (surfaces: Array<SurfaceRow>)`
@@ -211,35 +106,6 @@ fn get_theme() {
     msg::connect("os.lazy.display.v1").invoke("GetTheme", [])
 }
 
-/// `SurfaceChanged(surface: U64, kind: U32, x: I32, y: I32, w: I32, h: I32, minimized: Bool, focused: Bool, title: Option<String>, role: U32, maximized: Bool) -> () oneway`
-///
-/// Shell event: surface `surface` changed. `kind` is a `Change` value;
-/// `title` is set on `Created` and `Title`. `role` is a `Role` value.
-///
-/// One-way: returns `()` once the message is queued.
-fn surface_changed(surface, kind, x, y, w, h, minimized, focused, title, role, maximized) {
-    msg::connect("os.lazy.display.v1").invoke("SurfaceChanged", [surface, kind, x, y, w, h, minimized, focused, title, role, maximized])
-}
-
-/// `FocusChanged(surface: Option<U64>) -> () oneway`
-///
-/// Shell event: the focused surface changed; absent when nothing is
-/// focused.
-///
-/// One-way: returns `()` once the message is queued.
-fn focus_changed(surface) {
-    msg::connect("os.lazy.display.v1").invoke("FocusChanged", [surface])
-}
-
-/// `StartMenu() -> () oneway`
-///
-/// Shell event: the global start-menu hotkey (Ctrl+Esc or Super) fired.
-///
-/// One-way: returns `()` once the message is queued.
-fn start_menu() {
-    msg::connect("os.lazy.display.v1").invoke("StartMenu", [])
-}
-
 /// `Present(surface: U64, slot: U32, seq: U64, damage: Array<Rect>) -> () oneway`
 ///
 /// Pipelined present (no reply): make `slot` the surface's current buffer
@@ -257,26 +123,6 @@ fn start_menu() {
 /// One-way: returns `()` once the message is queued.
 fn present(surface, slot, seq, damage) {
     msg::connect("os.lazy.display.v1").invoke("Present", [surface, slot, seq, damage])
-}
-
-/// `BufferRelease(surface: U64, slot: U32) -> () oneway`
-///
-/// Event: the compositor no longer reads `slot` of `surface`; the client
-/// may write it again. Only sent to surfaces that use `Present`.
-///
-/// One-way: returns `()` once the message is queued.
-fn buffer_release(surface, slot) {
-    msg::connect("os.lazy.display.v1").invoke("BufferRelease", [surface, slot])
-}
-
-/// `FrameDone(surface: U64, seq: U64) -> () oneway`
-///
-/// Event: the compositor consumed the `Present` numbered `seq`. Frames
-/// complete in submission order.
-///
-/// One-way: returns `()` once the message is queued.
-fn frame_done(surface, seq) {
-    msg::connect("os.lazy.display.v1").invoke("FrameDone", [surface, seq])
 }
 
 /// `SetTitle(surface: U64, title: String) -> ()`
@@ -313,19 +159,6 @@ fn hint_open_origin(surface, x, y, w, h) {
     msg::connect("os.lazy.display.v1").invoke("HintOpenOrigin", [surface, x, y, w, h])
 }
 
-/// `PointerWheel(x: I32, y: I32, delta: I32) -> () oneway`
-///
-/// Event: the mouse wheel rolled `delta` notches over this surface's
-/// content at `(x, y)` (relative to the content origin). Positive scrolls
-/// up (the wheel rolled away from the user), negative down. The compositor
-/// sends it to the topmost window under the pointer, which need not be the
-/// focused one, and never to the title bar or an area outside every window.
-///
-/// One-way: returns `()` once the message is queued.
-fn pointer_wheel(x, y, delta) {
-    msg::connect("os.lazy.display.v1").invoke("PointerWheel", [x, y, delta])
-}
-
 /// `SetSizeHints(surface: U64, min_w: U32, min_h: U32, max_w: U32, max_h: U32) -> ()`
 ///
 /// Declare `surface` resizable within these content-size bounds (pixels).
@@ -340,19 +173,6 @@ fn set_size_hints(surface, min_w, min_h, max_w, max_h) {
     msg::connect("os.lazy.display.v1").invoke("SetSizeHints", [surface, min_w, min_h, max_w, max_h])
 }
 
-/// `Configure(surface: U64, width: U32, height: U32, state: U32) -> () oneway`
-///
-/// Event: the window manager changed the surface's content size to
-/// `width` x `height` (`state` is a `WindowState`). The client should
-/// attach buffer(s) of the new size (`AttachBuffer`, or `AttachBufferSlot`
-/// on non-current slots for `Present` users) and present a full frame.
-/// Until it does the compositor shows the old buffer cropped or padded.
-///
-/// One-way: returns `()` once the message is queued.
-fn configure(surface, width, height, state) {
-    msg::connect("os.lazy.display.v1").invoke("Configure", [surface, width, height, state])
-}
-
 /// `RequestSize(surface: U64, width: U32, height: U32) -> ()`
 ///
 /// Ask the compositor to change `surface`'s content size to `width` x
@@ -365,19 +185,6 @@ fn configure(surface, width, height, state) {
 /// the current size), which is the only confirmation the client needs.
 fn request_size(surface, width, height) {
     msg::connect("os.lazy.display.v1").invoke("RequestSize", [surface, width, height])
-}
-
-/// `Ping() -> () oneway`
-///
-/// Event: a liveness probe. The compositor sends it to each window's
-/// event endpoint about once a second; a send that fails with `EPIPE`
-/// tells it the client died without calling `DestroySurface`, and it
-/// removes the window. Clients ignore it (an old client drops an unknown
-/// event), so there is nothing to answer.
-///
-/// One-way: returns `()` once the message is queued.
-fn ping() {
-    msg::connect("os.lazy.display.v1").invoke("Ping", [])
 }
 
 /// `PlaceSurface(surface: U64, x: I32, y: I32) -> ()`
@@ -440,17 +247,6 @@ fn hint_launch_origin(x, y, w, h) {
     msg::connect("os.lazy.display.v1").invoke("HintLaunchOrigin", [x, y, w, h])
 }
 
-/// `Dismiss() -> () oneway`
-///
-/// Shell event: a pointer button went down outside every `Panel` surface
-/// (on a window, the desktop or the bare background), so the shell closes
-/// any open popup panel such as the start menu.
-///
-/// One-way: returns `()` once the message is queued.
-fn dismiss() {
-    msg::connect("os.lazy.display.v1").invoke("Dismiss", [])
-}
-
 /// `GetOutput() -> (width: U32, height: U32, scale: U32, refresh_millihz: U32)`
 ///
 /// The screen in physical pixels and the desktop's integer UI scale
@@ -491,26 +287,6 @@ fn allow_popup(task, token, x, y, w, h) {
 /// or under a client's keyboard grab or the trusted prompt, which win.
 fn grab_panel_keys(grab) {
     msg::connect("os.lazy.display.v1").invoke("GrabPanelKeys", [grab])
-}
-
-/// `PanelKey(key: U32) -> () oneway`
-///
-/// Shell event: a key went down while the shell holds the panel keys
-/// (`GrabPanelKeys`), with the held modifiers OR-ed in like `KeyDown`.
-///
-/// One-way: returns `()` once the message is queued.
-fn panel_key(key) {
-    msg::connect("os.lazy.display.v1").invoke("PanelKey", [key])
-}
-
-/// `TrayKeys() -> () oneway`
-///
-/// Shell event: Super+B (Win+B) went down: move the keyboard to the
-/// tray. Super pressed and released alone still sends `StartMenu`.
-///
-/// One-way: returns `()` once the message is queued.
-fn tray_keys() {
-    msg::connect("os.lazy.display.v1").invoke("TrayKeys", [])
 }
 
 /// `SetCloseMode(surface: U64, ask: Bool) -> ()`

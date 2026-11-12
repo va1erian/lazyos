@@ -18,8 +18,11 @@ use alloc::vec;
 use alloc::vec::Vec;
 use user::trace;
 
+use libmessenger::client::CallError;
+use libmessenger::Buffer;
+use user::messenger::client::Native;
 use user::messenger::registry;
-use user::messenger::usb_audio::{Client, Device, NAME};
+use user::messenger::usb_audio::{Client, ClientError, Device, NAME};
 use user::sys;
 use virtio_snd::params::RATES;
 use virtio_snd::wire::{direction, format, PcmInfo};
@@ -66,7 +69,7 @@ impl UsbCard {
     pub(super) fn open() -> Result<UsbCard, Error> {
         let mut logged = false;
         let client = loop {
-            match served_by_usbd().then(Client::connect) {
+            match served_by_usbd().then(|| Client::try_connect(Native)) {
                 Some(Ok(client)) => break client,
                 _ => {
                     if !logged {
@@ -80,7 +83,7 @@ impl UsbCard {
         let device = client.describe().map_err(link)?;
         let staging = Region::shared(STAGING_BYTES)?;
         client
-            .attach(staging.handle(), staging.len() as u64)
+            .attach(Buffer::whole(staging.handle(), staging.len() as u64))
             .map_err(link)?;
         trace::line!(trace::Channel::Sndd, "USB:CARD port={} vendor={:#06x} product={:#06x} uac={} rates={:#x} channels={} bits={} name={}",
             device.port, device.vendor, device.product, device.version, device.rates, device.channels, device.bits, device.name);
@@ -110,7 +113,7 @@ impl UsbCard {
         self.lost
     }
 
-    fn check<T>(&mut self, result: user::messenger::Result<T>) -> Result<T, Error> {
+    fn check<T>(&mut self, result: Result<T, ClientError>) -> Result<T, Error> {
         result.map_err(|error| {
             self.lost = true;
             link(error)
@@ -261,6 +264,9 @@ pub(super) fn wait_until_gone() {
     }
 }
 
-fn link(error: user::messenger::Error) -> Error {
-    Error::Usb(error.message())
+fn link(error: ClientError) -> Error {
+    Error::Usb(match error {
+        CallError::Transport(errno) => errno.describe(),
+        _ => "usbd refused the request",
+    })
 }

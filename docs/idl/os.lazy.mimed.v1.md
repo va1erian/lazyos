@@ -21,6 +21,21 @@ as a typed reply.
 | Register | 658098656 | sync | `(mime: String, app: String, verb: String, owner: U32) -> ()` |
 | Unregister | 1480320227 | sync | `(mime: String, app: String, verb: String) -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.mimed`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Guess | this interface | - | 5000 ms | safe |
+| Lookup | this interface | - | 5000 ms | safe |
+| Verbs | this interface | - | 5000 ms | safe |
+| Open | this interface | - | 2000 ms | never |
+| Register | this interface | - | 5000 ms | never |
+| Unregister | this interface | - | 5000 ms | never |
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

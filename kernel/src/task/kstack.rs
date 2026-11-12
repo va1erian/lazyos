@@ -90,12 +90,17 @@ fn heap_reserve(heap_max: usize) -> usize {
     (4 << 20).max(heap_max / 16)
 }
 
-/// Whether the heap can take a stack and still keep [`heap_reserve`] free:
-/// what it has free, plus what it may still grow by.
+/// Heap a new task takes besides its stack (its slot's tables, credential,
+/// file and signal state), allowed for up front so the reserve still holds
+/// once the whole spawn is done, not only after the stack.
+const TASK_EXTRA: usize = 64 << 10;
+
+/// Whether the heap can take a stack and the rest of a task and still keep
+/// [`heap_reserve`] free: what it has free, plus what it may still grow by.
 fn heap_has_room() -> bool {
     let heap = crate::mem::heap_stats();
     let headroom = heap.max.saturating_sub(heap.total) + heap.free;
-    headroom >= heap_reserve(heap.max) + KSTACK_SIZE
+    headroom >= heap_reserve(heap.max) + KSTACK_SIZE + TASK_EXTRA
 }
 
 /// Top of `slot`'s live kernel stack, or 0 when it has none (the kernel task,

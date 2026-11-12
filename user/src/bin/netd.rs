@@ -46,7 +46,7 @@ use netstack::Net;
 use user::messenger::net::wire as nic_wire;
 use user::messenger::netsock as sock_api;
 use user::messenger::netstack::{self as api};
-use user::messenger::{self, errno, registry, services, wait, Error as MsgError};
+use user::messenger::{self, errno, registry, wait, Error as MsgError};
 use user::sys;
 
 #[path = "netd/config.rs"]
@@ -336,14 +336,7 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
         let reply = netd.dispatch(&message, sys::monotonic_ms() as i64);
         // A one-way message has nobody to answer, and a parked call is
         // answered later.
-        if let Some(txn) = message.txn {
-            let reply = match reply {
-                Ok(Some(reply)) => reply,
-                Ok(None) => continue,
-                Err(error) => {
-                    services::error_reply(message.interface_id(), message.method(), error)
-                }
-            };
+        if let (Some(txn), Some(reply)) = (message.txn, reply) {
             server.reply_or_drop(txn, &reply).map_err(fail)?;
         }
     }

@@ -48,10 +48,6 @@ impl Body {
         }
     }
 
-    pub fn is_decoded(&self) -> bool {
-        matches!(self, Body::Decoded { .. })
-    }
-
     /// A short tag for the list: the type, `bytes`, or `undecodable`.
     pub fn kind_text(&self) -> String {
         match self {

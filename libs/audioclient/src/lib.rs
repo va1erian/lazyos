@@ -1,24 +1,26 @@
 //! The LazyOS audio client (docs/audio-plan.md stage A4, issue #451).
 //!
 //! Applications play sound through the system mixer, `audiod`, registered as
-//! [`NAME`]. This crate is the one place that knows how: the typed calls of
-//! `os.lazy.audio.v1` ([`Client`]) and `os.lazy.audio.mixer.v1`
-//! ([`MixerControl`]), and above them a blocking [`PlaybackStream`] that
-//! hides the shared ring entirely:
+//! [`NAME`]. This crate is the one place that knows how: the typed calls are
+//! the generated clients of `os.lazy.audio.v1` ([`Client`]) and
+//! `os.lazy.audio.mixer.v1` ([`MixerControl`]) over any `libmessenger`
+//! transport, and above them a blocking [`PlaybackStream`] that hides the
+//! shared ring entirely:
 //!
 //! ```ignore
-//! let mut out = PlaybackStream::open(transport, Params::new(48_000, 2))?;
+//! let mut out = PlaybackStream::open(client, runtime, Params::new(48_000, 2))?;
 //! out.write(&samples)?;      // blocks while the ring is full
 //! out.set_volume(32768)?;    // half volume, applied by the mixer
 //! let played = out.finish()?; // drain, then close
 //! ```
 //!
-//! It is `no_std` + `alloc` and knows nothing about syscalls: a [`Transport`]
-//! delivers requests and creates shared rings. The native runtime implements
-//! it in `user::audio`; a musl program would implement it over its own
-//! Messenger bindings; the host tests implement it over the real mixer engine
-//! (`libs/audiomix`), so the ring arithmetic here is checked against the very
-//! code that enforces the contract on the other side.
+//! It is `no_std` + `alloc` and knows nothing about syscalls or framing: a
+//! [`Transport`] delivers the generated client's calls, and a [`Runtime`]
+//! creates shared rings and tells the time. The native runtime implements
+//! them in `user::audio`, xui apps in `xui_app::platform::audio`; the host
+//! tests run the stream over the real mixer engine (`libs/audiomix`), so the
+//! ring arithmetic here is checked against the very code that enforces the
+//! contract on the other side.
 
 #![no_std]
 
@@ -26,25 +28,30 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
-mod client;
 mod playback;
 
 #[cfg(test)]
 mod tests;
 
-pub use client::{Client, MixerControl};
+pub use libmessenger::client::{CallError, Deadline, Errno, Transport};
 pub use libmessenger::{Buffer, Object};
 pub use messenger_generated::os_lazy_audio_mixer_v1 as control_wire;
 pub use messenger_generated::os_lazy_audio_v1 as wire;
 pub use playback::{Params, PlaybackStream};
 
+/// The generated client of `os.lazy.audio.v1`, against the mixer or a card.
+pub type Client<T> = wire::Client<T>;
+
+/// The generated client of `os.lazy.audio.mixer.v1`: the volume control panel.
+pub type MixerControl<T> = control_wire::Client<T>;
+
 /// The system mixer: the name applications resolve.
-pub const NAME: &str = "os.lazy.audio";
+pub const NAME: &str = wire::SERVICE_NAME;
 
 /// Where card drivers register, one name per card
 /// (`os.lazy.audio.card/intel-hda0`, `.../usb-audio0`); each card's one
 /// stream belongs to the mixer, which picks the card to play through.
-pub const CARD_PREFIX: &str = "os.lazy.audio.card/";
+pub const CARD_PREFIX: &str = wire::SERVICE_INSTANCE_PREFIX;
 
 /// Unity gain in 16.16 fixed point; see `os.lazy.audio.v1` `SetVolume`.
 pub const UNITY_GAIN: u32 = 1 << 16;
@@ -58,14 +65,12 @@ pub use wire::StreamGrant as Grant;
 /// What a service (card or mixer) accepts.
 pub use wire::AudioInfo as Info;
 
-/// Why a call failed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Why a stream operation failed.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
-    /// The service refused, or the transport failed, with this (positive)
-    /// errno.
-    Errno(i64),
-    /// A reply did not decode.
-    Malformed,
+    /// A call failed: the transport's failure, the service's refusal, or a
+    /// reply that did not decode.
+    Call(CallError),
     /// No progress within the stall limit: the ring never emptied, or a
     /// drain never finished.
     Stalled,
@@ -74,20 +79,30 @@ pub enum Error {
 }
 
 impl Error {
-    /// The errno, when the failure carried one.
-    pub fn errno(self) -> Option<i64> {
+    /// The (positive) errno, when the failure carried one.
+    pub fn errno(&self) -> Option<i64> {
         match self {
-            Error::Errno(code) => Some(code),
+            Error::Call(error) => Some(-error.code()),
             _ => None,
         }
+    }
+
+    /// A failure of the runtime (a ring that could not be made) with `errno`.
+    pub fn transport(errno: Errno) -> Error {
+        Error::Call(CallError::Transport(errno))
+    }
+}
+
+impl From<CallError> for Error {
+    fn from(error: CallError) -> Error {
+        Error::Call(error)
     }
 }
 
 impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Error::Errno(code) => write!(f, "errno {code}"),
-            Error::Malformed => f.write_str("malformed reply"),
+            Error::Call(error) => error.fmt(f),
             Error::Stalled => f.write_str("no progress (stalled)"),
             Error::Unsupported => f.write_str("granted parameters are unusable"),
         }
@@ -128,57 +143,17 @@ pub trait RingBuffer {
     fn write(&mut self, offset: usize, bytes: &[u8]);
 }
 
-/// How requests reach a service, and where rings come from.
-pub trait Transport {
+/// What a runtime provides besides the connection (a [`Transport`]): shared
+/// rings, the clock and a sleep.
+pub trait Runtime {
     type Ring: RingBuffer;
 
-    /// Send one request and return the reply body. A service failure comes
-    /// back as [`Error::Errno`] with the service's errno. `objects` is the
-    /// parcel's object list (what the generated `encode_*_args` returned
-    /// beside the body, or none). `deadline` is an absolute
-    /// [`Transport::now`] tick.
-    fn call(
-        &self,
-        interface: u64,
-        method: u32,
-        body: alloc::vec::Vec<u8>,
-        objects: alloc::vec::Vec<Object>,
-        deadline: Option<u64>,
-    ) -> Result<alloc::vec::Vec<u8>>;
-
     /// A new zero-filled shared ring of `bytes` bytes.
-    fn create_ring(&self, bytes: usize) -> Result<Self::Ring>;
+    fn create_ring(&self, bytes: usize) -> core::result::Result<Self::Ring, Errno>;
 
     /// The current tick ([`TICK_HZ`] per second).
     fn now(&self) -> u64;
 
     /// Sleep about one tick.
     fn sleep(&self);
-}
-
-impl<T: Transport + ?Sized> Transport for &T {
-    type Ring = T::Ring;
-
-    fn call(
-        &self,
-        interface: u64,
-        method: u32,
-        body: alloc::vec::Vec<u8>,
-        objects: alloc::vec::Vec<Object>,
-        deadline: Option<u64>,
-    ) -> Result<alloc::vec::Vec<u8>> {
-        (**self).call(interface, method, body, objects, deadline)
-    }
-
-    fn create_ring(&self, bytes: usize) -> Result<Self::Ring> {
-        (**self).create_ring(bytes)
-    }
-
-    fn now(&self) -> u64 {
-        (**self).now()
-    }
-
-    fn sleep(&self) {
-        (**self).sleep()
-    }
 }

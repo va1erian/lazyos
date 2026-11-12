@@ -23,6 +23,6 @@ pub use error::errno_text;
 pub use registry::{registry, RegistryEntry};
 pub use stats::{fabric_stats, FabricStats, TaskUsage, FABRIC_TASKS};
 pub use subscribe::{
-    Drained, Errno, Qos, RawEvent, Rung, SubId, SubStats, Subscriber, SysTransport, Transport,
-    Wait, MAX_BELL_MESSAGES, MAX_DRAIN,
+    park, pull, Drained, Errno, Feed, Follow, FollowError, Park, Qos, RawEvent, Rung, SubId,
+    SubStats, Subscriber, SysTransport, TopicEvent, Transport, Watch, MAX_BELL_MESSAGES, MAX_DRAIN,
 };

@@ -21,6 +21,7 @@
 //! `SHELL:TRAY:MENU:KEY:SELECT row=<label>`, `SHELL:TRAY:MENU:KEY:BACK`, and
 //! `UI:RECT name=traymenu:<label>` per row under the UI probe.
 
+use crate::trace::{self, Channel};
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -76,7 +77,7 @@ pub fn open<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>, app: &str) {
     let origin = TrayMenu::origin(cell, rows.height(), ctx.screen, ctx.bar_y());
     let count = rows.rows().len();
     if show(ctx, ui, app, rows, origin) {
-        println!("SHELL:TRAY:MENU:OPEN app={app} rows={count}");
+        trace::line!(Channel::Shell, "TRAY:MENU:OPEN app={app} rows={count}");
     }
     super::super::keys::sync(ctx);
 }
@@ -117,7 +118,7 @@ pub fn close(ctx: &Ctx) {
             handle.close();
         }
     }
-    println!("SHELL:TRAY:MENU:CLOSE");
+    trace::line!(Channel::Shell, "TRAY:MENU:CLOSE");
     super::super::keys::sync(ctx);
 }
 
@@ -203,12 +204,19 @@ fn send_pick(ctx: &Ctx, app: &str, id: u32, checked: bool) {
     let Ok(body) = events::encode_menu_item_args(&events::MenuItemArgs { id, checked }) else {
         return;
     };
-    println!("SHELL:TRAY:MENU:PICK app={app} id={id} checked={checked}");
+    trace::line!(
+        Channel::Shell,
+        "TRAY:MENU:PICK app={app} id={id} checked={checked}"
+    );
     match liveness::send(channel, events::METHOD_MENUITEM, body) {
         Ok(()) => {}
         // A full queue is a busy app, not a dead one (as for clicks).
         Err(code) if code == -crate::sys::errno::EAGAIN => {
-            println!("SHELL:TRAY:MENU:PICK:FAIL app={app} err={}", -code);
+            trace::line!(
+                Channel::Shell,
+                "TRAY:MENU:PICK:FAIL app={app} err={}",
+                -code
+            );
         }
         Err(_) => {
             liveness::gone(ctx, app);
@@ -236,10 +244,10 @@ pub fn open_app(ctx: &Ctx, app: &str) {
 /// the item), so an app a refused or failed stop leaves running keeps it.
 fn quit(app: &str) {
     let id = app.to_owned();
-    println!("SHELL:TRAY:QUIT:ASK app={id}");
+    trace::line!(Channel::Shell, "TRAY:QUIT:ASK app={id}");
     std::thread::spawn(move || match services::stop(&id) {
-        Ok(stopped) => println!("SHELL:TRAY:QUIT app={id} stopped={stopped}"),
-        Err(code) => println!("SHELL:TRAY:QUIT:FAIL app={id} err={}", -code),
+        Ok(stopped) => trace::line!(Channel::Shell, "TRAY:QUIT app={id} stopped={stopped}"),
+        Err(code) => trace::line!(Channel::Shell, "TRAY:QUIT:FAIL app={id} err={}", -code),
     });
 }
 
@@ -305,7 +313,7 @@ impl PanelApp {
                 if let Some(panel) = menus.get(self.depth) {
                     panel.hover.set(Some(index));
                     let label = &panel.rows.rows()[index].label;
-                    println!("SHELL:TRAY:MENU:KEY:SELECT row={label}");
+                    trace::line!(Channel::Shell, "TRAY:MENU:KEY:SELECT row={label}");
                 }
                 true
             }
@@ -318,7 +326,7 @@ impl PanelApp {
                 false
             }
             Step::Back => {
-                println!("SHELL:TRAY:MENU:KEY:BACK");
+                trace::line!(Channel::Shell, "TRAY:MENU:KEY:BACK");
                 close_from(&self.ctx, self.depth);
                 false
             }

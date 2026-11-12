@@ -126,9 +126,9 @@ file bytes --lazypdf::Document (worker)--> RgbaTile(page, zoom, x, y)
   ordered by distance from the viewport; a scroll or zoom bumps a generation
   counter and stale jobs are dropped before they start and cancelled while they
   run (the interpreter checks a cancel flag between operators). The window
-  polls finished tiles on a timer as the Archiver does, since the LazyOS
-  backend has no cross-thread waker; a waker would be a small backend
-  improvement worth making here.
+  receives each finished tile as a `Msg::Tile` posted by the render thread
+  through `xui_app::work` (the backend's cross-thread waker rings the loop);
+  nothing polls.
 * **Text layer.** Extracted once per page on demand (find, selection) and
   cached; a page's runs carry Unicode (from `ToUnicode` maps or the font's
   encoding), a bounding box per glyph and reading order as the content stream
@@ -303,5 +303,5 @@ Neither crate links LazyOS code, so both test suites run on any host
 * **Memory.** At 1 GiB of guest RAM, a 600-DPI scanned page is ~140 MB as RGBA;
   tiles and the budgeted image decoder keep this bounded, and decoding images
   at the scale they are drawn (not full resolution) matters for scans.
-* **No cross-thread waker** in the LazyOS backend: polling costs a little
-  latency and idle CPU; adding a waker benefits every threaded xui app.
+* **Tiles are messages**, not polled: a render thread's `Sink` posts them
+  and the loop wakes through the backend's waker (`xui_app::work`).

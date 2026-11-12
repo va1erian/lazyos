@@ -2,11 +2,11 @@
 //! serve loop and assert the daemon's bump heap did not grow across them.
 
 use alloc::vec::Vec;
-use user::messenger::{self, topics_client};
+use user::messenger;
 use user::sys;
 use user::trace;
 
-use super::broker::Broker;
+use super::handlers::Broker;
 
 /// Self-soak cycles when the manifest asks for `soak` without a count.
 const SOAK_DEFAULT_CYCLES: u64 = 4096;
@@ -51,7 +51,7 @@ impl Soak {
     /// Start a soak of `cycles` request/reply cycles and record the baseline.
     pub(super) fn start(cycles: u64) -> Soak {
         Soak {
-            request: topics_client::ping_request(),
+            request: super::wire::ping_request(),
             reply_buffer: alloc::vec![0u8; messenger::DEFAULT_BUFFER],
             cycles_total: cycles,
             cycles_left: cycles,
@@ -87,10 +87,15 @@ impl Soak {
 /// Print the soak's memory verdict and the central broker's real counts.
 pub(super) fn finish_soak(broker: &Broker, soak: &Soak) {
     let growth = sys::sbrk(0).saturating_sub(soak.baseline);
+    // Events the broker holds for a subscriber are data, not a leak, and the
+    // heap's high-water mark keeps them: `messengerctl`'s `TOPIC:QUOTA` flood
+    // (a platform task) can overlap the soak and hold up to one platform
+    // tenant's budget.
     let budget = soak
         .cycles_total
         .saturating_mul(SOAK_BYTES_PER_CYCLE)
-        .saturating_add(SOAK_BYTES_SLACK);
+        .saturating_add(SOAK_BYTES_SLACK)
+        .saturating_add(topicsbroker::SYSTEM_TENANT_BYTES as u64);
     if !soak.failed && growth <= budget {
         trace::line!(
             trace::Channel::Msgrd,

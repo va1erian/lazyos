@@ -18,10 +18,9 @@ pub mod cells;
 pub mod commands;
 pub mod drag;
 pub mod folder;
-pub mod host;
 pub mod job;
 pub mod ui;
 
 pub use app::{ArchiverApp, Msg, WINDOW};
 pub use drag::DragState;
-pub use host::Host;
+pub use xui_host::{AppHost, SharedHost};

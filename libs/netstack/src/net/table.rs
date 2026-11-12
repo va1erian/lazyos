@@ -98,11 +98,6 @@ impl Table {
         owners
     }
 
-    /// Every open id, for the tests.
-    pub fn ids(&self) -> Vec<u32> {
-        self.slots.iter().flatten().map(|s| s.id).collect()
-    }
-
     pub fn iter(&self) -> impl Iterator<Item = &VSock> {
         self.slots.iter().flatten()
     }

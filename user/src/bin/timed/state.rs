@@ -6,19 +6,24 @@
 //! retried rather than treated as fatal, and a restarted peer is re-resolved.
 
 use alloc::string::String;
-use alloc::vec::Vec;
 
+use libmessenger::client::{CallError, Deadline, Errno};
+use messenger_generated::os_lazy_confd_v1 as confd_wire;
 use timezone::{Local, Zone, DEFAULT_ZONE, ZONE_KEY};
 use user::central::{Bus, Subscription};
-use user::messenger::confd::{Client as Confd, CONFD_NOT_FOUND};
-use user::messenger::{self, errno, timed as api, Endpoint, Error, EXPIRED_DEADLINE};
+use user::messenger::confd::{
+    connect, watch as watch_confd, Client as Confd, ClientError, StoreError, ValueClient,
+};
+use user::messenger::{errno, timed as api, Endpoint, Error};
 use user::sys;
 
 /// Ticks (100 Hz) between attempts to reach `confd` while it is unreachable.
 const RETRY_TICKS: u64 = 100;
 
 /// Every `sys/time/*` change: the zone and the network time settings.
-const WATCH_FILTER: &str = "system/confd/changed/sys/time/#";
+fn watch_filter() -> Option<String> {
+    confd_wire::filter_system_confd_changed("sys/time/#").ok()
+}
 
 pub(super) struct State {
     pub(super) zone: &'static Zone,
@@ -34,8 +39,6 @@ pub(super) struct State {
     pub(super) next_tick: i64,
     /// Set once the first tick reached the broker (boot evidence).
     pub(super) announced: bool,
-    /// Reused reply buffer for the watch poll (the heap never reclaims).
-    buffer: Vec<u8>,
     /// A `sys/time/*` key changed (or was read for the first time) since the
     /// network time settings were last taken.
     ntp_dirty: bool,
@@ -61,7 +64,6 @@ impl State {
             bus: None,
             next_tick: 0,
             announced: false,
-            buffer: alloc::vec![0u8; messenger::DEFAULT_BUFFER],
             ntp_dirty: false,
             next_ntp_try: 0,
         }
@@ -81,8 +83,8 @@ impl State {
         match self.read_zone() {
             Ok(zone) => {
                 self.drop_watch();
-                let watched = self.confd.as_ref().and_then(|c| {
-                    let mut watch = c.watch(WATCH_FILTER).ok()?;
+                let watched = self.confd.as_ref().and_then(|_| {
+                    let mut watch = watch_confd(&watch_filter()?).ok()?;
                     // The doorbell is what wakes this service for a change.
                     match watch.bell() {
                         Ok(bell) => Some((watch, bell)),
@@ -148,11 +150,11 @@ impl State {
         if !rung {
             return false;
         }
-        watch.take_ring(&mut self.buffer);
+        watch.take_ring();
         let mut changed = false;
         let mut lost = false;
         loop {
-            match watch.recv_with(&mut self.buffer, Some(EXPIRED_DEADLINE)) {
+            match watch.recv(Deadline::Poll) {
                 Ok(Some(_)) => changed = true,
                 Ok(None) => break,
                 Err(_) => {
@@ -196,14 +198,21 @@ impl State {
         changed
     }
 
+    /// The `confd` link, opened on first use (one attempt).
+    fn link(&mut self) -> Result<&Confd, ClientError> {
+        if self.confd.is_none() {
+            self.confd = Some(connect()?);
+        }
+        self.confd
+            .as_ref()
+            .ok_or(CallError::Transport(Errno::NOENT))
+    }
+
     /// The zone `confd` holds: absent means the default; a name outside the
     /// built-in table is ignored (default) rather than trusted.
-    fn read_zone(&mut self) -> Result<&'static Zone, Error> {
-        if self.confd.is_none() {
-            self.confd = Some(Confd::connect()?);
-        }
-        let client = self.confd.as_ref().ok_or(Error::Errno(-errno::ENOENT))?;
-        let name = match client.get(ZONE_KEY)? {
+    fn read_zone(&mut self) -> Result<&'static Zone, ClientError> {
+        let client = self.link()?;
+        let name = match client.get_value(ZONE_KEY)? {
             Some(confd::Value::Str(name)) => name,
             Some(_) | None => String::from(DEFAULT_ZONE),
         };
@@ -218,13 +227,13 @@ impl State {
             return None;
         }
         if self.confd.is_none() {
-            self.confd = Confd::connect().ok();
+            self.confd = connect().ok();
         }
         let Some(client) = self.confd.as_ref() else {
             self.next_ntp_try = sys::clock() + RETRY_TICKS;
             return None;
         };
-        let enabled = match client.get(sntp::ENABLED_KEY) {
+        let enabled = match client.get_value(sntp::ENABLED_KEY) {
             Ok(Some(confd::Value::Bool(on))) => Some(on),
             Ok(_) => None,
             Err(_) => {
@@ -232,7 +241,7 @@ impl State {
                 return None;
             }
         };
-        let servers = match client.get(sntp::SERVERS_KEY) {
+        let servers = match client.get_value(sntp::SERVERS_KEY) {
             Ok(Some(confd::Value::Str(text))) => Some(text),
             Ok(_) => None,
             Err(_) => {
@@ -245,13 +254,10 @@ impl State {
     }
 
     /// Persist `zone` to `confd` and make it active.
-    pub(super) fn store_zone(&mut self, zone: &'static Zone) -> Result<(), Error> {
-        if self.confd.is_none() {
-            self.confd = Some(Confd::connect()?);
-        }
-        let client = self.confd.as_ref().ok_or(Error::Errno(-errno::ENOENT))?;
+    pub(super) fn store_zone(&mut self, zone: &'static Zone) -> Result<(), ClientError> {
+        let client = self.link()?;
         let value = confd::Value::Str(String::from(zone.name));
-        if let Err(error) = client.set(ZONE_KEY, &value) {
+        if let Err(error) = client.set_value(ZONE_KEY, &value) {
             self.confd = None;
             return Err(error);
         }
@@ -261,10 +267,13 @@ impl State {
     }
 
     /// Delete the stored zone (back to the default); demo/test helper.
-    pub(super) fn clear_zone(&mut self) -> Result<(), Error> {
-        let client = self.confd.as_ref().ok_or(Error::Errno(-errno::ENOENT))?;
+    pub(super) fn clear_zone(&mut self) -> Result<(), ClientError> {
+        let client = self
+            .confd
+            .as_ref()
+            .ok_or(CallError::Transport(Errno::NOENT))?;
         match client.delete(ZONE_KEY) {
-            Err(Error::Confd(code)) if code == CONFD_NOT_FOUND => Ok(()),
+            Err(CallError::Service(StoreError::NotFound)) => Ok(()),
             other => other,
         }
     }

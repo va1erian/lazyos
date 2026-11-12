@@ -18,43 +18,26 @@ mod commands;
 #[path = "editor/ui.rs"]
 mod ui;
 
-use std::rc::Rc;
+use app::Msg;
 
-use xui_app::backend::LazyOSBackend;
-use xui_app::themed::run_themed;
-use xui_core::backend::PlatformSpec;
-use xui_core::units::Dip;
+use xui_app::trace::Channel;
 
 /// Window size a compositor lays the editor out at.
 const WINDOW: (i32, i32) = (900, 640);
 
-fn main() -> std::process::ExitCode {
+fn main() {
     // The grid needs a real monospace face; `monospace` alone would fall back
     // to the proportional UI font and letter-space the text.
     xui_app::font::register_mono();
-    let path = xui_app::platform::argv::file_arg(std::env::args_os());
-    let backend = match LazyOSBackend::connect() {
-        Ok(backend) => Rc::new(backend),
-        Err(code) => {
-            println!("EDITOR:BIND:FAIL:{code}");
-            return std::process::ExitCode::FAILURE;
-        }
-    };
-    let (width, height) = backend.window_size(WINDOW);
-    // The editor re-flows its text area and line numbers to the window size.
-    backend.set_size_hints(400, 300, 0, 0);
-    backend.on_first_frame(|| println!("EDITOR:UP:PASS"));
-
-    let spec = PlatformSpec::new("Editor").size(Dip(width as f32), Dip(height as f32));
-    let outcome = run_themed(&backend, spec, move |ui| {
-        let mut notepad = ui::build(ui).expect("the notepad's widgets built");
-        if let Some(path) = path {
-            commands::open_path(&mut notepad, ui, path);
-        }
-        // Title the window ("Untitled - Editor") before the first frame.
-        commands::refresh(&mut notepad, ui);
-        notepad
-    });
-    backend.unbind();
-    std::process::ExitCode::from(xui_app::launch::finish(xui_app::trace::Channel::Editor, outcome))
+    xui_app::app(Channel::Editor, "Editor")
+        .size(WINDOW.0, WINDOW.1)
+        // The editor re-flows its text area and line numbers to the window size.
+        .min_size(400, 300)
+        .opens(Msg::OpenChosen)
+        .run(|ui, cx| {
+            let mut notepad = ui::build(ui, cx)?;
+            // Title the window ("Untitled - Editor") before the first frame.
+            commands::refresh(&mut notepad, ui);
+            Ok(notepad)
+        })
 }

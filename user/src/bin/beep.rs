@@ -31,7 +31,7 @@ use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use user::trace;
 
-use audioclient::{Params, PlaybackStream, UNITY_GAIN};
+use audioclient::{Params, UNITY_GAIN};
 use pcm::tone::Tone;
 use user::sys;
 
@@ -169,7 +169,7 @@ pub extern "C" fn _start() -> ! {
 fn play(args: &Args) -> Result<(), String> {
     let audio = connect()?;
     let params = Params::new(RATE_HZ, CHANNELS).period_bytes(PERIOD_BYTES);
-    let mut out = PlaybackStream::open(&audio, params).map_err(fail("open"))?;
+    let mut out = user::audio::open(audio, params).map_err(fail("open"))?;
     if args.volume != 100 {
         out.set_volume(args.volume * UNITY_GAIN / 100)
             .map_err(fail("volume"))?;

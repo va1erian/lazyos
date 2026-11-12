@@ -34,6 +34,18 @@ standard error field (id 15, `docs/midl.md`).
 | Update | 2 | sync | `(icon: Option<Icon>, tooltip: Option<String>, status: Option<U32>, badge: Option<String>, menu: Option<Menu>) -> ()` |
 | Clear | 3 | sync | `() -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.shell.tray`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Set | this interface | - | 1000 ms | never |
+| Update | this interface | - | 1000 ms | never |
+| Clear | this interface | - | 1000 ms | never |
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

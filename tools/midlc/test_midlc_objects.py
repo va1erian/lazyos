@@ -78,6 +78,8 @@ class ParseTests(unittest.TestCase):
             "method X() -> () transfers (a: Buffer);": "`transfers (...)` clause is gone",
             "method X(a: Channel<os.lazy.nope.v1>) -> ();": "unknown interface",
             "method X(a: Buffer, b: Buffer, c: Buffer, d: Buffer, e: Buffer, f: Buffer, g: Buffer, h: Buffer, i: Buffer) -> ();": "at most 8",
+            "method X(a: Buffer) -> () retry=safe;": "cannot be retry=safe",
+            "method X(c: Config) -> () retry=safe;": "cannot be retry=safe",
             "struct Loop { inner: Loop, b: Buffer }\n    method X(l: Loop) -> ();": "contains itself",
         }
         for line, message in cases.items():
@@ -85,6 +87,13 @@ class ParseTests(unittest.TestCase):
                 with self.assertRaises(midlc.MidlError) as caught:
                     parse(method_text(line))
                 self.assertIn(message, str(caught.exception))
+
+    def test_an_interface_default_retry_safe_also_refuses_object_methods(self) -> None:
+        head = "interface os.lazy.demo.v1 {"
+        text = SAMPLE.replace(head, head + " default deadline=1s retry=safe;", 1)
+        with self.assertRaises(midlc.MidlError) as caught:
+            parse(text)
+        self.assertIn("cannot be retry=safe", str(caught.exception))
 
     def test_a_topic_payload_carries_no_object(self) -> None:
         text = method_text('topic "demo/surface" : Surface;')

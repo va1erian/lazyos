@@ -31,6 +31,7 @@ mod paint;
 mod service;
 mod toast;
 
+use crate::trace::{self, Channel};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -90,7 +91,11 @@ pub fn post_failure(ctx: &Ctx, failure: Failure) {
         .center
         .borrow_mut()
         .post_system(failure.request(), now);
-    println!("SHELL:NOTICE:OPEN app={} title={title}", failure.app);
+    trace::line!(
+        Channel::Shell,
+        "NOTICE:OPEN app={} title={title}",
+        failure.app
+    );
     ctx.notify.notices.borrow_mut().push((id, failure.app));
 }
 
@@ -116,18 +121,23 @@ fn handle_events<M: 'static>(ctx: &Rc<Ctx>, _ui: &Ui<M>) {
     for event in events {
         match event.kind {
             EventKind::Shown => {
-                println!("SHELL:NOTIFY:SHOW id={}", event.id);
+                trace::line!(Channel::Shell, "NOTIFY:SHOW id={}", event.id);
                 super::tray::landed(ctx, &event.owner);
             }
             EventKind::Closed(reason) => {
-                println!(
-                    "SHELL:NOTIFY:CLOSE id={} reason={}",
+                trace::line!(
+                    Channel::Shell,
+                    "NOTIFY:CLOSE id={} reason={}",
                     event.id,
                     reason.as_str()
                 );
             }
             EventKind::Action(action) => {
-                println!("SHELL:NOTIFY:ACTION id={} action={action}", event.id);
+                trace::line!(
+                    Channel::Shell,
+                    "NOTIFY:ACTION id={} action={action}",
+                    event.id
+                );
             }
             EventKind::Activated => {
                 // The toast belongs to an app: its windows come forward (the shell's own
@@ -163,7 +173,7 @@ fn notice_event(ctx: &Ctx, id: u64, kind: EventKind) {
     };
     match kind {
         EventKind::Action(ACTION_RESTART) => {
-            println!("SHELL:NOTICE:RESTART app={app}");
+            trace::line!(Channel::Shell, "NOTICE:RESTART app={app}");
             let _ = ctx.launch(&app, None);
         }
         EventKind::Action(ACTION_CLOSE) => {}
@@ -172,7 +182,7 @@ fn notice_event(ctx: &Ctx, id: u64, kind: EventKind) {
                 .notices
                 .borrow_mut()
                 .retain(|(notice, _)| *notice != id);
-            println!("SHELL:NOTICE:CLOSE app={app}");
+            trace::line!(Channel::Shell, "NOTICE:CLOSE app={app}");
         }
         _ => {}
     }

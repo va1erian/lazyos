@@ -1681,6 +1681,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "topicsbroker"
+version = "0.1.0"
+dependencies = [
+ "messenger-generated",
+]
+
+[[package]]
 name = "tracefmt"
 version = "0.1.0"
 dependencies = [
@@ -1815,6 +1822,7 @@ dependencies = [
  "surfbuf",
  "svcpolicy",
  "timezone",
+ "topicsbroker",
  "tracefmt",
  "uitheme",
  "usbaudio",

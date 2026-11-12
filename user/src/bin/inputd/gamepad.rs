@@ -23,8 +23,8 @@ use core::cell::RefCell;
 use inputmap::gamepad::page::{self, SharedPads, Snapshot, Writer};
 use inputmap::gamepad::route::{Route, SourceEntry};
 use inputmap::{Engine, Notice, OptIn, PadOut, Pads, Pointer, PointerOut, RawPad, RawPointer};
+use libmessenger::server::Fault;
 use user::messenger::input::wire;
-use user::messenger::{Message, Result};
 use user::sys;
 use user::trace;
 
@@ -252,42 +252,33 @@ impl Gamepads {
 
 impl Hub {
     /// `AttachGamepadState`: adopt the page the caller's own session carried.
-    pub(super) fn attach_gamepad_state(&mut self, message: &Message) -> Result<Vec<u8>> {
-        let args = message.decode(wire::decode_attach_gamepad_state_args)?;
-        let result = self.attach_gamepad_state_inner(message, &args);
-        if result.is_err() {
-            // Decoded, so the page is ours to close.
-            let _ = sys::buffer_close(args.state.handle);
-        }
-        result
-    }
-
-    fn attach_gamepad_state_inner(
+    pub(super) fn adopt_gamepad_state(
         &mut self,
-        message: &Message,
-        args: &wire::AttachGamepadStateArgs,
-    ) -> Result<Vec<u8>> {
-        let va = self.map_page(message, args.session, &args.state, page::SIZE)?;
-        let first = !self.gamepads.optin.has(args.session);
-        self.gamepads.forget(args.session);
-        self.gamepads.optin.attach(args.session);
+        sender: u64,
+        session: u64,
+        state: &libmessenger::Buffer,
+    ) -> Result<(), Fault> {
+        let va = self.map_page(sender, session, state, page::SIZE)?;
+        let first = !self.gamepads.optin.has(session);
+        self.gamepads.forget(session);
+        self.gamepads.optin.attach(session);
         self.gamepads.pages.insert(
-            args.session,
+            session,
             Page {
-                handle: args.state.handle,
+                handle: state.handle,
                 va,
                 writer: RefCell::new(Writer::new()),
             },
         );
-        pad_line!("PAD page session={}", args.session);
+        pad_line!("PAD page session={}", session);
         // Seed it at once, so a focused session sees its pads right away.
         self.publish_pad_pages();
         // A session that opts in while it holds the keyboard missed the
         // `GamepadEnter` that brackets its pad events: send it now.
-        if first && self.router.focused_session() == Some(args.session) {
-            self.send(args.session, wire::METHOD_GAMEPADENTER, Ok(Vec::new()));
+        if first && self.router.focused_session() == Some(session) {
+            self.send(session, wire::METHOD_GAMEPADENTER, Ok(Vec::new()));
         }
-        Ok(Vec::new())
+        Ok(())
     }
 
     /// Bring the pad pages up to date (after each pass and each focus change).

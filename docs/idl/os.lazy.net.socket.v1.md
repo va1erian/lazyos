@@ -73,6 +73,30 @@ writing, `EMSGSIZE` for a datagram that does not fit.
 | Close | 1300671683 | sync | `(sock: U32) -> ()` |
 | Stats | 267161228 | sync | `() -> (stats: SocketStats)` |
 
+## Service
+
+- Served under the registry name `os.lazy.net.stack` (together with `os.lazy.net.stack.v1`); registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Open | this interface | - | 5000 ms | never |
+| Bind | this interface | - | 5000 ms | never |
+| Connect | this interface | - | 5000 ms | never |
+| Listen | this interface | - | 5000 ms | never |
+| Accept | this interface | - | 5000 ms | never |
+| Send | this interface | - | 5000 ms | never |
+| Recv | this interface | - | 5000 ms | never |
+| SendTo | this interface | - | 5000 ms | never |
+| RecvFrom | this interface | - | 5000 ms | never |
+| Poll | this interface | - | 5000 ms | never |
+| Shutdown | this interface | - | 5000 ms | never |
+| LocalAddr | this interface | - | 5000 ms | safe |
+| PeerAddr | this interface | - | 5000 ms | safe |
+| Close | this interface | - | 5000 ms | never |
+| Stats | this interface | - | 5000 ms | safe |
+
 ## struct `SockAddr`
 
 - `addr: Bytes`

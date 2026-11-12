@@ -4,7 +4,10 @@
 //!
 //! Everything a peer sends is untrusted: lines are clipped, control characters
 //! dropped, and nothing is parsed beyond the status line and the header/body
-//! split. There is no TLS on LazyOS yet, so `https://` is refused up front.
+//! split. This is a deliberate raw probe of the TCP stack (an already resolved
+//! address, HTTP/1.0, bytes counted with the headers, timed): `lazyhttps` is the
+//! fetching client and would hide exactly what Net Tools shows, so `https://` is
+//! refused up front.
 
 use crate::format;
 
@@ -31,7 +34,7 @@ pub fn parse_url(text: &str) -> Result<Url, String> {
     let lower = text.to_ascii_lowercase();
     if lower.starts_with("https://") {
         return Err(String::from(
-            "https needs TLS, which LazyOS does not have yet: use http://",
+            "Net Tools probes plain http only: use http://",
         ));
     }
     let rest = if lower.starts_with("http://") {
@@ -256,7 +259,7 @@ mod tests {
     fn bad_urls_are_refused_with_a_reason() {
         assert!(parse_url("https://example.com")
             .unwrap_err()
-            .contains("TLS"));
+            .contains("plain http"));
         for bad in [
             "",
             "ftp://x",

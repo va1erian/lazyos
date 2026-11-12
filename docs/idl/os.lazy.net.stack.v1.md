@@ -35,12 +35,29 @@ when the resolver replies, `ETIMEDOUT` when `timeout_ms` passes.
 | Renew | 438534286 | sync | `() -> ()` |
 | Reattach | 60999493 | sync | `() -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.net.stack` (together with `os.lazy.net.socket.v1`); registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Interfaces | this interface | - | 500 ms | safe |
+| Addresses | this interface | - | 500 ms | safe |
+| Routes | this interface | - | 500 ms | safe |
+| Stats | this interface | - | 500 ms | safe |
+| Ping | this interface | - | 5000 ms | never |
+| Resolve | this interface | - | 5000 ms | safe |
+| Renew | this interface | - | 500 ms | never |
+| Reattach | this interface | - | 5000 ms | never |
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |
 |---|---|---|---|---|
 | `system/net/interfaces` | `InterfaceList` | latest | yes | `publish:system/net/interfaces`, `subscribe:system/net/interfaces` |
-| `system/net/+/addr` | `AddressEvent` | latest | yes | `publish:system/net/+/addr`, `subscribe:system/net/+/addr` |
+| `system/net/+/addr` | `AddressEvent` | buffered | yes | `publish:system/net/+/addr`, `subscribe:system/net/+/addr` |
 | `system/events/network/up` | `AddressEvent` | latest | no | `publish:system/events/network/up`, `subscribe:system/events/network/up` |
 
 ## struct `InterfaceInfo`

@@ -53,11 +53,28 @@ shared structured error field (`services::error_field`).
 | Forget | 1849666444 | sync | `(id: String) -> ()` |
 | Status | 6222351 | sync | `(ifname: String) -> (status: WifiState)` |
 
+## Service
+
+- Served under the registry name `os.lazy.net.wifi`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Interfaces | this interface | - | 1000 ms | safe |
+| Scan | this interface | - | 1000 ms | never |
+| Networks | this interface | - | 1000 ms | safe |
+| AddNetwork | this interface | - | 1000 ms | never |
+| Connect | this interface | - | 1000 ms | never |
+| Disconnect | this interface | - | 1000 ms | never |
+| Forget | this interface | - | 1000 ms | never |
+| Status | this interface | - | 1000 ms | safe |
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |
 |---|---|---|---|---|
-| `system/net/+/wifi/state` | `WifiState` | latest | yes | `publish:system/net/+/wifi/state`, `subscribe:system/net/+/wifi/state` |
+| `system/net/+/wifi/state` | `WifiState` | buffered | yes | `publish:system/net/+/wifi/state`, `subscribe:system/net/+/wifi/state` |
 | `system/net/+/wifi/scan` | `ScanEvent` | latest | no | `publish:system/net/+/wifi/scan`, `subscribe:system/net/+/wifi/scan` |
 
 ## struct `Network`

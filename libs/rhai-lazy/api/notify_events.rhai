@@ -4,7 +4,7 @@
 //
 // `sys::notify_events`: the Messenger interface `os.lazy.notify.events.v1`.
 //
-// What the shell sends an app about its toasts: oneway methods on the
+// What the shell sends an app about its toasts: `event` methods on the
 // channel the app transferred with `Listen`.
 
 // The interface every function of this module calls.
@@ -14,41 +14,4 @@ export const INTERFACE = "os.lazy.notify.events.v1";
 /// (`docs/rhai/msg.md`). Resolved once per process.
 fn connect() {
     msg::connect("os.lazy.notify.events.v1")
-}
-
-/// `Activated(id: U64) -> () oneway`
-///
-/// The user clicked the toast's body.
-///
-/// One-way: returns `()` once the message is queued.
-fn activated(id) {
-    msg::connect("os.lazy.notify.events.v1").invoke("Activated", [id])
-}
-
-/// `ActionInvoked(id: U64, action: U32) -> () oneway`
-///
-/// The user pressed action `action` of toast `id`; the toast closes.
-///
-/// One-way: returns `()` once the message is queued.
-fn action_invoked(id, action) {
-    msg::connect("os.lazy.notify.events.v1").invoke("ActionInvoked", [id, action])
-}
-
-/// `Closed(id: U64, reason: U32) -> () oneway`
-///
-/// The toast is gone; `reason` is a `CloseReason` value. It is sent once
-/// per toast, also for one that was never shown (`Muted`).
-///
-/// One-way: returns `()` once the message is queued.
-fn closed(id, reason) {
-    msg::connect("os.lazy.notify.events.v1").invoke("Closed", [id, reason])
-}
-
-/// `Ping() -> () oneway`
-///
-/// Liveness probe; nothing to answer.
-///
-/// One-way: returns `()` once the message is queued.
-fn ping() {
-    msg::connect("os.lazy.notify.events.v1").invoke("Ping", [])
 }

@@ -14,6 +14,7 @@
 //! cell the keyboard is on) and `SHELL:TRAY:KEYS:LEAVE`; each panel prints
 //! its own `...:KEY:...` markers.
 
+use crate::trace::{self, Channel};
 use std::rc::Rc;
 
 use lazyshell::keynav::{self, NavKey, TrayStep};
@@ -60,7 +61,11 @@ pub fn sync(ctx: &Ctx) {
         return;
     }
     match ctx.client.grab_panel_keys(want) {
-        Ok(()) => println!("SHELL:KEYS:GRAB {}", if want { "on" } else { "off" }),
+        Ok(()) => trace::line!(
+            Channel::Shell,
+            "KEYS:GRAB {}",
+            if want { "on" } else { "off" }
+        ),
         Err(code) => {
             // An older compositor: the panels stay pointer-only.
             ctx.panel_grab.set(false);
@@ -108,9 +113,9 @@ pub fn on_tray_keys(ctx: &Rc<Ctx>) {
     match first {
         Some(app) => {
             ctx.tray.keys.set(Some(0));
-            println!("SHELL:TRAY:KEYS app={app}");
+            trace::line!(Channel::Shell, "TRAY:KEYS app={app}");
         }
-        None => println!("SHELL:TRAY:KEYS:EMPTY"),
+        None => trace::line!(Channel::Shell, "TRAY:KEYS:EMPTY"),
     }
     ctx.repaint_bar();
     sync(ctx);
@@ -119,7 +124,7 @@ pub fn on_tray_keys(ctx: &Rc<Ctx>) {
 /// Leave the tray (Escape, a click elsewhere, the start menu).
 pub fn leave_tray(ctx: &Ctx) {
     if ctx.tray.keys.take().is_some() {
-        println!("SHELL:TRAY:KEYS:LEAVE");
+        trace::line!(Channel::Shell, "TRAY:KEYS:LEAVE");
         ctx.repaint_bar();
         sync(ctx);
     }
@@ -132,7 +137,7 @@ fn tray_key<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>, key: NavKey) {
         TrayStep::Select(index) => {
             ctx.tray.keys.set(Some(index));
             if let Some(cell) = ctx.tray.layout.borrow().cells.get(index) {
-                println!("SHELL:TRAY:KEYS app={}", cell.app);
+                trace::line!(Channel::Shell, "TRAY:KEYS app={}", cell.app);
             }
             ctx.repaint_bar();
         }

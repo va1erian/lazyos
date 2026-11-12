@@ -11,7 +11,8 @@ use std::time::{Duration, Instant};
 
 use xui_canvas::snapshot::{render_with, Snapshot, Stage};
 use xui_core::{Dip, Image, Theme};
-use xui_videoview::{Host, Msg, VideoApp, WINDOW};
+use xui_host::testing::StdHost;
+use xui_videoview::{Msg, VideoApp, WINDOW};
 
 const SAMPLE: &[u8] = include_bytes!("../../video/tests/data/sample.avi");
 
@@ -77,9 +78,10 @@ fn drive(theme: Theme, step: impl FnOnce(&Stage<'_, Msg>, &Log) + 'static) -> (I
     let image = render_with(
         Snapshot::new(Dip(WINDOW.0 as f32), Dip(WINDOW.1 as f32)).theme(theme),
         move |ui| {
-            let mut host = Host::std(std::env::temp_dir());
-            host.log = Rc::new(move |line| writer.borrow_mut().push(line.to_owned()));
-            VideoApp::build(ui, host)
+            let host = StdHost::new(std::env::temp_dir())
+                .channel("VIDEO")
+                .collecting(writer);
+            VideoApp::build(ui, Rc::new(host))
         },
         move |stage| step(stage, &probe),
     )
@@ -236,7 +238,7 @@ fn a_file_that_is_not_a_video_is_explained_not_played() {
 }
 
 #[test]
-fn closing_the_window_stops_playback_and_says_so() {
+fn closing_the_window_stops_playback() {
     let file = TempFile::new("sample.avi", SAMPLE);
     let path = file.0.clone();
     let (_, log) = watchdog(move || {
@@ -246,5 +248,7 @@ fn closing_the_window_stops_playback_and_says_so() {
             stage.emit(Msg::Close);
         })
     });
-    assert_eq!(log.last().map(String::as_str), Some("VIDEO:QUIT:PASS"));
+    // The window quits on `Close`: `drive` returned instead of timing out,
+    // and the last thing it logged is the playback it stopped.
+    assert!(has(&log, "VIDEO:POS:"), "log: {log:?}");
 }

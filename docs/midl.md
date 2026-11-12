@@ -79,13 +79,20 @@ has a stable identifier.
   rejects malformed bytes;
 * `publish_<name>(publisher, <segments>, value)` — encodes and publishes
   through a `topics::Publish` transport;
-* `subscribe_<name>(subscriber, <segments>)` — builds a filter (`+` and a
-  trailing `#` are allowed) and subscribes through a `topics::Subscribe`
-  transport.
+* `filter_<name>(<segments>)` — builds a subscription filter (`+` and a
+  trailing `#` are allowed), as `name_<name>` builds a concrete name;
+* `subscribe_<name>(subscriber, <segments>)` — builds that filter and
+  subscribes through a `topics::Subscribe` transport. It returns a typed
+  `topics::Subscription<Handle, Payload>`: `next()` reads one queued event
+  without waiting and decodes the declared payload (`Event { topic, retained,
+  publisher, value }`; a payload that does not decode is `Err(NextError::Decode)`
+  and is consumed), so no consumer decodes a payload by hand. The transport's
+  handle implements `topics::Events` and says how a reader learns that an event
+  is queued (a doorbell), never a timer.
 
 The transport traits keep the generated crate transport-agnostic (`libs/generated`
 depends only on `libmessenger`); `user` implements them for
-`user::central::Bus`. The crate-level `DECLARED_TOPICS` table and
+`user::central::Bus` (native) and `xui_app::fabric::Watch` (xui and LazyRAD). The crate-level `DECLARED_TOPICS` table and
 `declared_topic()` let `messengerctl topics` annotate each live topic with its
 declared payload type.
 
@@ -112,9 +119,9 @@ interface os.lazy.display.v1 {
 
 * **`Channel<I>`**: one end of a channel pair (`user::messenger::create_pair`).
   It **moves**: the sender's handle closes when the message is queued, and
-  the receiver keeps the fresh one and sends `I`'s `oneway` methods on it
-  (the event-endpoint pattern). `I` may be declared in another file, and it
-  must have at least one `oneway` method.
+  the receiver keeps the fresh one and sends `I`'s `event` (or `oneway`) methods
+  on it (the event-endpoint pattern). `I` may be declared in another file, and
+  it must have at least one `oneway` or `event` method.
 * **`Buffer`**: a shared buffer with a byte range (`libmessenger::Buffer`:
   `handle`, `offset`, `len`). It is **shared**: the sender keeps its handle
   and mapping, the receiver gets a new handle to the same pages and maps it
@@ -234,21 +241,27 @@ itself against.
 * `//` starts a comment to the end of the line; `///` starts a doc comment,
   attached to the next declaration (consecutive lines join with `\n`).
 * Tokens: identifiers `[A-Za-z_][A-Za-z0-9_.]*` (dots allowed, so interface
-  names are one token), decimal numbers, double-quoted strings (used only by
-  `topic`), `->`, and the punctuation `{ } ( ) < > : , ; =`.
+  names are one token), decimal numbers, double-quoted strings (`topic`,
+  `service` and `scope`), `->`, and the punctuation `{ } ( ) < > : , ; =`.
 * Whitespace is insignificant. Commas between struct fields and enum variants
   are optional.
 
 ### Grammar (EBNF)
 
 ```ebnf
-file       = interface { interface } ;
+file       = { service | interface } ;
+service    = "service" STRING "implements" NAME { "," NAME } ";" ;
 interface  = "interface" NAME "{" { member } "}" ;
-member     = method | struct | enum | topic | ring ;
+member     = method | struct | enum | topic | ring | errors | default ;
 method     = "method" IDENT params "->" params { attr } ";" ;
 params     = "(" [ field { "," field } ] ")" ;
 field      = IDENT ":" type [ "=" NUMBER ] ;
-attr       = "=" NUMBER | "oneway" | "sync" ;
+attr       = "=" NUMBER | "oneway" | "event" | "sync"
+           | "scope" STRING | deadline | retry ;
+deadline   = "deadline" "=" ( NUMBER ( "ms" | "s" ) | "never" ) ;
+retry      = "retry" "=" ( "safe" | "never" ) ;
+default    = "default" { deadline | retry } ";" ;
+errors     = "errors" "{" { IDENT "=" NUMBER [ "," ] } "}" ;
 struct     = "struct" IDENT "{" { field [ "," ] } "}" ;
 enum       = "enum" IDENT "{" { IDENT [ "," ] } "}" ;
 topic      = "topic" STRING ":" IDENT { "retained" | "qos" "=" IDENT } ";" ;
@@ -257,8 +270,24 @@ type       = IDENT [ "<" type { "," type } ">" ] ;
 ```
 
 `NAME` is reverse-DNS ending in `.vN` and must match `[a-z0-9_.]+\.v\d+`
-(`os.lazy.confd.v1`). Several interfaces may share a file. `sync` is the
-default and only cancels an earlier `oneway`.
+(`os.lazy.confd.v1`). Several interfaces may share a file, and a `service`
+may implement an interface of another file. `sync` is the
+default and only cancels an earlier `oneway` or `event`.
+
+`event` marks a **server-to-client** message: a `oneway` (no reply, no
+deadline, the same wire) that the server sends on the event endpoint a client
+handed it (a `Channel<I>` field) and that clients receive. A `oneway` that a
+client sends to the server stays `oneway`. The generators treat the direction:
+an `event` is no function of the `Server` trait and no arm of `dispatch`
+(a server never writes an empty body for what it only sends), no function of
+the generated `Client`, and no Rhai function (a script cannot call it; the
+docs list it as an event, the `manifest.json` row carries `"event": true`
+next to `"oneway": true`). The encoder the server sends it with
+(`encode_<method>_args`, `METHOD_<NAME>`) and the decoder a client receives
+it with (`decode_<method>_args`) are generated as for any method. An
+interface whose methods are all events (a callback channel) gets neither a
+server nor a client. A `ring` doorbell may be an `event` (`Notify` of the
+`nic` interface) or a `oneway`.
 
 ### Types
 
@@ -330,6 +359,235 @@ end. With pinned ids a new field may be declared anywhere in the list;
 reusing, renumbering or retyping an id needs a new interface version, as
 does removing a field whose absence a peer would misread. The interface hash
 is checked at bind time (`docs/messenger.md` section 11).
+
+## Services, errors, scopes and deadlines
+
+Four declarations state protocol facts that used to live in prose or in
+constants copied between crates (`docs/client-api-plan.md` 3.1). Each is
+generated, so a client or a server never spells one.
+
+### `service`
+
+```idl
+service "os.lazy.confd" implements os.lazy.confd.v1;
+service "os.lazy.net.nic/{ifname}" implements os.lazy.net.nic.v1;
+service "os.lazy.net.stack" implements os.lazy.net.stack.v1, os.lazy.net.socket.v1;
+```
+
+A top-level declaration of the **registry name** a daemon registers and the
+interfaces it serves under it (a list, because `netd` serves the stack and the
+sockets on one endpoint). A name ending in `/{placeholder}` is a **family**:
+one name per instance (`os.lazy.net.nic/eth0`). The compiler checks that every
+interface exists in the compile (a service may name another file's), that a
+name is declared once, and that an interface has at most one singleton name
+and one family, so its name is never ambiguous.
+
+Generated, in the interface module: `SERVICE_NAME` (the singleton name) and
+`SERVICE_INSTANCE_PREFIX` (a family's name up to and including the `/`); at
+crate level, `DECLARED_SERVICES` and `declared_service(interface_id)`. A client
+of `os.lazy.confd.v1` resolves `os_lazy_confd_v1::SERVICE_NAME` and writes no
+string. The manifest lists the names under `services`, the generated Markdown
+has a **Service** section, and the Rhai module gets `SERVICE` and the schema
+table the name `msg::connect` resolves.
+
+### `errors`
+
+```idl
+interface os.lazy.confd.v1 {
+    errors {
+        /// No value is stored at the path.
+        NotFound = 1001,
+        Denied = 1004
+    }
+}
+```
+
+The service's own failure codes, carried in the standard error field below.
+Names are PascalCase and unique, codes are unique and non-zero and fit a
+`u32`; an interface has one block. Generated: `ServiceError`, a
+`#[repr(u32)]` enum with `code()`, `from_code(u32) -> Option<ServiceError>`
+and `name()`, and `SERVICE_ERRORS`. (`ServiceError`, not `Error`, because
+every interface module already imports the codec's `libmessenger::Error`; no
+struct may take the name.) Rhai modules get `ERROR_<NAME>` constants, the
+manifest an `errors` array and the Markdown an **Errors** table.
+
+### `scope`
+
+```idl
+method Offer(...) -> (token: U64) scope "os.lazy.clipboard.write.v1";
+```
+
+The ACL scope interface the request's header carries instead of the
+interface's own id, as a quoted interface name (`.vN`, like an interface
+name). It names a policy, not a wire interface, so no interface of that name
+has to exist. Generated: `METHOD_<X>_SCOPE: u64`, the same FNV-1a 64 hash the
+kernel computes for an interface id. A method without `scope` travels on
+`INTERFACE_ID` and gets no constant. The clipboard's owner scope
+(`Serialize`) is the 8 bytes `os.owner`, not a name hash, so it has no syntax.
+
+### `deadline`, `retry` and `default`
+
+```idl
+interface os.lazy.confd.v1 {
+    default deadline=2s;
+    method Get(path: String) -> (value: String) retry=safe;
+    method Fetch(...) -> (...) deadline=5s;
+    method Verify(...) -> (...) deadline=never;
+}
+```
+
+Two attributes state how a client calls a method, so no call site does.
+
+* `deadline=<n>ms|<n>s|never`: how long every client waits for the reply. A
+  positive count that fits 32 bits of milliseconds, or `never` (wait for ever:
+  a password hash, an install; never on a UI thread, which
+  `tools/xui/check_call_bounds.py` enforces). Refused on a `oneway` method
+  (there is nothing to wait for).
+* `retry=safe|never`: whether the client may send the request again to a
+  restarted service after the peer died while it may have been handling it.
+  `safe` is for a read or a write that sets a value (running it twice changes
+  nothing); `never` (also what a method that states nothing gets) returns the
+  error, so a launch, a mount or a password change never runs twice. Refused
+  on a `oneway` method. A request the kernel provably never queued (a stale
+  handle after a restart) is resent whatever the method says; see
+  "Resending" below.
+* `default deadline=2s retry=never;`: a line in an interface that gives every
+  two-way method the attributes it does not state itself (one `default` per
+  interface, stating at least one attribute; a method overrides each
+  attribute separately; a `oneway` method takes none).
+
+An interface that gets a generated client must resolve a `deadline` for every
+two-way method, its own or the interface `default`: `midlc` refuses one that
+does not. There is no crate-wide default bound any more.
+
+Generated, for each two-way method that resolves them:
+`METHOD_<X>_DEADLINE: libmessenger::client::Deadline` (`Deadline::millis(n)` or
+`Deadline::Never`) and `METHOD_<X>_RETRY: libmessenger::client::Retry`
+(`Retry::Safe` or `Retry::Never`, the latter when unstated). The manifest and
+the Markdown page carry the resolved values (`deadline_ms` or `"deadline":
+"never"`, and `retry`).
+
+#### Resending
+
+A restarted service leaves the client a cached handle whose peer is gone. The
+kernel answers a call on it `EPIPE`, which the `Connection` takes as "evict the
+handle, resolve again once and ask whether to resend". The kernel reports the
+same `EPIPE` for two different failures: `begin_call` refuses a request whose
+peer endpoint is closed (never queued: nothing ran), and an `await_reply`
+whose peer closed after it took the request ends `PeerDied` (it may have run).
+A single `OP_CALL` cannot tell them apart, so for a `retry=never` method the
+transports (`user::messenger::client::Native`, `lazyos_sys::client::Std`) issue
+the two halves (`OP_CALL_BEGIN`, `OP_CALL_AWAIT`); a `retry=safe` method is
+resent either way and keeps the single `OP_CALL`. They report `CallFailure { errno,
+delivered }`. The rule in `Connection::call`:
+
+| Failure | `retry=never` | `retry=safe` |
+|---|---|---|
+| never queued (`delivered` false) | resent once to the restarted service | resent once |
+| queued, then the peer died | the error is returned, the handle dropped | resent once |
+
+After any failure the handle is gone, so the next call resolves again. A
+`oneway` send is always resent once: the kernel refuses it before it is queued.
+
+## Generated crate layout
+
+`midlc --out libs/generated/src/lib.rs` writes the crate as one file per
+interface (`os_lazy_confd_v1.rs`) and per shared module (`errors.rs`,
+`topics.rs`, `objects.rs`, `rings.rs`, `services.rs`, and `declared.rs` with the
+crate-level tables), all `@generated`, beside a `lib.rs` that declares them.
+Each interface module sits behind a cargo feature named for it without the
+`os_lazy_` prefix (`confd_v1`); `all` turns every one on and is the default,
+so the module paths (`messenger_generated::os_lazy_confd_v1`) are unchanged for
+every dependent. A program that wants fewer sets `default-features = false`
+and names its own. The `[features]` block of `libs/generated/Cargo.toml` is
+rewritten between its two markers on every run and is part of `--check`. The
+tables (`DECLARED_TOPICS`, `DECLARED_OBJECTS`, `DECLARED_SERVICES`) are data
+and are always present.
+
+## Generated client
+
+An interface with a `service` (a singleton name or a family) gets a typed
+client over `libmessenger::client` (`docs/client-api-plan.md` 3.2), in its
+module, behind the cargo feature `<interface>_client` (`confd_v1_client`, which
+implies `confd_v1`; `all` includes every one). Kernel ACL scopes and policy
+loaders, and interfaces no `service` serves (a callback channel's `event`
+methods), get none. An `event` is no client function either.
+
+```rust
+use messenger_generated::os_lazy_confd_v1 as confd;
+let conf = confd::Client::connect(transport)?;            // SERVICE_NAME, the transport's connect bound
+let theme: Option<confd::Value> = conf.get("sys/ui/theme")?;
+let quick = conf.get_within("sys/ui/theme", Deadline::millis(50))?;
+```
+
+* `Client<T: Transport>` with `connect(transport)`, `try_connect(transport)`
+  (one attempt; both only when the interface has a singleton `service`),
+  `from_connection(Connection<T>)` (a family member, or a test's `Mock`) and
+  `connection()`.
+* One function per method, named in `snake_case` (a name the constructors own,
+  such as `Connect`, gets `_call`). Arguments are flattened: scalars and enums
+  by value, `&str`, `&[u8]`, `&[T]`, `&Struct` and `Option<&T>` borrowed;
+  object fields (`Buffer`, `Channel<I>`, a struct holding one) by value, moved
+  into the parcel's object list.
+* The return is `()` for an empty reply, the field's type for a one-field
+  reply and the `XxxReply` struct otherwise.
+* The request travels on the method's `scope` id when it has one, else on
+  `INTERFACE_ID`, waits the method's resolved `deadline` and is resent after a
+  dead peer as its `retry` says (above). Every call has exactly one deadline
+  override, `<method>_within(.., Deadline)` (the retry policy is the IDL's
+  alone); a `oneway` method has none (it sends and returns).
+* Failures are `ClientError`, an alias of `CallError<ServiceError>` (of
+  `CallError` for an interface without `errors`): a transport failure, a
+  `Remote` refusal whose code the interface does not declare, or
+  `Service(ServiceError)` for one it does. A request that cannot be encoded is
+  `Transport(EINVAL)`, a reply that does not decode `Transport(EBADMSG)`.
+* There is no non-blocking `_begin` form yet: the transport trait has no
+  asynchronous call, so a UI that must not block keeps using the runtime's own
+  lane until one exists.
+
+## Generated server
+
+Every interface with methods gets a server behind the cargo feature
+`<interface>_server` (`confd_v1_server`; it implies the interface's own): a
+`Server` trait with one function per method and `dispatch`, over
+`libmessenger::server` (`docs/client-api-plan.md` 3.3). A daemon implements the
+trait for its state and calls `dispatch(&mut state, &message)`; the result is
+the reply parcel.
+
+```rust
+use messenger_generated::os_lazy_timed_v1 as timed;
+use libmessenger::server::{Caller, Fault};
+
+impl timed::Server for Handler<'_> {
+    fn get_zone(&mut self, _: &Caller) -> Result<String, Fault> { /* ... */ }
+    fn set_zone(&mut self, cx: &Caller, name: String) -> Result<(), Fault> {
+        if cx.caps & CAP_SYS_TIME == 0 {
+            return Err(Fault::refuse(Errno::PERM, "only an administrator may do that"));
+        }
+        /* ... */
+    }
+}
+let reply: Parcel = timed::dispatch(&mut handler, &message);
+```
+
+* Arguments arrive decoded and by value; kernel objects (`Buffer`, `Channel`)
+  were claimed by the decode, so the handler owns them and closes them on a
+  refusal.
+* The result is `()` for no reply field, the field itself for one, the
+  `XxxReply` struct for several. A `oneway` method returns nothing. An `event`
+  is not in the trait at all (it is sent, never served).
+* `Caller` is the kernel's stamp (`uid`, `gid`, `caps`, `label_id`, `session`,
+  and the sender's task slot for addressing only). Authorize from it, never
+  from the body.
+* A `Fault` is an errno (`Fault::errno(Errno::PERM)`, `Fault::refuse(errno,
+  sentence)`) or, through `From<ServiceError>`, one of the interface's declared
+  codes, with an optional `hint`, `domain` and `docs` detail record.
+* A method the handler does not implement answers `ENOSYS`; a request for
+  another interface (or a scoped method on the wrong scope id) answers
+  `EINVAL`, an undeclared method `ENOSYS`, a body that does not decode
+  `EINVAL`.
+* No server exists for the kernel ACL scopes (`KERNEL_SCOPES`) or the
+  kernel-served registry.
 
 ## Errors
 

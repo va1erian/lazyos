@@ -80,7 +80,21 @@ Failures of calls are returned as the shared structured error field
 | DetachRing | 162562056 | sync | `(ring: U32) -> ()` |
 | Stats | 267161228 | sync | `() -> (stats: NicStats)` |
 | Kick | 754690623 | oneway | `(ring: U32) -> ()` |
-| Notify | 314575196 | oneway | `(ring: U32, events: U32) -> ()` |
+| Notify | 314575196 | event | `(ring: U32, events: U32) -> ()` |
+
+## Service
+
+- Served under the registry name `os.lazy.net.nic/{ifname}`; a family, one name per instance.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Info | this interface | - | 5000 ms | safe |
+| SetRxMode | this interface | - | 5000 ms | never |
+| AttachRing | this interface | - | 5000 ms | never |
+| DetachRing | this interface | - | 5000 ms | never |
+| Stats | this interface | - | 5000 ms | safe |
 
 ## Objects
 
@@ -96,7 +110,7 @@ object list (the index each field must hold).
 
 | Topic | Payload | QoS | Retained | Permissions |
 |---|---|---|---|---|
-| `system/net/+/link` | `LinkEvent` | latest | yes | `publish:system/net/+/link`, `subscribe:system/net/+/link` |
+| `system/net/+/link` | `LinkEvent` | buffered | yes | `publish:system/net/+/link`, `subscribe:system/net/+/link` |
 
 ## Rings
 

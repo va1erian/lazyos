@@ -41,6 +41,18 @@ standard error field (id 15, `docs/midl.md`).
 | Close | 2 | sync | `(id: U64) -> ()` |
 | Listen | 3 | sync | `(events: Channel<os.lazy.notify.events.v1>) -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.notify`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Notify | this interface | - | 300 ms | never |
+| Close | this interface | - | 300 ms | never |
+| Listen | this interface | - | 300 ms | never |
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

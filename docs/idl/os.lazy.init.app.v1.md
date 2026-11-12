@@ -18,6 +18,16 @@ in `init`'s table, and only for its own instance; anyone else gets
 |---|---|---|---|
 | Watch | 1 | sync | `(events: Channel<os.lazy.init.app.events.v1>) -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.init.app`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Watch | this interface | - | 1000 ms | never |
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

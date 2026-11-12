@@ -70,7 +70,7 @@ fn run() -> ! {
     // The compositor may still be binding/registering, so the client retries.
     let client = match Client::connect() {
         Ok(client) => client,
-        Err(error) => fail("connect", error.errno().unwrap_or(0)),
+        Err(error) => fail("connect", error.code()),
     };
 
     // The app keeps one end of a private pair and hands the other to the
@@ -82,7 +82,7 @@ fn run() -> ! {
 
     let surface = match client.create_surface(W as u64, H as u64, "xdemo", &events_server) {
         Ok(surface) => surface,
-        Err(error) => fail("create_surface", error.errno().unwrap_or(0)),
+        Err(error) => fail("create_surface", error.code()),
     };
 
     // Two buffers: the compositor reads the one last presented while the app
@@ -95,7 +95,7 @@ fn run() -> ! {
             Err(code) => fail("create_buffer", code),
         };
         if let Err(error) = client.attach_slot(surface, slot as u32, buffer, bytes) {
-            fail("attach_slot", error.errno().unwrap_or(0));
+            fail("attach_slot", error.code());
         }
         // Safety: `va` is the mapping of the buffer just created, `W * H * 4`
         // bytes long, and stays mapped for the life of the app.
@@ -118,7 +118,7 @@ fn run() -> ! {
                 draw(&mut canvases[slot as usize], &demo, full);
                 if let Some(seq) = chain.submit(slot) {
                     if let Err(error) = client.present(surface, slot, seq, &[full]) {
-                        fail("present", error.errno().unwrap_or(0));
+                        fail("present", error.code());
                     }
                     dirty = false;
                 }

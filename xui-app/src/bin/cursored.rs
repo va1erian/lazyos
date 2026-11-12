@@ -10,7 +10,6 @@
 
 use std::rc::Rc;
 
-use xui_app::launch;
 use xui_app::platform::confd_store::ConfdStore;
 use xui_app::trace::{self, Channel};
 use xui_core::prelude::*;
@@ -39,14 +38,16 @@ impl ThemeStore for Confd {
 fn main() {
     evidence::install(|step, detail| match step {
         "APPLY" => trace::pass!(Channel::Cursored, "APPLY"),
-        "QUIT" => trace::pass!(Channel::Cursored, "QUIT"),
+        // The builder reports `QUIT` when the window is gone.
+        "QUIT" => {}
         _ => trace::fail!(Channel::Cursored, "REFUSED", "{detail}"),
     });
-    launch::run(Channel::Cursored, "Cursor Studio", WINDOW, |ui, backend| {
-        backend.on_first_frame(|| trace::pass!(Channel::Cursored, "UP"));
-        let studio = Studio::build(ui, Rc::new(Confd(ConfdStore::new())))?;
-        ui.on_key(|key, modifiers| (key == Key::Q && modifiers.ctrl).then_some(Msg::Quit));
-        ui.on_close(|| Some(Msg::Quit));
-        Ok(studio)
-    })
+    xui_app::app(Channel::Cursored, "Cursor Studio")
+        .size(WINDOW.0, WINDOW.1)
+        .run(|ui, _| {
+            let studio = Studio::build(ui, Rc::new(Confd(ConfdStore::new())))?;
+            ui.on_key(|key, modifiers| (key == Key::Q && modifiers.ctrl).then_some(Msg::Quit));
+            ui.on_close(|| Some(Msg::Quit));
+            Ok(studio)
+        })
 }

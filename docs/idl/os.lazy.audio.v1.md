@@ -63,6 +63,27 @@ declared reply fields.
 | SetVolume | 1919741053 | sync | `(stream: U32, gain_q16: U32) -> ()` |
 | SetMute | 1285443642 | sync | `(stream: U32, mute: Bool) -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.audio` (together with `os.lazy.audio.mixer.v1`); registered once.
+- Served under the registry name `os.lazy.audio.card/{id}`; a family, one name per instance.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Info | this interface | - | 5000 ms | safe |
+| OpenStream | this interface | - | 5000 ms | never |
+| AttachRing | this interface | - | 5000 ms | never |
+| Commit | this interface | - | 5000 ms | never |
+| Start | this interface | - | 5000 ms | never |
+| Stop | this interface | - | 5000 ms | never |
+| Drain | this interface | - | 5000 ms | never |
+| Position | this interface | - | 5000 ms | safe |
+| CloseStream | this interface | - | 5000 ms | never |
+| SetVolume | this interface | - | 5000 ms | never |
+| SetMute | this interface | - | 5000 ms | never |
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

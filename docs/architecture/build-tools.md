@@ -7,7 +7,7 @@
 
 | Tool | Key files | Purpose | CI |
 |---|---|---|---|
-| IDL compiler | `tools/midlc/midlc.py`, `idl/*.midl`, `libs/generated/src/lib.rs`, `docs/idl/`, `idl/manifest.json` | Generate typed Rust wire helpers, per-interface docs and a manifest; `--check` fails when stubs are stale; method ids are stable hashes | `.github/workflows/midlc.yml` |
+| IDL compiler | `tools/midlc/midlc.py`, `idl/*.midl`, `libs/generated/src/` (one file per interface), `docs/idl/`, `idl/manifest.json` | Generate typed Rust wire helpers, per-interface docs and a manifest; `--check` fails when stubs are stale; method ids are stable hashes | `.github/workflows/midlc.yml` |
 | Linux ABI bench | `tools/abi/{build,run,coverage}.py`, `tools/abi/fixtures/src/*` | Build musl fixtures, boot each as `/system/bin/abi-init`, parse serial `ABI:*` lines into `docs/compat/matrix.md` + `compat.json`; coverage lists `ENOSYS` numbers | `.github/workflows/abi-compat.yml` |
 | Documentation site | `tools/site/{build,collect,render,links,theme}.py`, `tools/site/site.toml`, `tools/site/README.md` | Render `docs/**/*.md` (plus the README) to a static GitHub Pages site with a sidebar, search and rewritten links; `--strict` fails on a broken link or fragment | `.github/workflows/pages.yml` |
 | Kernel tests | `tools/test/run.py`, `kernel/src/tests/` | Boot a `LAZYOS_TESTS=1` image headless, parse `TEST:*` lines, write `docs/test/report.md` + `.json`; exits non-zero on failure/missing summary | `.github/workflows/kernel-tests.yml` |

@@ -1,3 +1,5 @@
+service "os.lazy.sysmond" implements os.lazy.sysmond.v1;
+
 /// The system monitor service (issue #144): one live system-stats snapshot.
 ///
 /// The snapshot is the kernel's fixed-layout `sysinfo` block returned as raw
@@ -10,8 +12,9 @@
 /// so a dashboard subscribes once and is handed the latest values instead of
 /// polling `Snapshot`.
 interface os.lazy.sysmond.v1 {
+    default deadline=5s;
     /// Return one live system-stats snapshot.
-    method Snapshot() -> (data: Bytes = 1);
+    method Snapshot() -> (data: Bytes = 1) retry=safe;
 
     /// The memory counters of one snapshot: the payload of the retained
     /// `system/stats/memory` topic.

@@ -2,9 +2,11 @@
 
 `midlc.py` turns `.midl` interface definitions into:
 
-- **Rust wire helpers** (`libs/generated/src/lib.rs`): typed `encode_*`/`decode_*`
+- **Rust wire helpers** (`libs/generated/src/`, one file per interface behind a
+  cargo feature, `lib.rs` the root): typed `encode_*`/`decode_*`
   functions over the [`libmessenger`](../../libs/messenger) parcel codec, plus
-  typed `publish_*`/`subscribe_*` helpers for declared topics,
+  typed `publish_*`/`subscribe_*` helpers for declared topics, and the
+  constants of the `service`, `errors`, `scope` and `deadline` declarations,
 - a **Markdown reference** per interface (`docs/idl/`),
 - a machine-readable **manifest** (`idl/manifest.json`) with method ids and the
   interface hash.
@@ -50,6 +52,7 @@ python tools/midlc/test_midlc.py
 python tools/midlc/test_midlc_fields.py
 python tools/midlc/test_midlc_objects.py
 python tools/midlc/test_midlc_rings.py
+python tools/midlc/test_midlc_decls.py
 python tools/midlc/test_midlc_rhai.py
 python tools/midlc/test_midl_browser.py
 

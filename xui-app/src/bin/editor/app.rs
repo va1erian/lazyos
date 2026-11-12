@@ -16,6 +16,7 @@ use xui_core::arrange::Mounted;
 use xui_core::backend::WidgetId;
 use xui_core::message::{Key, Modifiers};
 use xui_core::widget::{CheckBox, Dialog, DialogAction, Edit, FileDialog, Label, StatusBar};
+use xui_host::error::ErrorDialog;
 
 use crate::commands;
 
@@ -142,7 +143,7 @@ pub struct Notepad {
     /// The discard confirmation.
     pub confirm: Dialog<Msg>,
     /// The error message dialog.
-    pub message: Dialog<Msg>,
+    pub message: ErrorDialog<Msg>,
     /// What the open dialog is for.
     pub pending: Pending,
     /// Whether any dialog is open, so shortcut keys leave it alone.

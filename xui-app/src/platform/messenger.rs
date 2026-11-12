@@ -1,55 +1,98 @@
-//! A tiny synchronous Messenger client for the platform services (mimed,
-//! clipboardd) the migrated apps call.
+//! How an xui program holds a Messenger client: one generated client per
+//! interface per thread, over the std transport with the UI-thread stall trace.
 //!
-//! The display client ([`crate::display`]) has its own endpoint because it also
-//! receives one-way events; the platform services are request/reply only, so
-//! this helper keeps the resolve/call boilerplate in one place. It never
-//! writes wire fields by hand: bodies are built with the generated
-//! `messenger-generated` stubs and only the envelope is assembled here.
-//!
-//! A resolved handle must stay open for the life of the task: the kernel opens
-//! every resolver onto the service's single endpoint, so closing one resolved
-//! handle is peer death for the service (`kernel/src/ipc/registry.rs`,
-//! `resolve`). Endpoints are therefore cached per name and never closed; a
-//! call that finds the peer gone evicts the entry so the next call re-resolves
-//! a restarted service.
+//! The registry name, header ids, deadlines and error mapping all come from the
+//! interface's `.midl` (`messenger_generated::<interface>::Client`); nothing
+//! here frames a request. [`client`] connects a generated client on first use
+//! and keeps it for the life of the thread: a resolved handle is released when
+//! its [`Connection`] drops (the kernel opens every resolver onto the
+//! service's single endpoint, and `release` closes a side only when no other
+//! handle names it), so the client is kept, not rebuilt per call. A call that
+//! finds the peer gone drops the handle, resolves a restarted service once and
+//! retries once ([`Connection`]).
 
+use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 
-use libmessenger::{Decoder, Header, Kind, Object, Parcel, VERSION};
+use lazyos_sys::client::Std;
+use libmessenger::client::{is_peer_gone, CallFailure, Connection, Errno, Handle, Retry, Transport};
+pub use libmessenger::client::{CallError, Deadline};
+use libmessenger::Parcel;
 
-use crate::sys::{self, errno};
+use crate::sys;
 
-/// PIT ticks to wait for a service's name to appear (10 s at 100 Hz).
-const CONNECT_TICKS: u64 = 1000;
+/// The std transport with the UI-thread stall trace: a resolve or a call
+/// that holds the thread longer than [`crate::stall::SLOW_NS`] leaves a
+/// `UI:STALL` line naming what it waited on.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Observed(Std);
 
-/// The reply buffer a platform call offers. `confd`'s `List` of a real tree or
-/// a 4 KiB value does not fit the old 4 KiB buffer (the kernel answers `E2BIG`
-/// when the reply overflows it), so this is sized well above any reply the
-/// platform services send today; the kernel itself allows parcels up to
-/// `libmessenger::MAX_PARCEL_BYTES` (1 MiB).
-const REPLY_BUF: usize = 64 * 1024;
+impl Transport for Observed {
+    fn call_flags(&self) -> u16 {
+        self.0.call_flags()
+    }
 
-/// One resolved endpoint, kept open for the process lifetime.
-struct Cached {
-    name: &'static str,
-    endpoint: u64,
+    fn resolve(&self, name: &str, until: Deadline) -> Result<Handle, Errno> {
+        let began = crate::stall::start();
+        let result = self.0.resolve(name, until);
+        crate::stall::finish(began, crate::stall::SLOW_NS, "connect", || {
+            format!("name={name} ok={}", result.is_ok())
+        });
+        result
+    }
+
+    fn call(
+        &self,
+        handle: Handle,
+        request: &Parcel,
+        until: Deadline,
+        retry: Retry,
+    ) -> Result<Parcel, CallFailure> {
+        let began = crate::stall::start();
+        let result = self.0.call(handle, request, until, retry);
+        crate::stall::finish(began, crate::stall::SLOW_NS, "call", || {
+            format!(
+                "iface={:#x} method={} deadline={until:?} result={}",
+                request.header.interface_id,
+                request.header.method,
+                match &result {
+                    Ok(_) => String::from("ok"),
+                    Err(failure) => failure.errno.to_syscall().to_string(),
+                }
+            )
+        });
+        result
+    }
+
+    fn send(&self, handle: Handle, request: &Parcel) -> Result<(), Errno> {
+        self.0.send(handle, request)
+    }
+
+    fn release(&self, handle: Handle) {
+        self.0.release(handle);
+    }
 }
 
+/// A connection over the transport every xui program uses.
+pub type Conn = Connection<Observed>;
+
+/// What one thread keeps: a generated client by its type (and, for a member
+/// of a service family, the instance name).
+type Held = (TypeId, Option<String>, Rc<dyn Any>);
+
 thread_local! {
-    /// Endpoints resolved by this task, one per service name. Never closed, so
-    /// the service's endpoint outlives every individual call.
-    static SERVICES: RefCell<Vec<Cached>> = const { RefCell::new(Vec::new()) };
-    /// Threads the tree's worker closures run on (`mark_worker`): the
-    /// deadline-less call forms are theirs, and the platform clients use
-    /// the marker to keep the same API bounded on UI threads.
+    /// The clients of this thread.
+    static CLIENTS: RefCell<Vec<Held>> = const { RefCell::new(Vec::new()) };
+    /// Threads the tree's worker closures run on (`mark_worker`): a
+    /// [`Deadline::Never`] call is only legitimate on them, and the UI-thread
+    /// paths they share code with consult [`worker_thread`] to keep the
+    /// bounded shape.
     static WORKER: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Mark the current thread as one of the tree's worker threads (no UI
-/// loop runs here): a deadline-less [`Service::call_unbounded`] is only
-/// legitimate on them, and the UI-thread paths they share the code with
-/// consult [`worker_thread`] to keep the bounded shape.
+/// loop runs here): a [`Deadline::Never`] call is only legitimate on them.
 pub fn mark_worker() {
     WORKER.with(|worker| worker.set(true));
 }
@@ -61,347 +104,121 @@ pub fn worker_thread() -> bool {
     WORKER.with(Cell::get)
 }
 
-fn cached(name: &str) -> Option<u64> {
-    SERVICES.with(|services| {
-        services
-            .borrow()
+fn held<C: 'static>(instance: Option<&str>) -> Option<Rc<C>> {
+    CLIENTS.with(|clients| {
+        let clients = clients.borrow();
+        let (_, _, any) = clients
             .iter()
-            .find(|entry| entry.name == name)
-            .map(|entry| entry.endpoint)
+            .find(|(id, name, _)| *id == TypeId::of::<C>() && name.as_deref() == instance)?;
+        any.clone().downcast::<C>().ok()
     })
 }
 
-fn remember(name: &'static str, endpoint: u64) {
-    SERVICES.with(|services| services.borrow_mut().push(Cached { name, endpoint }));
+fn keep<C: 'static>(instance: Option<&str>, made: C) -> Rc<C> {
+    let made = Rc::new(made);
+    CLIENTS.with(|clients| {
+        clients.borrow_mut().push((
+            TypeId::of::<C>(),
+            instance.map(str::to_owned),
+            made.clone() as Rc<dyn Any>,
+        ));
+    });
+    made
 }
 
-fn forget(name: &str) {
-    SERVICES.with(|services| services.borrow_mut().retain(|entry| entry.name != name));
-}
-
-/// A resolved service endpoint.
-pub struct Service {
-    name: &'static str,
-    endpoint: u64,
-}
-
-impl Service {
-    /// Resolve `name` into this task, retrying until the deadline (services
-    /// start alongside the app, so a cold boot can race). A previously
-    /// resolved endpoint is reused.
-    pub fn connect(name: &'static str) -> Result<Service, i64> {
-        if let Some(endpoint) = cached(name) {
-            return Ok(Service { name, endpoint });
-        }
-        let began = crate::stall::start();
-        let result = Service::resolve_waiting(name);
-        crate::stall::finish(began, crate::stall::SLOW_NS, "connect", || {
-            format!("name={name} ok={}", result.is_ok())
-        });
-        result
+/// This thread's generated client `C`, made on first use with `connect` and
+/// kept after: `wire::Client::connect` waits for the service to register (the
+/// std runtime's connect bound), `wire::Client::try_connect` makes one attempt,
+/// for a caller whose service being absent has a cheap fallback (the
+/// clipboard, the notifications) and which must never wait for it. A failed
+/// connect keeps nothing, so the next call tries again. The client is shared
+/// by everything on the thread, so a name resolves once.
+pub fn client<C: 'static, E>(
+    connect: fn(Observed) -> Result<C, CallError<E>>,
+) -> Result<Rc<C>, CallError<E>> {
+    if let Some(known) = held::<C>(None) {
+        return Ok(known);
     }
+    Ok(keep(None, connect(Observed::default())?))
+}
 
-    /// The retry loop of [`Service::connect`].
-    fn resolve_waiting(name: &'static str) -> Result<Service, i64> {
-        let deadline = sys::clock_ticks().saturating_add(CONNECT_TICKS);
-        loop {
-            match sys::msg_resolve(name) {
-                Ok(endpoint) => {
-                    remember(name, endpoint);
-                    return Ok(Service { name, endpoint });
-                }
+/// This thread's client `C` of the family member `instance` (the interface's
+/// `SERVICE_INSTANCE_PREFIX` and `instance`, such as `os.lazy.net.nic/eth0`),
+/// made with `wire::Client::from_connection` on first use. Nothing resolves
+/// until its first call.
+pub fn instance_client<C: 'static>(
+    prefix: &str,
+    instance: &str,
+    from_connection: fn(Conn) -> C,
+) -> Rc<C> {
+    let name = format!("{prefix}{instance}");
+    if let Some(known) = held::<C>(Some(&name)) {
+        return known;
+    }
+    let conn = Connection::named(Observed::default(), name.clone());
+    keep(Some(&name), from_connection(conn))
+}
+
+/// Begin a call and keep the window paintable while the service works
+/// (issue #725's UI integration): the request goes out now and `on_done`
+/// carries the reply, on the UI thread, at the tick the kernel's
+/// `WAIT_CALLS` doorbell gave the loop. `until` [`Deadline::Never`] waits
+/// for ever: the caller who began it is not parked, so only the app's own
+/// patience for a still-open call is a bound. The lane runs on the thread
+/// the backend's loop runs on (the only one whose `tick` drains it); a
+/// call begun elsewhere waits for a drain that thread never makes, so do
+/// not.
+///
+/// The generated clients have no asynchronous form yet (`docs/client-api-plan.md`
+/// 3.2: `_begin` waits for an asynchronous transport call), so this is the one
+/// place an xui program frames a request: `body` is what the interface's
+/// generated `encode_*_args` returned, and `connection` names the generated
+/// `client`'s [`Connection`] (`wire::Client::connection`).
+///
+/// The begin's own errors are transport failures; they arrive in `on_done`'s
+/// result, and a dead peer evicts the cached handle, as for a synchronous call.
+pub fn call_async<C: 'static>(
+    client: &Rc<C>,
+    connection: fn(&C) -> &Conn,
+    interface: u64,
+    method: u32,
+    body: Vec<u8>,
+    until: Deadline,
+    on_done: Box<dyn FnOnce(Result<Parcel, CallError>)>,
+) -> Result<(), Errno> {
+    let request = Conn::request(
+        interface,
+        method,
+        libmessenger::flags::ALLOW_NESTED,
+        body,
+        Vec::new(),
+    );
+    let mut bytes = Vec::new();
+    request.encode(&mut bytes).map_err(|_| Errno::INVAL)?;
+    let handle = connection(client).connect()?;
+    let owner = client.clone();
+    let deadline = until.absolute_ticks(sys::clock_ticks());
+    crate::backend::calls::begin(
+        handle,
+        &bytes,
+        deadline,
+        Box::new(move |result| {
+            on_done(match result {
+                Ok(reply) => Conn::check(reply),
                 Err(code) => {
-                    if sys::clock_ticks() >= deadline {
-                        return Err(code);
+                    let errno = Errno::from_syscall(code);
+                    if is_peer_gone(errno) {
+                        connection(&owner).evict();
                     }
-                    sys::sleep_millis(10);
+                    Err(CallError::Transport(errno))
                 }
-            }
+            })
+        }),
+    )
+    .map_err(Errno::from_syscall)
+    .inspect_err(|&errno| {
+        if is_peer_gone(errno) {
+            connection(client).evict();
         }
-    }
-
-    /// Resolve `name` once, without an endpoint already cached. Returns `None`
-    /// immediately when the service is not registered, so a caller whose
-    /// absence has a cheap fallback (the clipboard) never blocks.
-    pub fn try_connect(name: &'static str) -> Option<Service> {
-        if let Some(endpoint) = cached(name) {
-            return Some(Service { name, endpoint });
-        }
-        let endpoint = sys::msg_resolve(name).ok()?;
-        remember(name, endpoint);
-        Some(Service { name, endpoint })
-    }
-
-    /// One synchronous call on the service, bounded by `ticks` PIT ticks
-    /// (give up with `-ETIMEDOUT` afterwards): a call whose UI must not
-    /// freeze behind a stalled or missing service. `0` counts as `1`: a
-    /// deadline-less call needs [`Service::call_unbounded`] and a worker
-    /// thread. A structured error field `error_id` in the reply becomes its
-    /// negative errno.
-    ///
-    /// A dead peer (`-EPIPE`, or `-ENOENT` from a reaped registration) evicts
-    /// the cached endpoint so a later call resolves the service again.
-    pub fn call(
-        &self,
-        interface: u64,
-        method: u32,
-        error_id: u16,
-        body: Vec<u8>,
-        ticks: u64,
-    ) -> Result<Parcel, i64> {
-        self.call_detailed(interface, method, error_id, body, ticks)
-            .map_err(|error| error.code)
-    }
-
-    /// [`Service::call`] keeping the service's friendly error text, for a
-    /// caller that shows the refusal to the user (the package installer shows
-    /// why `pkgd` declined).
-    pub fn call_detailed(
-        &self,
-        interface: u64,
-        method: u32,
-        error_id: u16,
-        body: Vec<u8>,
-        ticks: u64,
-    ) -> Result<Parcel, CallError> {
-        // An absolute deadline, never 0 ("forever") or `EXPIRED_DEADLINE` (a
-        // poll the callee may answer only during its own service turn).
-        let deadline = sys::clock_ticks()
-            .saturating_add(ticks.max(1))
-            .max(sys::EXPIRED_DEADLINE + 1);
-        self.call_at(interface, method, error_id, body, deadline)
-    }
-
-    /// [`Service::call_until`] bounded by an absolute PIT tick (`0` waits
-    /// forever): the shell's own form, which already knows its window. A
-    /// deadline-less use is a UI-thread caller — see
-    /// [`Service::call_unbounded`] — and must not grow here.
-    pub fn call_until(
-        &self,
-        interface: u64,
-        method: u32,
-        error_id: u16,
-        body: Vec<u8>,
-        deadline: u64,
-    ) -> Result<Parcel, i64> {
-        self.call_at(interface, method, error_id, body, deadline)
-            .map_err(|error| error.code)
-    }
-
-    /// A deadline-less call: never on the UI thread, which parks until the
-    /// service answers and cannot repaint while it waits. The tree's worker
-    /// threads (Settings' machine writes, Files' paste) may call it; every
-    /// UI-thread site in `xui-app` is [`Service::call`] or stricter, which
-    /// the `tools/xui/check_call_bounds.py` CI step enforces.
-    pub fn call_unbounded(
-        &self,
-        interface: u64,
-        method: u32,
-        error_id: u16,
-        body: Vec<u8>,
-    ) -> Result<Parcel, i64> {
-        self.call_detailed_unbounded(interface, method, error_id, body)
-            .map_err(|error| error.code)
-    }
-
-    /// [`Service::call_unbounded`] keeping the service's friendly error text.
-    pub fn call_detailed_unbounded(
-        &self,
-        interface: u64,
-        method: u32,
-        error_id: u16,
-        body: Vec<u8>,
-    ) -> Result<Parcel, CallError> {
-        self.call_at(interface, method, error_id, body, 0)
-    }
-
-    /// Begin a call and keep the window paintable while the service works
-    /// (issue #725's UI integration): the request goes out now and
-    /// [`on_done`] — on the UI thread, at the tick the kernel's
-    /// `WAIT_CALLS` doorbell gave the loop — carries the reply, with the
-    /// service's structured error resolved just like
-    /// [`Service::call_detailed`] would have. `deadline` is an absolute PIT
-    /// tick, `0` waits for ever: the caller who began it is not parked, so
-    /// only the app's own patience for a still-open call is a bound. The
-    /// lane runs on the thread the backend's loop runs on (the only one
-    /// whose `tick` drains it); a call begun elsewhere waits for a drain
-    /// that thread never makes, so do not.
-    ///
-    /// The begin's own errors are transport failures (a dead peer evicts
-    /// the cached endpoint, as for [`Service::call`]); they arrive in
-    /// [`on_done`]'s result.
-    pub fn call_async(
-        &self,
-        interface: u64,
-        method: u32,
-        error_id: u16,
-        body: Vec<u8>,
-        deadline: u64,
-        on_done: Box<dyn FnOnce(Result<Parcel, CallError>)>,
-    ) -> Result<(), i64> {
-        let parcel = Parcel {
-            header: Header {
-                version: VERSION,
-                flags: libmessenger::flags::ALLOW_NESTED,
-                interface_id: interface,
-                method,
-                txn_id: 0,
-                reply_to: 0,
-                deadline_ns: 0,
-            },
-            body,
-            objects: Vec::new(),
-        };
-        let mut bytes = Vec::new();
-        if parcel.encode(&mut bytes).is_err() {
-            return Err(-errno::EINVAL);
-        }
-        crate::backend::calls::begin(
-            self.endpoint,
-            &bytes,
-            deadline,
-            Box::new(move |result| {
-                on_done(match result {
-                    Ok(reply) => match error_field(&reply, error_id) {
-                        Some(call_error) => Err(call_error),
-                        None => Ok(reply),
-                    },
-                    Err(code) => Err(CallError {
-                        code,
-                        message: String::new(),
-                    }),
-                })
-            }),
-        )
-        .map_err(|code| {
-            if code == -errno::EPIPE || code == -errno::ENOENT {
-                forget(self.name);
-            }
-            code
-        })
-    }
-
-    /// [`Service::call_within`] whose request carries `objects` (what the
-    /// generated `encode_*_args` returned beside the body: the tray's `Set`
-    /// moves its event channel, `init`'s `Watch` likewise).
-    pub fn call_moving_within(
-        &self,
-        interface: u64,
-        method: u32,
-        error_id: u16,
-        body: Vec<u8>,
-        objects: Vec<Object>,
-        ticks: u64,
-    ) -> Result<Parcel, i64> {
-        let deadline = sys::clock_ticks()
-            .saturating_add(ticks.max(1))
-            .max(sys::EXPIRED_DEADLINE + 1);
-        self.call_with(interface, method, error_id, body, objects, deadline)
-            .map_err(|error| error.code)
-    }
-
-    /// A oneway message (`flags::ONE_WAY`): input and slot returns that
-    /// have no answer. Never parks. A dead peer evicts the cached endpoint,
-    /// as for a call.
-    pub fn send_oneway(&self, interface: u64, method: u32, body: Vec<u8>) -> Result<(), i64> {
-        let parcel = Parcel {
-            header: Header {
-                version: VERSION,
-                flags: libmessenger::flags::ONE_WAY,
-                interface_id: interface,
-                method,
-                txn_id: 0,
-                reply_to: 0,
-                deadline_ns: 0,
-            },
-            body,
-            objects: Vec::new(),
-        };
-        sys::msg_send(self.endpoint, &parcel).map_err(|code| {
-            if code == -errno::EPIPE || code == -errno::ENOENT {
-                forget(self.name);
-            }
-            code
-        })
-    }
-
-    /// One call bounded by `deadline` (an absolute PIT tick; `0` waits
-    /// forever).
-    fn call_at(
-        &self,
-        interface: u64,
-        method: u32,
-        error_id: u16,
-        body: Vec<u8>,
-        deadline: u64,
-    ) -> Result<Parcel, CallError> {
-        self.call_with(interface, method, error_id, body, Vec::new(), deadline)
-    }
-
-    /// [`Service::call_at`] carrying `objects`.
-    fn call_with(
-        &self,
-        interface: u64,
-        method: u32,
-        error_id: u16,
-        body: Vec<u8>,
-        objects: Vec<Object>,
-        deadline: u64,
-    ) -> Result<Parcel, CallError> {
-        let parcel = Parcel {
-            header: Header {
-                version: VERSION,
-                // The app's own event receive must not trip the kernel's
-                // per-channel cycle check while a call is in flight.
-                flags: libmessenger::flags::ALLOW_NESTED,
-                interface_id: interface,
-                method,
-                txn_id: 0,
-                reply_to: 0,
-                deadline_ns: 0,
-            },
-            body,
-            objects,
-        };
-        let mut buf = vec![0u8; REPLY_BUF];
-        let reply = match sys::msg_call(self.endpoint, &parcel, &mut buf, deadline) {
-            Ok(reply) => reply,
-            Err(code) => {
-                if code == -errno::EPIPE || code == -errno::ENOENT {
-                    forget(self.name);
-                }
-                return Err(CallError {
-                    code,
-                    message: String::new(),
-                });
-            }
-        };
-        match error_field(&reply, error_id) {
-            Some(error) => Err(error),
-            None => Ok(reply),
-        }
-    }
-}
-
-/// A refused or failed call: the negative errno and, when the service sent
-/// one, its friendly text (empty for a transport failure).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CallError {
-    pub code: i64,
-    pub message: String,
-}
-
-/// The structured error in a reply, when a service refused the call.
-fn error_field(parcel: &Parcel, error_id: u16) -> Option<CallError> {
-    let mut decoder = Decoder::new(&parcel.body);
-    while let Ok(Some(field)) = decoder.next() {
-        if field.kind == Kind::Error && field.id == error_id {
-            let (code, message) = field.error_parts().ok()?;
-            return Some(CallError {
-                code: -(code as i64),
-                message: message.to_owned(),
-            });
-        }
-    }
-    None
+    })
 }

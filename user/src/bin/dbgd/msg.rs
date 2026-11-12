@@ -7,7 +7,10 @@ use alloc::string::String;
 
 use dbgwire::json::{self, Object, Value};
 use dbgwire::rpc::code;
-use user::messenger::services;
+use libmessenger::client::Deadline;
+use user::messenger::client::Native;
+use user::messenger::services::init::Client as InitClient;
+use user::messenger::topics_client;
 
 use super::handlers::Failure;
 
@@ -37,9 +40,10 @@ pub(crate) fn msg_registry() -> Result<String, Failure> {
 
 /// `msg.services`: what `init` supervises.
 pub(crate) fn msg_services() -> Result<String, Failure> {
-    let endpoint = services::resolve_service(services::INIT_NAME)
+    let init = InitClient::try_connect(Native)
         .map_err(|e| (code::UNAVAILABLE, format!("init: {}", e.message())))?;
-    let statuses = services::fetch_services(&endpoint)
+    let statuses = init
+        .services()
         .map_err(|e| (code::UNAVAILABLE, format!("init: {}", e.message())))?;
     let rows = statuses.iter().map(|s| {
         Object::new()
@@ -56,10 +60,10 @@ pub(crate) fn msg_services() -> Result<String, Failure> {
 
 /// `msg.topics`: the broker's topic list.
 pub(crate) fn msg_topics() -> Result<String, Failure> {
-    let client = user::messenger::topics_client::Client::connect()
+    let client = topics_client::connect()
         .map_err(|e| (code::UNAVAILABLE, format!("broker: {}", e.message())))?;
     let entries = client
-        .list()
+        .list_topics()
         .map_err(|e| (code::UNAVAILABLE, format!("broker: {}", e.message())))?;
     let rows = entries.iter().map(|t| {
         let payload = messenger_generated::declared_topic(&t.topic).map_or("-", |d| d.payload);
@@ -91,13 +95,15 @@ pub(crate) fn msg_topic(params: &Value) -> Result<String, Failure> {
             String::from("an exact topic name, no wildcards"),
         ));
     }
-    let client = user::messenger::topics_client::Client::connect()
+    let client = topics_client::connect()
         .map_err(|e| (code::UNAVAILABLE, format!("broker: {}", e.message())))?;
-    let subscription = client
-        .subscribe(topic, user::messenger::topics_client::Qos::Latest)
+    let qos = topics_client::Qos::Latest;
+    let id = client
+        .subscribe(topic, qos.code(), qos.depth())
         .map_err(|e| (code::DENIED, format!("broker: {}", e.message())))?;
-    let polled = subscription.poll_event();
-    let _ = subscription.unsubscribe();
+    // Raw, envelope and all: this shows what the broker holds.
+    let polled = topics_client::next(&client, id, Deadline::Poll);
+    let _ = client.unsubscribe(id);
     // `Ok(None)` is the answer "nothing is held"; an error is not.
     let event = polled.map_err(|e| (code::UNAVAILABLE, format!("broker: {}", e.message())))?;
     let Some(event) = event else {

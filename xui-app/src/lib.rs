@@ -16,6 +16,8 @@
 pub mod backend;
 pub mod client_window;
 pub mod compact;
+pub mod context;
+pub use context::AppContext;
 pub mod cursor;
 pub mod dashboard;
 pub mod devinfo;
@@ -28,6 +30,7 @@ pub mod hidpi;
 pub mod input;
 pub mod installer;
 pub mod launch;
+pub use launch::app;
 pub mod lightview;
 pub mod markdown;
 pub mod net;
@@ -42,7 +45,9 @@ pub mod stall;
 pub mod sys;
 pub mod table;
 pub mod trace;
+/// Work off the UI thread, answered as messages (`xui-work`; docs/client-api-plan.md 4.3).
+pub use xui_work as work;
 /// The system-stats snapshot (syscall 14), shared with the native `top`.
 pub use lazyos_sys::sysinfo;
-pub mod themed;
+
 pub mod tray;

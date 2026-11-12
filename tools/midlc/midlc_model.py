@@ -121,6 +121,29 @@ class Ring:
 
 
 @dataclass
+class CallPolicy:
+    """How a client calls a method: the deadline (`deadline=500ms`, or
+    `deadline=never` for an unbounded wait) and whether a restarted service
+    may be sent the request again (`retry=safe|never`). Each is None until
+    stated; an interface's `default` line fills the unstated ones in."""
+
+    # Milliseconds, or None (see `never`).
+    deadline_ms: int | None = None
+    # `deadline=never`: wait for ever. Exclusive with `deadline_ms`.
+    never: bool = False
+    # "safe" or "never"; None means unstated, which resolves to "never".
+    retry: str | None = None
+
+    @property
+    def has_deadline(self) -> bool:
+        return self.never or self.deadline_ms is not None
+
+    @property
+    def stated(self) -> bool:
+        return self.has_deadline or self.retry is not None
+
+
+@dataclass
 class Method:
     name: str
     params: list[Param]
@@ -131,6 +154,21 @@ class Method:
     # The objects the request carries, in object-list order (set by the
     # parser's `validate` once the interface's structs are known).
     objects: list[ObjectRef] = field(default_factory=list)
+    # The ACL scope interface name the request's header carries instead of the
+    # interface id (`scope "os.lazy.clipboard.write.v1"`), or None.
+    scope: str | None = None
+    # The deadline and resend policy of a call; once the interface is
+    # validated, its `default` line is folded in.
+    policy: CallPolicy = field(default_factory=CallPolicy)
+    # A server-to-client message (`event` in the `.midl`): it is `oneway` on the
+    # wire, but the server sends it and clients receive it, so neither side's
+    # generated callable surface (server trait, client, script API) has it.
+    event: bool = False
+
+    @property
+    def scope_id(self) -> int | None:
+        """The id the header carries: the FNV-1a hash of the scope name."""
+        return fnv1a64(self.scope) if self.scope is not None else None
 
 
 @dataclass
@@ -194,6 +232,44 @@ class Topic:
 
 
 @dataclass
+class ErrorCode:
+    """One service error of an `errors { ... }` block: a name and the
+    domain-specific code carried in the reply's standard error field."""
+
+    name: str
+    code: int
+    doc: str = ""
+    line: int = 0
+
+
+@dataclass
+class Service:
+    """A `service "<registry name>" implements <interface>, ...;` declaration:
+    the name a daemon registers and the interfaces it serves under it. A name
+    ending in `/{placeholder}` is a family (`os.lazy.net.nic/{ifname}`): one
+    instance per placeholder value, and `name` keeps the placeholder."""
+
+    name: str
+    interfaces: list[str]
+    doc: str = ""
+    line: int = 0
+
+    @property
+    def instanced(self) -> bool:
+        return self.name.endswith("}")
+
+    @property
+    def prefix(self) -> str:
+        """The registered name up to and including the `/` of a family, or
+        the whole name of a singleton."""
+        return self.name[: self.name.rindex("/") + 1] if self.instanced else self.name
+
+    @property
+    def placeholder(self) -> str | None:
+        return self.name[self.name.rindex("{") + 1 : -1] if self.instanced else None
+
+
+@dataclass
 class Interface:
     name: str
     docs: str = ""
@@ -202,6 +278,28 @@ class Interface:
     enums: list[Enum] = field(default_factory=list)
     topics: list[Topic] = field(default_factory=list)
     rings: list[Ring] = field(default_factory=list)
+    # The `errors { ... }` block, in declaration order.
+    errors: list[ErrorCode] = field(default_factory=list)
+    # The services that serve this interface (set by `attach_services` once
+    # every file of the compile is parsed).
+    services: list[Service] = field(default_factory=list)
+    # The interface's `default deadline=.. retry=..;` line, or None.
+    default_policy: CallPolicy | None = None
+
+    @property
+    def calls(self) -> list[Method]:
+        """The methods a client sends and a server answers: all but the events."""
+        return [m for m in self.methods if not m.event]
+
+    @property
+    def service(self) -> Service | None:
+        """The singleton service name of this interface, if declared."""
+        return next((s for s in self.services if not s.instanced), None)
+
+    @property
+    def family(self) -> Service | None:
+        """The per-instance service family of this interface, if declared."""
+        return next((s for s in self.services if s.instanced), None)
 
     @property
     def id(self) -> int:

@@ -19,6 +19,33 @@ Change notifications are best-effort: a subscriber observes
 | List | 220805025 | sync | `(prefix: String) -> (paths: Array<String>)` |
 | Info | 266462757 | sync | `() -> (store_dir: String, persistent: Bool)` |
 
+## Service
+
+- Served under the registry name `os.lazy.confd`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Get | this interface | - | 2000 ms | safe |
+| Set | this interface | - | 2000 ms | safe |
+| Delete | this interface | - | 2000 ms | never |
+| List | this interface | - | 2000 ms | safe |
+| Info | this interface | - | 2000 ms | safe |
+
+## Errors
+
+Carried in the reply's standard error field (id 15).
+
+| Code | Name | Meaning |
+|---|---|---|
+| 1001 | NotFound | No value is stored at the path. |
+| 1002 | BadPath | The path is not a valid confd path. |
+| 1003 | TooLarge | The value or the store exceeds a confd size limit. |
+| 1004 | Denied | The caller may not access that path. |
+| 1005 | Io | The store could not be read or written; safe to retry. |
+| 1006 | BadValue | The value is malformed (a `kind` whose payload is missing). |
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |
@@ -28,7 +55,7 @@ Change notifications are best-effort: a subscriber observes
 
 ## struct `Value`
 
-- `kind: U32`
+- `kind: Kind`
 - `bool_value: Option<Bool>`
 - `i64_value: Option<I64>`
 - `u64_value: Option<U64>`
@@ -39,3 +66,7 @@ Change notifications are best-effort: a subscriber observes
 
 - `path: String`
 - `deleted: Bool`
+
+## enum `Kind`
+
+- Bool, I64, U64, Str, Bytes

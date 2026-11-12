@@ -12,6 +12,17 @@ A tiny demo service: echo whatever you send (issue #90 sample IDL).
 | Ping | 2142761129 | sync | `() -> (alive: Bool)` |
 | Notify | 314575196 | oneway | `(event: Event) -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.echo`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Echo | this interface | - | 5000 ms | safe |
+| Ping | this interface | - | 5000 ms | safe |
+
 ## struct `Event`
 
 - `topic: String`

@@ -26,12 +26,11 @@ use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use user::trace;
 
-use audioclient::{control_wire as control, wire, Client, Error, MixerControl, UNITY_GAIN};
-use user::audio::{self, Native};
+use audioclient::{control_wire as control, wire, CallError, MixerControl, UNITY_GAIN};
+use user::audio;
+use user::messenger::client::Native;
 use user::sys;
 
-/// Ticks (100 Hz) to wait for the mixer to register.
-const CONNECT_TICKS: u64 = 500;
 const EINVAL: i64 = 22;
 const ENOENT: i64 = 2;
 
@@ -64,12 +63,11 @@ pub extern "C" fn _start() -> ! {
     }
 }
 
-fn connect() -> Result<Native, String> {
-    audio::connect_wait(audio::NAME, CONNECT_TICKS)
-        .map_err(|error| format!("no audio service: {error}"))
+fn connect() -> Result<MixerControl<Native>, String> {
+    audio::mixer_control().map_err(|error| format!("no audio service: {error}"))
 }
 
-fn fail(what: &str) -> impl Fn(Error) -> String + '_ {
+fn fail(what: &str) -> impl Fn(CallError) -> String + '_ {
     move |error| format!("{what}: {error}")
 }
 
@@ -87,19 +85,18 @@ fn percent(gain_q16: u32) -> u64 {
 }
 
 fn command(words: &[&str]) -> Result<(), String> {
-    let native = connect()?;
-    let panel = MixerControl::new(&native);
+    let panel = connect()?;
     match words {
         [] => show(&panel),
         ["master", value] => {
-            let master = panel.master().map_err(fail("master"))?;
+            let master = panel.get_master().map_err(fail("master"))?;
             panel
                 .set_master(gain(value)?, master.mute)
                 .map_err(fail("master"))?;
             show(&panel)
         }
         [word @ ("mute" | "unmute")] => {
-            let master = panel.master().map_err(fail("master"))?;
+            let master = panel.get_master().map_err(fail("master"))?;
             panel
                 .set_master(master.gain_q16, *word == "mute")
                 .map_err(fail("master"))?;
@@ -128,8 +125,8 @@ fn command(words: &[&str]) -> Result<(), String> {
     }
 }
 
-fn show(panel: &MixerControl<&Native>) -> Result<(), String> {
-    let master = panel.master().map_err(fail("master"))?;
+fn show(panel: &MixerControl<Native>) -> Result<(), String> {
+    let master = panel.get_master().map_err(fail("master"))?;
     if !master.card {
         sys::write_str("master: no sound card attached\n");
     } else {
@@ -143,7 +140,7 @@ fn show(panel: &MixerControl<&Native>) -> Result<(), String> {
             master.max_streams
         ));
     }
-    for stream in panel.streams().map_err(fail("list"))? {
+    for stream in panel.list_streams().map_err(fail("list"))? {
         sys::write_str(&format!(
             "stream {:<3} task {:<4} {:<8} {} Hz {} ch  volume {}%{}  played {}  underruns {}\n",
             stream.stream,
@@ -161,8 +158,8 @@ fn show(panel: &MixerControl<&Native>) -> Result<(), String> {
 }
 
 /// One line per output; `*` marks the one playing, `preferred` the one chosen.
-fn outputs(panel: &MixerControl<&Native>) -> Result<(), String> {
-    for output in panel.outputs().map_err(fail("outputs"))? {
+fn outputs(panel: &MixerControl<Native>) -> Result<(), String> {
+    for output in panel.list_outputs().map_err(fail("outputs"))? {
         sys::write_str(&format!(
             "{} {:<16} {}{}\n",
             if output.active { '*' } else { ' ' },
@@ -201,18 +198,17 @@ impl Checks {
     }
 }
 
-fn refused<T>(result: Result<T, Error>, errno: i64) -> bool {
-    matches!(result, Err(Error::Errno(code)) if code == errno)
+fn refused<T>(result: Result<T, CallError>, errno: i64) -> bool {
+    matches!(result, Err(error) if error.code() == -errno)
 }
 
 /// Drive the control panel against a stream of our own.
 fn probe() -> Result<u32, String> {
-    let native = connect()?;
-    let panel = MixerControl::new(&native);
-    let client = Client::new(&native);
+    let panel = connect()?;
+    let client = audio::connect_wait(audio::NAME).map_err(fail("no audio service"))?;
     let mut checks = Checks(0);
 
-    let master = panel.master().map_err(fail("master"))?;
+    let master = panel.get_master().map_err(fail("master"))?;
     checks.expect("a card is attached", master.card && master.rate > 0)?;
     checks.expect(
         "master starts at unity",
@@ -229,9 +225,9 @@ fn probe() -> Result<u32, String> {
         )
         .map_err(fail("open"))?;
     let id = grant.stream;
-    let find = |panel: &MixerControl<&Native>| -> Result<Option<control::StreamStatus>, String> {
+    let find = |panel: &MixerControl<Native>| -> Result<Option<control::StreamStatus>, String> {
         Ok(panel
-            .streams()
+            .list_streams()
             .map_err(fail("list"))?
             .into_iter()
             .find(|s| s.stream == id))
@@ -277,7 +273,7 @@ fn probe() -> Result<u32, String> {
         .map_err(fail("set master"))?;
     checks.expect(
         "the master gain is reported back",
-        panel.master().map_err(fail("master"))?.gain_q16 == 3 * UNITY_GAIN / 4,
+        panel.get_master().map_err(fail("master"))?.gain_q16 == 3 * UNITY_GAIN / 4,
     )?;
     panel
         .set_master(UNITY_GAIN, false)

@@ -1,3 +1,5 @@
+service "os.lazy.shell.tray" implements os.lazy.shell.tray.v1;
+
 /// The taskbar tray (docs/tray-plan.md), served by LazyShell on Messenger
 /// under the name `os.lazy.shell.tray`.
 ///
@@ -22,6 +24,9 @@
 /// A session holds at most 64 items (`ENOSPC`). Failures reply with the
 /// standard error field (id 15, `docs/midl.md`).
 interface os.lazy.shell.tray.v1 {
+    /// Tray calls are small local ones; an app's UI thread makes them, so a
+    /// shell that does not answer in a second costs the item, not the window.
+    default deadline=1s;
     /// Show the app's item, replacing its current one (custom or default).
     /// `events` is the channel the shell sends the item's events
     /// on; the shell `Ping`s it on its heartbeat and drops the custom item
@@ -122,21 +127,21 @@ interface os.lazy.shell.tray.v1 {
     enum Activation { Event, Menu, DefaultItem }
 }
 
-/// What the shell sends an app about its item: oneway methods on the channel
+/// What the shell sends an app about its item: `event` methods on the channel
 /// the app transferred with `Set`.
 interface os.lazy.shell.tray.events.v1 {
     /// Primary click. `anchor` is the icon in screen pixels; `popup` a
     /// one-shot token for a flyout (0 when flyouts are unavailable).
-    method Activate(anchor: Rect = 1, popup: U64 = 2) -> () = 1 oneway;
+    method Activate(anchor: Rect = 1, popup: U64 = 2) -> () = 1 event;
     /// Secondary click on an item without a menu.
-    method SecondaryActivate(anchor: Rect = 1) -> () = 2 oneway;
+    method SecondaryActivate(anchor: Rect = 1) -> () = 2 event;
     /// The user picked menu row `id`; `checked` is a check or radio row's
     /// new state (the app sends `Update` to show it).
-    method MenuItem(id: U32 = 1, checked: Bool = 2) -> () = 3 oneway;
+    method MenuItem(id: U32 = 1, checked: Bool = 2) -> () = 3 event;
     /// The wheel rolled `delta` notches over the icon (positive: up).
-    method Scroll(delta: I32 = 1) -> () = 4 oneway;
+    method Scroll(delta: I32 = 1) -> () = 4 event;
     /// Liveness probe; nothing to answer.
-    method Ping() -> () = 5 oneway;
+    method Ping() -> () = 5 event;
 
     /// A rectangle in screen pixels.
     struct Rect {

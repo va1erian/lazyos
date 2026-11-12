@@ -17,9 +17,10 @@
 use alloc::string::ToString;
 use user::trace;
 
+use libmessenger::client::Deadline;
 use svcpolicy::{clean_reason, describe_status, Cause, Outcome};
 use user::central;
-use user::messenger::{registry, services, topics_client, Message};
+use user::messenger::services;
 use user::sys;
 
 use super::state::{Phase, Service};
@@ -111,15 +112,14 @@ impl Notices {
         if self.bus.is_none() {
             // A resolve is one registry lookup: no retry loop that could
             // hold the supervisor while `messengerd` is away.
-            let endpoint = registry::resolve(topics_client::NAME).map_err(errno)?;
-            self.bus = Some(central::Bus::from_endpoint(endpoint));
+            self.bus = Some(central::Bus::connect().map_err(errno)?);
         }
         let bus = self.bus.as_mut().ok_or(-1)?;
-        bus.publish_by(
+        bus.publish_within(
             &topic,
             &payload,
             wire::TOPIC_SYSTEM_EVENTS_APP_RETAINED,
-            Some(sys::clock() + PUBLISH_TICKS),
+            Deadline::ticks(PUBLISH_TICKS),
         )
         .map_err(errno)
     }
@@ -127,17 +127,14 @@ impl Notices {
 
 /// `ReportFailure`: remember why the sender's run is failing, when the sender
 /// is the running task of a launched row. Anything else is ignored.
-pub(super) fn report(services: &mut [Service], message: &Message) {
-    let Ok(args) = services::init::wire::decode_report_failure_args(&message.parcel.body) else {
-        return;
-    };
+pub(super) fn report(services: &mut [Service], sender: u64, reason: &str) {
     let Some(row) = services
         .iter_mut()
-        .find(|row| row.launched && row.phase == Phase::Running && row.pid == message.sender)
+        .find(|row| row.launched && row.phase == Phase::Running && row.pid == sender)
     else {
         return;
     };
-    let reason = clean_reason(&args.reason);
+    let reason = clean_reason(reason);
     trace::line!(
         trace::Channel::Init,
         "APP:REASON app={} pid={} reason={reason}",

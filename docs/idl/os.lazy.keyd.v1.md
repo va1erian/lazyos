@@ -36,6 +36,32 @@ or a `Channel`, so no client ever maps a page that holds a key.
 | StoreSecretFor | 1701625789 | sync | `(scope: String, name: String, secret: Bytes, owner: U32) -> ()` |
 | DeleteSecretFor | 268809353 | sync | `(scope: String, name: String, owner: U32) -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.keyd`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Verify | this interface | - | never | never |
+| Sign | this interface | - | 5000 ms | never |
+| Wrap | this interface | - | 5000 ms | never |
+| Unwrap | this interface | - | 5000 ms | never |
+| Random | this interface | - | 5000 ms | never |
+| Generate | this interface | - | 5000 ms | never |
+| List | this interface | - | 5000 ms | safe |
+| Ping | this interface | - | 5000 ms | safe |
+| Provision | this interface | - | never | never |
+| Forget | this interface | - | 5000 ms | never |
+| Restore | this interface | - | 5000 ms | never |
+| StoreSecret | this interface | - | 5000 ms | never |
+| DeleteSecret | this interface | - | 5000 ms | never |
+| ListSecrets | this interface | - | 5000 ms | safe |
+| WifiPmk | this interface | - | never | never |
+| StoreSecretFor | this interface | - | 5000 ms | never |
+| DeleteSecretFor | this interface | - | 5000 ms | never |
+
 ## struct `KeyInfo`
 
 - `id: U64`

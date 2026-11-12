@@ -6,21 +6,10 @@
 use std::ffi::OsStr;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, PoisonError};
-
-use xui_core::app::{Proxy, Ui};
+use xui_core::app::Ui;
 
 use super::{ExplorerWindow, Msg};
 use crate::platform::Pasted;
-
-/// Sends [`Msg::PasteDone`] when dropped.
-struct Ring(Proxy<Msg>);
-
-impl Drop for Ring {
-    fn drop(&mut self) {
-        let _ = self.0.send(Msg::PasteDone);
-    }
-}
 
 impl ExplorerWindow {
     /// The selection as absolute paths, in view order.
@@ -61,46 +50,33 @@ impl ExplorerWindow {
             let dir = self.dir.clone();
             return self.show_pasted(&dir, result, ui);
         };
-        let (dir, slot, proxy) = (
-            self.dir.clone(),
-            Arc::clone(&self.pasted),
-            self.proxy.clone(),
-        );
-        let spawned = std::thread::Builder::new()
-            .name("files-paste".into())
-            .spawn(move || {
-                // Rings on every exit, a panic included, so the window never
-                // waits for an answer that cannot come.
-                let _ring = Ring(proxy);
+        let dir = self.dir.clone();
+        // A panic or a thread that cannot start still answers (`Failed`), so
+        // the window never waits for a paste that cannot finish.
+        xui_work::spawn(
+            &self.paste_to,
+            "files-paste",
+            move || {
                 let result = detached().paste_into(&dir);
-                *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some((dir, result));
-            });
-        match spawned {
-            Ok(_) => {
-                self.pasting = true;
-                self.chrome.status.set_parts(&["Pasting..."]);
-            }
-            Err(error) => {
-                let text = format!("Cannot paste: {error}");
-                self.chrome.status.set_parts(&[&text]);
-            }
-        }
+                (dir, result)
+            },
+            |answer| answer,
+        );
+        self.pasting = true;
+        self.chrome.status.set_parts(&["Pasting..."]);
     }
 
     /// The worker's answer.
     pub(super) fn paste_done(&mut self, ui: &mut Ui<Msg>) {
-        self.pasting = false;
-        let answer = self
-            .pasted
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
-        match answer {
-            Some((dir, result)) => self.show_pasted(&dir, result, ui),
-            None => self
-                .chrome
-                .status
-                .set_parts(&["The paste stopped unexpectedly"]),
+        for answer in self.pasted.drain() {
+            self.pasting = false;
+            match answer {
+                Ok((dir, result)) => self.show_pasted(&dir, result, ui),
+                Err(failed) => {
+                    let text = format!("Cannot paste: {failed}");
+                    self.chrome.status.set_parts(&[&text]);
+                }
+            }
         }
     }
 

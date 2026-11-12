@@ -4,6 +4,7 @@
 //! theme: a bounded `Get` per key, and a missing `confd` keeps what was
 //! read last.
 
+use crate::trace::{self, Channel};
 use lazyshell::notify::settings::{Settings, KEYS};
 
 use super::super::ctx::Ctx;
@@ -40,8 +41,9 @@ impl Feed {
         if self.current.as_ref() == Some(&next) {
             return;
         }
-        println!(
-            "SHELL:NOTIFY:SETTINGS motion={} dnd={} muted={}",
+        trace::line!(
+            Channel::Shell,
+            "NOTIFY:SETTINGS motion={} dnd={} muted={}",
             next.motion.as_str(),
             u8::from(next.policy.dnd),
             next.policy.muted.len()

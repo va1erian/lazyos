@@ -3,8 +3,9 @@
 //! notifications, and the compositor-owned window cycle.
 
 use alloc::vec::Vec;
+use libmessenger::server::{Caller, Fault};
 use user::messenger::display::{self, wire};
-use user::messenger::{self, Endpoint, Message};
+use user::messenger::{self, Endpoint};
 
 use super::compositor::Compositor;
 use super::window::{restore, surface_by_id};
@@ -154,11 +155,20 @@ impl Compositor {
     /// Whether `sender` may use the shell-only calls (`ListSurfaces`, the
     /// window-management methods, desktop and panel surfaces): the task that
     /// holds the shell subscription, or a privileged identity.
-    pub(super) fn is_shell_caller(&self, message: &Message) -> bool {
+    pub(super) fn is_shell_caller(&self, cx: &Caller) -> bool {
         self.shell
             .as_ref()
-            .is_some_and(|shell| shell.task == message.sender && !shell.dead)
-            || super::protocol::is_privileged(message)
+            .is_some_and(|shell| shell.task == cx.sender && !shell.dead)
+            || super::protocol::privileged(cx)
+    }
+
+    /// `EACCES` unless the caller is the shell (see [`Self::is_shell_caller`]).
+    pub(super) fn require_shell(&self, cx: &Caller) -> Result<(), Fault> {
+        if self.is_shell_caller(cx) {
+            Ok(())
+        } else {
+            Err(Fault::from_syscall(user::messenger::errno::EACCES))
+        }
     }
 
     /// Drop the subscribers whose endpoint was found closed. Losing the shell
@@ -176,19 +186,28 @@ impl Compositor {
     }
 
     /// Install `next` as the shell subscriber (or none), closing the endpoint
-    /// it replaces. A different task (or none) taking over resets the work
+    /// it replaces. A different shell (or none) taking over resets the work
     /// area the old shell set and re-fits maximized windows to it.
+    ///
+    /// "The same shell" is the same task whose old subscription is still
+    /// alive: a shell restarted after a crash can reuse the dead one's task
+    /// slot before the once-a-second probe noticed the death, and must not
+    /// inherit a work area that leaves out a taskbar it has not drawn yet
+    /// (it would size the screen from it and place its bar too high).
     pub(super) fn replace_shell(&mut self, next: Option<ShellSub>) {
         let next_task = next.as_ref().map(|sub| sub.task);
         let Some(previous) = core::mem::replace(&mut self.shell, next) else {
             return;
         };
+        let same_shell = next_task == Some(previous.task)
+            && !previous.dead
+            && super::reap::alive(previous.events, &mut self.scratch);
         // The panel keys were the old shell's: a new one starts without.
-        if next_task != Some(previous.task) {
+        if !same_shell {
             self.set_panel_keys(false);
         }
         let _ = Endpoint::from_raw(previous.events).close();
-        if next_task != Some(previous.task) && self.work.take().is_some() {
+        if !same_shell && self.work.take().is_some() {
             self.reflow_maximized();
             self.repaint_full();
         }

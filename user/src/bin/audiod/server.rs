@@ -17,8 +17,9 @@ use user::trace;
 use audiomix::outputs::{card_id, Outputs};
 use audiomix::service::{self, errno as mix_errno, Outcome, Request};
 use audiomix::{Config, Mixer};
+use libmessenger::server::{fault_reply, Fault};
 use user::messenger::audio::{self as api, wire};
-use user::messenger::{registry, services, Endpoint, Error as MsgError, Message, Parcel};
+use user::messenger::{registry, Endpoint, Message, Parcel};
 use user::sys;
 
 use super::card::Card;
@@ -334,5 +335,5 @@ impl Server {
 
 /// The error reply carrying `code` (a positive errno).
 fn error_parcel(interface: u64, method: u32, code: i64) -> Parcel {
-    services::error_reply(interface, method, MsgError::Errno(-code))
+    fault_reply(interface, method, &Fault::from_syscall(code))
 }

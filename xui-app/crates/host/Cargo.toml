@@ -1,0 +1,22 @@
+# The seam between a portable app crate and the platform it runs on
+# (docs/client-api-plan.md 4.2): the file system the pickers browse, the
+# folders an app starts in, a launcher, the one atomic write, and the evidence
+# a crate reports to its host. Depends on `xui-core` only, so the portable,
+# host-tested crates (archiver, pdfview, videoview, writer, settings,
+# confd-editor) reach it without `xui-app`; `xui_app::AppContext` implements
+# it.
+[package]
+name = "xui-host"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "The platform seam of the portable xui app crates"
+
+[dependencies]
+xui-core = { git = "https://github.com/va1erian/xui", rev = "832c61f29419bf31a0518a47e050b15c97b316e3" }
+xui-work = { path = "../work" }
+# The value type confd stores, so a typed setting lands in the same keys.
+confd = { path = "../../../libs/confd" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

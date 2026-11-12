@@ -47,6 +47,8 @@ spin = "0.9"
 # Display buffer-slot state machines (issue #361), shared by `xuid` and clients.
 surfbuf = { path = "../libs/surfbuf" }
 messenger-generated = { path = "../libs/generated" }
+# messengerd's topics tables (and the `Qos` every topics client names).
+topicsbroker = { path = "../libs/topicsbroker" }
 # Time-zone and DST resolution for `timed` (issue #369).
 timezone = { path = "../libs/timed" }
 # SNTP for `timed` (docs/ntp-plan.md): packet, step policy, schedule.

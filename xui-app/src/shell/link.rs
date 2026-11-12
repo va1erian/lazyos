@@ -6,6 +6,7 @@
 //! compositor answers. Events are drained on every heartbeat without parking:
 //! the channel counters say whether anything is queued.
 
+use crate::trace::{self, Channel};
 use std::rc::Rc;
 
 use lazyshell::taskbar::{ChangeKind, Delta, Role, Surface};
@@ -33,7 +34,7 @@ pub fn subscribe(client: Client) -> u64 {
             Ok(events) => return events,
             Err(code) => {
                 if !logged {
-                    println!("SHELL:SUBSCRIBE:RETRY err={}", -code);
+                    trace::line!(Channel::Shell, "SUBSCRIBE:RETRY err={}", -code);
                     logged = true;
                 }
                 sys::sleep_millis(RETRY_MILLIS);
@@ -114,8 +115,10 @@ pub fn apply_change(ctx: &Ctx, change: &SurfaceChange) {
         .apply(change_kind(change.kind), &surface);
     match delta {
         Delta::None => return,
-        Delta::Added(id, title) => println!("SHELL:TASKBAR:ADD id={id} title={title}"),
-        Delta::Removed(id) => println!("SHELL:TASKBAR:REMOVE id={id}"),
+        Delta::Added(id, title) => {
+            trace::line!(Channel::Shell, "TASKBAR:ADD id={id} title={title}")
+        }
+        Delta::Removed(id) => trace::line!(Channel::Shell, "TASKBAR:REMOVE id={id}"),
         Delta::Changed => {}
     }
     ctx.bar_changed();

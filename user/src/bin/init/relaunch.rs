@@ -10,9 +10,11 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::central;
 use user::trace;
 
-use user::messenger::{self, errno, router, services, Error, Message, Parcel};
+use libmessenger::server::Caller;
+use user::messenger::{self, errno, services, Error};
 use user::sys::{self, Cred as SysCred, CAP_SETUID};
 
 use super::installed::InstalledApps;
@@ -27,17 +29,16 @@ const SUPERVISOR: SysCred = SysCred::new(0, 0, CAP_SETUID, 0, 0);
 /// `RelaunchApp`.
 pub(super) fn relaunch(
     services: &mut Vec<Service>,
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     installed: &mut InstalledApps,
-    message: &Message,
-) -> messenger::Result<Parcel> {
-    let args = services::init::wire::decode_relaunch_app_args(&message.parcel.body)
-        .map_err(Error::Parcel)?;
-    if !super::reload::authorized(message) || !dbgwire::control::valid_app_id(&args.app) {
+    cx: &Caller,
+    app: &str,
+) -> messenger::Result<services::init::wire::RelaunchAppReply> {
+    if !super::reload::authorized(cx) || !dbgwire::control::valid_app_id(app) {
         trace::line!(
             trace::Channel::Init,
             "RELAUNCH:DENIED app={}",
-            elevpolicy::audit::token(&args.app)
+            elevpolicy::audit::token(app)
         );
         return Err(Error::Errno(-errno::EPERM));
     }
@@ -46,9 +47,7 @@ pub(super) fn relaunch(
     }
     // A core app's short alias names the same rows as its `system_name`.
     installed.refresh();
-    let id = installed
-        .find(&args.app)
-        .map_or(args.app.as_str(), |app| app.id);
+    let id = installed.find(app).map_or(app, |found| found.id);
     let again = stop_instances(services, id);
     let stopped = again.len() as u64;
     let mut started = 0;
@@ -74,20 +73,7 @@ pub(super) fn relaunch(
             ),
         }
     }
-    let body =
-        services::init::wire::encode_relaunch_app_reply(&services::init::wire::RelaunchAppReply {
-            stopped,
-            started,
-        })
-        .map_err(Error::Parcel)?;
-    Ok(Parcel {
-        header: services::header(
-            services::init::INTERFACE,
-            services::init::wire::METHOD_RELAUNCHAPP,
-        ),
-        body,
-        ..Parcel::default()
-    })
+    Ok(services::init::wire::RelaunchAppReply { stopped, started })
 }
 
 /// Kill every running instance of `id`, returning where each ran and with

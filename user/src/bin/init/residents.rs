@@ -13,9 +13,9 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use user::trace;
 
+use libmessenger::client::Deadline;
 use user::central;
-use user::messenger::{registry, services, topics_client};
-use user::sys;
+use user::messenger::services;
 
 use super::state::{Phase, Service};
 
@@ -126,16 +126,14 @@ impl Residents {
         let topic = wire::name_session_apps_resident(&session).map_err(|_| -22i64)?;
         let payload = wire::encode_session_apps_resident(value).map_err(|_| -22i64)?;
         if self.bus.is_none() {
-            let endpoint = registry::resolve(topics_client::NAME)
-                .map_err(|error| error.errno().unwrap_or(-5))?;
-            self.bus = Some(central::Bus::from_endpoint(endpoint));
+            self.bus = Some(central::Bus::connect().map_err(|error| error.errno().unwrap_or(-5))?);
         }
         let bus = self.bus.as_mut().ok_or(-1)?;
-        bus.publish_by(
+        bus.publish_within(
             &topic,
             &payload,
             wire::TOPIC_SESSION_APPS_RESIDENT_RETAINED,
-            Some(sys::clock() + PUBLISH_TICKS),
+            Deadline::ticks(PUBLISH_TICKS),
         )
         .map_err(|error| error.errno().unwrap_or(-5))
     }

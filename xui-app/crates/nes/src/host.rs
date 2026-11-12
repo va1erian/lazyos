@@ -55,8 +55,10 @@ pub trait Host {
     fn report(&self, report: Report);
     /// The directory the app keeps its files in.
     fn app_dir(&self) -> PathBuf;
-    /// Where a file picker starts.
-    fn default_dir(&self) -> PathBuf;
+    /// The ROMs opened last, newest first (the welcome screen lists them).
+    fn recent(&self) -> Vec<PathBuf>;
+    /// Remembers `rom` as the newest.
+    fn remember(&self, rom: &std::path::Path);
     /// The sample ROM the system ships, when it is installed.
     fn sample_rom(&self) -> Option<PathBuf>;
 }

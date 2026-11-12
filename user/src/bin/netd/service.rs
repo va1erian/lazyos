@@ -9,11 +9,13 @@
 
 use alloc::vec::Vec;
 
+use libmessenger::server::{fault_reply, Caller, Fault};
 use netstack::stack::{PingError, PingOutcome};
 use netstack::{Net, NetPingResult};
 use user::messenger::netsock as sock_api;
+use user::messenger::netsock::wire as sock_wire;
 use user::messenger::netstack::{self as api, wire};
-use user::messenger::{errno, services, Endpoint, Error as MsgError, Message, Parcel};
+use user::messenger::{errno, Endpoint, Error as MsgError, Message, Parcel};
 
 use super::inet::Inet;
 use super::owners::Tasks;
@@ -40,6 +42,18 @@ struct Parked {
     sender: u64,
 }
 
+/// The request being answered, set by [`Netd::dispatch`].
+#[derive(Default)]
+pub(super) struct Call {
+    /// Its transaction, when it expects a reply.
+    pub(super) txn: Option<u64>,
+    pub(super) now_ms: i64,
+    /// The socket owner a socket call resolved to (for the denial audit).
+    pub(super) owner: u64,
+    /// The reply is parked: `dispatch` answers nothing.
+    pub(super) held: bool,
+}
+
 pub(super) struct Netd {
     /// Every interface and the socket table over them.
     pub(super) net: Net,
@@ -52,6 +66,8 @@ pub(super) struct Netd {
     pub(super) tasks: Tasks,
     /// The pump for Linux programs' sockets (stage N5).
     pub(super) inet: Inet,
+    /// The request being answered (what a method that parks its call needs).
+    pub(super) call: Call,
     /// Replies the event loop sends before it waits again.
     pub(super) outbox: Vec<(u64, Parcel)>,
     /// A `Reattach` call asked for every attachment to be rebuilt.
@@ -70,88 +86,78 @@ impl Netd {
             sock_stats: SockStats::default(),
             tasks: Tasks::new(),
             inet: Inet::new(),
+            call: Call::default(),
             outbox: Vec::new(),
             reattach: false,
             publisher: Publisher::new(),
         }
     }
 
-    /// Route one request. `Ok(Some)` is the reply; `Ok(None)` means the call
-    /// was parked and will be answered later; `Err` becomes the error reply.
-    pub(super) fn dispatch(&mut self, message: &Message, now_ms: i64) -> Result<Option<Parcel>> {
-        if message.interface_id() == sock_api::INTERFACE {
-            return self.dispatch_socket(message, now_ms);
-        }
-        if message.interface_id() != api::INTERFACE {
-            return Err(err(errno::EINVAL));
-        }
-        let method = message.method();
-        let body = match method {
-            wire::METHOD_INTERFACES => self.interfaces()?,
-            wire::METHOD_ADDRESSES => self.addresses()?,
-            wire::METHOD_ROUTES => self.routes()?,
-            wire::METHOD_STATS => self.stats()?,
-            wire::METHOD_PING => return self.ping(message, now_ms),
-            wire::METHOD_RESOLVE => return self.resolve(message, now_ms),
-            wire::METHOD_RENEW => {
-                self.net.renew();
-                Vec::new()
-            }
-            wire::METHOD_REATTACH => {
-                self.reattach = true;
-                Vec::new()
-            }
-            _ => return Err(err(errno::EINVAL)),
+    /// Answer one request through the generated servers. `None` means the
+    /// call was parked (a method that parks calls [`Netd::hold`]): its reply
+    /// is sent later, from the event loop.
+    pub(super) fn dispatch(&mut self, message: &Message, now_ms: i64) -> Option<Parcel> {
+        self.call = Call {
+            txn: message.txn,
+            now_ms,
+            ..Call::default()
         };
-        Ok(Some(api::parcel(method, body)))
+        let reply = if message.interface_id() == sock_api::INTERFACE {
+            sock_wire::dispatch(self, message)
+        } else {
+            wire::dispatch(self, message)
+        };
+        if self.sock_stats.owner_denied.replace(false) {
+            self.note_denied(self.call.owner, message.method());
+        }
+        (!self.call.held).then_some(reply)
+    }
+
+    /// Keep the current call's transaction: the reply is sent when the stack
+    /// has the result. The returned fault is what the generated server frames
+    /// and `dispatch` then drops.
+    pub(super) fn hold(&mut self) -> Fault {
+        self.call.held = true;
+        Fault::unserved()
     }
 
     /// Start a ping and park the call. Every argument is validated before
     /// anything is allocated or sent.
-    fn ping(&mut self, message: &Message, now_ms: i64) -> Result<Option<Parcel>> {
-        let args = wire::decode_ping_args(&message.parcel.body).map_err(MsgError::Parcel)?;
+    fn start_ping(
+        &mut self,
+        sender: u64,
+        dst: &[u8],
+        payload_len: u32,
+        timeout_ms: u32,
+    ) -> Result<()> {
         // A reply needs a transaction; a one-way ping has nobody to answer.
-        let Some(txn) = message.txn else {
+        let Some(txn) = self.call.txn else {
             return Err(err(errno::EINVAL));
         };
-        let dst: [u8; 4] = args
-            .dst
-            .as_slice()
-            .try_into()
-            .map_err(|_| err(errno::EINVAL))?;
-        if args.payload_len > netstack::stack::MAX_PING_PAYLOAD as u32
-            || !(10..=60_000).contains(&args.timeout_ms)
+        let dst: [u8; 4] = dst.try_into().map_err(|_| err(errno::EINVAL))?;
+        if payload_len > netstack::stack::MAX_PING_PAYLOAD as u32
+            || !(10..=60_000).contains(&timeout_ms)
         {
             return Err(err(errno::EINVAL));
         }
-        if self
-            .parked
-            .iter()
-            .filter(|p| p.sender == message.sender)
-            .count()
-            >= PER_CALLER_PINGS
-        {
+        if self.parked.iter().filter(|p| p.sender == sender).count() >= PER_CALLER_PINGS {
             return Err(err(errno::EAGAIN));
         }
         let seq = self
             .net
             .ping(
                 dst,
-                args.payload_len as usize,
-                u64::from(args.timeout_ms),
-                now_ms,
+                payload_len as usize,
+                u64::from(timeout_ms),
+                self.call.now_ms,
             )
             .map_err(|error| match error {
                 PingError::BadArgument => err(errno::EINVAL),
                 PingError::NoAddress | PingError::NoRoute => err(ENETUNREACH),
                 PingError::Busy => err(errno::EAGAIN),
             })?;
-        self.parked.push(Parked {
-            seq,
-            txn,
-            sender: message.sender,
-        });
-        Ok(None)
+        self.parked.push(Parked { seq, txn, sender });
+        Ok(())
     }
 
     /// Answer the parked pings the stack has finished with.
@@ -178,7 +184,7 @@ impl Netd {
                 PingOutcome::TimedOut => Err(err(errno::ETIMEDOUT)),
             };
             let reply = reply.unwrap_or_else(|error| {
-                services::error_reply(api::INTERFACE, wire::METHOD_PING, error)
+                fault_reply(api::INTERFACE, wire::METHOD_PING, &Fault::from(error))
             });
             // A caller that gave up or died has no transaction left: not a fault.
             let _ = server.reply_or_drop(parked.txn, &reply);
@@ -188,5 +194,54 @@ impl Netd {
     /// Publish what changed: addresses, the interface list, the up event.
     pub(super) fn publish_if_changed(&mut self) {
         self.publisher.sync(&self.net, &self.ports);
+    }
+}
+
+impl wire::Server for Netd {
+    fn interfaces(&mut self, _: &Caller) -> core::result::Result<Vec<wire::InterfaceInfo>, Fault> {
+        Ok(super::lists::interface_infos(&self.net, &self.ports))
+    }
+
+    fn addresses(&mut self, _: &Caller) -> core::result::Result<Vec<wire::AddressInfo>, Fault> {
+        Ok(self.address_list())
+    }
+
+    fn routes(&mut self, _: &Caller) -> core::result::Result<Vec<wire::RouteInfo>, Fault> {
+        Ok(self.route_list())
+    }
+
+    fn stats(&mut self, _: &Caller) -> core::result::Result<wire::StackStats, Fault> {
+        Ok(self.stack_stats())
+    }
+
+    fn ping(
+        &mut self,
+        cx: &Caller,
+        dst: Vec<u8>,
+        payload_len: u32,
+        timeout_ms: u32,
+    ) -> core::result::Result<wire::EchoResult, Fault> {
+        self.start_ping(cx.sender, &dst, payload_len, timeout_ms)?;
+        Err(self.hold())
+    }
+
+    fn resolve(
+        &mut self,
+        cx: &Caller,
+        name: alloc::string::String,
+        timeout_ms: u32,
+    ) -> core::result::Result<Vec<Vec<u8>>, Fault> {
+        self.start_lookup(cx.sender, &name, timeout_ms)?;
+        Err(self.hold())
+    }
+
+    fn renew(&mut self, _: &Caller) -> core::result::Result<(), Fault> {
+        self.net.renew();
+        Ok(())
+    }
+
+    fn reattach(&mut self, _: &Caller) -> core::result::Result<(), Fault> {
+        self.reattach = true;
+        Ok(())
     }
 }

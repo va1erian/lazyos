@@ -73,6 +73,12 @@ fn search_ranks_names_before_fields_before_docs() {
     assert!(hits
         .iter()
         .any(|h| h.id == NodeId::method("os.lazy.timed.v1", "SetTime")));
+    // An interface's name and a method's name find the method, whatever
+    // the method's own doc mentions.
+    let hits = catalog.search("confd get", 50);
+    assert!(hits
+        .iter()
+        .any(|h| h.id == NodeId::method("os.lazy.confd.v1", "Get")));
     // A doc word finds the text.
     let hits = catalog.search("retained time/tick", 50);
     assert!(hits

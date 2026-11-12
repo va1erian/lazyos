@@ -9,9 +9,6 @@ use user::messenger::clipboard;
 use user::sys;
 use user::trace;
 
-use super::app::park_tick;
-use super::CONNECT_ATTEMPTS;
-
 /// Start both display clients as children (so the clipboard session scope sees
 /// one session) and reap them for the life of the boot.
 pub(super) fn launcher() -> ! {
@@ -39,12 +36,9 @@ pub(super) fn launcher() -> ! {
 /// `LAZYOS_XUID=1` boot has no supervisor, and the drag's token transfer needs
 /// the service. In services mode `init` already runs it, so this is a no-op.
 fn ensure_clipboard() {
-    for _ in 0..CONNECT_ATTEMPTS {
-        if clipboard::Client::connect().is_ok() {
-            sys::write_str("dragdemo: clipboardd already present\n");
-            return;
-        }
-        park_tick();
+    if clipboard::Client::connect(clipboard::Nested).is_ok() {
+        sys::write_str("dragdemo: clipboardd already present\n");
+        return;
     }
     match sys::spawn_native(fhs::bin::CLIPBOARDD, &[]) {
         Some(pid) => sys::write_str(&format!("dragdemo: started clipboardd (pid {pid})\n")),

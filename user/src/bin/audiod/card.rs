@@ -12,9 +12,10 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use audioclient::{wire, Client, Error, Result, RingBuffer, Transport};
+use audioclient::{wire, Client, Error, Result, RingBuffer, Runtime};
 use audiomix::Mixer;
-use user::audio::{Native, NativeRing};
+use user::audio::{self, NativeRing};
+use user::messenger::client::Native;
 
 use super::ring::MappedRing;
 
@@ -57,7 +58,7 @@ impl Card {
     /// mixer's ring to it.
     pub(super) fn open(id: &str, now: u64) -> Result<Card> {
         let name = alloc::format!("{}{id}", audiomix::outputs::CARD_PREFIX);
-        let client = Client::new(Native::connect(&name)?);
+        let client = audio::connect_once(&name)?;
         let label = client
             .info()
             .map(|info| info.name)
@@ -81,10 +82,12 @@ impl Card {
         }
         let period_frames = u64::from(grant.period_bytes / FRAME_BYTES);
         let ring_bytes = (grant.period_bytes * grant.periods) as usize;
-        let ring = client.transport().create_ring(ring_bytes).map_err(close)?;
+        let ring = audio::Runtime
+            .create_ring(ring_bytes)
+            .map_err(|errno| close(Error::transport(errno)))?;
         client
-            .attach_ring(grant.stream, ring.share())
-            .map_err(close)?;
+            .attach_ring(grant.stream, ring.share().buffer())
+            .map_err(|error| close(error.into()))?;
         Ok(Card {
             name: label,
             stream: grant.stream,

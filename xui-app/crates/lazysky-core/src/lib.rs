@@ -134,7 +134,7 @@ pub enum Request {
     Configure { seq: u64, service: String },
     /// Writes `settings.toml` (on the api thread, never the UI's).
     SaveSettings { seq: u64, settings: Settings },
-    /// Saves the picture at `url` to `path` (through `<path>.part`).
+    /// Saves the picture at `url` to `path` (atomically).
     SaveImage {
         seq: u64,
         url: String,

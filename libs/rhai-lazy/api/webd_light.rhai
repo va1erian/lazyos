@@ -19,7 +19,7 @@
 //
 // Like `os.lazy.display.v1`, one interface carries both directions. **Calls**
 // (app to webd) are ordinary request/reply methods, input and slot returns
-// are `oneway`. **Events** (webd to app) are `oneway` methods sent on the
+// are `oneway`. **Events** (webd to app) are `event` methods sent on the
 // endpoint the app moved in with `CreateView` (`events`): `Frame`, `State`,
 // `Scroll`, `LinkClicked`, `ClipboardWrite`, `ViewLost` and `Ping`. Method
 // ids are append-only from the first release; the full interface reuses
@@ -52,6 +52,9 @@
 
 // The interface every function of this module calls.
 export const INTERFACE = "os.lazy.webd.light.v1";
+
+// The registry name the interface is served under (`service` in the `.midl`).
+export const SERVICE = "app.os.lazy.webd.light";
 
 /// The connected service: `invoke`, `invoke_oneway` and method sugar
 /// (`docs/rhai/msg.md`). Resolved once per process.
@@ -142,77 +145,6 @@ fn key(view, press, keysym, text, mods) {
 /// One-way: returns `()` once the message is queued.
 fn focus(view, focused) {
     msg::connect("os.lazy.webd.light.v1").invoke("Focus", [view, focused])
-}
-
-/// `Frame(view: U64, slot: U32, seq: U64, width: U32, height: U32) -> () oneway`
-///
-/// Event: slot `slot` of `view` holds frame number `seq` (counting from 1)
-/// of `width` x `height` pixels. The slot is the app's until `ReleaseSlot`.
-///
-/// One-way: returns `()` once the message is queued.
-fn frame(view, slot, seq, width, height) {
-    msg::connect("os.lazy.webd.light.v1").invoke("Frame", [view, slot, seq, width, height])
-}
-
-/// `State(view: U64, title: String, loading: Bool, finished: U32, error: String) -> () oneway`
-///
-/// Event: what the page says about itself. `loading` while a load is in
-/// progress; `finished` counts the loads that have finished (so the first
-/// paint of a `LoadHtml` can be told from the old page's); `error` is
-/// empty or a short reason a load failed. Texts are cut at 48 KiB.
-///
-/// One-way: returns `()` once the message is queued.
-fn state(view, title, loading, finished, error) {
-    msg::connect("os.lazy.webd.light.v1").invoke("State", [view, title, loading, finished, error])
-}
-
-/// `Scroll(view: U64, x: I32, y: I32, at_bottom: Bool) -> () oneway`
-///
-/// Event: the page scrolled to `(x, y)` in document pixels; `at_bottom`
-/// when it cannot scroll further.
-///
-/// One-way: returns `()` once the message is queued.
-fn scroll(view, x, y, at_bottom) {
-    msg::connect("os.lazy.webd.light.v1").invoke("Scroll", [view, x, y, at_bottom])
-}
-
-/// `LinkClicked(view: U64, url: String) -> () oneway`
-///
-/// Event: a link was clicked, a form submitted or a meta refresh fired,
-/// and nothing loaded. `url` is absolute.
-///
-/// One-way: returns `()` once the message is queued.
-fn link_clicked(view, url) {
-    msg::connect("os.lazy.webd.light.v1").invoke("LinkClicked", [view, url])
-}
-
-/// `ClipboardWrite(view: U64, text: String) -> () oneway`
-///
-/// Event: the user copied `text` out of the page.
-///
-/// One-way: returns `()` once the message is queued.
-fn clipboard_write(view, text) {
-    msg::connect("os.lazy.webd.light.v1").invoke("ClipboardWrite", [view, text])
-}
-
-/// `ViewLost(view: U64, reason: U32) -> () oneway`
-///
-/// Event: the view cannot go on (`reason` is a `LostReason`). The id stays
-/// the app's to `DestroyView`; the app makes a new view and loads again.
-///
-/// One-way: returns `()` once the message is queued.
-fn view_lost(view, reason) {
-    msg::connect("os.lazy.webd.light.v1").invoke("ViewLost", [view, reason])
-}
-
-/// `Ping() -> () oneway`
-///
-/// Event: liveness probe, about once a second; nothing to answer. `EPIPE`
-/// on the endpoint tells webd the app is gone and ends its views.
-///
-/// One-way: returns `()` once the message is queued.
-fn ping() {
-    msg::connect("os.lazy.webd.light.v1").invoke("Ping", [])
 }
 
 // Not callable from a script (the request carries a channel, buffer

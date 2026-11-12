@@ -14,6 +14,9 @@
 // The interface every function of this module calls.
 export const INTERFACE = "os.lazy.confd.v1";
 
+// The registry name the interface is served under (`service` in the `.midl`).
+export const SERVICE = "os.lazy.confd";
+
 /// The connected service: `invoke`, `invoke_oneway` and method sugar
 /// (`docs/rhai/msg.md`). Resolved once per process.
 fn connect() {
@@ -23,7 +26,7 @@ fn connect() {
 /// `Get(path: String) -> (value: Option<Value>)`
 ///
 /// Read the value at `path`. An absent path has an empty `value`.
-/// A path the caller may not read fails with `CONFD_DENIED`.
+/// A path the caller may not read fails with `Denied`.
 fn get(path) {
     msg::connect("os.lazy.confd.v1").invoke("Get", [path])
 }
@@ -61,10 +64,9 @@ fn info() {
 
 /// A `Value` with every field at its zero value.
 ///
-/// One typed value. `kind` selects which optional payload field is set:
-/// `0` bool, `1` i64, `2` u64, `3` string, `4` bytes.
+/// One typed value. `kind` selects which optional payload field is set.
 fn new_value() {
-    #{ kind: 0, bool_value: (), i64_value: (), u64_value: (), str_value: (), bytes_value: () }
+    #{ kind: "Bool", bool_value: (), i64_value: (), u64_value: (), str_value: (), bytes_value: () }
 }
 
 /// A `Change` with every field at its zero value.
@@ -75,6 +77,43 @@ fn new_value() {
 fn new_change() {
     #{ path: "", deleted: false }
 }
+
+// The variants of `Kind`, in wire order.
+export const KIND = ["Bool", "I64", "U64", "Str", "Bytes"];
+
+export const KIND_BOOL = "Bool";
+
+export const KIND_I64 = "I64";
+
+export const KIND_U64 = "U64";
+
+export const KIND_STR = "Str";
+
+export const KIND_BYTES = "Bytes";
+
+// Service error `NotFound`: the code a failed call carries.
+// No value is stored at the path.
+export const ERROR_NOT_FOUND = 1001;
+
+// Service error `BadPath`: the code a failed call carries.
+// The path is not a valid confd path.
+export const ERROR_BAD_PATH = 1002;
+
+// Service error `TooLarge`: the code a failed call carries.
+// The value or the store exceeds a confd size limit.
+export const ERROR_TOO_LARGE = 1003;
+
+// Service error `Denied`: the code a failed call carries.
+// The caller may not access that path.
+export const ERROR_DENIED = 1004;
+
+// Service error `Io`: the code a failed call carries.
+// The store could not be read or written; safe to retry.
+export const ERROR_IO = 1005;
+
+// Service error `BadValue`: the code a failed call carries.
+// The value is malformed (a `kind` whose payload is missing).
+export const ERROR_BAD_VALUE = 1006;
 
 // Filter for every event of the topic `system/confd/changed/{path...}` (payload `Change`, qos latest).
 // Announced for every committed `sys/` change (issue #260): the topic is

@@ -10,7 +10,7 @@ compositor) are ordinary request/reply methods: `CreateSurface`,
 `AttachBuffer`, `Commit`, `DestroySurface`, `DragStart`, `DragCancel`,
 `ListSurfaces`, `GetWorkArea`, `Subscribe`, `GetTheme`, `SetTitle`,
 `HintOpenOrigin` and `SetSizeHints`. **Events** (compositor to app, or to
-the shell subscriber) are `oneway` methods sent on the event endpoint the
+the shell subscriber) are `event` methods sent on the event endpoint the
 client transferred: `PointerMove`, `PointerDown`, `PointerUp`,
 `PointerWheel`, `KeyDown`, `KeyUp`, `WindowClose`, `Configure`, the
 drag-and-drop set
@@ -41,51 +41,86 @@ fields, which never use that id.
 | AttachBuffer | 2 | sync | `(surface: U64, pixels: Buffer) -> ()` |
 | Commit | 3 | sync | `(surface: U64, x: U32, y: U32, w: U32, h: U32) -> ()` |
 | DestroySurface | 4 | sync | `(surface: U64) -> ()` |
-| PointerMove | 5 | oneway | `(x: I32, y: I32) -> ()` |
-| PointerDown | 6 | oneway | `(x: I32, y: I32, button: U32) -> ()` |
-| PointerUp | 7 | oneway | `(x: I32, y: I32, button: U32) -> ()` |
-| KeyDown | 8 | oneway | `(key: U32) -> ()` |
-| KeyUp | 9 | oneway | `(key: U32) -> ()` |
-| WindowClose | 10 | oneway | `() -> ()` |
+| PointerMove | 5 | event | `(x: I32, y: I32) -> ()` |
+| PointerDown | 6 | event | `(x: I32, y: I32, button: U32) -> ()` |
+| PointerUp | 7 | event | `(x: I32, y: I32, button: U32) -> ()` |
+| KeyDown | 8 | event | `(key: U32) -> ()` |
+| KeyUp | 9 | event | `(key: U32) -> ()` |
+| WindowClose | 10 | event | `() -> ()` |
 | DragStart | 11 | sync | `(surface: U64, token: U64, mime: String) -> ()` |
 | DragCancel | 12 | sync | `(surface: U64) -> ()` |
-| DragEnter | 13 | oneway | `(x: I32, y: I32, mime: String) -> ()` |
-| DragOver | 14 | oneway | `(x: I32, y: I32) -> ()` |
-| DragLeave | 15 | oneway | `() -> ()` |
-| Drop | 16 | oneway | `(x: I32, y: I32, token: U64, mime: String, modifiers: Option<U32>, source: Option<U64>) -> ()` |
-| DragEnded | 17 | oneway | `(dropped: Bool) -> ()` |
+| DragEnter | 13 | event | `(x: I32, y: I32, mime: String) -> ()` |
+| DragOver | 14 | event | `(x: I32, y: I32) -> ()` |
+| DragLeave | 15 | event | `() -> ()` |
+| Drop | 16 | event | `(x: I32, y: I32, token: U64, mime: String, modifiers: Option<U32>, source: Option<U64>) -> ()` |
+| DragEnded | 17 | event | `(dropped: Bool) -> ()` |
 | ListSurfaces | 18 | sync | `() -> (surfaces: Array<SurfaceRow>)` |
 | GetWorkArea | 19 | sync | `() -> (x: I32, y: I32, w: I32, h: I32)` |
 | Subscribe | 20 | sync | `(subscriber_role: String, events: Channel<os.lazy.display.v1>) -> ()` |
 | GetTheme | 21 | sync | `() -> (title_bg_active: U32, title_bg_inactive: U32, border: U32, taskbar: U32, text: U32, mode: String, accent: U32)` |
-| SurfaceChanged | 22 | oneway | `(surface: U64, kind: U32, x: I32, y: I32, w: I32, h: I32, minimized: Bool, focused: Bool, title: Option<String>, role: U32, maximized: Bool) -> ()` |
-| FocusChanged | 23 | oneway | `(surface: Option<U64>) -> ()` |
-| StartMenu | 24 | oneway | `() -> ()` |
+| SurfaceChanged | 22 | event | `(surface: U64, kind: U32, x: I32, y: I32, w: I32, h: I32, minimized: Bool, focused: Bool, title: Option<String>, role: U32, maximized: Bool) -> ()` |
+| FocusChanged | 23 | event | `(surface: Option<U64>) -> ()` |
+| StartMenu | 24 | event | `() -> ()` |
 | AttachBufferSlot | 25 | sync | `(surface: U64, slot: U32, pixels: Buffer) -> ()` |
 | Present | 26 | oneway | `(surface: U64, slot: U32, seq: U64, damage: Array<Rect>) -> ()` |
-| BufferRelease | 27 | oneway | `(surface: U64, slot: U32) -> ()` |
-| FrameDone | 28 | oneway | `(surface: U64, seq: U64) -> ()` |
+| BufferRelease | 27 | event | `(surface: U64, slot: U32) -> ()` |
+| FrameDone | 28 | event | `(surface: U64, seq: U64) -> ()` |
 | SetTitle | 29 | sync | `(surface: U64, title: String) -> ()` |
 | HintOpenOrigin | 30 | sync | `(surface: U64, x: I32, y: I32, w: U32, h: U32) -> ()` |
-| PointerWheel | 31 | oneway | `(x: I32, y: I32, delta: I32) -> ()` |
+| PointerWheel | 31 | event | `(x: I32, y: I32, delta: I32) -> ()` |
 | SetSizeHints | 32 | sync | `(surface: U64, min_w: U32, min_h: U32, max_w: U32, max_h: U32) -> ()` |
-| Configure | 33 | oneway | `(surface: U64, width: U32, height: U32, state: U32) -> ()` |
+| Configure | 33 | event | `(surface: U64, width: U32, height: U32, state: U32) -> ()` |
 | RequestSize | 34 | sync | `(surface: U64, width: U32, height: U32) -> ()` |
-| Ping | 35 | oneway | `() -> ()` |
+| Ping | 35 | event | `() -> ()` |
 | PlaceSurface | 36 | sync | `(surface: U64, x: I32, y: I32) -> ()` |
 | ActivateSurface | 37 | sync | `(surface: U64) -> ()` |
 | MinimizeSurface | 38 | sync | `(surface: U64) -> ()` |
 | SetWorkArea | 39 | sync | `(x: I32, y: I32, w: I32, h: I32) -> ()` |
 | SetIconGeometry | 40 | sync | `(surface: U64, x: I32, y: I32, w: I32, h: I32) -> ()` |
 | HintLaunchOrigin | 41 | sync | `(x: I32, y: I32, w: U32, h: U32) -> ()` |
-| Dismiss | 42 | oneway | `() -> ()` |
+| Dismiss | 42 | event | `() -> ()` |
 | GetOutput | 43 | sync | `() -> (width: U32, height: U32, scale: U32, refresh_millihz: U32)` |
 | AllowPopup | 44 | sync | `(task: U64, token: U64, x: I32, y: I32, w: U32, h: U32) -> ()` |
 | GrabPanelKeys | 45 | sync | `(grab: Bool) -> ()` |
-| PanelKey | 46 | oneway | `(key: U32) -> ()` |
-| TrayKeys | 47 | oneway | `() -> ()` |
+| PanelKey | 46 | event | `(key: U32) -> ()` |
+| TrayKeys | 47 | event | `() -> ()` |
 | SetCloseMode | 48 | sync | `(surface: U64, ask: Bool) -> ()` |
 | ActivateApp | 49 | sync | `(label: U32, session: U64) -> ()` |
+
+## Service
+
+- Served under the registry name `os.lazy.display.v1` (together with `os.lazy.display.cursor.v1`); registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| CreateSurface | this interface | - | 1000 ms | never |
+| AttachBuffer | this interface | - | 5000 ms | never |
+| Commit | this interface | - | 5000 ms | never |
+| DestroySurface | this interface | - | 1000 ms | never |
+| DragStart | this interface | - | 1000 ms | never |
+| DragCancel | this interface | - | 1000 ms | never |
+| ListSurfaces | this interface | - | 2000 ms | safe |
+| GetWorkArea | this interface | - | 2000 ms | safe |
+| Subscribe | this interface | - | 2000 ms | never |
+| GetTheme | this interface | - | 5000 ms | safe |
+| AttachBufferSlot | this interface | - | 1000 ms | never |
+| SetTitle | this interface | - | 1000 ms | never |
+| HintOpenOrigin | this interface | - | 500 ms | never |
+| SetSizeHints | this interface | - | 1000 ms | never |
+| RequestSize | this interface | - | 1000 ms | never |
+| PlaceSurface | this interface | - | 2000 ms | never |
+| ActivateSurface | this interface | - | 2000 ms | never |
+| MinimizeSurface | this interface | - | 2000 ms | never |
+| SetWorkArea | this interface | - | 2000 ms | safe |
+| SetIconGeometry | this interface | - | 2000 ms | never |
+| HintLaunchOrigin | this interface | - | 2000 ms | never |
+| GetOutput | this interface | - | 500 ms | safe |
+| AllowPopup | this interface | - | 5000 ms | never |
+| GrabPanelKeys | this interface | - | 2000 ms | never |
+| SetCloseMode | this interface | - | 1000 ms | never |
+| ActivateApp | this interface | - | 2000 ms | never |
 
 ## Objects
 

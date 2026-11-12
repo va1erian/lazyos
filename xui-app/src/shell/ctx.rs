@@ -6,6 +6,7 @@
 //! they share this context through an `Rc`, and every mutable part sits in a
 //! `RefCell`/`Cell` that is never borrowed across a call into another window.
 
+use crate::trace::{self, Channel};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -246,9 +247,12 @@ impl Ctx {
         let result = services::launch(app, arg);
         match result {
             Ok((pid, existing)) => {
-                println!("SHELL:LAUNCH:PASS app={app} pid={pid} existing={existing}")
+                trace::line!(
+                    Channel::Shell,
+                    "LAUNCH:PASS app={app} pid={pid} existing={existing}"
+                )
             }
-            Err(code) => println!("SHELL:LAUNCH:FAIL app={app} err={}", -code),
+            Err(code) => trace::line!(Channel::Shell, "LAUNCH:FAIL app={app} err={}", -code),
         }
         result.map(|(pid, _)| pid)
     }

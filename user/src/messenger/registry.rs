@@ -144,9 +144,21 @@ fn encode(parcel: &Parcel) -> Result<Vec<u8>> {
 /// Run one registry request through the native gate with `target` as the
 /// task whose table the operation touches.
 fn registry_call(op_code: u64, target: u64, parcel: &Parcel) -> Result<MsgResult> {
+    registry_call_until(op_code, target, parcel, 0)
+}
+
+/// [`registry_call`] for an op that may park: `deadline` is the absolute PIT
+/// tick it ends at, `0` for ever.
+fn registry_call_until(
+    op_code: u64,
+    target: u64,
+    parcel: &Parcel,
+    deadline: u64,
+) -> Result<MsgResult> {
     let bytes = encode(parcel)?;
     let args = MsgArgs {
         txn_id: target,
+        deadline,
         parcel_ptr: bytes.as_ptr() as u64,
         parcel_len: bytes.len() as u64,
         ..MsgArgs::default()
@@ -202,6 +214,15 @@ fn resolve_for(target: u64, name: &str) -> Result<Endpoint> {
 /// Resolve `name`; the returned endpoint is open in this task table.
 pub fn resolve(name: &str) -> Result<Endpoint> {
     resolve_for(REGISTRY_TARGET_SELF, name)
+}
+
+/// [`resolve`] for a name that may not be registered yet: the kernel parks
+/// this task until the name registers or `deadline` (an absolute PIT tick;
+/// `0` waits for ever) passes, and nothing polls.
+pub fn wait_for(name: &str, deadline: u64) -> Result<Endpoint> {
+    let parcel = request_parcel(wire::METHOD_WAITFOR, name_body(name)?);
+    let result = registry_call_until(op::WAIT_FOR, REGISTRY_TARGET_SELF, &parcel, deadline)?;
+    Ok(Endpoint::from_raw(result.value))
 }
 
 /// Open a private connection to `name` (issue #483): unlike [`resolve`],
@@ -304,6 +325,9 @@ pub fn serve_request(request: &Parcel, sender: u64) -> Result<Parcel> {
             let entries = list()?;
             encode_entries(&entries)
         }
+        // A wait would park the daemon for every client: the kernel gate
+        // (`op::WAIT_FOR`, `registry::wait_for`) serves it, never `messengerd`.
+        wire::METHOD_WAITFOR => Err(Error::Errno(-errno::ENOSYS)),
         _ => Err(Error::Errno(-errno::EINVAL)),
     }
 }

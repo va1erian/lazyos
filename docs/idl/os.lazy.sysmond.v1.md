@@ -20,6 +20,16 @@ polling `Snapshot`.
 |---|---|---|---|
 | Snapshot | 1312231341 | sync | `() -> (data: Bytes)` |
 
+## Service
+
+- Served under the registry name `os.lazy.sysmond`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Snapshot | this interface | - | 5000 ms | safe |
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

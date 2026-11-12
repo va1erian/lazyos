@@ -68,8 +68,9 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use libmessenger::server::{Caller, Fault};
 use user::messenger::keyd::wire as api;
-use user::messenger::{self, errno, keyd as wire, registry, Error, Message, Parcel};
+use user::messenger::{self, errno, keyd as wire, registry, Error};
 use user::sys;
 use user::trace;
 
@@ -88,7 +89,7 @@ mod sweep;
 
 use appsecrets::AppSecrets;
 use secrets::{denied_error, Secrets};
-use secretstore::{authorize, Caller, Op, Owner};
+use secretstore::{authorize, Op, Owner};
 use selftest::{self_test, SELF_TEST_OWNER};
 use state::{Keyd, MAX_BYTES, MAX_TEXT};
 use sweep::Sweep;
@@ -155,10 +156,18 @@ fn run() -> messenger::Result<()> {
             Err(error) => return Err(error),
         };
         sweep.tick(&mut app_secrets, &mut keyd.entropy);
-        let method = message.method();
-        let reply = match dispatch(&mut keyd, &mut secrets, &mut app_secrets, &message) {
-            Ok(reply) => reply,
-            Err(error) => wire::error_reply_on(message.interface_id(), method, error),
+        let reply = if message.interface_id() == appsecret::INTERFACE {
+            let mut app = appserve::Handler {
+                entropy: &mut keyd.entropy,
+                secrets: &mut app_secrets,
+            };
+            appsecret::wire::dispatch(&mut app, &message)
+        } else {
+            let mut handler = Handler {
+                keyd: &mut keyd,
+                secrets: &mut secrets,
+            };
+            api::dispatch(&mut handler, &message)
         };
         if let Some(txn) = message.txn {
             server.reply_or_drop(txn, &reply)?;
@@ -187,228 +196,178 @@ fn load_db(keyd: &mut Keyd) {
     }
 }
 
-/// Whether `message` comes from the accounts service: its system uid,
+/// Whether the request comes from the accounts service: its system uid,
 /// unlabelled and outside any session (kernel-stamped, so unforgeable).
-fn from_accountsd(message: &Message) -> bool {
-    let caller = message.caller();
-    caller.uid == accountdb::ACCOUNTS_UID && caller.label_id == 0 && caller.session == 0
+fn from_accountsd(cx: &Caller) -> bool {
+    cx.uid == accountdb::ACCOUNTS_UID && cx.label_id == 0 && cx.session == 0
 }
 
-/// Dispatch one request; errors become error replies at the call site.
-fn dispatch(
-    keyd: &mut Keyd,
-    secrets: &mut Secrets,
-    app_secrets: &mut AppSecrets,
-    message: &Message,
-) -> messenger::Result<Parcel> {
-    if message.interface_id() == appsecret::INTERFACE {
-        return appserve::dispatch_app(&mut keyd.entropy, app_secrets, message);
-    }
-    if message.interface_id() != wire::INTERFACE {
-        return Err(Error::Errno(-errno::EINVAL));
-    }
-    let body = &message.parcel.body;
-    let parse = Error::Parcel;
-    match message.method() {
-        api::METHOD_VERIFY => {
-            // A password check is `accountsd`'s alone: it slows guessers
-            // (`Authenticate`'s brake), and an open `Verify` would be a way
-            // around that brake for any session (review of #659, H2).
-            if !from_accountsd(message) {
-                return Err(Error::Errno(-errno::EPERM));
-            }
-            let args = api::decode_verify_args(body).map_err(parse)?;
-            let user = bounded_text(args.user)?;
-            let secret = bounded_text(args.secret)?;
-            let ok = keyd.verify(&user, &secret);
-            reply(
-                api::METHOD_VERIFY,
-                api::encode_verify_reply(&api::VerifyReply { ok }),
-            )
-        }
-        api::METHOD_SIGN => {
-            let owner = caller_uid(message)?;
-            let args = api::decode_sign_args(body).map_err(parse)?;
-            let digest = bounded_bytes(args.digest, 128)?;
-            let tag = keyd.sign(args.key, owner, &digest)?;
-            reply(
-                api::METHOD_SIGN,
-                api::encode_sign_reply(&api::SignReply { tag: tag.to_vec() }),
-            )
-        }
-        api::METHOD_WRAP => {
-            let owner = caller_uid(message)?;
-            let args = api::decode_wrap_args(body).map_err(parse)?;
-            let plaintext = bounded_bytes(args.plaintext, MAX_BYTES)?;
-            let blob = keyd.wrap(args.key, owner, &plaintext)?;
-            reply(
-                api::METHOD_WRAP,
-                api::encode_wrap_reply(&api::WrapReply { blob }),
-            )
-        }
-        api::METHOD_UNWRAP => {
-            let owner = caller_uid(message)?;
-            let args = api::decode_unwrap_args(body).map_err(parse)?;
-            let blob = bounded_bytes(args.blob, MAX_BYTES)?;
-            let plaintext = keyd.unwrap(args.key, owner, &blob)?;
-            reply(
-                api::METHOD_UNWRAP,
-                api::encode_unwrap_reply(&api::UnwrapReply { plaintext }),
-            )
-        }
-        api::METHOD_RANDOM => {
-            let args = api::decode_random_args(body).map_err(parse)?;
-            let bytes = keyd.random(args.len as usize)?;
-            reply(
-                api::METHOD_RANDOM,
-                api::encode_random_reply(&api::RandomReply { bytes }),
-            )
-        }
-        api::METHOD_PROVISION => {
-            // Whoever can plant a verifier can log in as that account: the
-            // accounts service alone, by its identity (U1). No capability or
-            // uid is enough on its own.
-            if !from_accountsd(message) {
-                return Err(Error::Errno(-errno::EPERM));
-            }
-            let args = api::decode_provision_args(body).map_err(parse)?;
-            let user = bounded_text(args.user)?;
-            let secret = bounded_text(args.secret)?;
-            let verifier = keyd.provision(&user, &secret)?;
-            reply(
-                api::METHOD_PROVISION,
-                api::encode_provision_reply(&api::ProvisionReply { verifier }),
-            )
-        }
-        api::METHOD_FORGET => {
-            if !from_accountsd(message) {
-                return Err(Error::Errno(-errno::EPERM));
-            }
-            let args = api::decode_forget_args(body).map_err(parse)?;
-            keyd.forget_account(&bounded_text(args.user)?);
-            Ok(wire::ok_reply(api::METHOD_FORGET))
-        }
-        api::METHOD_RESTORE => {
-            if !from_accountsd(message) {
-                return Err(Error::Errno(-errno::EPERM));
-            }
-            let args = api::decode_restore_args(body).map_err(parse)?;
-            let user = bounded_text(args.user)?;
-            keyd.restore(&user, &args.verifier)?;
-            Ok(wire::ok_reply(api::METHOD_RESTORE))
-        }
-        api::METHOD_GENERATE => {
-            let owner = caller_uid(message)?;
-            let args = api::decode_generate_args(body).map_err(parse)?;
-            let kind = bounded_text(args.kind)?;
-            let id = keyd
-                .generate(&kind, owner)
-                .ok_or(Error::Errno(-errno::EINVAL))?;
-            reply(
-                api::METHOD_GENERATE,
-                api::encode_generate_reply(&api::GenerateReply { id }),
-            )
-        }
-        api::METHOD_LIST => {
-            let keys = keyd.keys(caller_uid(message)?);
-            reply(
-                api::METHOD_LIST,
-                api::encode_list_reply(&api::ListReply { keys }),
-            )
-        }
-        api::METHOD_STORESECRET => {
-            let args = api::decode_store_secret_args(body).map_err(parse)?;
-            let owner = secret_owner(message, &args.scope, &args.name, Op::Store)?;
-            let name = bounded_text(args.name)?;
-            let secret = bounded_bytes(args.secret, MAX_BYTES)?;
-            secrets.put(&mut keyd.entropy, owner, &name, &secret)?;
-            Ok(wire::ok_reply(api::METHOD_STORESECRET))
-        }
-        api::METHOD_DELETESECRET => {
-            let args = api::decode_delete_secret_args(body).map_err(parse)?;
-            let owner = secret_owner(message, &args.scope, &args.name, Op::Delete)?;
-            let name = bounded_text(args.name)?;
-            secrets.delete(&mut keyd.entropy, owner, &name)?;
-            Ok(wire::ok_reply(api::METHOD_DELETESECRET))
-        }
-        api::METHOD_LISTSECRETS => {
-            let args = api::decode_list_secrets_args(body).map_err(parse)?;
-            let owner = secret_owner(message, &args.scope, "", Op::List)?;
-            reply(
-                api::METHOD_LISTSECRETS,
-                api::encode_list_secrets_reply(&api::ListSecretsReply {
-                    names: secrets.names(owner),
-                }),
-            )
-        }
-        api::METHOD_STORESECRETFOR => {
-            let args = api::decode_store_secret_for_args(body).map_err(parse)?;
-            let op = Op::StoreFor {
-                owner_uid: args.owner,
-            };
-            let owner = secret_owner(message, &args.scope, &args.name, op)?;
-            let name = bounded_text(args.name)?;
-            let secret = bounded_bytes(args.secret, MAX_BYTES)?;
-            secrets.put(&mut keyd.entropy, owner, &name, &secret)?;
-            Ok(wire::ok_reply(api::METHOD_STORESECRETFOR))
-        }
-        api::METHOD_DELETESECRETFOR => {
-            let args = api::decode_delete_secret_for_args(body).map_err(parse)?;
-            let op = Op::DeleteFor {
-                owner_uid: args.owner,
-            };
-            let owner = secret_owner(message, &args.scope, &args.name, op)?;
-            let name = bounded_text(args.name)?;
-            secrets.delete(&mut keyd.entropy, owner, &name)?;
-            Ok(wire::ok_reply(api::METHOD_DELETESECRETFOR))
-        }
-        api::METHOD_WIFIPMK => {
-            let args = api::decode_wifi_pmk_args(body).map_err(parse)?;
-            let owner = secret_owner(
-                message,
-                &args.scope,
-                &args.name,
-                Op::Pmk {
-                    owner_uid: args.owner,
-                },
-            )?;
-            let name = bounded_text(args.name)?;
-            let ssid = bounded_bytes(args.ssid, secretstore::MAX_SSID)?;
-            let pmk = secrets.pmk(&mut keyd.entropy, owner, &name, &ssid)?;
-            reply(
-                api::METHOD_WIFIPMK,
-                api::encode_wifi_pmk_reply(&api::WifiPmkReply { pmk }),
-            )
-        }
-        api::METHOD_PING => Ok(wire::ok_reply(api::METHOD_PING)),
-        _ => Err(Error::Errno(-errno::EINVAL)),
+/// Refuse a request that does not come from the accounts service.
+fn require_accountsd(cx: &Caller) -> Result<(), Fault> {
+    if from_accountsd(cx) {
+        Ok(())
+    } else {
+        Err(Error::Errno(-errno::EPERM).into())
     }
 }
 
-/// Frame an encoded reply body as a `keyd` parcel of `method`.
-fn reply(method: u32, body: Result<Vec<u8>, libmessenger::Error>) -> messenger::Result<Parcel> {
-    Ok(wire::parcel(method, body.map_err(Error::Parcel)?))
+/// The key and secret state, answering `os.lazy.keyd.v1` (the generated server).
+struct Handler<'a> {
+    keyd: &'a mut Keyd,
+    secrets: &'a mut Secrets,
 }
 
-/// The uid of the Messenger sender, from its kernel-stamped credentials.
-///
-/// `keyd` holds `CAP_SETUID`, which is what lets it read another task's
-/// credential block. An unreadable block is refused rather than guessed: a key
-/// must never end up owned by (or usable by) the wrong uid.
-fn caller_uid(message: &Message) -> messenger::Result<u32> {
-    Ok(message.caller().uid)
+impl api::Server for Handler<'_> {
+    fn verify(&mut self, cx: &Caller, user: String, secret: String) -> Result<bool, Fault> {
+        // A password check is `accountsd`'s alone: it slows guessers
+        // (`Authenticate`'s brake), and an open `Verify` would be a way
+        // around that brake for any session (review of #659, H2).
+        require_accountsd(cx)?;
+        Ok(self
+            .keyd
+            .verify(&bounded_text(user)?, &bounded_text(secret)?))
+    }
+
+    fn sign(&mut self, cx: &Caller, key: u64, digest: Vec<u8>) -> Result<Vec<u8>, Fault> {
+        let digest = bounded_bytes(digest, 128)?;
+        Ok(self.keyd.sign(key, cx.uid, &digest)?.to_vec())
+    }
+
+    fn wrap(&mut self, cx: &Caller, key: u64, plaintext: Vec<u8>) -> Result<Vec<u8>, Fault> {
+        let plaintext = bounded_bytes(plaintext, MAX_BYTES)?;
+        Ok(self.keyd.wrap(key, cx.uid, &plaintext)?)
+    }
+
+    fn unwrap(&mut self, cx: &Caller, key: u64, blob: Vec<u8>) -> Result<Vec<u8>, Fault> {
+        let blob = bounded_bytes(blob, MAX_BYTES)?;
+        Ok(self.keyd.unwrap(key, cx.uid, &blob)?)
+    }
+
+    fn random(&mut self, _: &Caller, len: u64) -> Result<Vec<u8>, Fault> {
+        Ok(self.keyd.random(len as usize)?)
+    }
+
+    fn provision(&mut self, cx: &Caller, user: String, secret: String) -> Result<String, Fault> {
+        // Whoever can plant a verifier can log in as that account: the
+        // accounts service alone, by its identity (U1). No capability or
+        // uid is enough on its own.
+        require_accountsd(cx)?;
+        Ok(self
+            .keyd
+            .provision(&bounded_text(user)?, &bounded_text(secret)?)?)
+    }
+
+    fn forget(&mut self, cx: &Caller, user: String) -> Result<(), Fault> {
+        require_accountsd(cx)?;
+        self.keyd.forget_account(&bounded_text(user)?);
+        Ok(())
+    }
+
+    fn restore(&mut self, cx: &Caller, user: String, verifier: String) -> Result<(), Fault> {
+        require_accountsd(cx)?;
+        Ok(self.keyd.restore(&bounded_text(user)?, &verifier)?)
+    }
+
+    fn generate(&mut self, cx: &Caller, kind: String) -> Result<u64, Fault> {
+        let kind = bounded_text(kind)?;
+        let id = self
+            .keyd
+            .generate(&kind, cx.uid)
+            .ok_or(Error::Errno(-errno::EINVAL))?;
+        Ok(id)
+    }
+
+    fn list(&mut self, cx: &Caller) -> Result<Vec<api::KeyInfo>, Fault> {
+        Ok(self.keyd.keys(cx.uid))
+    }
+
+    fn store_secret(
+        &mut self,
+        cx: &Caller,
+        scope: String,
+        name: String,
+        secret: Vec<u8>,
+    ) -> Result<(), Fault> {
+        let owner = secret_owner(cx, &scope, &name, Op::Store)?;
+        let name = bounded_text(name)?;
+        let secret = bounded_bytes(secret, MAX_BYTES)?;
+        Ok(self
+            .secrets
+            .put(&mut self.keyd.entropy, owner, &name, &secret)?)
+    }
+
+    fn delete_secret(&mut self, cx: &Caller, scope: String, name: String) -> Result<(), Fault> {
+        let owner = secret_owner(cx, &scope, &name, Op::Delete)?;
+        let name = bounded_text(name)?;
+        Ok(self.secrets.delete(&mut self.keyd.entropy, owner, &name)?)
+    }
+
+    fn list_secrets(&mut self, cx: &Caller, scope: String) -> Result<Vec<String>, Fault> {
+        let owner = secret_owner(cx, &scope, "", Op::List)?;
+        Ok(self.secrets.names(owner))
+    }
+
+    fn store_secret_for(
+        &mut self,
+        cx: &Caller,
+        scope: String,
+        name: String,
+        secret: Vec<u8>,
+        owner: u32,
+    ) -> Result<(), Fault> {
+        let op = Op::StoreFor { owner_uid: owner };
+        let owner = secret_owner(cx, &scope, &name, op)?;
+        let name = bounded_text(name)?;
+        let secret = bounded_bytes(secret, MAX_BYTES)?;
+        Ok(self
+            .secrets
+            .put(&mut self.keyd.entropy, owner, &name, &secret)?)
+    }
+
+    fn delete_secret_for(
+        &mut self,
+        cx: &Caller,
+        scope: String,
+        name: String,
+        owner: u32,
+    ) -> Result<(), Fault> {
+        let op = Op::DeleteFor { owner_uid: owner };
+        let owner = secret_owner(cx, &scope, &name, op)?;
+        let name = bounded_text(name)?;
+        Ok(self.secrets.delete(&mut self.keyd.entropy, owner, &name)?)
+    }
+
+    fn wifi_pmk(
+        &mut self,
+        cx: &Caller,
+        scope: String,
+        name: String,
+        ssid: Vec<u8>,
+        owner: u32,
+    ) -> Result<Vec<u8>, Fault> {
+        let op = Op::Pmk { owner_uid: owner };
+        let owner = secret_owner(cx, &scope, &name, op)?;
+        let name = bounded_text(name)?;
+        let ssid = bounded_bytes(ssid, secretstore::MAX_SSID)?;
+        Ok(self
+            .secrets
+            .pmk(&mut self.keyd.entropy, owner, &name, &ssid)?)
+    }
+
+    fn ping(&mut self, _: &Caller) -> Result<(), Fault> {
+        Ok(())
+    }
 }
 
 /// Whose secret `op` on `scope` and `name` is about, if the sender may do it
 /// (`secretstore::authorize`: the sender's kernel-stamped uid, label and
 /// session decide, never uid 0 or a capability; `wlanmd` names Wi-Fi
 /// profiles only).
-fn secret_owner(message: &Message, scope: &str, name: &str, op: Op) -> messenger::Result<Owner> {
-    let caller = message.caller();
-    let caller = Caller {
-        uid: caller.uid,
-        label_id: caller.label_id,
-        session: caller.session,
+fn secret_owner(cx: &Caller, scope: &str, name: &str, op: Op) -> messenger::Result<Owner> {
+    let caller = secretstore::Caller {
+        uid: cx.uid,
+        label_id: cx.label_id,
+        session: cx.session,
     };
     authorize(caller, scope, name, op).map_err(denied_error)
 }

@@ -94,9 +94,7 @@ impl Nic {
 
     /// Give back the handle to the driver (the card is gone for good).
     pub(super) fn release(&mut self) {
-        if let Some(client) = self.client.take() {
-            client.release();
-        }
+        self.client = None;
         self.card = None;
     }
 
@@ -104,10 +102,8 @@ impl Nic {
     /// can be built with the right MAC).
     pub(super) fn probe(&mut self) -> Result<Card, String> {
         // Every resolve opens a new handle: give the old one back first.
-        if let Some(old) = self.client.take() {
-            old.release();
-        }
-        let client = Client::connect(&self.ifname)
+        self.client = None;
+        let client = nic::connect(&self.ifname)
             .map_err(|e| format!("no NIC driver {}: {}", self.ifname, e.message()))?;
         let info = client
             .info()
@@ -156,7 +152,7 @@ impl Nic {
         // A handle to our own service endpoint, for the driver to post into.
         let own = registry::resolve(super::NAME)
             .map_err(|e| format!("resolving ourselves: {}", e.message()))?;
-        let attachment = match client.attach_notifying(SLOTS, own) {
+        let attachment = match nic::attach_notifying(client, SLOTS, own) {
             Ok(attachment) => attachment,
             Err(error) => {
                 // The handle is ours again if the transfer never happened.
@@ -188,7 +184,7 @@ impl Nic {
             return;
         };
         if let Some(client) = self.client.as_ref() {
-            let _ = client.detach(shared.ring);
+            let _ = client.detach_ring(shared.ring);
         }
         shared.close();
         trace::line!(trace::Channel::Netd, "NIC:DETACH if={} {why}", self.ifname);

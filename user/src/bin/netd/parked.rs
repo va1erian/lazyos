@@ -5,13 +5,14 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use libmessenger::server::{fault_reply, Fault};
 use netstack::{ready, SockError};
 use user::messenger::netsock::{self as api, errno as sock_errno, wire};
-use user::messenger::{errno, services, Endpoint, Message, Parcel};
+use user::messenger::{errno, Endpoint};
 use user::sys;
 
 use super::service::Netd;
-use super::sock::{err, error_parcel, reply, wire_addr, Result};
+use super::sock::{err, error_parcel, wire_addr, Result};
 
 /// Parked socket calls one owner may have at once.
 const PER_OWNER_PARKED: usize = 4;
@@ -37,31 +38,57 @@ pub(super) struct Parked {
     op: Op,
 }
 
+/// What a call came to: finished with a reply, or still waiting.
+pub(super) enum Done {
+    /// Keep waiting (the call is parked, or stays so).
+    Later,
+    Unit,
+    Accept(wire::AcceptReply),
+    Send(u32),
+    Recv(Vec<u8>),
+    RecvFrom(wire::RecvFromReply),
+    Poll(u32),
+}
+
+impl Done {
+    /// The reply body of a call that finished after it was parked.
+    fn encode(self) -> core::result::Result<Vec<u8>, libmessenger::Error> {
+        match self {
+            Done::Later | Done::Unit => Ok(Vec::new()),
+            Done::Accept(reply) => wire::encode_accept_reply(&reply),
+            Done::Send(sent) => wire::encode_send_reply(&wire::SendReply { sent }),
+            Done::Recv(data) => wire::encode_recv_reply(&wire::RecvReply { data }),
+            Done::RecvFrom(reply) => wire::encode_recv_from_reply(&reply),
+            Done::Poll(ready) => wire::encode_poll_reply(&wire::PollReply { ready }),
+        }
+    }
+}
+
 impl Netd {
     /// Try the call now; if it cannot finish, park it (within the limits).
     pub(super) fn park(
         &mut self,
-        message: &Message,
+        method: u32,
         owner: u64,
         sock: u32,
         op: Op,
         wait: i64,
-        now_ms: i64,
-    ) -> Result<Option<Parcel>> {
+    ) -> Result<Done> {
         // A reply needs a transaction; a one-way call has nobody to answer.
-        let Some(txn) = message.txn else {
+        let Some(txn) = self.call.txn else {
             return Err(err(errno::EINVAL));
         };
         let call = Parked {
             txn,
             owner,
             sock,
-            method: message.method(),
-            deadline_ms: now_ms + wait,
+            method,
+            deadline_ms: self.call.now_ms + wait,
             op,
         };
-        if let Some(parcel) = self.attempt(&call)? {
-            return Ok(Some(parcel));
+        match self.attempt(&call)? {
+            Done::Later => {}
+            done => return Ok(done),
         }
         let mine = self
             .parked_socks
@@ -73,48 +100,43 @@ impl Netd {
         }
         self.sock_stats.parked += 1;
         self.parked_socks.push(call);
-        Ok(None)
+        self.call.held = true;
+        Ok(Done::Later)
     }
 
-    /// Try a call against the socket as it is now: `Ok(Some)` is the reply,
-    /// `Ok(None)` means keep waiting.
-    fn attempt(&mut self, call: &Parked) -> Result<Option<Parcel>> {
-        let (sock, owner, method) = (call.sock, call.owner, call.method);
-        let ok = |body: core::result::Result<Vec<u8>, libmessenger::Error>| {
-            reply(method, body).map(Some)
-        };
+    /// Try a call against the socket as it is now.
+    fn attempt(&mut self, call: &Parked) -> Result<Done> {
+        let (sock, owner) = (call.sock, call.owner);
         match &call.op {
             Op::Connect => match self.net.socket_connect_status(sock, owner) {
-                Ok(true) => Ok(Some(api::parcel(method, Vec::new()))),
-                Ok(false) => Ok(None),
+                Ok(true) => Ok(Done::Unit),
+                Ok(false) => Ok(Done::Later),
                 Err(error) => Err(self.sock_error(error)),
             },
             Op::Accept => match self.net.socket_accept(sock, owner) {
-                Ok(Some((conn, peer))) => ok(wire::encode_accept_reply(&wire::AcceptReply {
+                Ok(Some((conn, peer))) => Ok(Done::Accept(wire::AcceptReply {
                     conn,
                     peer: wire_addr(peer),
                 })),
-                Ok(None) => Ok(None),
+                Ok(None) => Ok(Done::Later),
                 Err(error) => Err(self.sock_error(error)),
             },
             Op::Send(data) => match self.net.socket_send(sock, owner, data) {
-                Ok(sent) => ok(wire::encode_send_reply(&wire::SendReply {
-                    sent: sent as u32,
-                })),
-                Err(SockError::WouldBlock) => Ok(None),
+                Ok(sent) => Ok(Done::Send(sent as u32)),
+                Err(SockError::WouldBlock) => Ok(Done::Later),
                 Err(error) => Err(self.sock_error(error)),
             },
             Op::Recv(max) => match self.net.socket_recv(sock, owner, *max) {
-                Ok(Some(data)) => ok(wire::encode_recv_reply(&wire::RecvReply { data })),
-                Ok(None) | Err(SockError::WouldBlock) => Ok(None),
+                Ok(Some(data)) => Ok(Done::Recv(data)),
+                Ok(None) | Err(SockError::WouldBlock) => Ok(Done::Later),
                 Err(error) => Err(self.sock_error(error)),
             },
             Op::RecvFrom(max) => match self.net.socket_recvfrom(sock, owner, *max) {
-                Ok(Some((data, from))) => ok(wire::encode_recv_from_reply(&wire::RecvFromReply {
+                Ok(Some((data, from))) => Ok(Done::RecvFrom(wire::RecvFromReply {
                     data,
                     from: wire_addr(from),
                 })),
-                Ok(None) => Ok(None),
+                Ok(None) => Ok(Done::Later),
                 Err(error) => Err(self.sock_error(error)),
             },
             Op::Poll(interest) => {
@@ -125,8 +147,8 @@ impl Netd {
                 // Closed and error conditions are reported whether asked for or not.
                 let wanted = interest | ready::CLOSED | ready::ERROR;
                 match bits & wanted {
-                    0 => Ok(None),
-                    hit => ok(wire::encode_poll_reply(&wire::PollReply { ready: hit })),
+                    0 => Ok(Done::Later),
+                    hit => Ok(Done::Poll(hit)),
                 }
             }
         }
@@ -141,13 +163,20 @@ impl Netd {
         let calls = core::mem::take(&mut self.parked_socks);
         for call in calls {
             let answer = match self.attempt(&call) {
-                Ok(None) if now_ms >= call.deadline_ms => {
+                Ok(Done::Later) if now_ms >= call.deadline_ms => {
                     self.sock_stats.park_timeouts += 1;
                     Some(error_parcel(call.method, errno::ETIMEDOUT))
                 }
-                Ok(None) => None,
-                Ok(Some(parcel)) => Some(parcel),
-                Err(error) => Some(services::error_reply(api::INTERFACE, call.method, error)),
+                Ok(Done::Later) => None,
+                Ok(done) => Some(match done.encode() {
+                    Ok(body) => api::parcel(call.method, body),
+                    Err(_) => error_parcel(call.method, errno::EIO),
+                }),
+                Err(error) => Some(fault_reply(
+                    api::INTERFACE,
+                    call.method,
+                    &Fault::from(error),
+                )),
             };
             match answer {
                 // A caller that gave up or died has no transaction left: not a fault.

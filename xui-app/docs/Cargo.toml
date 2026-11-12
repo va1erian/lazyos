@@ -21,5 +21,6 @@ xui-app = { path = ".." }
 # The documentation root the Open dialog starts in.
 fhs = { path = "../../libs/fhs" }
 xui-core = { git = "https://github.com/va1erian/xui", rev = "832c61f29419bf31a0518a47e050b15c97b316e3" }
+xui-work = { path = "../crates/work" }
 # The read-only Markdown view: parsing, layout, scrolling, selection and links.
 xui-markdown = { git = "https://github.com/va1erian/xui", rev = "832c61f29419bf31a0518a47e050b15c97b316e3" }

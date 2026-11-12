@@ -313,7 +313,9 @@ impl Markers {
 
     /// Reports a panic as `PREFIX:PANIC:FAIL:<message>` and one
     /// `PREFIX:PANIC:BT:<frame>` per backtrace line on the console before
-    /// the default hook runs. The program's stderr is usually a pipe to a
+    /// the hook that was installed before runs (the default one, unless the
+    /// program set its own first: this one is chained in front of it). The
+    /// program's stderr is usually a pipe to a
     /// Terminal window (or nowhere), so without this a crash leaves no serial
     /// evidence. A panic is a class 2 diagnostic: it prints whatever the
     /// switch and the mask say.
@@ -323,7 +325,15 @@ impl Markers {
 }
 
 /// [`Markers::install_panic_hook`] for a program that has no `Markers`.
+///
+/// Once per process: the app builder installs it for every desktop app, and a
+/// second call does nothing. The hook that was in place is kept and runs
+/// after this one's lines.
 pub fn install_panic_hook(channel: Channel) {
+    static INSTALLED: AtomicBool = AtomicBool::new(false);
+    if INSTALLED.swap(true, Ordering::Relaxed) {
+        return;
+    }
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         emit_always(|buf| {

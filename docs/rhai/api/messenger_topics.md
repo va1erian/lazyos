@@ -23,7 +23,13 @@ id.
 
 Publish `payload` under the literal `topic`; `retained` also remembers
 it as the topic's retained value. Returns how many subscriptions the
-event reached.
+event reached. Never resent, and the broker cannot undo a publish whose
+reply was lost: a timeout means "maybe published". The broker's byte
+budget is charged per task: a retained value to its publisher, a
+subscription's queue to its owner. A retained value over its
+publisher's allowance (or its count of 64 for an app; retained values
+cannot be removed) refuses with `ENOMEM`; a full subscriber queue never
+refuses a publish, it drops its oldest events (counted in `Stats`).
 
 Arguments:
 
@@ -46,6 +52,9 @@ let result = sys::messenger_topics::publish(topic, payload, retained);
 Create a subscription for `filter`. `qos` is a `Qos` value; `depth` is
 the queue depth for `Buffered` (clamped to 1..=64) and ignored by the
 other policies, which use fixed depths. Retained values are replayed.
+One task holds at most 64 subscriptions (`EAGAIN` beyond); a subscribe
+whose reply cannot be delivered is rolled back, so a timeout leaks
+nothing.
 
 Arguments:
 
@@ -85,6 +94,8 @@ let result = sys::messenger_topics::unsubscribe(subscription);
 
 Wait for (or, with an expired deadline, poll) the next event of a
 subscription. A `Reliable` subscription redelivers its head until acked.
+Safe to resend: the broker pops an event only once its reply reached the
+caller, so a resent poll is served the same head again.
 
 Arguments:
 
@@ -211,6 +222,19 @@ Per-subscription delivery counters.
 let value = sys::messenger_topics::new_stats();
 ```
 
+### `Probe`
+
+What the broker's own probes publish: only the topic name matters, the
+payload is whatever the test sends.
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `note` | `String` | string |
+
+```rhai
+let value = sys::messenger_topics::new_probe();
+```
+
 ### `Qos`
 
 A string; the constants of this module are:
@@ -221,6 +245,46 @@ A string; the constants of this module are:
 - `QOS_RELIABLE` = `"Reliable"`
 
 `QOS` is the array of all of them.
+
+## Topics
+
+### `demo/waitany`
+
+`async_echo`'s wait-any check publishes here to ring a doorbell.
+
+Payload `Probe`, QoS `latest`.
+
+Helpers: `DEMO_WAITANY_PATTERN`, `on_demo_waitany(handler)`, `subscribe_demo_waitany()`, `publish_demo_waitany(payload)`.
+
+```rhai
+sys::messenger_topics::on_demo_waitany(|event| print(event.payload));
+```
+
+### `topics/depth`
+
+`messengerctl`'s hostile-depth test fills a `Buffered` queue past its
+clamp with this topic.
+
+Payload `Probe`, QoS `buffered`.
+
+Helpers: `DEPTH_PATTERN`, `on_depth(handler)`, `subscribe_depth()`, `publish_depth(payload)`.
+
+```rhai
+sys::messenger_topics::on_depth(|event| print(event.payload));
+```
+
+### `system/events/selftest/forbidden`
+
+`messengerctl`'s security self-test publishes here as a non-root task
+and expects the broker to refuse it (`system/` is reserved).
+
+Payload `Probe`, QoS `latest`.
+
+Helpers: `SELFTEST_FORBIDDEN_PATTERN`, `on_selftest_forbidden(handler)`, `subscribe_selftest_forbidden()`, `publish_selftest_forbidden(payload)`.
+
+```rhai
+sys::messenger_topics::on_selftest_forbidden(|event| print(event.payload));
+```
 
 ## See also
 

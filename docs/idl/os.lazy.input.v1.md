@@ -37,16 +37,33 @@ errno-style code plus friendly text) instead of the declared reply fields.
 | Ping | 6 | sync | `(session: U64, token: U64) -> (token: U64, seq: U64)` |
 | AttachKeyState | 7 | sync | `(session: U64, state: Buffer) -> ()` |
 | AttachGamepadState | 8 | sync | `(session: U64, state: Buffer) -> ()` |
-| KeyEvent | 10 | oneway | `(code: U32, sym: U32, mods: U32, state: U32, ts_ns: U64, seq: U64) -> ()` |
-| TextInput | 11 | oneway | `(utf8: String) -> ()` |
-| KeyboardEnter | 12 | oneway | `(down: Array<U32>) -> ()` |
-| KeyboardLeave | 13 | oneway | `() -> ()` |
-| LayoutChanged | 14 | oneway | `(layout: String) -> ()` |
-| GrantChanged | 15 | oneway | `(kind: U32, active: Bool, reason: U32) -> ()` |
-| GamepadAxis | 16 | oneway | `(device: U32, code: U32, value: I32, ts_ns: U64, seq: U64) -> ()` |
-| GamepadButton | 17 | oneway | `(device: U32, code: U32, pressed: Bool, ts_ns: U64, seq: U64) -> ()` |
-| GamepadEnter | 18 | oneway | `() -> ()` |
-| GamepadLeave | 19 | oneway | `() -> ()` |
+| KeyEvent | 10 | event | `(code: U32, sym: U32, mods: U32, state: U32, ts_ns: U64, seq: U64) -> ()` |
+| TextInput | 11 | event | `(utf8: String) -> ()` |
+| KeyboardEnter | 12 | event | `(down: Array<U32>) -> ()` |
+| KeyboardLeave | 13 | event | `() -> ()` |
+| LayoutChanged | 14 | event | `(layout: String) -> ()` |
+| GrantChanged | 15 | event | `(kind: U32, active: Bool, reason: U32) -> ()` |
+| GamepadAxis | 16 | event | `(device: U32, code: U32, value: I32, ts_ns: U64, seq: U64) -> ()` |
+| GamepadButton | 17 | event | `(device: U32, code: U32, pressed: Bool, ts_ns: U64, seq: U64) -> ()` |
+| GamepadEnter | 18 | event | `() -> ()` |
+| GamepadLeave | 19 | event | `() -> ()` |
+
+## Service
+
+- Served under the registry name `os.lazy.input.v1`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Open | this interface | - | 1000 ms | never |
+| Close | this interface | - | 1000 ms | never |
+| GetState | this interface | - | 5000 ms | safe |
+| RequestGrant | this interface | - | 1000 ms | never |
+| ReleaseGrant | this interface | - | 1000 ms | never |
+| Ping | this interface | - | 1000 ms | safe |
+| AttachKeyState | this interface | - | 1000 ms | never |
+| AttachGamepadState | this interface | - | 5000 ms | never |
 
 ## Objects
 

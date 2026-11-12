@@ -1,0 +1,15 @@
+# Work off the UI thread: run something on a named thread and have its result
+# (and progress) arrive as an app message, waking the UI loop through the
+# backend's waker (docs/client-api-plan.md 4.3). Depends on `xui-core` only, so
+# the portable, host-tested app crates reach it without `xui-app`;
+# `xui_app::work` re-exports it.
+[package]
+name = "xui-work"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "Worker threads that answer an xui app with messages"
+
+[dependencies]
+xui-core = { git = "https://github.com/va1erian/xui", rev = "832c61f29419bf31a0518a47e050b15c97b316e3" }

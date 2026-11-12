@@ -29,10 +29,11 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::central;
 use user::trace;
 
 use spin::Mutex;
-use user::messenger::{router, services};
+use user::messenger::services;
 use user::sys::{self, Cred as SysCred};
 
 use super::apps::autostart_ids;
@@ -127,7 +128,7 @@ impl Autostart {
     pub(super) fn step(
         &mut self,
         services: &mut Vec<Service>,
-        broker: &mut router::TopicBroker,
+        broker: &mut central::Publisher,
         installed: &mut InstalledApps,
         now: u64,
     ) {
@@ -195,7 +196,7 @@ impl Autostart {
     fn launch_pending(
         &mut self,
         services: &mut Vec<Service>,
-        broker: &mut router::TopicBroker,
+        broker: &mut central::Publisher,
         installed: &mut InstalledApps,
         now: u64,
     ) {

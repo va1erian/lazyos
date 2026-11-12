@@ -18,55 +18,39 @@ mod app;
 mod secrets;
 
 use std::path::Path;
-use std::rc::Rc;
 
-use xui_app::backend::LazyOSBackend;
-use xui_app::themed::run_themed;
-use xui_core::backend::PlatformSpec;
-use xui_core::units::Dip;
+use xui_app::trace::{self, Channel};
 
 /// The window's size: three panes need the width.
 const WINDOW: (i32, i32) = (1000, 620);
 
-fn main() -> std::process::ExitCode {
+fn main() {
     // Before anything else starts a thread: `set_var` is only sound while the
     // process has one.
     place_files(&xui_app::platform::dirs::default_dir());
-    if rustls::crypto::CryptoProvider::install_default(nettls_crypto::provider()).is_err() {
-        println!("MAIL:RUN:FAIL:a TLS crypto provider was already installed");
-        return std::process::ExitCode::FAILURE;
+    if !lazyhttps::install_tls_provider() {
+        trace::fail!(
+            Channel::Mail,
+            "RUN",
+            "a TLS crypto provider was already installed"
+        );
+        std::process::exit(1);
     }
     secrets::install();
     xui_app::font::register_docs();
 
-    let backend = match LazyOSBackend::connect() {
-        Ok(backend) => Rc::new(backend),
-        Err(code) => {
-            println!("MAIL:BIND:FAIL:{code}");
-            return std::process::ExitCode::FAILURE;
-        }
-    };
-    let (width, height) = backend.window_size(WINDOW);
-    backend.on_first_frame(|| println!("MAIL:UP:PASS"));
     let config = esmail::config::Config::load();
-    let spec = PlatformSpec::new("Mail").size(Dip(width as f32), Dip(height as f32));
     // `init` starts Mail with a `mailto:` link when another app opens one.
     let link = app::mailto::from_args(std::env::args());
-    let outcome = run_themed(&backend, spec, move |ui| {
-        let mut mail = app::Mail::build(ui, config).expect("the Mail window was created");
-        if let Some(link) = &link {
-            mail.compose_mailto(ui, link);
-        }
-        mail
-    });
-    backend.unbind();
-    match outcome {
-        Ok(()) => std::process::ExitCode::SUCCESS,
-        Err(error) => {
-            println!("MAIL:RUN:FAIL:{error}");
-            std::process::ExitCode::FAILURE
-        }
-    }
+    xui_app::app(Channel::Mail, "Mail")
+        .size(WINDOW.0, WINDOW.1)
+        .run(move |ui, _| {
+            let mut mail = app::Mail::build(ui, config)?;
+            if let Some(link) = &link {
+                mail.compose_mailto(ui, link);
+            }
+            Ok(mail)
+        })
 }
 
 /// Points esMail's configuration and cache at `home` (the user's home, or

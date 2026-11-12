@@ -28,12 +28,6 @@ impl Model {
         self.drag = None;
     }
 
-    /// The tool that was active before the current one (where the Color
-    /// Picker returns to).
-    pub fn previous_tool(&self) -> Tool {
-        self.prev_tool
-    }
-
     /// Sets the primary colour.
     pub fn set_primary(&mut self, color: Pixel) {
         self.primary = color;

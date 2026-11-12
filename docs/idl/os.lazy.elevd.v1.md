@@ -32,6 +32,17 @@ apps for the prompt, or the performing service's own error.
 | Request | 38093138 | sync | `(operation: String, args: Array<String>) -> (detail: String, values: Array<String>)` |
 | Release | 1830722334 | sync | `() -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.elevd`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Request | this interface | - | 400000 ms | never |
+| Release | this interface | - | 1000 ms | never |
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

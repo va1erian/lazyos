@@ -3,40 +3,27 @@
 //! `init` publishes `system/events/app/<id>` on the central broker
 //! (`messengerd`) when it gives up on a launched app. The shell subscribes
 //! once the broker is there (a buffered subscription, so failures that land
-//! between two looks wait) and pulls with poll calls on the heartbeat: the
-//! kernel answers a poll in the broker's own service turn, so the shell never
-//! parks. Only failures of apps in this shell's own login session are kept.
+//! between two looks wait); the thread's hub (`fabric::Follow`) reads it
+//! off the broker's doorbell, and the heartbeat only empties a queue, so the
+//! shell never waits on the broker. Only failures of apps in this shell's own
+//! login session are kept.
 //! The topic is retained per app, so a shell that starts after an app failed
 //! at boot still hears of it; a retained failure older than [`STALE_TICKS`]
 //! (an old one replayed to a restarted shell) is skipped, and each failure is
 //! shown once (`(app, at)`).
-//! Every call uses the generated `os.lazy.messenger.topics.v1` and
-//! `os.lazy.init.v1` stubs; the payload comes out of the broker's envelope
-//! (`libmessenger::envelope`).
+//! The payload comes out of the broker's envelope (`libmessenger::envelope`)
+//! before it gets here.
 //!
 //! Serial: `SHELL:FAILURES:SUBSCRIBED` once, `SHELL:FAILURE app=<id>
 //! status=<n>` per failure kept.
 
 use lazyshell::notice::Failure;
 use messenger_generated::os_lazy_init_v1 as init_wire;
-use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 
-use crate::platform::messenger::Service;
-use crate::server::ERROR_FIELD;
-use crate::sys::{self, EXPIRED_DEADLINE};
+use crate::fabric::{pull, Feed, Watch};
+use crate::sys::{self};
+use messenger_generated::topics::Event;
 
-/// The central broker's registered name.
-const BROKER: &str = "os.lazy.messenger.topics";
-/// Failures the broker may hold for the shell between two looks.
-const DEPTH: u32 = 16;
-/// Ticks between looks (100 Hz).
-const POLL_TICKS: u64 = 25;
-/// Ticks between subscription attempts while the broker is away.
-const RETRY_TICKS: u64 = 200;
-/// Most events taken per look.
-const PER_LOOK: usize = 8;
-/// Ticks the subscribe call may take.
-const SUBSCRIBE_TICKS: u64 = 50;
 /// A retained failure older than this (one minute) is history, not news.
 const STALE_TICKS: u64 = 6000;
 /// Failures remembered to show each once.
@@ -47,8 +34,11 @@ pub struct FailureFeed {
     /// This shell's login session; `None` when unknown (then nothing shows:
     /// a notice for another user's app would leak what they run).
     session: Option<u64>,
-    subscription: Option<u64>,
-    next_look: u64,
+    /// The follow of the topic (a buffered subscription, so
+    /// failures that land between two looks wait); none without a session.
+    follow: Option<Feed<init_wire::AppFailure>>,
+    /// Whether the subscription was announced on the serial line.
+    announced: bool,
     /// `(app, at)` of the failures already handed out, newest last.
     seen: Vec<(String, u64)>,
 }
@@ -57,56 +47,35 @@ impl FailureFeed {
     pub fn new(session: Option<u64>) -> FailureFeed {
         FailureFeed {
             session,
-            subscription: None,
-            next_look: 0,
+            follow: session
+                .and_then(|_| init_wire::subscribe_system_events_app(&mut Watch, "+").ok()),
+            announced: false,
             seen: Vec::new(),
         }
     }
 
     /// The failures of this session's apps that arrived since the last look.
+    /// Reads a queue in memory: the hub drains the broker only when a doorbell rang.
     pub fn poll(&mut self) -> Vec<Failure> {
-        let now = sys::clock_ticks();
-        if now < self.next_look || self.session.is_none() {
-            return Vec::new();
-        }
-        self.next_look = now.saturating_add(POLL_TICKS);
-        let Some(subscription) = self.subscription.or_else(|| self.subscribe(now)) else {
+        let Some(stream) = self.follow.as_mut() else {
             return Vec::new();
         };
-        let mut found = Vec::new();
-        for _ in 0..PER_LOOK {
-            match next_event(subscription) {
-                Ok(Some(event)) => found.extend(self.keep(event)),
-                Ok(None) => break,
-                // The broker restarted (or refused): subscribe again later.
-                Err(_) => {
-                    self.subscription = None;
-                    break;
-                }
-            }
+        if !self.announced && stream.handle().subscribed() {
+            self.announced = true;
+            println!("SHELL:FAILURES:SUBSCRIBED");
         }
-        found
-    }
-
-    fn subscribe(&mut self, now: u64) -> Option<u64> {
-        match subscribe() {
-            Ok(id) => {
-                println!("SHELL:FAILURES:SUBSCRIBED");
-                self.subscription = Some(id);
-                Some(id)
-            }
-            Err(_) => {
-                self.next_look = now.saturating_add(RETRY_TICKS);
-                None
-            }
-        }
+        let mut events = Vec::new();
+        pull(stream, |event| events.push(event));
+        events
+            .into_iter()
+            .filter_map(|event| self.keep(event))
+            .collect()
     }
 
     /// The failure in `event`, when it is one of this session's apps.
-    fn keep(&mut self, event: topics::Event) -> Option<Failure> {
+    fn keep(&mut self, event: Event<init_wire::AppFailure>) -> Option<Failure> {
         let app = event.topic.rsplit('/').next()?.to_owned();
-        let payload = libmessenger::envelope::unwrap(&event.payload);
-        let failure = init_wire::decode_system_events_app(&payload).ok()?;
+        let failure = event.value;
         if Some(failure.session) != self.session {
             return None;
         }
@@ -128,49 +97,4 @@ impl FailureFeed {
             startup: failure.startup,
         })
     }
-}
-
-fn broker() -> Result<Service, i64> {
-    Service::try_connect(BROKER).ok_or(-sys::errno::ENOENT)
-}
-
-/// `Subscribe("system/events/app/+", Buffered, DEPTH)`: the subscription id.
-fn subscribe() -> Result<u64, i64> {
-    let body = topics::encode_subscribe_args(&topics::SubscribeArgs {
-        filter: init_wire::TOPIC_SYSTEM_EVENTS_APP.to_owned(),
-        qos: topics::QOS_BUFFERED,
-        depth: DEPTH,
-    })
-    .map_err(|_| -sys::errno::EINVAL)?;
-    let reply = broker()?.call(
-        topics::INTERFACE_ID,
-        topics::METHOD_SUBSCRIBE,
-        ERROR_FIELD,
-        body,
-        SUBSCRIBE_TICKS,
-    )?;
-    topics::decode_subscribe_reply(&reply.body)
-        .map(|reply| reply.subscription)
-        .map_err(|_| -sys::errno::EINVAL)
-}
-
-/// One poll `NextEvent`: `None` when nothing is queued.
-fn next_event(subscription: u64) -> Result<Option<topics::Event>, i64> {
-    let body = topics::encode_next_event_args(&topics::NextEventArgs { subscription })
-        .map_err(|_| -sys::errno::EINVAL)?;
-    let reply = match broker()?.call_until(
-        topics::INTERFACE_ID,
-        topics::METHOD_NEXTEVENT,
-        ERROR_FIELD,
-        body,
-        EXPIRED_DEADLINE,
-    ) {
-        Ok(reply) => reply,
-        Err(code) if code == -sys::errno::ETIMEDOUT => return Ok(None),
-        Err(code) => return Err(code),
-    };
-    let event = topics::decode_next_event_reply(&reply.body)
-        .map_err(|_| -sys::errno::EINVAL)?
-        .event;
-    Ok((!event.topic.is_empty()).then_some(event))
 }

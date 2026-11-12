@@ -27,6 +27,9 @@
 // The interface every function of this module calls.
 export const INTERFACE = "os.lazy.net.stack.v1";
 
+// The registry name the interface is served under (`service` in the `.midl`).
+export const SERVICE = "os.lazy.net.stack";
+
 /// The connected service: `invoke`, `invoke_oneway` and method sugar
 /// (`docs/rhai/msg.md`). Resolved once per process.
 fn connect() {
@@ -222,7 +225,7 @@ fn publish_interfaces(payload) {
     msg::publish("system/net/interfaces", payload)
 }
 
-// Filter for every event of the topic `system/net/{ifname}/addr` (payload `AddressEvent`, qos latest, retained).
+// Filter for every event of the topic `system/net/{ifname}/addr` (payload `AddressEvent`, qos buffered, retained).
 // Round trip in milliseconds (10 ms resolution).
 // Four octets: who answered.
 // Bytes of echo payload returned.
@@ -230,36 +233,36 @@ fn publish_interfaces(payload) {
 // subscriber sees it. `{ifname}` is the interface name.
 export const ADDR_PATTERN = "system/net/+/addr";
 
-/// The topic name of `system/net/{ifname}/addr` (payload `AddressEvent`, qos latest, retained) for these placeholder values.
+/// The topic name of `system/net/{ifname}/addr` (payload `AddressEvent`, qos buffered, retained) for these placeholder values.
 fn addr_topic(ifname) {
     `system/net/${ifname}/addr`
 }
 
-/// Run `handler(event)` for each event of `system/net/{ifname}/addr` (payload `AddressEvent`, qos latest, retained); `event.payload` is
+/// Run `handler(event)` for each event of `system/net/{ifname}/addr` (payload `AddressEvent`, qos buffered, retained); `event.payload` is
 /// the decoded `AddressEvent`. Returns the `Subscription`.
 fn on_addr(handler) {
     msg::on("system/net/+/addr", handler)
 }
 
-/// Subscribe to `system/net/{ifname}/addr` (payload `AddressEvent`, qos latest, retained) to pull events with `sub.next()`.
+/// Subscribe to `system/net/{ifname}/addr` (payload `AddressEvent`, qos buffered, retained) to pull events with `sub.next()`.
 fn subscribe_addr() {
     msg::subscribe("system/net/+/addr")
 }
 
-/// Run `handler(event)` for each event of `system/net/{ifname}/addr` (payload `AddressEvent`, qos latest, retained); `event.payload` is
+/// Run `handler(event)` for each event of `system/net/{ifname}/addr` (payload `AddressEvent`, qos buffered, retained); `event.payload` is
 /// the decoded `AddressEvent`. Returns the `Subscription`.
 /// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
 fn on_addr(ifname, handler) {
     msg::on(`system/net/${ifname}/addr`, handler)
 }
 
-/// Subscribe to `system/net/{ifname}/addr` (payload `AddressEvent`, qos latest, retained) to pull events with `sub.next()`.
+/// Subscribe to `system/net/{ifname}/addr` (payload `AddressEvent`, qos buffered, retained) to pull events with `sub.next()`.
 /// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
 fn subscribe_addr(ifname) {
     msg::subscribe(`system/net/${ifname}/addr`)
 }
 
-/// Publish `payload` (a `AddressEvent`) on `system/net/{ifname}/addr` (payload `AddressEvent`, qos latest, retained).
+/// Publish `payload` (a `AddressEvent`) on `system/net/{ifname}/addr` (payload `AddressEvent`, qos buffered, retained).
 fn publish_addr(ifname, payload) {
     msg::publish(`system/net/${ifname}/addr`, payload)
 }

@@ -21,13 +21,12 @@
 //! only when a setting actually changes.
 
 use alloc::string::String;
-use alloc::vec::Vec;
+use libmessenger::client::Deadline;
 use messenger_generated::topics;
 use uitheme::Settings;
 use user::central::{Bus, Subscription};
-use user::messenger::confd::{wire, Client};
+use user::messenger::confd::{connect, wire, Client, ValueClient};
 use user::messenger::topics_client::Qos;
-use user::messenger::{DEFAULT_BUFFER, EXPIRED_DEADLINE};
 use user::sys;
 use user::trace;
 
@@ -40,7 +39,9 @@ const RETRY_TICKS: u64 = 300;
 /// Ticks the subscribe call may wait for the broker before it is abandoned.
 const SUBSCRIBE_TICKS: u64 = 5;
 /// Topic filter for every `sys/ui/*` change.
-const FILTER: &str = "system/confd/changed/sys/ui/#";
+fn system_filter() -> Option<String> {
+    wire::filter_system_confd_changed("sys/ui/#").ok()
+}
 
 pub(super) struct ThemeFeed {
     /// Held for the life of the compositor: closing a resolved handle would
@@ -55,8 +56,6 @@ pub(super) struct ThemeFeed {
     next_connect: u64,
     /// The settings currently applied, for change detection.
     settings: Settings,
-    /// Reused reply buffer for the topic poll.
-    buffer: Vec<u8>,
     /// The cursor size read from confd and the size the compositor last took.
     cursor_size: u32,
     cursor_taken: u32,
@@ -81,7 +80,6 @@ impl ThemeFeed {
             next_poll: 0,
             next_connect: 0,
             settings,
-            buffer: alloc::vec![0u8; DEFAULT_BUFFER],
             cursor_size: uitheme::DEFAULT_CURSOR_SIZE,
             cursor_taken: uitheme::DEFAULT_CURSOR_SIZE,
             cursor_theme: None,
@@ -104,10 +102,10 @@ impl ThemeFeed {
     /// simply leaves the default. The client stays held for the feed.
     pub(super) fn decide_scale(&mut self, width: u32, height: u32) -> u32 {
         if self.client.is_none() {
-            self.client = Client::connect().ok();
+            self.client = connect().ok();
         }
         let stored = match &self.client {
-            Some(client) => match client.get(uitheme::KEY_SCALE) {
+            Some(client) => match client.get_value(uitheme::KEY_SCALE) {
                 Ok(Some(value)) => Some(uitheme::UiScale::from_value(Some(&value))),
                 _ => None,
             },
@@ -184,10 +182,10 @@ impl ThemeFeed {
                 return false;
             }
             self.next_connect = now + RETRY_TICKS;
-            return self.connect(now);
+            return self.connect();
         }
-        let machine = drain(&mut self.watch, &mut self.buffer);
-        let own = drain(&mut self.user_watch, &mut self.buffer);
+        let machine = drain(&mut self.watch);
+        let own = drain(&mut self.user_watch);
         if machine || own {
             return self.reload();
         }
@@ -195,16 +193,16 @@ impl ThemeFeed {
     }
 
     /// Connect to confd and the broker, then read the current values.
-    fn connect(&mut self, now: u64) -> bool {
+    fn connect(&mut self) -> bool {
         if self.client.is_none() {
             // Expected to fail until `confd` registers; retried quietly.
-            self.client = Client::connect().ok();
+            self.client = connect().ok();
         }
         if self.client.is_none() {
             return false;
         }
         if self.watch.is_none() {
-            self.watch = subscribe(String::from(FILTER), now);
+            self.watch = system_filter().and_then(subscribe);
         }
         if let (Some(uid), None) = (self.user, &self.user_watch) {
             self.user_watch = self.subscribe_user(uid);
@@ -223,7 +221,7 @@ impl ThemeFeed {
             topics::Mode::Subscribe,
         )
         .ok()?;
-        subscribe(filter, sys::clock())
+        subscribe(filter)
     }
 
     /// Re-read the theme keys and install the resulting palette; `true` when
@@ -234,12 +232,12 @@ impl ThemeFeed {
         };
         let mut settings = Settings::default();
         for key in uitheme::ALL_KEYS {
-            let Ok(machine) = client.get(key) else {
+            let Ok(machine) = client.get_value(key) else {
                 // A failing service keeps the previous theme.
                 return false;
             };
             let own = match self.user.and_then(|uid| uitheme::user_key(uid, key)) {
-                Some(path) => match client.get(&path) {
+                Some(path) => match client.get_value(&path) {
                     Ok(value) => value,
                     Err(_) => return false,
                 },
@@ -248,24 +246,24 @@ impl ThemeFeed {
             settings.apply(key, uitheme::overlay(machine, own).as_ref());
         }
         self.settings = settings;
-        if let Ok(value) = client.get(uitheme::KEY_CURSOR_SIZE) {
+        if let Ok(value) = client.get_value(uitheme::KEY_CURSOR_SIZE) {
             self.cursor_size = uitheme::cursor_size_from_value(value.as_ref());
         }
         // The user's own cursor theme shadows the machine's, like the keys.
-        if let Ok(machine) = client.get(uitheme::KEY_CURSOR_THEME) {
+        if let Ok(machine) = client.get_value(uitheme::KEY_CURSOR_THEME) {
             let own = self
                 .user
                 .and_then(|uid| uitheme::user_key(uid, uitheme::KEY_CURSOR_THEME))
-                .and_then(|path| client.get(&path).ok().flatten());
+                .and_then(|path| client.get_value(&path).ok().flatten());
             self.cursor_theme =
                 uitheme::cursor_theme_from_value(uitheme::overlay(machine, own).as_ref());
         }
         // The user's own delay shadows the machine's, like the theme keys.
-        if let Ok(machine) = client.get(uitheme::KEY_SCREEN_OFF) {
+        if let Ok(machine) = client.get_value(uitheme::KEY_SCREEN_OFF) {
             let own = self
                 .user
                 .and_then(|uid| uitheme::user_key(uid, uitheme::KEY_SCREEN_OFF))
-                .and_then(|path| client.get(&path).ok().flatten());
+                .and_then(|path| client.get_value(&path).ok().flatten());
             self.screen_off =
                 uitheme::screen_off_from_value(uitheme::overlay(machine, own).as_ref());
         }
@@ -279,10 +277,10 @@ impl ThemeFeed {
 
 /// Subscribe to `filter`, bounded: the compositor must not stall on a silent
 /// broker. A failure is logged and retried by a later poll.
-pub(super) fn subscribe(filter: String, now: u64) -> Option<Subscription> {
-    let deadline = Some(now + SUBSCRIBE_TICKS);
-    let watch = Bus::connect()
-        .and_then(|mut bus| bus.subscribe_with_deadline(&filter, Qos::Latest, deadline));
+pub(super) fn subscribe(filter: String) -> Option<Subscription> {
+    let within = Deadline::ticks(SUBSCRIBE_TICKS);
+    let watch =
+        Bus::connect().and_then(|mut bus| bus.subscribe_within(&filter, Qos::Latest, within));
     if let Err(error) = &watch {
         sys::write_str(&alloc::format!("THEME:WATCH:FAIL {filter} {error:?}\n"));
     }
@@ -291,7 +289,7 @@ pub(super) fn subscribe(filter: String, now: u64) -> Option<Subscription> {
 
 /// Whether at least one change event arrived on `watch` (all pending ones
 /// consumed). A broken subscription is dropped, so a later poll resubscribes.
-pub(super) fn drain(watch: &mut Option<Subscription>, buffer: &mut [u8]) -> bool {
+pub(super) fn drain(watch: &mut Option<Subscription>) -> bool {
     let Some(subscription) = watch else {
         return false;
     };
@@ -303,7 +301,7 @@ pub(super) fn drain(watch: &mut Option<Subscription>, buffer: &mut [u8]) -> bool
         // for 10 to 20 ms every `POLL_TICKS`. The kernel keeps a poll open
         // for the broker's whole service turn (`channels::POLL_DEADLINE`),
         // so a queued event is still delivered.
-        match subscription.recv_with(buffer, Some(EXPIRED_DEADLINE)) {
+        match subscription.recv(Deadline::Poll) {
             Ok(Some(_)) => any = true,
             Ok(None) => break,
             Err(_) => {

@@ -15,7 +15,10 @@ use alloc::vec::Vec;
 use user::trace;
 
 use confd::Value as ConfValue;
-use user::messenger::{confd as conf, errno, keyd, Error};
+use libmessenger::client::Deadline;
+use user::messenger::client::Native;
+use user::messenger::confd::{self as conf, lower, ValueClient};
+use user::messenger::{errno, keyd, Error};
 use wlansta::profile::{self, Value};
 use wlansta::{Key, Owner, PmkError, Profile};
 
@@ -27,6 +30,8 @@ const CONFD_WRITE_TICKS: u64 = 1_000;
 
 pub(crate) struct Store {
     conf: Option<conf::Client>,
+    /// How long each `confd` call may take.
+    bound: Deadline,
     keyd: Option<keyd::Client>,
     profiles: Vec<Profile>,
     /// The profiles were read once (a `confd` that was not up yet is asked
@@ -63,6 +68,7 @@ impl Store {
     pub fn new() -> Store {
         Store {
             conf: None,
+            bound: Deadline::ticks(CONFD_TICKS),
             keyd: None,
             profiles: Vec::new(),
             loaded: false,
@@ -71,16 +77,14 @@ impl Store {
 
     fn conf(&mut self) -> Option<&conf::Client> {
         if self.conf.is_none() {
-            self.conf = conf::Client::connect()
-                .ok()
-                .map(|client| client.with_timeout(CONFD_TICKS));
+            self.conf = conf::connect().ok();
         }
         self.conf.as_ref()
     }
 
     fn keyd(&mut self) -> Option<&keyd::Client> {
         if self.keyd.is_none() {
-            self.keyd = keyd::Client::connect().ok();
+            self.keyd = keyd::Client::try_connect(Native).ok();
         }
         self.keyd.as_ref()
     }
@@ -88,7 +92,12 @@ impl Store {
     /// The regulatory domain for the radios: `None` when `confd` could not
     /// be asked (the radios keep theirs).
     pub fn country(&mut self) -> Option<String> {
-        let configured = match self.conf()?.get(profile::COUNTRY_KEY) {
+        let bound = self.bound;
+        let configured = match self
+            .conf()?
+            .get_value_within(profile::COUNTRY_KEY, bound)
+            .map_err(lower)
+        {
             Ok(Some(ConfValue::Str(code))) => Some(code),
             Ok(_) => None,
             // Unset, or refused: the world domain, which needs nobody's word.
@@ -131,8 +140,9 @@ impl Store {
     }
 
     fn read_all(&mut self) -> Result<Vec<Profile>, Error> {
+        let bound = self.bound;
         let client = self.conf().ok_or(Error::Errno(-errno::EAGAIN))?;
-        let list = |prefix: &str| match client.list(prefix) {
+        let list = |prefix: &str| match client.list_within(prefix, bound).map_err(lower) {
             Err(error) if error.errno() == Some(-errno::ENOENT) => Ok(Vec::new()),
             other => other,
         };
@@ -143,7 +153,10 @@ impl Store {
         for (owner, id) in profile::ids(&keys, profile::MAX_READ_PER_OWNER) {
             let mut fields: Vec<(&str, Option<Value>)> = Vec::new();
             for field in profile::FIELDS {
-                let value = match client.get(&profile::key(owner, &id, field)) {
+                let value = match client
+                    .get_value_within(&profile::key(owner, &id, field), bound)
+                    .map_err(lower)
+                {
                     Ok(value) => value.and_then(from_conf),
                     // Deleted between the list and the read: half a profile.
                     Err(error) if error.errno() == Some(-errno::ENOENT) => None,
@@ -186,7 +199,7 @@ impl Store {
                     profile.id,
                     error.message()
                 );
-                return Err(error);
+                return Err(Error::Errno(error.code()));
             }
         }
         let written = self.write_fields(profile);
@@ -211,27 +224,33 @@ impl Store {
     }
 
     fn set_fields(&mut self, profile: &Profile) -> Result<(), Error> {
+        let bound = self.bound;
         let client = self.conf().ok_or(Error::Errno(-errno::EAGAIN))?;
         for (field, value) in profile::fields(profile) {
-            client.set(
-                &profile::key(profile.owner, &profile.id, field),
-                &to_conf(value),
-            )?;
+            client
+                .set_value_within(
+                    &profile::key(profile.owner, &profile.id, field),
+                    &to_conf(value),
+                    bound,
+                )
+                .map_err(lower)?;
         }
         Ok(())
     }
 
     /// Give the `confd` client a new per-call timeout.
     fn retime(&mut self, ticks: u64) {
-        self.conf = self.conf.take().map(|client| client.with_timeout(ticks));
+        self.bound = Deadline::ticks(ticks);
     }
 
     /// Delete a profile's fields and, for a user's network, its secret (a
     /// system network's secret is `elevd`'s). Missing pieces are fine.
     pub fn erase(&mut self, profile: &Profile) {
+        let bound = self.bound;
         if let Some(client) = self.conf() {
             for field in profile::FIELDS.iter().rev() {
-                let _ = client.delete(&profile::key(profile.owner, &profile.id, field));
+                let _ =
+                    client.delete_within(&profile::key(profile.owner, &profile.id, field), bound);
             }
         }
         let (scope, uid) = scope_of(profile.owner);
@@ -257,9 +276,9 @@ impl Store {
                 user::messenger::wifi::wipe_bytes(&mut bytes);
                 pmk.map(Key::new)
             }
-            Err(error) => match error.errno().map(|code| -code) {
-                Some(errno::ENOENT) => Err(PmkError::Missing),
-                Some(code) if code == errno::EINVAL || code == errno::EPERM => {
+            Err(error) => match -error.code() {
+                errno::ENOENT => Err(PmkError::Missing),
+                code if code == errno::EINVAL || code == errno::EPERM => {
                     trace::line!(trace::Channel::Wlanmd, "PMK:REFUSED {id} errno={code}");
                     Err(PmkError::Unavailable)
                 }

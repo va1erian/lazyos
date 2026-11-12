@@ -108,8 +108,8 @@ with no test CA, signs in to the real service, scrolls and clicks "Load more"
 in a loop, and fails on a second `SKY:UP:PASS` (a restart), a `SKY:PANIC:`
 line, a failure marker or the password in the serial log. The release
 profile is `panic = "abort"`, so any panic on any thread ends the app: the
-panic hook in `src/bin/lazysky.rs` prints `SKY:PANIC:<message> at
-<file:line>` first, which is what a crash report should quote.
+panic hook that `xui_app::app` installs prints `SKY:PANIC:FAIL:<message>
+at <file:line>` first, which is what a crash report should quote.
 
 Findings so far: `MouseWheel.delta` is in 120ths of a notch (divide by
 `WHEEL_DELTA`); a video post has no thumbnail path and shows a blank block;

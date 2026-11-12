@@ -8,7 +8,8 @@
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use user::messenger::{router, services};
+use user::central;
+use user::messenger::services;
 use user::sys;
 use user::trace;
 
@@ -21,7 +22,7 @@ pub(crate) fn apply_state(
     rows: &mut Vec<HealthRow>,
     name: &str,
     event: &services::ServiceEvent,
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     summary_state: &mut Option<(String, String)>,
 ) {
     if event.state.is_empty() {
@@ -45,7 +46,7 @@ pub(crate) fn apply_state(
 pub(crate) fn refresh(
     rows: &mut Vec<HealthRow>,
     statuses: &[services::ServiceStatus],
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     summary_state: &mut Option<(String, String)>,
 ) {
     let mut any_change = false;
@@ -69,7 +70,7 @@ pub(crate) fn refresh(
 /// Publish the aggregate row retained on `system/health/summary`, skipping the
 /// write while the status/detail fingerprint is unchanged.
 fn publish_summary(
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     rows: &[HealthRow],
     summary_state: &mut Option<(String, String)>,
 ) {
@@ -93,7 +94,7 @@ fn apply_supervision(
     pid: u64,
     restarts: u64,
     deps: Option<&str>,
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
 ) -> bool {
     let now = sys::clock();
     let Some(row) = rows.iter_mut().find(|row| row.name == name) else {
@@ -190,7 +191,7 @@ fn rank(status: &str) -> u8 {
 /// [`REPORT_TTL`] ticks.
 pub(crate) fn report(
     rows: &mut Vec<HealthRow>,
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     name: &str,
     status: &str,
     detail: &str,
@@ -239,7 +240,7 @@ pub(crate) fn report(
 /// Publish one row retained on `system/health/<name>`. Best-effort: the topic
 /// name is validated by the generated helper, so a malformed service name
 /// drops the row instead of corrupting the broker.
-fn publish_row(broker: &mut router::TopicBroker, name: &str, row: &services::HealthRecord) {
+fn publish_row(broker: &mut central::Publisher, name: &str, row: &services::HealthRecord) {
     let _ = services::health::wire::publish_system_health(broker, name, row);
 }
 

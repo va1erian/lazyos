@@ -20,6 +20,20 @@ field (errno-style code, friendly text), not as a typed reply.
 | Sources | 583496657 | sync | `() -> (sources: Array<String>)` |
 | TailFile | 571114525 | sync | `(source: String, count: U64) -> (lines: Array<String>)` |
 
+## Service
+
+- Served under the registry name `os.lazy.logd`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Tail | this interface | - | 5000 ms | safe |
+| Count | this interface | - | 5000 ms | safe |
+| Verify | this interface | - | 5000 ms | safe |
+| Sources | this interface | - | 5000 ms | safe |
+| TailFile | this interface | - | 5000 ms | safe |
+
 ## struct `LogRecord`
 
 - `seq: U64`

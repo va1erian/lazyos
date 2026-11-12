@@ -5,12 +5,12 @@
 //! link is opened lazily and dropped on the first failure: `inputd` starts
 //! beside `confd` and must keep typing working while it is not reachable.
 
-use alloc::vec::Vec;
-
 use inputmap::{Layout, LAYOUT_KEY};
+use libmessenger::client::{CallError, Deadline, Errno};
 use user::central::Subscription;
-use user::messenger::confd::{name_system_confd_changed, Client as Confd};
-use user::messenger::{self, Error, EXPIRED_DEADLINE};
+use user::messenger::confd::{
+    connect, name_system_confd_changed, watch, Client as Confd, StoreError, ValueClient,
+};
 use user::sys;
 
 /// Ticks (100 Hz) between attempts to reach `confd`.
@@ -29,7 +29,6 @@ pub(super) struct Config {
     watch: Option<Subscription>,
     synced: bool,
     next_try: u64,
-    buffer: Vec<u8>,
 }
 
 impl Config {
@@ -39,7 +38,6 @@ impl Config {
             watch: None,
             synced: false,
             next_try: 0,
-            buffer: alloc::vec![0u8; messenger::DEFAULT_BUFFER],
         }
     }
 
@@ -56,7 +54,7 @@ impl Config {
         let mut lost = false;
         if let Some(watch) = &self.watch {
             loop {
-                match watch.recv_with(&mut self.buffer, Some(EXPIRED_DEADLINE)) {
+                match watch.recv(Deadline::Poll) {
                     Ok(Some(_)) => changed = true,
                     Ok(None) => break,
                     Err(_) => {
@@ -93,7 +91,7 @@ impl Config {
         };
         let topic = name_system_confd_changed(LAYOUT_KEY).ok();
         self.watch = match (&self.confd, topic) {
-            (Some(confd), Some(topic)) => confd.watch(&topic).ok(),
+            (Some(_), Some(topic)) => watch(&topic).ok(),
             _ => None,
         };
         if self.watch.is_some() {
@@ -108,15 +106,15 @@ impl Config {
 
     /// The layout `confd` holds; absent or unknown falls back to the default
     /// rather than trusting arbitrary text.
-    fn read(&mut self) -> Result<Layout, Error> {
+    fn read(&mut self) -> Result<Layout, CallError<StoreError>> {
         if self.confd.is_none() {
-            self.confd = Some(Confd::connect()?);
+            self.confd = Some(connect()?);
         }
         let client = self
             .confd
             .as_ref()
-            .ok_or(Error::Errno(-messenger::errno::ENOENT))?;
-        Ok(match client.get(LAYOUT_KEY)? {
+            .ok_or(CallError::Transport(Errno::NOENT))?;
+        Ok(match client.get_value(LAYOUT_KEY)? {
             Some(confd::Value::Str(name)) => {
                 Layout::from_name(&name).unwrap_or_else(default_layout)
             }

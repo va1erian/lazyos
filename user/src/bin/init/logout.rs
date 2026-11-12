@@ -35,7 +35,7 @@ use alloc::vec::Vec;
 use user::trace;
 
 use svcpolicy::{logout_deadline, logout_settled, StopMode};
-use user::messenger::router;
+use user::central;
 use user::sys;
 use user::sysinfo::MAX_TASKS;
 
@@ -65,7 +65,7 @@ impl Logouts {
     pub(super) fn begin(
         &mut self,
         services: &mut [Service],
-        broker: &mut router::TopicBroker,
+        broker: &mut central::Publisher,
         session: u64,
     ) {
         // Session 0 is the system's own: never a login's to end.
@@ -119,7 +119,7 @@ impl Logouts {
 /// Pass 1: stop the launched rows of `session`; returns how many.
 fn stop_rows(
     services: &mut [Service],
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     session: u64,
     now: u64,
 ) -> usize {

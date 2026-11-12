@@ -34,11 +34,16 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use libmessenger::client::{CallError, Deadline, Errno};
+use libmessenger::server::{Caller, Fault};
+use user::central;
+use user::messenger::accounts::Directory;
+use user::messenger::client::Native;
+use user::messenger::confd::ValueClient;
+use user::messenger::services::init::{Client as InitClient, ClientError as InitError};
 use user::trace;
 
-use user::messenger::{
-    self, accounts, confd, errno, logind, registry, router, services, Endpoint, Message, Parcel,
-};
+use user::messenger::{self, accounts, confd, errno, logind, Endpoint};
 use user::sys;
 
 /// The confd key that selects the session kind.
@@ -64,8 +69,8 @@ const AUTOLOGIN: &str = env!("LAZYOS_AUTOLOGIN_NAME");
 
 /// Whether this boot's logins are graphical (see the module docs).
 pub fn requested() -> bool {
-    let configured = confd::Client::connect().ok().and_then(|client| {
-        match client.with_timeout(CALL_TICKS).get(SESSION_MODE_KEY) {
+    let configured = confd::connect().ok().and_then(|client| {
+        match client.get_value_within(SESSION_MODE_KEY, Deadline::ticks(CALL_TICKS)) {
             Ok(Some(::confd::Value::Str(mode))) => Some(mode),
             _ => None,
         }
@@ -98,11 +103,13 @@ struct Desktop {
     sessions: Vec<logind::SessionRecord>,
     active: Option<Active>,
     next_session: u64,
-    bus: Option<router::Bus>,
-    accounts: Option<Endpoint>,
-    init: Option<Endpoint>,
+    bus: Option<central::Publisher>,
+    accounts: Option<accounts::Client>,
+    init: Option<InitClient>,
     greeter: bool,
     autologin_tried: bool,
+    /// What the request just answered asks for once its reply is sent.
+    after: After,
 }
 
 /// Serve graphical logins until the system stops. Returns only when the login
@@ -117,6 +124,7 @@ pub fn run(server: &Endpoint, buffer: &mut [u8]) -> messenger::Result<()> {
         init: None,
         greeter: false,
         autologin_tried: false,
+        after: After::Nothing,
     };
     sys::write_str("logind: graphical login\n");
     loop {
@@ -147,14 +155,53 @@ pub fn run(server: &Endpoint, buffer: &mut [u8]) -> messenger::Result<()> {
             Err(messenger::Error::Errno(code)) if code == -errno::ETIMEDOUT => continue,
             Err(error) => return Err(error),
         };
-        let (reply, after) = desktop.answer(&message);
+        let reply = logind::wire::dispatch(&mut desktop, &message);
         if let Some(txn) = message.txn {
             server.reply_or_drop(txn, &reply)?;
         }
-        match after {
+        match core::mem::replace(&mut desktop.after, After::Nothing) {
             After::Nothing => {}
             After::StopGreeter => desktop.stop_greeter(),
             After::EndSession => desktop.end_session(),
+        }
+    }
+}
+
+/// The generated server: a method that must be followed by more work (the
+/// greeter stops, the session ends) leaves it in `after` for the loop.
+impl logind::wire::Server for Desktop {
+    fn sessions(&mut self, _: &Caller) -> Result<logind::wire::SessionsReply, Fault> {
+        Ok(logind::wire::SessionsReply {
+            active: self.active.iter().count() as u64,
+            sessions: self.sessions.clone(),
+        })
+    }
+
+    fn login(&mut self, cx: &Caller, user: String, secret: String) -> Result<u64, Fault> {
+        let session = Desktop::login(self, cx, &user, &secret)
+            .map_err(|(code, why)| Fault::new(code as u32, why))?;
+        self.after = After::StopGreeter;
+        Ok(session)
+    }
+
+    fn logout(&mut self, cx: &Caller) -> Result<u64, Fault> {
+        match self.active.as_ref() {
+            Some(active) if cx.session == active.id && active.id != 0 => {
+                let id = active.id;
+                // The end is announced before the answer: if the broker will
+                // not take it, `init` would never stop the session's tasks,
+                // so refuse and keep the session.
+                if !self.announce_end() {
+                    trace::line!(
+                        trace::Channel::Login,
+                        "LOGOUT:FAIL session={id} reason=unannounced"
+                    );
+                    return Err(Fault::refuse(Errno::AGAIN, "cannot announce the logout"));
+                }
+                self.after = After::EndSession;
+                Ok(id)
+            }
+            _ => Err(Fault::refuse(Errno::PERM, "not your session")),
         }
     }
 }
@@ -163,13 +210,13 @@ impl Desktop {
     /// Find the services this needs, as they appear.
     fn connect(&mut self) {
         if self.accounts.is_none() {
-            self.accounts = registry::resolve(accounts::NAME).ok();
+            self.accounts = accounts::Client::try_connect(Native).ok();
         }
         if self.bus.is_none() {
-            self.bus = router::Bus::connect(services::INIT_NAME).ok();
+            self.bus = Some(central::Publisher::new());
         }
         if self.init.is_none() {
-            self.init = services::resolve_service(services::INIT_NAME).ok();
+            self.init = InitClient::try_connect(Native).ok();
         }
     }
 
@@ -182,7 +229,7 @@ impl Desktop {
         let account = self
             .accounts
             .as_ref()
-            .and_then(|endpoint| accounts::lookup_name(endpoint, AUTOLOGIN).ok().flatten());
+            .and_then(|client| client.lookup_name(AUTOLOGIN).ok().flatten());
         let Some(account) = account else {
             trace::line!(
                 trace::Channel::Login,
@@ -203,14 +250,13 @@ impl Desktop {
     /// `Err(false)`: the image has none, give graphical logins up.
     fn show_greeter(&mut self) -> Result<(), bool> {
         let init = self.init.as_ref().ok_or(true)?;
-        let deadline = Some(sys::clock() + CALL_TICKS);
-        match services::launch_by(init, GREETER_APP, "", 0, deadline) {
+        match init.launch_within(GREETER_APP, "", 0, Deadline::ticks(CALL_TICKS)) {
             Ok(result) => {
                 trace::line!(trace::Channel::Login, "GREETER:PASS pid={}", result.pid);
                 self.greeter = true;
                 Ok(())
             }
-            Err(messenger::Error::Init(code)) if code == errno::ENOENT => {
+            Err(error) if error.code() == -errno::ENOENT => {
                 sys::write_str(
                     "LOGIN:GRAPHICAL:FAIL reason=no-login-screen; starting the console login\n",
                 );
@@ -222,65 +268,19 @@ impl Desktop {
 
     fn stop_greeter(&mut self) {
         if let Some(init) = self.init.as_ref() {
-            let _ = services::stop(init, GREETER_APP);
+            let _ = init.stop(GREETER_APP);
         }
         self.greeter = false;
     }
 
-    /// Answer one request, and say what must follow the reply.
-    fn answer(&mut self, message: &Message) -> (Parcel, After) {
-        let method = message.method();
-        if message.interface_id() != logind::INTERFACE {
-            return (Parcel::default(), After::Nothing);
-        }
-        match method {
-            logind::wire::METHOD_SESSIONS => {
-                let active = self.active.iter().count() as u64;
-                let reply = logind::sessions_reply(&self.sessions, active).unwrap_or_default();
-                (reply, After::Nothing)
-            }
-            logind::wire::METHOD_LOGIN => match self.login(message) {
-                Ok(session) => {
-                    let body =
-                        logind::wire::encode_login_reply(&logind::wire::LoginReply { session })
-                            .unwrap_or_default();
-                    (logind::reply(method, body), After::StopGreeter)
-                }
-                Err((code, why)) => (logind::error_reply(method, code, why), After::Nothing),
-            },
-            logind::wire::METHOD_LOGOUT => {
-                let caller = message.caller();
-                match self.active.as_ref() {
-                    // Without the bus the end could not be announced, so `init`
-                    // would never stop the session's tasks: refuse, keep it.
-                    Some(active) if caller.session == active.id && self.bus.is_none() => (
-                        logind::error_reply(method, errno::EAGAIN, "cannot announce the logout"),
-                        After::Nothing,
-                    ),
-                    Some(active) if caller.session == active.id && active.id != 0 => {
-                        let body = logind::wire::encode_logout_reply(&logind::wire::LogoutReply {
-                            session: active.id,
-                        })
-                        .unwrap_or_default();
-                        (logind::reply(method, body), After::EndSession)
-                    }
-                    _ => (
-                        logind::error_reply(method, errno::EPERM, "not your session"),
-                        After::Nothing,
-                    ),
-                }
-            }
-            _ => (
-                logind::error_reply(method, errno::EINVAL, "unknown method"),
-                After::Nothing,
-            ),
-        }
-    }
-
     /// `Login` from the login screen: who may ask, then the password, then
     /// the session.
-    fn login(&mut self, message: &Message) -> Result<u64, (i64, &'static str)> {
-        let caller = message.caller();
+    fn login(
+        &mut self,
+        caller: &Caller,
+        user: &str,
+        secret: &str,
+    ) -> Result<u64, (i64, &'static str)> {
         // The login screen's identity alone: a task of a session (or anyone
         // else) never gets to try passwords through this call.
         if caller.uid != logind::GREETER_UID || caller.label_id != 0 || caller.session != 0 {
@@ -289,38 +289,36 @@ impl Desktop {
         if self.active.is_some() {
             return Err((errno::EBUSY, "a session is open"));
         }
-        let args = logind::wire::decode_login_args(&message.parcel.body)
-            .map_err(|_| (errno::EINVAL, "malformed"))?;
-        let endpoint = self
+        let accounts = self
             .accounts
             .as_ref()
             .ok_or((errno::EAGAIN, "accounts not ready"))?;
-        let account = match accounts::lookup_name(endpoint, &args.user) {
+        let account = match accounts.lookup_name(user) {
             Ok(Some(account)) => account,
             Ok(None) => {
-                super::deny(&mut self.bus, &args.user, "unknown-user");
+                super::deny(&mut self.bus, user, "unknown-user");
                 return Err((errno::EACCES, "refused"));
             }
             Err(_) => {
-                super::deny(&mut self.bus, &args.user, "no-accounts");
+                super::deny(&mut self.bus, user, "no-accounts");
                 return Err((errno::EACCES, "refused"));
             }
         };
-        match accounts::authenticate(endpoint, &args.user, &args.secret) {
+        match accounts.authenticate(user, secret) {
             Ok(true) => {}
             // `accountsd`'s brake holds for this name (U1): say so, and do
             // not count it as one more wrong password.
-            Err(messenger::Error::Errno(code)) if code == -errno::EAGAIN => {
-                super::deny(&mut self.bus, &args.user, "slowed");
+            Err(error) if error.code() == -errno::EAGAIN => {
+                super::deny(&mut self.bus, user, "slowed");
                 return Err((errno::EAGAIN, "too many failed attempts"));
             }
             Ok(false) | Err(_) => {
-                super::deny(&mut self.bus, &args.user, "bad-secret");
+                super::deny(&mut self.bus, user, "bad-secret");
                 return Err((errno::EACCES, "refused"));
             }
         }
         self.open(&account).map_err(|_| {
-            super::deny(&mut self.bus, &args.user, "spawn-failed");
+            super::deny(&mut self.bus, user, "spawn-failed");
             (errno::EIO, "the desktop could not start")
         })
     }
@@ -334,10 +332,9 @@ impl Desktop {
         // the session's apps), announced before the launch.
         publish_session(&mut self.bus, account, id, 0, "starting");
         let launched = match self.init.as_ref() {
-            Some(init) => {
-                services::launch_by(init, SHELL_APP, "", id, Some(sys::clock() + CALL_TICKS))
-                    .map_err(|error| error_text(&error))
-            }
+            Some(init) => init
+                .launch_within(SHELL_APP, "", id, Deadline::ticks(CALL_TICKS))
+                .map_err(|error| error_text(&error)),
             None => Err(String::from("init-unreachable")),
         };
         let pid = match launched {
@@ -388,28 +385,42 @@ impl Desktop {
         Ok(id)
     }
 
-    /// End the active session: `init` stops its tasks on the event, and the
-    /// next loop pass brings the login screen back. The end is announced
-    /// first: if it cannot be, the session stays active (its tasks are still
-    /// running) and a later Log out tries again, instead of a login screen
-    /// opening over a session nobody stopped.
-    fn end_session(&mut self) {
-        let Some(active) = self.active.as_ref() else {
-            return;
-        };
-        let (id, index) = (active.id, active.index);
+    /// The active session's account, as the end and session records carry it.
+    fn active_account(&self) -> Option<(u64, usize, accounts::UserRecord)> {
+        let active = self.active.as_ref()?;
+        let record = &self.sessions[active.index];
         let account = accounts::UserRecord {
-            name: self.sessions[index].user.clone(),
-            uid: self.sessions[index].uid,
+            name: record.user.clone(),
+            uid: record.uid,
             ..accounts::UserRecord::default()
         };
-        if !publish_end(&mut self.bus, &account, id, 0) {
-            trace::line!(
-                trace::Channel::Login,
-                "LOGOUT:FAIL session={id} reason=unannounced"
-            );
-            return;
+        Some((active.id, active.index, account))
+    }
+
+    /// Publish the active session's `login/end` (`init` stops its tasks on
+    /// it); whether the broker took it.
+    fn announce_end(&mut self) -> bool {
+        let Some((id, _, account)) = self.active_account() else {
+            return false;
+        };
+        if publish_end(&mut self.bus, &account, id, 0) {
+            return true;
         }
+        // `Logout` refuses and keeps the session, so the held end must not
+        // be replayed by a later publish (a session that really exited keeps
+        // its replay).
+        if let Some(bus) = self.bus.as_mut() {
+            bus.forget(logind::wire::TOPIC_SYSTEM_EVENTS_LOGIN_END);
+        }
+        false
+    }
+
+    /// Finish the logout `Logout` announced: the next loop pass brings the
+    /// login screen back.
+    fn end_session(&mut self) {
+        let Some((id, index, account)) = self.active_account() else {
+            return;
+        };
         self.active = None;
         self.sessions[index].state = String::from("exited");
         trace::line!(
@@ -425,7 +436,7 @@ impl Desktop {
 /// the account's home, so `init` can give the session's apps their
 /// environment without looking the account up again (issue #508).
 pub fn publish_session(
-    bus: &mut Option<router::Bus>,
+    bus: &mut Option<central::Publisher>,
     account: &accounts::UserRecord,
     session: u64,
     pid: u64,
@@ -447,7 +458,7 @@ pub fn publish_session(
 /// Publish `system/events/login/end` for `session`; whether the broker took
 /// it (`init` stops the session's tasks on it).
 fn publish_end(
-    bus: &mut Option<router::Bus>,
+    bus: &mut Option<central::Publisher>,
     account: &accounts::UserRecord,
     session: u64,
     status: u64,
@@ -465,10 +476,10 @@ fn publish_end(
 }
 
 /// A short reason for a failed `Launch`.
-fn error_text(error: &messenger::Error) -> String {
+fn error_text(error: &InitError) -> String {
     match error {
-        messenger::Error::Errno(code) => format!("errno{code}"),
-        messenger::Error::Init(code) => format!("init{code}"),
-        _ => String::from("launch-failed"),
+        CallError::Transport(errno) => format!("errno{}", errno.to_syscall()),
+        CallError::Remote { code, .. } => format!("init{code}"),
+        CallError::Service(never) => match *never {},
     }
 }

@@ -13,8 +13,7 @@ use alloc::vec::Vec;
 use user::trace;
 
 use inputmap::Layout;
-use user::messenger::input::{shell_wire, wire};
-use user::messenger::{Error, Result};
+use user::messenger::input::wire;
 
 use super::hub::Hub;
 
@@ -26,10 +25,9 @@ impl Hub {
     }
 
     /// The compositor's `NoteSessionLayout`.
-    pub(super) fn note_session_layout(&mut self, body: &[u8]) -> Result<()> {
-        let args = shell_wire::decode_note_session_layout_args(body).map_err(Error::Parcel)?;
+    pub(super) fn set_session_layout(&mut self, layout: Option<&str>) {
         let before = self.layouts.session();
-        let effective = self.layouts.set_session(args.layout.as_deref());
+        let effective = self.layouts.set_session(layout);
         if self.layouts.session() != before {
             let named = self.layouts.session().map_or("none", Layout::name);
             trace::line!(
@@ -39,7 +37,6 @@ impl Hub {
             );
         }
         self.adopt_layout(effective);
-        Ok(())
     }
 
     /// The compositor went away: its user's layout ends with it.

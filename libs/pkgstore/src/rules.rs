@@ -303,6 +303,8 @@ pub fn compile(manifest: &Manifest) -> Result<Vec<LabelRule>, CompileError> {
                 topics::METHOD_SUBSCRIBE,
                 topics::METHOD_UNSUBSCRIBE,
                 topics::METHOD_NEXTEVENT,
+                // The doorbell a subscriber is woken by (`fabric::Follow`).
+                topics::METHOD_BELL,
                 topics::METHOD_ACK,
                 topics::METHOD_STATS,
             ]);

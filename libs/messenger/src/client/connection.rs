@@ -1,0 +1,323 @@
+//! [`Transport`] and [`Connection`]: resolve once, call, survive a restart.
+
+use alloc::borrow::Cow;
+use alloc::string::String;
+use alloc::vec::Vec;
+use core::cell::Cell;
+
+use super::deadline::Deadline;
+use super::errno::Errno;
+use super::error::{remote_error, CallError};
+use super::policy::{CallFailure, Retry};
+use crate::{flags, Header, Object, Parcel, VERSION};
+
+/// A kernel handle naming a resolved service.
+pub type Handle = u64;
+
+/// How long [`Transport::connect_bound`] waits for a name to register.
+pub const CONNECT_BOUND: Deadline = Deadline::secs(10);
+
+/// The header's `deadline_ns` of a call made with [`Deadline::Poll`]. The
+/// kernel does not tell a callee how long its caller waits, and ends a poll
+/// the moment the callee returns to `recv` unanswered, so a long-poll service
+/// (the topics broker) reads this hint to answer or refuse at once instead of
+/// parking a transaction that is already dead. Advisory: a caller can only
+/// mislead the service about its own call.
+pub const POLL_HINT_NS: u64 = 1;
+
+/// What a runtime provides for Messenger calls: the native `user` library,
+/// the std programs over `lazyos-sys`, and a [`super::Mock`] in tests. It
+/// moves parcels and knows nothing of interfaces, errors or retries; that
+/// is [`Connection`].
+pub trait Transport {
+    /// The one bound a program waits for a service to register
+    /// (`docs/client-api-plan.md` 3.4: [`Transport::resolve`] blocks in the
+    /// kernel on the registry for at most this long). Ten seconds for every
+    /// runtime; a test transport overrides it.
+    fn connect_bound(&self) -> Deadline {
+        CONNECT_BOUND
+    }
+
+    /// The flags every synchronous request of this runtime carries. Native
+    /// programs send none, so the kernel refuses a call that would close a
+    /// wait cycle (`Deadlock`, `docs/messenger.md` 6); the std runtime's UI
+    /// loops send `ALLOW_NESTED`, as they always have. Required, not
+    /// defaulted, so a new transport decides it explicitly.
+    fn call_flags(&self) -> u16;
+
+    /// Resolve the registry name `name` into a handle, waiting for it to
+    /// register no longer than `until` ([`Deadline::Poll`]: one attempt).
+    fn resolve(&self, name: &str, until: Deadline) -> Result<Handle, Errno>;
+
+    /// One synchronous call: `request` out, the reply back, no later than
+    /// `until`. A failure says whether the peer may have received the
+    /// request ([`CallFailure::delivered`]); a transport that cannot tell
+    /// answers `true`. `retry` is the method's policy: for [`Retry::Safe`]
+    /// the connection resends either way, so a transport may skip the work
+    /// of telling the two apart (one syscall instead of two).
+    fn call(
+        &self,
+        handle: Handle,
+        request: &Parcel,
+        until: Deadline,
+        retry: Retry,
+    ) -> Result<Parcel, CallFailure>;
+
+    /// Send `request` one way; it does not wait for the peer.
+    fn send(&self, handle: Handle, request: &Parcel) -> Result<(), Errno>;
+
+    /// Give `handle` back to the kernel (a resolved handle is shared with
+    /// every other resolver, so this releases, it does not close).
+    fn release(&self, handle: Handle);
+}
+
+/// A service by registry name, over a [`Transport`]: it resolves on first
+/// use, keeps the handle, and when a call finds the peer gone
+/// (`EPIPE`, or `ENOENT` from a reaped name) drops it, so the next use
+/// resolves a restarted service. A call is resent once, to the restarted
+/// service, when the request never left ([`CallFailure::delivered`]) or the
+/// method is [`Retry::Safe`]; otherwise the peer may have run it and the
+/// error is returned. A remote refusal is never retried.
+pub struct Connection<T: Transport> {
+    transport: T,
+    name: Cow<'static, str>,
+    handle: Cell<Option<Handle>>,
+    /// Set once a call found the peer gone or a waiting resolve failed: from
+    /// then on a reconnect never outlasts the call's own deadline.
+    evicted: Cell<bool>,
+}
+
+impl<T: Transport> Connection<T> {
+    /// A connection to the service registered as `name`; nothing resolves
+    /// until the first call.
+    pub const fn new(transport: T, name: &'static str) -> Connection<T> {
+        Connection {
+            transport,
+            name: Cow::Borrowed(name),
+            handle: Cell::new(None),
+            evicted: Cell::new(false),
+        }
+    }
+
+    /// A connection to a name built at run time: a member of a service
+    /// family (`SERVICE_INSTANCE_PREFIX` plus an instance, such as
+    /// `os.lazy.net.nic/eth0`).
+    pub fn named(transport: T, name: String) -> Connection<T> {
+        Connection {
+            transport,
+            name: Cow::Owned(name),
+            handle: Cell::new(None),
+            evicted: Cell::new(false),
+        }
+    }
+
+    /// The registry name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The runtime behind it.
+    pub fn transport(&self) -> &T {
+        &self.transport
+    }
+
+    /// Whether a handle is cached.
+    pub fn is_connected(&self) -> bool {
+        self.handle.get().is_some()
+    }
+
+    /// The service's handle, resolving it (waiting the runtime's connect
+    /// bound for the name to register) when none is cached.
+    pub fn connect(&self) -> Result<Handle, Errno> {
+        self.resolve_within(self.transport.connect_bound())
+    }
+
+    /// [`Connection::connect`] with one attempt: for a caller whose
+    /// service being absent has a cheap fallback.
+    pub fn try_connect(&self) -> Result<Handle, Errno> {
+        self.resolve_within(Deadline::Poll)
+    }
+
+    fn resolve_within(&self, until: Deadline) -> Result<Handle, Errno> {
+        if let Some(handle) = self.handle.get() {
+            return Ok(handle);
+        }
+        let handle = self.transport.resolve(&self.name, until).inspect_err(|_| {
+            // A name that did not register in a full wait is treated like a
+            // lost service: later calls stop paying the connect bound.
+            if until != Deadline::Poll {
+                self.evicted.set(true);
+            }
+        })?;
+        self.handle.set(Some(handle));
+        Ok(handle)
+    }
+
+    /// Forget the cached handle after the peer died, so the next use
+    /// resolves a restarted service.
+    pub fn evict(&self) {
+        if let Some(handle) = self.handle.take() {
+            self.evicted.set(true);
+            self.transport.release(handle);
+        }
+    }
+
+    /// How long a call waits for the name to register. The first resolve
+    /// waits the runtime's connect bound whatever the call's deadline: at
+    /// boot services and their clients start together, and a short method
+    /// must not fail because its service came up a moment later. A poll
+    /// never waits, and once the service was lost (restarting, gone for
+    /// good, or never registered) a call waits no longer than its own
+    /// deadline, so a UI thread does not stall on it call after call.
+    fn first_wait(&self, until: Deadline) -> Deadline {
+        let bound = self.transport.connect_bound();
+        match until {
+            Deadline::Poll => Deadline::Poll,
+            _ if self.evicted.get() => bound.min(until),
+            _ => bound,
+        }
+    }
+
+    /// The request parcel for `method` of `interface` (or of a scope id,
+    /// for a method declared on an ACL scope) with `flag_bits`.
+    pub fn request(
+        interface: u64,
+        method: u32,
+        flag_bits: u16,
+        body: Vec<u8>,
+        objects: Vec<Object>,
+    ) -> Parcel {
+        Parcel {
+            header: Header {
+                version: VERSION,
+                flags: flag_bits,
+                interface_id: interface,
+                method,
+                txn_id: 0,
+                reply_to: 0,
+                deadline_ns: 0,
+            },
+            body,
+            objects,
+        }
+    }
+
+    /// One call of `method` on `interface` (or scope id), `body` and
+    /// `objects` as the generated encoder returned them, answered within
+    /// `until`. A reply that is the standard error field becomes
+    /// [`CallError::Remote`].
+    ///
+    /// `retry` is the method's policy: after a peer that died while it may
+    /// have been handling the request, only [`Retry::Safe`] sends it again.
+    ///
+    /// The request carries the transport's [`Transport::call_flags`].
+    pub fn call(
+        &self,
+        interface: u64,
+        method: u32,
+        body: Vec<u8>,
+        objects: Vec<Object>,
+        until: Deadline,
+        retry: Retry,
+    ) -> Result<Parcel, CallError> {
+        let mut request = Self::request(
+            interface,
+            method,
+            self.transport.call_flags(),
+            body,
+            objects,
+        );
+        if until == Deadline::Poll {
+            request.header.deadline_ns = POLL_HINT_NS;
+        }
+        let reply = self
+            .call_once_more(&request, until, retry)
+            .map_err(CallError::Transport)?;
+        Self::check(reply)
+    }
+
+    /// A one-way message (`flags::ONE_WAY`): never waits for the peer.
+    /// `objects` move with it, as for [`Connection::call`].
+    pub fn send(
+        &self,
+        interface: u64,
+        method: u32,
+        body: Vec<u8>,
+        objects: Vec<Object>,
+    ) -> Result<(), CallError> {
+        let request = Self::request(interface, method, flags::ONE_WAY, body, objects);
+        self.with_retry(|handle| self.transport.send(handle, &request))
+            .map_err(CallError::Transport)
+    }
+
+    /// `reply` unless it is the standard error field, which is the error.
+    /// For a caller that issued the call itself (an asynchronous one).
+    pub fn check(reply: Parcel) -> Result<Parcel, CallError> {
+        match remote_error(&reply) {
+            Some(error) => Err(error),
+            None => Ok(reply),
+        }
+    }
+
+    /// Call on the cached handle; when the peer is gone, drop the handle
+    /// and, if resending is allowed (`retry`, or a request that never
+    /// left), resolve once without waiting and call once more.
+    fn call_once_more(
+        &self,
+        request: &Parcel,
+        until: Deadline,
+        retry: Retry,
+    ) -> Result<Parcel, Errno> {
+        let handle = self.resolve_within(self.first_wait(until))?;
+        match self.transport.call(handle, request, until, retry) {
+            Err(failure) if is_peer_gone(failure.errno) => {
+                self.evict();
+                if retry == Retry::Never && failure.delivered {
+                    return Err(failure.errno);
+                }
+                self.transport
+                    .call(self.try_connect()?, request, until, retry)
+                    .map_err(|failure| {
+                        if is_peer_gone(failure.errno) {
+                            self.evict();
+                        }
+                        failure.errno
+                    })
+            }
+            result => result.map_err(|failure| failure.errno),
+        }
+    }
+
+    /// Run `attempt` on the handle; when it reports a dead peer, drop the
+    /// handle, resolve once without waiting and run it once more. For a
+    /// send, which the kernel refuses before it queues anything.
+    fn with_retry<R>(
+        &self,
+        mut attempt: impl FnMut(Handle) -> Result<R, Errno>,
+    ) -> Result<R, Errno> {
+        let handle = self.connect()?;
+        match attempt(handle) {
+            Err(errno) if is_peer_gone(errno) => {
+                self.evict();
+                attempt(self.try_connect()?).inspect_err(|errno| {
+                    if is_peer_gone(*errno) {
+                        self.evict();
+                    }
+                })
+            }
+            result => result,
+        }
+    }
+}
+
+impl<T: Transport> Drop for Connection<T> {
+    fn drop(&mut self) {
+        self.evict();
+    }
+}
+
+/// `EPIPE` (the endpoint closed) or `ENOENT` (the registration was reaped):
+/// the service restarted or is gone, so a cached handle is stale.
+pub fn is_peer_gone(errno: Errno) -> bool {
+    errno == Errno::PIPE || errno == Errno::NOENT
+}

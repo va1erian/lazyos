@@ -17,7 +17,7 @@ that lists only this interface cannot resolve the full service
 
 Like `os.lazy.display.v1`, one interface carries both directions. **Calls**
 (app to webd) are ordinary request/reply methods, input and slot returns
-are `oneway`. **Events** (webd to app) are `oneway` methods sent on the
+are `oneway`. **Events** (webd to app) are `event` methods sent on the
 endpoint the app moved in with `CreateView` (`events`): `Frame`, `State`,
 `Scroll`, `LinkClicked`, `ClipboardWrite`, `ViewLost` and `Ping`. Method
 ids are append-only from the first release; the full interface reuses
@@ -64,13 +64,27 @@ standard error field (id 15, `docs/midl.md`).
 | Wheel | 21 | oneway | `(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32, seq: U64) -> ()` |
 | Key | 22 | oneway | `(view: U64, press: Bool, keysym: U32, text: String, mods: U32) -> ()` |
 | Focus | 23 | oneway | `(view: U64, focused: Bool) -> ()` |
-| Frame | 100 | oneway | `(view: U64, slot: U32, seq: U64, width: U32, height: U32) -> ()` |
-| State | 101 | oneway | `(view: U64, title: String, loading: Bool, finished: U32, error: String) -> ()` |
-| Scroll | 102 | oneway | `(view: U64, x: I32, y: I32, at_bottom: Bool) -> ()` |
-| LinkClicked | 103 | oneway | `(view: U64, url: String) -> ()` |
-| ClipboardWrite | 104 | oneway | `(view: U64, text: String) -> ()` |
-| ViewLost | 105 | oneway | `(view: U64, reason: U32) -> ()` |
-| Ping | 106 | oneway | `() -> ()` |
+| Frame | 100 | event | `(view: U64, slot: U32, seq: U64, width: U32, height: U32) -> ()` |
+| State | 101 | event | `(view: U64, title: String, loading: Bool, finished: U32, error: String) -> ()` |
+| Scroll | 102 | event | `(view: U64, x: I32, y: I32, at_bottom: Bool) -> ()` |
+| LinkClicked | 103 | event | `(view: U64, url: String) -> ()` |
+| ClipboardWrite | 104 | event | `(view: U64, text: String) -> ()` |
+| ViewLost | 105 | event | `(view: U64, reason: U32) -> ()` |
+| Ping | 106 | event | `() -> ()` |
+
+## Service
+
+- Served under the registry name `app.os.lazy.webd.light`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| CreateView | this interface | - | 5000 ms | never |
+| DestroyView | this interface | - | 5000 ms | never |
+| AttachSlot | this interface | - | 5000 ms | never |
+| Resize | this interface | - | 5000 ms | never |
+| LoadHtml | this interface | - | 5000 ms | never |
 
 ## Objects
 

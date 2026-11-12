@@ -33,14 +33,32 @@ refused (`EINVAL`).
 | NoteInputDone | 13 | oneway | `(seq: U64) -> ()` |
 | NoteKeysHeld | 14 | oneway | `(held: Bool) -> ()` |
 | NoteSessionLayout | 15 | oneway | `(layout: Option<String>) -> ()` |
-| HotkeyFired | 20 | oneway | `(id: U64) -> ()` |
-| GrantRequested | 21 | oneway | `(session: U64, kind: U32, surface: U64) -> ()` |
-| EscapeChord | 22 | oneway | `() -> ()` |
-| SessionOpened | 23 | oneway | `(surface: U64) -> ()` |
-| SessionClosed | 24 | oneway | `(surface: U64) -> ()` |
-| PointerEvent | 25 | oneway | `(x: I32, y: I32, buttons: U32, wheel: I32, wheel_h: I32, ts_ns: U64, seq: U64) -> ()` |
-| GrabChanged | 26 | oneway | `(surface: Option<U64>) -> ()` |
-| KeyActivity | 27 | oneway | `() -> ()` |
+| HotkeyFired | 20 | event | `(id: U64) -> ()` |
+| GrantRequested | 21 | event | `(session: U64, kind: U32, surface: U64) -> ()` |
+| EscapeChord | 22 | event | `() -> ()` |
+| SessionOpened | 23 | event | `(surface: U64) -> ()` |
+| SessionClosed | 24 | event | `(surface: U64) -> ()` |
+| PointerEvent | 25 | event | `(x: I32, y: I32, buttons: U32, wheel: I32, wheel_h: I32, ts_ns: U64, seq: U64) -> ()` |
+| GrabChanged | 26 | event | `(surface: Option<U64>) -> ()` |
+| KeyActivity | 27 | event | `() -> ()` |
+
+## Service
+
+- Served under the registry name `os.lazy.input.shell.v1`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Attach | this interface | - | 5000 ms | never |
+| SetFocus | this interface | - | 5000 ms | never |
+| RegisterSurface | this interface | - | 5000 ms | never |
+| UnregisterSurface | this interface | - | 5000 ms | never |
+| RegisterHotkey | this interface | - | 5000 ms | never |
+| UnregisterHotkey | this interface | - | 5000 ms | never |
+| ApproveGrant | this interface | - | 5000 ms | never |
+| SetBounds | this interface | - | 5000 ms | never |
+| GetPointer | this interface | - | 5000 ms | safe |
 
 ## Objects
 

@@ -32,14 +32,14 @@
 
 extern crate alloc;
 
-#[path = "messengerd/broker.rs"]
-mod broker;
 #[path = "messengerd/filter.rs"]
 mod filter;
 #[path = "messengerd/handlers.rs"]
 mod handlers;
 #[path = "messengerd/soak.rs"]
 mod soak;
+#[path = "messengerd/wire.rs"]
+mod wire;
 
 use alloc::format;
 use core::panic::PanicInfo;
@@ -47,8 +47,8 @@ use user::messenger::{self, errno, registry, topics_client};
 use user::sys;
 use user::trace;
 
-use broker::Broker;
 use handlers::serve_topic;
+use handlers::Broker;
 use soak::{await_reply_with, finish_soak, soak_cycles, Soak, SOAK_IDLE_TICKS};
 
 #[no_mangle]

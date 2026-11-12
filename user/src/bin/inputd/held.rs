@@ -10,27 +10,23 @@
 use inputmap::hold::Edge;
 use inputmap::{KeyOut, KeyState};
 
-use user::messenger::input::shell_wire;
-use user::messenger::{Error, Result};
 use user::sys;
 
 use super::hub::Hub;
 
 impl Hub {
     /// The compositor's `NoteKeysHeld`.
-    pub(super) fn note_keys_held(&mut self, body: &[u8]) -> Result<()> {
-        let args = shell_wire::decode_note_keys_held_args(body).map_err(Error::Parcel)?;
-        if self.hold.set(args.held, self.engine.down_bits()) {
+    pub(super) fn set_keys_held(&mut self, held: bool) {
+        if self.hold.set(held, self.engine.down_bits()) {
             // A repeat in flight must not carry on into (or out of) a hold.
             self.engine.cancel_repeat();
-            sys::write_str(if args.held {
+            sys::write_str(if held {
                 "INPUTD:KEYS:HELD on\n"
             } else {
                 "INPUTD:KEYS:HELD off\n"
             });
             self.publish_key_pages();
         }
-        Ok(())
     }
 
     /// Whether `key` reaches the focused session under the hold.

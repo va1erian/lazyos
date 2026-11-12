@@ -7,7 +7,7 @@
 //!
 //! * it registers [`services::INIT_NAME`] and serves its supervision table
 //!   (`Services`), its built-in app registry (`ListApps`) and its launch call
-//!   (`Launch`) plus a [`router::TopicBroker`] on the same endpoint;
+//!   (`Launch`), and it publishes every service event on the central broker;
 //! * it starts services from [`MANIFEST`] in dependency order, through the
 //!   native `spawn` syscall (syscall 6), which makes each service a child of
 //!   this task;
@@ -83,6 +83,8 @@ mod apps;
 mod autostart;
 #[path = "init/drivers.rs"]
 mod drivers;
+#[path = "init/feeds.rs"]
+mod feeds;
 #[path = "init/home.rs"]
 mod home;
 #[path = "init/homes.rs"]
@@ -111,6 +113,8 @@ mod reload;
 mod residents;
 #[path = "init/selftest.rs"]
 mod selftest;
+#[path = "init/serve.rs"]
+mod serve;
 #[path = "init/service.rs"]
 mod service;
 #[path = "init/service_creds.rs"]
@@ -131,7 +135,8 @@ mod supervise;
 use alloc::format;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
-use user::messenger::{self, registry, router, services, wait};
+use user::central;
+use user::messenger::{self, registry, services, wait};
 use user::sys;
 use user::trace;
 
@@ -159,14 +164,14 @@ pub extern "C" fn _start() -> ! {
 
 /// Register the supervisor, start the manifest, and run the supervision loop.
 fn run() -> messenger::Result<()> {
-    // The endpoint clients resolve: it serves the topic broker and the
+    // The endpoint clients resolve: it serves the
     // supervision table. Registering the published side and serving the other
-    // is the same split `Bus::subscribe` uses for a sink.
+    // is the same split a service name always uses.
     let (published, server) = messenger::create_pair()?;
     registry::register(
         services::INIT_NAME,
         &published,
-        &[services::INIT_INTERFACE, router::INTERFACE],
+        &[services::INIT_INTERFACE],
         0,
     )?;
     // A launched app's own line (`os.lazy.init.app.v1`, docs/tray-plan.md):
@@ -178,7 +183,11 @@ fn run() -> messenger::Result<()> {
         &[lifecycle::APP_INTERFACE],
         0,
     )?;
-    let mut broker = router::TopicBroker::new("os.lazy.events.sink");
+    // Every event goes out on the central broker (`messengerd`, a child of
+    // this supervisor): what it cannot take yet is kept and sent later.
+    let mut broker = central::Publisher::new();
+    // What `logind` and `pkgd` publish that this supervisor acts on.
+    let mut feeds = feeds::Feeds::new();
     // Release and desktop boots skip the evidence-only rows (`flaky`'s
     // deliberate crashes).
     let mut services: Vec<Service> = MANIFEST
@@ -274,6 +283,15 @@ fn run() -> messenger::Result<()> {
         }
         // Park until a request, a child exit or the next timed step: requests
         // are served at once, and an idle supervisor does not wake.
+        // `messengerd` is one of the services above: once it serves, what
+        // was held back for it goes out and the streams of events this
+        // supervisor reads are made. What they already hold (a retained
+        // replay) is read now, before parking.
+        feeds.ensure();
+        broker.flush();
+        let bells = feeds.endpoints(2);
+        let ended = feeds.drain(&services, 0);
+        end_sessions(&mut services, &mut broker, &mut logouts, ended);
         let stepping = shutdown.is_some();
         let deadline = match shutdown.as_ref() {
             Some(running) if stepped => running.next_deadline(&services),
@@ -282,17 +300,25 @@ fn run() -> messenger::Result<()> {
             None => [
                 next_wake(&services, &selftest, &autostart, now),
                 logouts.next_deadline(),
+                feeds.next_retry(),
             ]
             .into_iter()
             .flatten()
             .min(),
         };
-        let ready = match wait::wait_any(&[server, app_server], wait::WAIT_CHILD, deadline) {
+        let mut parked = alloc::vec![server, app_server];
+        parked.extend(bells);
+        let ready = match wait::wait_any(&parked, wait::WAIT_CHILD, deadline) {
             Ok(ready) => ready,
             Err(messenger::Error::Errno(code)) if code == -messenger::errno::ETIMEDOUT => 0,
             Err(error) => return Err(error),
         };
-        // Requests first: an app's `ReportFailure` sent just before it exited
+        // Login records first: one was published (and its doorbell rung)
+        // before the requests queued behind it were sent, and a launch needs
+        // to know its session's owner.
+        let ended = feeds.drain(&services, ready);
+        end_sessions(&mut services, &mut broker, &mut logouts, ended);
+        // Requests next: an app's `ReportFailure` sent just before it exited
         // is queued ahead of the exit, and must reach its still-running row
         // (issue #549).
         serve_pending(
@@ -305,6 +331,7 @@ fn run() -> messenger::Result<()> {
                 homes: &mut homes,
                 stops: &mut stops,
                 logouts: &mut logouts,
+                feeds: &mut feeds,
             },
             &server,
             &mut buffer,
@@ -346,6 +373,18 @@ fn run() -> messenger::Result<()> {
             stepped = true;
         }
         residents.sync(&services);
+    }
+}
+
+/// Begin the logout of every session whose `end` record arrived.
+fn end_sessions(
+    services: &mut [Service],
+    broker: &mut central::Publisher,
+    logouts: &mut logout::Logouts,
+    ended: Vec<u64>,
+) {
+    for session in ended {
+        logouts.begin(services, broker, session);
     }
 }
 

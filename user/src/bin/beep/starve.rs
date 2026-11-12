@@ -12,11 +12,13 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use audioclient::{Params, PlaybackStream};
+use audioclient::Params;
+use libmessenger::client::Deadline;
 use messenger_generated::os_lazy_audio_v1 as wire;
 use pcm::tone::Tone;
+use user::audio::PlaybackStream;
 use user::central::Bus;
-use user::messenger::{topics_client, DEFAULT_BUFFER, EXPIRED_DEADLINE};
+use user::messenger::topics_client;
 use user::sys;
 
 use super::common::{connect, fail};
@@ -39,7 +41,7 @@ struct Seen {
 
 /// Run the starve check; the `PASS` detail.
 pub(super) fn run() -> Result<String, String> {
-    let mut bus = Bus::connect_retry(64).map_err(|error| format!("no broker: {error:?}"))?;
+    let mut bus = Bus::connect_waiting().map_err(|error| format!("no broker: {error:?}"))?;
     let topic = wire::name_system_audio_event(user::audio_events::MIXER_CARD)
         .map_err(|_| String::from("topic name"))?;
     let sub = bus
@@ -47,22 +49,21 @@ pub(super) fn run() -> Result<String, String> {
         .map_err(|error| format!("subscribe: {error:?}"))?;
     let audio = connect()?;
     let params = Params::new(48000, 2).period_bytes(4096);
-    let mut out = PlaybackStream::open(&audio, params).map_err(fail("open"))?;
+    let mut out = user::audio::open(audio, params).map_err(fail("open"))?;
     let stream = out.grant().stream;
     let rate = out.rate();
-    let mut buffer = alloc::vec![0u8; DEFAULT_BUFFER];
     let mut seen = Seen::default();
 
     write_tone(&mut out, 880, rate)?;
     out.start().map_err(fail("start"))?;
     // Run dry: the mixer plays the tone out and finds nothing more.
     sys::sleep_ns(GAP_NS);
-    collect(&sub, &mut buffer, stream, &mut seen)?;
+    collect(&sub, stream, &mut seen)?;
     write_tone(&mut out, 660, rate)?;
     out.finish().map_err(fail("drain"))?;
     let until = sys::clock() + SETTLE_TICKS;
     while sys::clock() < until {
-        collect(&sub, &mut buffer, stream, &mut seen)?;
+        collect(&sub, stream, &mut seen)?;
         sys::nap();
     }
     let _ = sub.unsubscribe();
@@ -78,11 +79,7 @@ pub(super) fn run() -> Result<String, String> {
 }
 
 /// Queue `TONE_MS` of `freq` Hz.
-fn write_tone<T: audioclient::Transport>(
-    out: &mut PlaybackStream<T>,
-    freq: u32,
-    rate: u32,
-) -> Result<(), String> {
+fn write_tone(out: &mut PlaybackStream, freq: u32, rate: u32) -> Result<(), String> {
     let frames = u64::from(rate) * TONE_MS / 1000;
     let mut tone = Tone::new(freq, rate, 16000);
     let mut samples = Vec::with_capacity(2 * frames as usize);
@@ -94,14 +91,9 @@ fn write_tone<T: audioclient::Transport>(
 }
 
 /// Count every queued event of `stream`.
-fn collect(
-    sub: &user::central::Subscription,
-    buffer: &mut [u8],
-    stream: u32,
-    seen: &mut Seen,
-) -> Result<(), String> {
+fn collect(sub: &user::central::Subscription, stream: u32, seen: &mut Seen) -> Result<(), String> {
     while let Some(event) = sub
-        .recv_with(buffer, Some(EXPIRED_DEADLINE))
+        .recv(Deadline::Poll)
         .map_err(|error| format!("next event: {error:?}"))?
     {
         let Ok(event) = wire::decode_system_audio_event(&event.payload) else {

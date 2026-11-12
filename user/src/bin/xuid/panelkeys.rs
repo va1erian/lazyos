@@ -20,34 +20,16 @@
 //! Serial: `XUID:PANELKEYS:GRAB on|off`.
 
 use alloc::vec::Vec;
-use libmessenger::Parcel;
 use user::messenger::display::wire;
-use user::messenger::{self, Endpoint, Message};
+use user::messenger::{self, Endpoint};
 use user::sys;
 
 use super::compositor::Compositor;
-use super::protocol::{empty_reply, error_reply};
 
 /// The key code of `b`, as the kernel reports letters (lowercase).
 pub(super) const TRAY_KEY: u32 = b'b' as u32;
 
 impl Compositor {
-    /// `GrabPanelKeys`: only the shell's own task may take the keyboard.
-    pub(super) fn grab_panel_keys(&mut self, message: &Message, body: &[u8]) -> Parcel {
-        let is_shell = self
-            .shell
-            .as_ref()
-            .is_some_and(|shell| shell.task == message.sender && !shell.dead);
-        if !is_shell {
-            return error_reply(message.method(), messenger::errno::EACCES);
-        }
-        let Ok(args) = wire::decode_grab_panel_keys_args(body) else {
-            return error_reply(message.method(), messenger::errno::EINVAL);
-        };
-        self.set_panel_keys(args.grab);
-        empty_reply(message.method())
-    }
-
     /// Start or end the shell's grab, telling `inputd` at once who has the
     /// keyboard now.
     pub(super) fn set_panel_keys(&mut self, grab: bool) {

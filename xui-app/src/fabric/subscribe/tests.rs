@@ -1,11 +1,12 @@
 //! The subscriber against a scripted broker: wire goldens, errors and the
 //! drain loop (the doorbell and lifecycle are in `lifecycle_tests`).
 
+use libmessenger::client::Deadline;
 use libmessenger::{flags, Parcel};
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 
-use super::fake::{EmptyAs, Fake};
-use super::{wire, Qos, SubId, Subscriber, Wait, ETIMEDOUT, MAX_DRAIN};
+use super::test_fake::{EmptyAs, Fake};
+use super::{wire, Qos, SubId, Subscriber, ETIMEDOUT, MAX_DRAIN};
 
 pub(super) type Client = Subscriber<Fake>;
 
@@ -114,9 +115,23 @@ fn polls_use_an_expired_deadline_and_calls_a_bounded_one() {
     c.stats(id).unwrap();
     c.drain(id, 4);
     let log = &c.transport.log;
-    assert_eq!(log[0], (topics::METHOD_SUBSCRIBE, Wait::Bounded));
-    assert_eq!(log[1], (topics::METHOD_STATS, Wait::Bounded));
-    assert_eq!(log[2], (topics::METHOD_NEXTEVENT, Wait::Poll));
+    assert_eq!(
+        log[0],
+        (topics::METHOD_SUBSCRIBE, topics::METHOD_SUBSCRIBE_DEADLINE)
+    );
+    assert_eq!(
+        log[1],
+        (topics::METHOD_STATS, topics::METHOD_STATS_DEADLINE)
+    );
+    assert_eq!(log[2], (topics::METHOD_NEXTEVENT, Deadline::Poll));
+}
+
+#[test]
+fn a_poll_pull_carries_the_broker_hint_and_other_requests_do_not() {
+    let poll = wire::poll_request(topics::METHOD_NEXTEVENT, SubId(3)).unwrap();
+    assert_eq!(poll.header.deadline_ns, libmessenger::client::POLL_HINT_NS);
+    let plain = wire::by_id_request(topics::METHOD_STATS, SubId(3)).unwrap();
+    assert_eq!(plain.header.deadline_ns, 0);
 }
 
 // -- Error decoding ----------------------------------------------------------
@@ -132,7 +147,7 @@ fn broker_error_fields_become_negative_errno() {
 
     // A code of zero is still a failure.
     c.transport.fail.push_back((topics::METHOD_SUBSCRIBE, 0));
-    assert_eq!(c.subscribe("a", Qos::Latest, 1), Err(-22));
+    assert_eq!(c.subscribe("a", Qos::Latest, 1), Err(-71));
 
     // Errors on every other call.
     let id = subscribed(&mut c, Qos::Reliable);
@@ -167,16 +182,16 @@ fn reply_decoding_rejects_malformed_answers() {
     };
     // A subscription id of zero is the absent-field default.
     let zero = topics::encode_subscribe_reply(&topics::SubscribeReply { subscription: 0 });
-    assert_eq!(wire::decode_subscription(&error(zero.unwrap())), Err(-22));
+    assert_eq!(wire::decode_subscription(&error(zero.unwrap())), Err(-71));
     // An event without a topic is not one.
     let nameless = topics::encode_next_event_reply(&topics::NextEventReply {
         event: topics::Event::default(),
     });
-    assert_eq!(wire::decode_event(&error(nameless.unwrap())), Err(-22));
+    assert_eq!(wire::decode_event(&error(nameless.unwrap())), Err(-71));
     // The empty body is "nothing".
     assert_eq!(wire::decode_event(&error(Vec::new())), Ok(None));
     // Not a parcel at all.
-    assert_eq!(wire::parse_reply(&[1, 2, 3]).map(drop), Err(-22));
+    assert_eq!(wire::parse_reply(&[1, 2, 3]).map(drop), Err(-71));
 }
 
 // -- Locally refused calls ---------------------------------------------------
@@ -209,7 +224,7 @@ fn draining_an_empty_queue_is_not_an_error() {
         assert!(!drained.more && drained.error.is_none(), "{empty:?}");
         assert_eq!(
             c.transport.log.last(),
-            Some(&(topics::METHOD_NEXTEVENT, Wait::Poll))
+            Some(&(topics::METHOD_NEXTEVENT, Deadline::Poll))
         );
     }
 }
@@ -279,12 +294,12 @@ fn an_error_mid_drain_keeps_the_events_already_taken() {
 }
 
 #[test]
-fn garbage_replies_end_a_drain_with_einval() {
+fn garbage_replies_end_a_drain_with_a_protocol_error() {
     let mut c = client();
     let id = subscribed(&mut c, Qos::Latest);
     c.transport.garbage = Some(vec![0xff; 40]);
     let drained = c.drain(id, 5);
-    assert_eq!((drained.events.len(), drained.error), (0, Some(-22)));
+    assert_eq!((drained.events.len(), drained.error), (0, Some(-71)));
     c.transport.garbage = None;
     assert_eq!(c.drain(id, 5).error, None);
 }
@@ -295,7 +310,7 @@ fn an_oversized_reply_is_refused_not_truncated() {
     let id = subscribed(&mut c, Qos::Latest);
     c.transport.publish(id.0, "a/big", &vec![1u8; 20 * 1024]);
     let drained = c.drain(id, 5);
-    assert_eq!((drained.events.len(), drained.error), (0, Some(-22)));
+    assert_eq!((drained.events.len(), drained.error), (0, Some(-71)));
 }
 
 #[test]
