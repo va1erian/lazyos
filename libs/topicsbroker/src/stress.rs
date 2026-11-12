@@ -1,25 +1,28 @@
-//! Soak tests: many owners driving random publish / subscribe / unsubscribe /
-//! pull / ack cycles, with the ledger audited against the tables after every
-//! step and required to return exactly to zero when everything is released.
+//! Soak tests: many task slots, some of them changing tenant under the
+//! broker's feet (an exited task's slot is reused by another app), driving
+//! random publish / subscribe / unsubscribe / pull / ack / reap cycles, with
+//! the ledger audited against the tables after every step and required to
+//! return exactly to zero when everything is released.
 
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::tests::{filter, B};
+use crate::tenant::Tenant;
+use crate::tests::{filter, sys, B};
 use crate::*;
 
 /// A tiny deterministic generator (xorshift), so a failure replays.
-struct Rng(u64);
+pub(crate) struct Rng(pub(crate) u64);
 
 impl Rng {
-    fn next(&mut self) -> u64 {
+    pub(crate) fn next(&mut self) -> u64 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
         self.0 ^= self.0 << 17;
         self.0
     }
 
-    fn below(&mut self, n: u64) -> u64 {
+    pub(crate) fn below(&mut self, n: u64) -> u64 {
         self.next() % n
     }
 }
@@ -36,62 +39,130 @@ fn qos(rng: &mut Rng) -> Qos {
     }
 }
 
-/// Owners `1..=OWNERS`; the first few are platform tasks.
-const OWNERS: u64 = 40;
+/// Task slots `1..=SLOTS`.
+const SLOTS: u64 = 40;
+/// Apps a slot may belong to: fewer than the slots, so tenants have many
+/// threads (the case the budgets are keyed for).
+const APPS: u64 = 8;
 
-fn platform(owner: u64) -> bool {
-    owner <= 4
+/// An app tenant of the random world.
+fn app_tenant(app: u64) -> Tenant {
+    Tenant::App {
+        label: 1 + app as u32,
+        uid: 1000,
+        session: 1,
+    }
+}
+
+/// Who each slot currently is. Slots `1..=4` start as platform tasks, the
+/// rest as threads of a few apps.
+struct World {
+    clients: Vec<Client>,
+}
+
+impl World {
+    fn new() -> Self {
+        let clients = (0..=SLOTS)
+            .map(|slot| {
+                if slot <= 4 {
+                    sys(slot)
+                } else {
+                    Client::new(slot, app_tenant(slot % APPS))
+                }
+            })
+            .collect();
+        World { clients }
+    }
+
+    /// The task in `slot` exits and an unrelated one takes the slot: another
+    /// app, or a platform task. Whatever the old one left stays behind.
+    fn reuse(&mut self, slot: u64, rng: &mut Rng) {
+        let tenant = match rng.below(6) {
+            0 => Tenant::Platform(slot),
+            n => app_tenant(n + rng.below(APPS)),
+        };
+        self.clients[slot as usize] = Client::new(slot, tenant);
+    }
 }
 
 /// What must hold at every step, whatever happened.
-fn invariants(broker: &B, full: bool) {
-    if full {
-        broker.audit().expect("ledger matches the tables");
-    }
+fn invariants(broker: &B) {
+    broker.audit().expect("ledger matches the tables");
     assert!(broker.bytes_used() <= MAX_BYTES);
-    let apps: usize = (1..=OWNERS)
-        .filter(|o| !platform(*o))
-        .map(|o| broker.bytes_of(o))
-        .sum();
+    let mut apps = 0;
+    for (tenant, account) in &broker.accounts {
+        if tenant.is_platform() {
+            assert!(account.bytes <= SYSTEM_TENANT_BYTES, "{tenant:?} over cap");
+            assert!(broker.owned_by(tenant) <= SYSTEM_TENANT_SUBSCRIPTIONS);
+        } else {
+            apps += account.bytes;
+            assert!(account.bytes <= TENANT_BYTES, "{tenant:?} over its cap");
+            assert!(account.retained <= TENANT_RETAINED, "{tenant:?} retained");
+        }
+    }
     assert!(
         apps <= MAX_BYTES - SYSTEM_RESERVE,
         "apps passed the reserve"
     );
-    for owner in 1..=OWNERS {
-        let cap = if platform(owner) {
-            SYSTEM_OWNER_BYTES
-        } else {
-            OWNER_BYTES
-        };
-        assert!(broker.bytes_of(owner) <= cap, "owner {owner} over its cap");
-        assert!(broker.owned_by(owner) <= MAX_PER_OWNER);
+    let mut held = alloc::collections::BTreeMap::new();
+    for sub in &broker.subscriptions {
+        *held.entry(sub.tenant).or_insert(0usize) += 1;
     }
+    for (tenant, count) in held {
+        if !tenant.is_platform() {
+            assert!(count <= TENANT_SUBSCRIPTIONS, "{tenant:?} subscriptions");
+        }
+    }
+    let app_subs = broker
+        .subscriptions
+        .iter()
+        .filter(|s| !s.tenant.is_platform())
+        .count();
+    assert!(app_subs <= MAX_SUBSCRIPTIONS - SYSTEM_SUBSCRIPTION_RESERVE);
+    let app_rows = broker
+        .retained
+        .iter()
+        .filter(|r| !r.tenant.is_platform())
+        .count();
+    assert!(app_rows <= MAX_TOPICS - SYSTEM_TOPIC_RESERVE);
 }
 
-fn step(broker: &mut B, rng: &mut Rng, bells: &mut u32) {
-    let owner = 1 + rng.below(OWNERS);
-    match rng.below(10) {
+/// Subscription ids the client in `slot` may touch.
+fn mine(broker: &B, client: Client) -> Vec<u64> {
+    broker
+        .subscriptions
+        .iter()
+        .filter(|s| s.client() == client)
+        .map(|s| s.id)
+        .collect()
+}
+
+/// Encode like `messengerd` does, except that a full-size event "does not
+/// fit a reply" (the case that drops an undeliverable head).
+fn encode(event: &Event) -> Option<u64> {
+    (event.payload.len() < 8192).then_some(event.sequence)
+}
+
+fn step(broker: &mut B, world: &mut World, rng: &mut Rng, bells: &mut u32) {
+    let slot = 1 + rng.below(SLOTS);
+    let client = world.clients[slot as usize];
+    match rng.below(12) {
         0 | 1 => {
             let f = filter(FILTERS[rng.below(FILTERS.len() as u64) as usize]);
-            if let Ok(id) = broker.subscribe(owner, platform(owner), f, qos(rng)) {
+            if let Ok(id) = broker.subscribe(client, f, qos(rng)) {
                 if rng.below(2) == 0 {
                     *bells += 1;
-                    let _ = broker.set_bell(id, owner, *bells);
+                    let _ = broker.set_bell(id, client, *bells);
                 }
                 // A lost reply rolls the subscription back.
                 let learned = rng.below(5) != 0;
-                broker.settle_created(Some(id), owner, learned);
+                broker.settle_created(Some(id), client, learned);
             }
         }
         2 => {
-            let mine: Vec<u64> = broker
-                .subscriptions
-                .iter()
-                .filter(|s| s.owner == owner)
-                .map(|s| s.id)
-                .collect();
-            if let Some(id) = mine.get(rng.below(mine.len().max(1) as u64) as usize) {
-                broker.remove(*id, owner).expect("own subscription");
+            let ids = mine(broker, client);
+            if let Some(id) = ids.get(rng.below(ids.len().max(1) as u64) as usize) {
+                broker.remove(*id, client).expect("own subscription");
             }
         }
         3..=6 => {
@@ -112,42 +183,43 @@ fn step(broker: &mut B, rng: &mut Rng, bells: &mut u32) {
             if !valid_topic(&topic) {
                 return;
             }
-            let _ = broker.publish(&topic, owner, platform(owner), vec![3u8; len], retained);
-            let _ = broker.satisfy(|event| Some(event.sequence));
+            let _ = broker.publish(&topic, client, vec![3u8; len], retained);
+            let _ = broker.satisfy(encode);
         }
         7 => {
-            let mine: Vec<(u64, bool)> = broker
-                .subscriptions
-                .iter()
-                .filter(|s| s.owner == owner)
-                .map(|s| (s.id, s.qos == Qos::Reliable))
-                .collect();
-            if let Some((id, reliable)) = mine.get(rng.below(mine.len().max(1) as u64) as usize) {
-                let head = broker
-                    .subscriptions
-                    .iter()
-                    .find(|s| s.id == *id)
-                    .and_then(|s| s.peek().map(|e| e.sequence));
-                if let Some(sequence) = head {
+            let ids = mine(broker, client);
+            if let Some(id) = ids.get(rng.below(ids.len().max(1) as u64) as usize) {
+                let found = broker.subscriptions.iter().find(|s| s.id == *id);
+                let reliable = found.is_some_and(|s| s.qos == Qos::Reliable);
+                if let Some(sequence) = found.and_then(|s| s.peek().map(|e| e.sequence)) {
                     broker.commit(*id, sequence);
-                    if *reliable {
-                        broker.ack(*id, owner, sequence).expect("own subscription");
+                    if reliable {
+                        broker.ack(*id, client, sequence).expect("own subscription");
                     }
                 }
             }
         }
         8 => {
-            let mine: Vec<u64> = broker
-                .subscriptions
-                .iter()
-                .filter(|s| s.owner == owner)
-                .map(|s| s.id)
-                .collect();
-            if let Some(id) = mine.get(rng.below(mine.len().max(1) as u64) as usize) {
+            let ids = mine(broker, client);
+            if let Some(id) = ids.get(rng.below(ids.len().max(1) as u64) as usize) {
                 let poll = rng.below(2) == 0;
-                let _ = broker.pull(*id, owner, poll, Some(rng.next()));
+                if let Ok(Pulled::Head(index)) = broker.pull(*id, client, poll, Some(rng.next())) {
+                    // The reply could not be encoded: the head is dropped.
+                    let head = broker.subscriptions[index].peek().map(|e| e.sequence);
+                    if let Some(sequence) = head.filter(|_| rng.below(3) == 0) {
+                        broker.drop_undeliverable(*id, sequence);
+                    }
+                }
             }
         }
+        9 => {
+            // The doorbell's far end closed: `ring_bells` reaps it.
+            let ids: Vec<u64> = broker.subscriptions.iter().map(|s| s.id).collect();
+            if let Some(id) = ids.get(rng.below(ids.len().max(1) as u64) as usize) {
+                broker.reap(*id);
+            }
+        }
+        10 => world.reuse(slot, rng),
         _ => {
             let _ = broker.bells_due();
         }
@@ -159,25 +231,21 @@ fn random_traffic_keeps_the_ledger_exact_and_within_budget() {
     for seed in 1..=4u64 {
         let mut rng = Rng(0x9E37_79B9_7F4A_7C15 ^ seed);
         let mut broker = B::new();
+        let mut world = World::new();
         let mut bells = 0;
-        for n in 0..30_000 {
-            step(&mut broker, &mut rng, &mut bells);
-            // The audit walks every queue, so it runs every few steps; the
-            // budget checks run on every one.
-            invariants(&broker, n % 16 == 0);
+        for _ in 0..30_000 {
+            step(&mut broker, &mut world, &mut rng, &mut bells);
+            // The audit walks every queue, and it runs after every step.
+            invariants(&broker);
         }
         // Release every subscription: only the retained values remain.
-        let all: Vec<(u64, u64)> = broker
-            .subscriptions
-            .iter()
-            .map(|s| (s.id, s.owner))
-            .collect();
-        for (id, owner) in all {
-            broker.remove(id, owner).expect("remove");
+        let all: Vec<u64> = broker.subscriptions.iter().map(|s| s.id).collect();
+        for id in all {
+            broker.reap(id);
         }
-        invariants(&broker, true);
-        assert!(broker.subscriptions.is_empty() && broker.pending.is_empty());
-        let retained: usize = (1..=OWNERS).map(|o| broker.bytes_of(o)).sum();
+        invariants(&broker);
+        assert!(broker.subscriptions.is_empty());
+        let retained: usize = broker.accounts.values().map(|a| a.bytes).sum();
         assert_eq!(retained, broker.bytes_used(), "only retained bytes remain");
     }
 }
@@ -187,20 +255,21 @@ fn subscribe_publish_unsubscribe_cycles_return_to_exactly_zero() {
     let mut broker = B::new();
     let mut rng = Rng(42);
     for round in 0..20_000u64 {
-        let owner = 1 + round % OWNERS;
+        let owner = 1 + round % SLOTS;
+        let client = World::new().clients[owner as usize];
         let id = broker
-            .subscribe(owner, platform(owner), filter("t/#"), qos(&mut rng))
+            .subscribe(client, filter("t/#"), qos(&mut rng))
             .expect("subscribe");
         for topic in TOPICS.iter().take(3) {
             let len = 1 + rng.below(8192) as usize;
             broker
-                .publish(topic, owner + 100, false, vec![1u8; len], false)
+                .publish(topic, crate::tests::app(owner + 100), vec![1u8; len], false)
                 .expect("non-retained publish");
         }
-        assert!(broker.bytes_of(owner) > 0 || broker.subscriptions[0].queued() == 0);
-        broker.remove(id, owner).expect("remove");
+        assert!(broker.bytes_of(&client.tenant) > 0 || broker.subscriptions[0].queued() == 0);
+        broker.remove(id, client).expect("remove");
         assert_eq!(broker.bytes_used(), 0, "round {round}");
-        assert_eq!(broker.bytes_of(owner), 0);
+        assert_eq!(broker.bytes_of(&client.tenant), 0);
     }
     broker.audit().unwrap();
 }
@@ -208,21 +277,23 @@ fn subscribe_publish_unsubscribe_cycles_return_to_exactly_zero() {
 #[test]
 fn many_slow_subscribers_cannot_push_the_broker_past_its_budget() {
     let mut broker = B::new();
-    // 256 subscriptions across the table, nobody ever polls.
-    for slot in 0..MAX_SUBSCRIPTIONS as u64 {
-        let owner = 10 + slot / 8;
+    // The apps' part of the table, nobody ever polls.
+    let mut tenants = 0;
+    for slot in 0..(MAX_SUBSCRIPTIONS - SYSTEM_SUBSCRIPTION_RESERVE) as u64 {
+        let client = crate::tests::app(10 + slot / TENANT_SUBSCRIPTIONS as u64);
+        tenants = tenants.max(slot / TENANT_SUBSCRIPTIONS as u64 + 1);
         broker
-            .subscribe(owner, false, filter("#"), Qos::Buffered(64))
+            .subscribe(client, filter("#"), Qos::Buffered(64))
             .expect("subscribe");
     }
     for round in 0..300 {
         broker
-            .publish("t/a", 1, true, vec![9u8; 8192], round % 7 == 0)
+            .publish("t/a", sys(1), vec![9u8; 8192], round % 7 == 0)
             .expect("a platform publisher is never refused by slow readers");
-        assert!(broker.bytes_used() <= MAX_BYTES - SYSTEM_RESERVE + SYSTEM_OWNER_BYTES);
+        assert!(broker.bytes_used() <= MAX_BYTES - SYSTEM_RESERVE + SYSTEM_TENANT_BYTES);
     }
-    for owner in 10..10 + (MAX_SUBSCRIPTIONS as u64 / 8) {
-        assert!(broker.bytes_of(owner) <= OWNER_BYTES);
+    for tenant in 0..tenants {
+        assert!(broker.bytes_of(&crate::tests::t(10 + tenant)) <= TENANT_BYTES);
     }
     broker.audit().unwrap();
 }

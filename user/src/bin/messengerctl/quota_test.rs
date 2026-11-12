@@ -13,12 +13,13 @@ use user::central::Bus;
 use user::messenger::topics_client;
 
 const TOPIC: &str = "selftest/quota/flood";
-/// Subscriptions that never read (a task may hold 64).
+/// Subscriptions that never read (a platform task may hold
+/// `topicsbroker::SYSTEM_TENANT_SUBSCRIPTIONS`, 64).
 const SLOW_READERS: usize = 40;
 /// Publishes of a maximum payload: far more than the allowance can queue.
 const PUBLISHES: usize = 200;
-/// One platform task's allowance (`topicsbroker::SYSTEM_OWNER_BYTES`).
-const ALLOWANCE: u64 = topicsbroker::SYSTEM_OWNER_BYTES as u64;
+/// One platform task's allowance (`topicsbroker::SYSTEM_TENANT_BYTES`).
+const ALLOWANCE: u64 = topicsbroker::SYSTEM_TENANT_BYTES as u64;
 
 fn refused(error: topics_client::ClientError) -> String {
     String::from(error.message())
@@ -51,7 +52,8 @@ pub(crate) fn selftest_quota(bus: &mut Bus) -> Result<(), String> {
     for id in ids {
         bus.client().unsubscribe(id).map_err(refused)?;
     }
-    let held = queued * (payload.len() + TOPIC.len()) as u64;
+    // What the broker charges per event: payload, topic and its flat record.
+    let held = queued * (payload.len() + TOPIC.len() + topicsbroker::EVENT_OVERHEAD) as u64;
     if held > ALLOWANCE || drops == 0 {
         return Err(format!(
             "slow readers held {held} bytes ({queued} events, {drops} drops) of {ALLOWANCE}"
