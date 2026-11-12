@@ -20,13 +20,13 @@
 //! traffic.
 
 use crate::trace;
-use alloc::vec::Vec;
 
 use nicdrv::engine::{AttachError, CtlError};
 use nicdrv::{Doorbell, Engine, Fatal, NicRings, RxError, TxError};
 use wifimac::{DataDrop, Radio, SoftMac};
 
 use crate::messenger::net::{self as api, wire};
+use libmessenger::server::{Caller, Fault};
 use crate::messenger::{errno, Endpoint, Error as MsgError, Message, Parcel};
 use crate::sys;
 use crate::sys::Cred;
@@ -199,101 +199,106 @@ impl<R: Radio> NicService<R> {
         Ok(changed)
     }
 
-    /// Answer one request on the card's endpoint.
-    pub fn dispatch(&mut self, message: &Message) -> Result<Parcel, MsgError> {
-        let result = self.route(message);
+    /// Answer one request on the card's endpoint (the generated server), then
+    /// settle the attachment.
+    pub fn dispatch(&mut self, message: &Message) -> Parcel {
+        let reply = wire::dispatch(self, message);
         self.sync();
-        result
+        reply
     }
 
-    fn route(&mut self, message: &Message) -> Result<Parcel, MsgError> {
-        if message.interface_id() != api::INTERFACE {
-            return Err(err(errno::EINVAL));
+    /// Refuse a caller that may not drive this card (see [`may_drive`]).
+    fn require_driver(&self, cx: &Caller) -> Result<(), Fault> {
+        let cred = Cred::new(cx.uid, cx.gid, cx.caps, cx.label_id, cx.session);
+        if may_drive(&cred, &self.ifname) {
+            Ok(())
+        } else {
+            Err(err(errno::EPERM).into())
         }
-        let method = message.method();
-        let body = &message.parcel.body;
-        let open = matches!(method, wire::METHOD_INFO | wire::METHOD_STATS);
-        if !open && !may_drive(&message.caller(), &self.ifname) {
-            return Err(err(errno::EPERM));
-        }
-        let reply = match method {
-            wire::METHOD_INFO => self.info()?,
-            wire::METHOD_STATS => self.stats()?,
-            wire::METHOD_SETRXMODE => {
-                let args = wire::decode_set_rx_mode_args(body).map_err(MsgError::Parcel)?;
-                match self.engine.set_rx_mode(message.sender, args.mode) {
-                    Ok(Some(_)) => {}
-                    Ok(None) => return Err(err(errno::EINVAL)),
-                    Err(error) => return Err(ctl_errno(error)),
-                }
-                wire::encode_set_rx_mode_reply(&wire::SetRxModeReply { ok: true })
-                    .map_err(MsgError::Parcel)?
-            }
-            wire::METHOD_ATTACHRING => {
-                let args = message.decode(wire::decode_attach_ring_args)?;
-                let ring = self.attach(message, &args)?;
-                wire::encode_attach_ring_reply(&wire::AttachRingReply { ring })
-                    .map_err(MsgError::Parcel)?
-            }
-            wire::METHOD_DETACHRING => {
-                let args = wire::decode_detach_ring_args(body).map_err(MsgError::Parcel)?;
-                self.engine
-                    .detach(message.sender, args.ring)
-                    .map_err(ctl_errno)?;
-                self.drop_attachment("detached by its owner");
-                Vec::new()
-            }
-            wire::METHOD_KICK => {
-                // One-way: frames move in `pump`, which runs after this.
-                if let Ok(args) = wire::decode_kick_args(body) {
-                    let _ = self.engine.kick(message.sender, args.ring);
-                }
-                Vec::new()
-            }
-            _ => return Err(err(errno::EINVAL)),
-        };
-        Ok(api::parcel(method, reply, Vec::new()))
     }
+}
 
-    fn info(&self) -> Result<Vec<u8>, MsgError> {
+impl<R: Radio> wire::Server for NicService<R> {
+    fn info(&mut self, _: &Caller) -> Result<wire::NicInfo, Fault> {
         let engine = &self.engine;
-        wire::encode_info_reply(&wire::InfoReply {
-            info: wire::NicInfo {
-                mac: engine.mac().to_vec(),
-                mtu: u32::from(engine.queues().mac.mtu()),
-                max_frame: engine.max_frame() as u32,
-                link: engine.link(),
-                features: 0,
-                kind: wire::NIC_KIND_WIRELESS,
-            },
+        Ok(wire::NicInfo {
+            mac: engine.mac().to_vec(),
+            mtu: u32::from(engine.queues().mac.mtu()),
+            max_frame: engine.max_frame() as u32,
+            link: engine.link(),
+            features: 0,
+            kind: wire::NIC_KIND_WIRELESS,
         })
-        .map_err(MsgError::Parcel)
     }
 
-    fn stats(&self) -> Result<Vec<u8>, MsgError> {
+    fn stats(&mut self, _: &Caller) -> Result<wire::NicStats, Fault> {
         let s = self.engine.stats();
-        wire::encode_stats_reply(&wire::StatsReply {
-            stats: wire::NicStats {
-                rx_frames: s.rx_frames,
-                tx_frames: s.tx_frames,
-                rx_bytes: s.rx_bytes,
-                tx_bytes: s.tx_bytes,
-                rx_dropped: s.rx_dropped,
-                tx_dropped: s.tx_dropped,
-                runts: s.runts,
-                oversize: s.oversize,
-                ring_errors: s.ring_errors,
-                interrupts: s.interrupts,
-                link_changes: s.link_changes,
-            },
+        Ok(wire::NicStats {
+            rx_frames: s.rx_frames,
+            tx_frames: s.tx_frames,
+            rx_bytes: s.rx_bytes,
+            tx_bytes: s.tx_bytes,
+            rx_dropped: s.rx_dropped,
+            tx_dropped: s.tx_dropped,
+            runts: s.runts,
+            oversize: s.oversize,
+            ring_errors: s.ring_errors,
+            interrupts: s.interrupts,
+            link_changes: s.link_changes,
         })
-        .map_err(MsgError::Parcel)
     }
 
+    fn set_rx_mode(&mut self, cx: &Caller, mode: u32) -> Result<bool, Fault> {
+        self.require_driver(cx)?;
+        match self.engine.set_rx_mode(cx.sender, mode) {
+            Ok(Some(_)) => Ok(true),
+            Ok(None) => Err(err(errno::EINVAL).into()),
+            Err(error) => Err(ctl_errno(error).into()),
+        }
+    }
+
+    fn attach_ring(
+        &mut self,
+        cx: &Caller,
+        slots: u32,
+        rings: libmessenger::Buffer,
+        notify: u64,
+    ) -> Result<u32, Fault> {
+        // The ring buffer and the notify endpoint are this request's: close
+        // them on every way out that is not an attachment.
+        if let Err(refused) = self.require_driver(cx) {
+            let _ = sys::buffer_close(rings.handle);
+            let _ = Endpoint::from_raw(notify).release();
+            return Err(refused);
+        }
+        let args = wire::AttachRingArgs {
+            slots,
+            rings,
+            notify,
+        };
+        Ok(self.attach(cx, &args)?)
+    }
+
+    fn detach_ring(&mut self, cx: &Caller, ring: u32) -> Result<(), Fault> {
+        self.require_driver(cx)?;
+        self.engine.detach(cx.sender, ring).map_err(ctl_errno)?;
+        self.drop_attachment("detached by its owner");
+        Ok(())
+    }
+
+    /// One-way: frames move in `pump`, which runs after this.
+    fn kick(&mut self, cx: &Caller, ring: u32) {
+        if self.require_driver(cx).is_ok() {
+            let _ = self.engine.kick(cx.sender, ring);
+        }
+    }
+}
+
+impl<R: Radio> NicService<R> {
     /// `AttachRing`: the decoded request owns the ring buffer and the notify
     /// endpoint; every way out but success closes them.
-    fn attach(&mut self, message: &Message, args: &wire::AttachRingArgs) -> Result<u32, MsgError> {
-        let outcome = self.attach_inner(message, args);
+    fn attach(&mut self, cx: &Caller, args: &wire::AttachRingArgs) -> Result<u32, MsgError> {
+        let outcome = self.attach_inner(cx, args);
         if outcome.is_err() {
             let _ = sys::buffer_close(args.rings.handle);
             let _ = Endpoint::from_raw(args.notify).release();
@@ -303,7 +308,7 @@ impl<R: Radio> NicService<R> {
 
     fn attach_inner(
         &mut self,
-        message: &Message,
+        cx: &Caller,
         args: &wire::AttachRingArgs,
     ) -> Result<u32, MsgError> {
         if self.engine.attached().is_some() {
@@ -325,7 +330,7 @@ impl<R: Radio> NicService<R> {
         // time, which the ring implementation tolerates.
         let attached = unsafe {
             self.engine
-                .attach(message.sender, args.slots, base as *mut u8, len)
+                .attach(cx.sender, args.slots, base as *mut u8, len)
         };
         match attached {
             Ok(ring) => {
@@ -338,7 +343,7 @@ impl<R: Radio> NicService<R> {
                     trace::Channel::Wifi,
                     "NIC:ATTACH if={} owner={} ring={ring}",
                     self.ifname,
-                    message.sender
+                    cx.sender
                 );
                 Ok(ring)
             }

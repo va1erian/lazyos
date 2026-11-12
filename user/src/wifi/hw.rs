@@ -19,12 +19,13 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use libmessenger::server::{Caller as StampedCaller, Fault};
 use libmessenger::{flags, Header, Parcel, VERSION};
 use wifimac::{
     Caller, Error as MacError, Event, JoinRequest, KeyRequest, Radio, ScanRequest, SoftMac,
 };
 
-use crate::messenger::{errno, services, Endpoint, Error as MsgError, Message};
+use crate::messenger::{errno, Endpoint, Error as MsgError, Message};
 use crate::sys::Cred;
 
 /// The generated `os.lazy.net.wifi.hw.v1` stubs.
@@ -59,17 +60,6 @@ pub fn may_attach(caller: &Cred, probe_uid: Option<u32>) -> bool {
 /// the simulator (`_wifisim`) spawns a test client under its own uid.
 pub fn probe_uid(own_uid: u32) -> Option<u32> {
     (own_uid == netpolicy::WIFISIM_UID).then_some(own_uid)
-}
-
-/// The kernel-stamped identity of a request's sender.
-pub fn caller_of(message: &Message) -> Caller {
-    let cred = message.caller();
-    Caller {
-        task: message.sender,
-        uid: cred.uid,
-        label_id: cred.label_id,
-        session: cred.session,
-    }
 }
 
 /// Whether a request of `method` carried secret material (a temporal key),
@@ -114,10 +104,6 @@ fn mac_err(error: MacError) -> Refusal {
     (error.errno(), message_of(error))
 }
 
-fn parcel_err(_: libmessenger::Error) -> Refusal {
-    (errno::EINVAL, "malformed request")
-}
-
 /// The radio's side of `hw.v1`: who owns it and the channel its events go on.
 pub struct HwService {
     ifname: String,
@@ -138,200 +124,19 @@ impl HwService {
         }
     }
 
-    /// Answer one request: the reply, or the structured error reply. A
-    /// `SetKey` request's body is wiped once handled.
+    /// Answer one request through the generated server. A `SetKey`
+    /// request's body is wiped once handled.
     pub fn dispatch<R: Radio>(
         &mut self,
         mac: &mut SoftMac<R>,
         message: &mut Message,
         now: u64,
     ) -> Parcel {
-        let method = message.method();
-        if message.interface_id() != INTERFACE {
-            return services::refusal(
-                message.interface_id(),
-                method,
-                errno::EINVAL,
-                "wrong interface",
-            );
-        }
-        let outcome = self.route(mac, message, now);
-        if carries_secret(method) {
+        let reply = wire::dispatch(&mut HwHandler { svc: self, mac, now }, message);
+        if carries_secret(message.method()) {
             message.parcel.body.fill(0);
         }
-        match outcome {
-            Ok(body) => parcel(method, body, false),
-            Err((code, text)) => services::refusal(INTERFACE, method, code, text),
-        }
-    }
-
-    fn route<R: Radio>(
-        &mut self,
-        mac: &mut SoftMac<R>,
-        message: &Message,
-        now: u64,
-    ) -> Result<Vec<u8>, Refusal> {
-        let body = &message.parcel.body;
-        let sender = caller_of(message);
-        let empty = Ok(Vec::new());
-        match message.method() {
-            wire::METHOD_INFO => self.info(mac),
-            wire::METHOD_STATS => stats(mac),
-            wire::METHOD_ATTACH => self.attach(mac, message),
-            wire::METHOD_DETACH => {
-                mac.detach(sender).map_err(mac_err)?;
-                self.drop_events();
-                empty
-            }
-            wire::METHOD_SETCOUNTRY => {
-                let args = wire::decode_set_country_args(body).map_err(parcel_err)?;
-                mac.set_country(sender, &args.alpha2).map_err(mac_err)?;
-                empty
-            }
-            wire::METHOD_SCAN => {
-                let r = wire::decode_scan_args(body).map_err(parcel_err)?.request;
-                let request = ScanRequest {
-                    channels: r.channels,
-                    band: r.band,
-                    ssids: r.ssids,
-                    active: r.active,
-                    dwell_ms: r.dwell_ms,
-                };
-                let scan_id = mac.scan(sender, &request, now).map_err(mac_err)?;
-                wire::encode_scan_reply(&wire::ScanReply { scan_id }).map_err(parcel_err)
-            }
-            wire::METHOD_ABORTSCAN => {
-                let args = wire::decode_abort_scan_args(body).map_err(parcel_err)?;
-                mac.abort_scan(sender, args.scan_id, now).map_err(mac_err)?;
-                empty
-            }
-            wire::METHOD_SCANRESULTS => {
-                let a = wire::decode_scan_results_args(body).map_err(parcel_err)?;
-                let page = mac
-                    .scan_results(sender, a.scan_id, a.first, a.max, PAGE_BYTES, now)
-                    .map_err(mac_err)?;
-                let results = page
-                    .entries
-                    .iter()
-                    .map(|(entry, age_ms)| wire::ScanEntry {
-                        frame: entry.frame.clone(),
-                        channel: u32::from(entry.channel),
-                        band: entry.band as u32,
-                        rssi_dbm: i32::from(entry.rssi_dbm),
-                        age_ms: *age_ms,
-                    })
-                    .collect();
-                let reply = wire::ScanResultsReply {
-                    results,
-                    more: page.more,
-                };
-                wire::encode_scan_results_reply(&reply).map_err(parcel_err)
-            }
-            wire::METHOD_JOIN => {
-                let r = wire::decode_join_args(body).map_err(parcel_err)?.request;
-                let request = JoinRequest {
-                    bssid: r.bssid,
-                    channel: r.channel,
-                    band: r.band,
-                    width: r.width,
-                };
-                mac.join(sender, &request, now).map_err(mac_err)?;
-                empty
-            }
-            wire::METHOD_TXMGMT => {
-                let args = wire::decode_tx_mgmt_args(body).map_err(parcel_err)?;
-                mac.tx_mgmt(sender, args.kind, &args.frame)
-                    .map_err(mac_err)?;
-                empty
-            }
-            wire::METHOD_SETSTATE => {
-                let args = wire::decode_set_state_args(body).map_err(parcel_err)?;
-                mac.set_state(sender, args.state, args.aid)
-                    .map_err(mac_err)?;
-                empty
-            }
-            wire::METHOD_SETKEY => {
-                let mut args = wire::decode_set_key_args(body).map_err(parcel_err)?;
-                let request = KeyRequest {
-                    kind: args.kind,
-                    index: args.index,
-                    cipher: args.cipher,
-                    key: &args.key,
-                    rsc: &args.rsc,
-                    addr: &args.addr,
-                };
-                let result = mac.set_key(sender, &request);
-                // The temporal key lives in the radio's slot only.
-                args.key.fill(0);
-                result.map_err(mac_err)?;
-                empty
-            }
-            wire::METHOD_DELKEY => {
-                let args = wire::decode_del_key_args(body).map_err(parcel_err)?;
-                mac.del_key(sender, args.kind, args.index)
-                    .map_err(mac_err)?;
-                empty
-            }
-            wire::METHOD_LEAVE => {
-                let args = wire::decode_leave_args(body).map_err(parcel_err)?;
-                mac.leave(sender, args.reason).map_err(mac_err)?;
-                empty
-            }
-            _ => Err((errno::EINVAL, "unknown method")),
-        }
-    }
-
-    fn info<R: Radio>(&self, mac: &SoftMac<R>) -> Result<Vec<u8>, Refusal> {
-        let facts = mac.info();
-        let info = wire::HwInfo {
-            mac: facts.mac.to_vec(),
-            interface: self.ifname.clone(),
-            bands: facts.bands,
-            ciphers: facts.ciphers,
-            scan_offload: facts.scan_offload,
-            max_mgmt: facts.max_mgmt,
-            max_scan_ssids: facts.max_scan_ssids,
-            max_scan_channels: facts.max_scan_channels,
-            key_slots: facts.key_slots,
-            features: facts.features,
-        };
-        wire::encode_info_reply(&wire::InfoReply { info }).map_err(parcel_err)
-    }
-
-    /// `Attach`: the decoded request owns the event channel; every way out
-    /// but success gives it back.
-    fn attach<R: Radio>(
-        &mut self,
-        mac: &mut SoftMac<R>,
-        message: &Message,
-    ) -> Result<Vec<u8>, Refusal> {
-        let args = message
-            .decode(wire::decode_attach_args)
-            .map_err(|_| (errno::EINVAL, "malformed request"))?;
-        let events = Endpoint::from_raw(args.events);
-        let outcome = if may_attach(&message.caller(), self.probe_uid) {
-            mac.attach(caller_of(message)).map_err(mac_err)
-        } else {
-            Err((errno::EPERM, "only the station manager may own the radio"))
-        };
-        match outcome {
-            Ok(()) => {
-                self.drop_events();
-                self.events = Some(events);
-                crate::trace::line!(
-                    trace::Channel::Wifi,
-                    "HW:ATTACH if={} owner={} uid={}",
-                    self.ifname,
-                    message.sender,
-                    message.caller().uid
-                );
-                Ok(Vec::new())
-            }
-            Err(refusal) => {
-                let _ = events.release();
-                Err(refusal)
-            }
-        }
+        reply
     }
 
     fn drop_events(&mut self) {
@@ -403,19 +208,207 @@ fn gone(error: &MsgError) -> bool {
     matches!(error.errno(), Some(code) if dead.contains(&-code))
 }
 
-fn stats<R: Radio>(mac: &SoftMac<R>) -> Result<Vec<u8>, Refusal> {
-    let s = mac.stats();
-    let stats = wire::HwStats {
-        scans: s.scans,
-        mgmt_rx: s.mgmt_rx,
-        mgmt_tx: s.mgmt_tx,
-        mgmt_dropped: s.mgmt_dropped,
-        beacon_losses: s.beacon_losses,
-        deauths: s.deauths,
-        fw_errors: s.fw_errors,
-        resets: s.resets,
-    };
-    wire::encode_stats_reply(&wire::StatsReply { stats }).map_err(parcel_err)
+/// The radio behind one request (the generated server): the service state,
+/// the soft-MAC and the time the request was taken.
+struct HwHandler<'a, R: Radio> {
+    svc: &'a mut HwService,
+    mac: &'a mut SoftMac<R>,
+    now: u64,
+}
+
+fn fault((code, text): Refusal) -> Fault {
+    Fault::new(code as u32, text)
+}
+
+/// The wifimac identity of the kernel-stamped sender.
+fn sender_of(cx: &StampedCaller) -> Caller {
+    Caller {
+        task: cx.sender,
+        uid: cx.uid,
+        label_id: cx.label_id,
+        session: cx.session,
+    }
+}
+
+impl<R: Radio> wire::Server for HwHandler<'_, R> {
+    fn info(&mut self, _: &StampedCaller) -> Result<wire::HwInfo, Fault> {
+        let facts = self.mac.info();
+        Ok(wire::HwInfo {
+            mac: facts.mac.to_vec(),
+            interface: self.svc.ifname.clone(),
+            bands: facts.bands,
+            ciphers: facts.ciphers,
+            scan_offload: facts.scan_offload,
+            max_mgmt: facts.max_mgmt,
+            max_scan_ssids: facts.max_scan_ssids,
+            max_scan_channels: facts.max_scan_channels,
+            key_slots: facts.key_slots,
+            features: facts.features,
+        })
+    }
+
+    fn stats(&mut self, _: &StampedCaller) -> Result<wire::HwStats, Fault> {
+        let s = self.mac.stats();
+        Ok(wire::HwStats {
+            scans: s.scans,
+            mgmt_rx: s.mgmt_rx,
+            mgmt_tx: s.mgmt_tx,
+            mgmt_dropped: s.mgmt_dropped,
+            beacon_losses: s.beacon_losses,
+            deauths: s.deauths,
+            fw_errors: s.fw_errors,
+            resets: s.resets,
+        })
+    }
+
+    /// `Attach`: the decoded request owns the event channel; every way out
+    /// but success gives it back.
+    fn attach(&mut self, cx: &StampedCaller, events: u64) -> Result<(), Fault> {
+        let events = Endpoint::from_raw(events);
+        let cred = Cred::new(cx.uid, cx.gid, cx.caps, cx.label_id, cx.session);
+        let outcome = if may_attach(&cred, self.svc.probe_uid) {
+            self.mac.attach(sender_of(cx)).map_err(mac_err)
+        } else {
+            Err((errno::EPERM, "only the station manager may own the radio"))
+        };
+        match outcome {
+            Ok(()) => {
+                self.svc.drop_events();
+                self.svc.events = Some(events);
+                crate::trace::line!(
+                    trace::Channel::Wifi,
+                    "HW:ATTACH if={} owner={} uid={}",
+                    self.svc.ifname,
+                    cx.sender,
+                    cx.uid
+                );
+                Ok(())
+            }
+            Err(refusal) => {
+                let _ = events.release();
+                Err(fault(refusal))
+            }
+        }
+    }
+
+    fn detach(&mut self, cx: &StampedCaller) -> Result<(), Fault> {
+        self.mac.detach(sender_of(cx)).map_err(mac_err).map_err(fault)?;
+        self.svc.drop_events();
+        Ok(())
+    }
+
+    fn set_country(&mut self, cx: &StampedCaller, alpha2: String) -> Result<(), Fault> {
+        self.mac
+            .set_country(sender_of(cx), &alpha2)
+            .map_err(|e| fault(mac_err(e)))
+    }
+
+    fn scan(&mut self, cx: &StampedCaller, r: wire::ScanRequest) -> Result<u32, Fault> {
+        let request = ScanRequest {
+            channels: r.channels,
+            band: r.band,
+            ssids: r.ssids,
+            active: r.active,
+            dwell_ms: r.dwell_ms,
+        };
+        self.mac
+            .scan(sender_of(cx), &request, self.now)
+            .map_err(|e| fault(mac_err(e)))
+    }
+
+    fn abort_scan(&mut self, cx: &StampedCaller, scan_id: u32) -> Result<(), Fault> {
+        self.mac
+            .abort_scan(sender_of(cx), scan_id, self.now)
+            .map_err(|e| fault(mac_err(e)))
+    }
+
+    fn scan_results(
+        &mut self,
+        cx: &StampedCaller,
+        scan_id: u32,
+        first: u32,
+        max: u32,
+    ) -> Result<wire::ScanResultsReply, Fault> {
+        let page = self
+            .mac
+            .scan_results(sender_of(cx), scan_id, first, max, PAGE_BYTES, self.now)
+            .map_err(|e| fault(mac_err(e)))?;
+        let results = page
+            .entries
+            .iter()
+            .map(|(entry, age_ms)| wire::ScanEntry {
+                frame: entry.frame.clone(),
+                channel: u32::from(entry.channel),
+                band: entry.band as u32,
+                rssi_dbm: i32::from(entry.rssi_dbm),
+                age_ms: *age_ms,
+            })
+            .collect();
+        Ok(wire::ScanResultsReply {
+            results,
+            more: page.more,
+        })
+    }
+
+    fn join(&mut self, cx: &StampedCaller, r: wire::JoinRequest) -> Result<(), Fault> {
+        let request = JoinRequest {
+            bssid: r.bssid,
+            channel: r.channel,
+            band: r.band,
+            width: r.width,
+        };
+        self.mac
+            .join(sender_of(cx), &request, self.now)
+            .map_err(|e| fault(mac_err(e)))
+    }
+
+    fn tx_mgmt(&mut self, cx: &StampedCaller, kind: u32, frame: Vec<u8>) -> Result<(), Fault> {
+        self.mac
+            .tx_mgmt(sender_of(cx), kind, &frame)
+            .map_err(|e| fault(mac_err(e)))
+    }
+
+    fn set_state(&mut self, cx: &StampedCaller, state: u32, aid: u32) -> Result<(), Fault> {
+        self.mac
+            .set_state(sender_of(cx), state, aid)
+            .map_err(|e| fault(mac_err(e)))
+    }
+
+    fn set_key(
+        &mut self,
+        cx: &StampedCaller,
+        kind: u32,
+        index: u32,
+        cipher: u32,
+        mut key: Vec<u8>,
+        rsc: Vec<u8>,
+        addr: Vec<u8>,
+    ) -> Result<(), Fault> {
+        let request = KeyRequest {
+            kind,
+            index,
+            cipher,
+            key: &key,
+            rsc: &rsc,
+            addr: &addr,
+        };
+        let result = self.mac.set_key(sender_of(cx), &request);
+        // The temporal key lives in the radio's slot only.
+        key.fill(0);
+        result.map_err(|e| fault(mac_err(e)))
+    }
+
+    fn del_key(&mut self, cx: &StampedCaller, kind: u32, index: u32) -> Result<(), Fault> {
+        self.mac
+            .del_key(sender_of(cx), kind, index)
+            .map_err(|e| fault(mac_err(e)))
+    }
+
+    fn leave(&mut self, cx: &StampedCaller, reason: u32) -> Result<(), Fault> {
+        self.mac
+            .leave(sender_of(cx), reason)
+            .map_err(|e| fault(mac_err(e)))
+    }
 }
 
 /// The one-way parcel of an event.
