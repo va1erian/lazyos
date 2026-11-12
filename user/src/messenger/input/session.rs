@@ -3,8 +3,13 @@
 
 use alloc::vec::Vec;
 
-use super::{call_on, request, wire, INTERFACE, NAME};
-use crate::messenger::{create_pair, errno, registry, Endpoint, Error, Result, DEFAULT_BUFFER};
+use libmessenger::client::{CallError, Connection};
+
+use super::{wire, CALL_BOUND, NAME};
+use crate::messenger::client::{call_error, Held};
+use crate::messenger::{create_pair, registry, Endpoint, Result, DEFAULT_BUFFER};
+
+type CallResult<T> = core::result::Result<T, CallError>;
 
 /// What a client session delivers that its reader acts on ([`KeySession::poll`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -21,10 +26,9 @@ pub enum KeyInput {
 /// reads its keys this way (docs/accounts-plan.md U2); xui apps carry their
 /// own client.
 pub struct KeySession {
-    service: Endpoint,
-    /// Whether `service` came from name resolution (released on close);
-    /// otherwise it is the [`ShellLink`](super::ShellLink)'s private channel, which stays.
-    resolved: bool,
+    /// The generated client of `os.lazy.input.v1`, over the resolved endpoint
+    /// (released with it) or the shell link's private channel (which stays).
+    input: wire::Client<Held>,
     session: u64,
     /// This task's end of the session's event channel.
     events: Endpoint,
@@ -33,35 +37,20 @@ pub struct KeySession {
 
 impl KeySession {
     /// Open a session for `surface`, which `inputd` must know as this task's.
-    pub fn open(surface: u64) -> Result<KeySession> {
-        let service = registry::resolve(NAME)?;
-        let opened = Self::open_on(service, surface, true);
-        if opened.is_err() {
-            // A resolved handle: released, never closed (see `ShellLink::close`).
-            let _ = service.release();
-        }
-        opened
+    pub fn open(surface: u64) -> CallResult<KeySession> {
+        let service = registry::resolve(NAME).map_err(call_error)?;
+        // A resolved handle is released with the client, never closed.
+        Self::open_on(Held::resolved(service), surface)
     }
 
-    pub(super) fn open_on(service: Endpoint, surface: u64, resolved: bool) -> Result<KeySession> {
-        let (events, peer) = create_pair()?;
-        let body = wire::encode_open_args(&wire::OpenArgs {
-            surface: Some(surface),
-            events: peer.handle(),
-        })
-        .map_err(Error::Parcel);
-        let reply = body.and_then(|(body, objects)| {
-            call_on(
-                &service,
-                &request(INTERFACE, wire::METHOD_OPEN, body, objects),
-            )
-        });
-        match reply.and_then(|reply| wire::decode_open_reply(&reply.body).map_err(Error::Parcel)) {
+    pub(super) fn open_on(held: Held, surface: u64) -> CallResult<KeySession> {
+        let input = wire::Client::from_connection(Connection::new(held, NAME));
+        let (events, peer) = create_pair().map_err(call_error)?;
+        match input.open_within(Some(surface), peer.handle(), CALL_BOUND) {
             // Session ids start at 1; zero is a missing field.
-            Ok(reply) if reply.session != 0 => Ok(KeySession {
-                service,
-                resolved,
-                session: reply.session,
+            Ok(session) if session != 0 => Ok(KeySession {
+                input,
+                session,
                 events,
                 buffer: alloc::vec![0u8; DEFAULT_BUFFER],
             }),
@@ -70,7 +59,9 @@ impl KeySession {
                 // only fails harmlessly.
                 let _ = peer.close();
                 let _ = events.close();
-                Err(other.err().unwrap_or(Error::Errno(-errno::EINVAL)))
+                Err(other
+                    .err()
+                    .unwrap_or(CallError::Transport(libmessenger::client::Errno::BADMSG)))
             }
         }
     }
@@ -87,7 +78,7 @@ impl KeySession {
             let Some(message) = self.events.poll_recv_with(&mut self.buffer)? else {
                 return Ok(None);
             };
-            if message.interface_id() != INTERFACE {
+            if message.interface_id() != wire::INTERFACE_ID {
                 continue;
             }
             let body = &message.parcel.body;
@@ -114,17 +105,7 @@ impl KeySession {
     /// End the session and release both endpoints (best effort: `inputd`
     /// also ends a session whose surface is unregistered).
     pub fn close(self) {
-        if let Ok(body) = wire::encode_close_args(&wire::CloseArgs {
-            session: self.session,
-        }) {
-            let _ = call_on(
-                &self.service,
-                &request(INTERFACE, wire::METHOD_CLOSE, body, Vec::new()),
-            );
-        }
-        if self.resolved {
-            let _ = self.service.release();
-        }
+        let _ = self.input.close_within(self.session, CALL_BOUND);
         let _ = self.events.close();
     }
 }

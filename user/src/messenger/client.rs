@@ -67,6 +67,70 @@ impl Transport for Nested {
     }
 }
 
+/// A service reached over an endpoint this task already holds, instead of one
+/// the registry resolves: `inputd`'s private shell channel, or an endpoint
+/// resolved once and kept. The connection's "resolve" hands back that handle;
+/// dropping the connection releases it only when [`Held::resolved`] says the
+/// handle came from name resolution (a handle obtained by name is released,
+/// never closed, or the service's own endpoint would report a closed peer).
+#[derive(Clone, Copy, Debug)]
+pub struct Held {
+    handle: Handle,
+    release: bool,
+}
+
+impl Held {
+    /// A channel this task owns: closing it is the owner's business.
+    pub fn private(endpoint: Endpoint) -> Held {
+        Held {
+            handle: endpoint.handle(),
+            release: false,
+        }
+    }
+
+    /// An endpoint obtained by name: released with the connection.
+    pub fn resolved(endpoint: Endpoint) -> Held {
+        Held {
+            handle: endpoint.handle(),
+            release: true,
+        }
+    }
+}
+
+impl Transport for Held {
+    fn connect_bound(&self) -> Deadline {
+        Native.connect_bound()
+    }
+
+    fn call_flags(&self) -> u16 {
+        0
+    }
+
+    fn resolve(&self, _name: &str, _until: Deadline) -> core::result::Result<Handle, Errno> {
+        Ok(self.handle)
+    }
+
+    fn call(
+        &self,
+        handle: Handle,
+        request: &Parcel,
+        until: Deadline,
+        retry: Retry,
+    ) -> core::result::Result<Parcel, CallFailure> {
+        Native.call(handle, request, until, retry)
+    }
+
+    fn send(&self, handle: Handle, request: &Parcel) -> core::result::Result<(), Errno> {
+        Native.send(handle, request)
+    }
+
+    fn release(&self, handle: Handle) {
+        if self.release {
+            Native.release(handle);
+        }
+    }
+}
+
 /// A failed local Messenger operation as the call error the generated clients
 /// return, for code that mixes the two (a malformed parcel is `EINVAL`).
 pub fn call_error(error: Error) -> libmessenger::client::CallError {

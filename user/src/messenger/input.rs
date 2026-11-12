@@ -12,11 +12,13 @@
 
 use alloc::vec::Vec;
 
+use libmessenger::client::{CallError, Connection, Deadline};
 use libmessenger::{Header, Object, Parcel, VERSION};
 
-use super::services::error_field;
-use super::{create_pair, registry, Endpoint, Error, Message, Result, DEFAULT_BUFFER};
-use crate::sys;
+use super::client::{call_error, Held, Native};
+use super::{create_pair, Endpoint, Message, Result, DEFAULT_BUFFER};
+
+type CallResult<T> = core::result::Result<T, CallError>;
 
 mod session;
 pub use session::{KeyInput, KeySession};
@@ -47,11 +49,11 @@ pub mod mods {
     pub const SCROLL_LOCK: u32 = 1 << 7;
 }
 
-/// Ticks a compositor call to `inputd` may wait. `inputd` answers from its
+/// How long a compositor call to `inputd` may wait. `inputd` answers from its
 /// receive loop, so a healthy service replies within a tick; a hung one must
 /// not freeze the compositor, and a missed registration only means that
 /// client falls back to legacy key delivery.
-const CALL_TICKS: u64 = 20;
+pub const CALL_BOUND: Deadline = Deadline::ticks(20);
 
 /// A request parcel for `interface_id`.
 pub fn request(interface_id: u64, method: u32, body: Vec<u8>, objects: Vec<Object>) -> Parcel {
@@ -159,8 +161,10 @@ pub fn decode_shell_event(parcel: &Parcel) -> Option<ShellEvent> {
 
 /// The compositor's connection to `inputd`.
 pub struct ShellLink {
-    input: Endpoint,
-    /// This task's end of the shell event channel.
+    /// The generated shell client, over the private channel: no client can
+    /// fill its queue, so a shell call never waits behind one.
+    shell: shell_wire::Client<Held>,
+    /// This task's end of the shell event channel (the private channel).
     events: Endpoint,
     buffer: Vec<u8>,
 }
@@ -168,178 +172,115 @@ pub struct ShellLink {
 impl ShellLink {
     /// Resolve `inputd`, create the event channel and `Attach`. The peer end
     /// moves to `inputd` inside the call.
-    pub fn connect() -> Result<ShellLink> {
-        let input = registry::resolve(SHELL_NAME)?;
-        let (events, peer) = create_pair()?;
-        let link = ShellLink {
-            input,
-            events,
-            buffer: alloc::vec![0u8; DEFAULT_BUFFER],
-        };
-        let (body, objects) = shell_wire::encode_attach_args(&shell_wire::AttachArgs {
-            events: peer.handle(),
-        })
-        .map_err(Error::Parcel)?;
-        let parcel = request(SHELL_INTERFACE, shell_wire::METHOD_ATTACH, body, objects);
+    pub fn connect() -> CallResult<ShellLink> {
         // `Attach` is the one call on the shared endpoint: the private
-        // channel only exists once `inputd` has adopted its end.
-        if let Err(error) = call_on(&link.input, &parcel) {
+        // channel only exists once `inputd` has adopted its end. Dropping
+        // this client releases the handle name resolution gave (never
+        // closed: it is every client's side of `inputd`'s channel).
+        let shared = shell_wire::Client::try_connect(Native)?;
+        let (events, peer) = create_pair().map_err(call_error)?;
+        if let Err(error) = shared.attach_within(peer.handle(), CALL_BOUND) {
             // The peer may or may not have moved; closing a stale handle only
             // fails harmlessly.
             let _ = peer.close();
-            link.close();
+            let _ = events.close();
             return Err(error);
         }
-        Ok(link)
+        Ok(ShellLink {
+            shell: shell_wire::Client::from_connection(Connection::new(
+                Held::private(events),
+                SHELL_NAME,
+            )),
+            events,
+            buffer: alloc::vec![0u8; DEFAULT_BUFFER],
+        })
     }
 
-    /// Release both endpoints (a failed connect, or shutting down). The
-    /// `inputd` handle came from name resolution, which hands every client
-    /// the same side of `inputd`'s channel: it is released, never closed,
-    /// or `inputd`'s own endpoint would report a closed peer forever.
+    /// Close the event channel (shutting down). The `inputd` handle was
+    /// released when `connect` returned.
     pub fn close(&self) {
-        let _ = self.input.release();
         let _ = self.events.close();
-    }
-
-    /// A shell call, on the private channel: no client can fill its queue.
-    fn shell_call(&self, method: u32, body: Vec<u8>) -> Result<Parcel> {
-        call_on(
-            &self.events,
-            &request(SHELL_INTERFACE, method, body, Vec::new()),
-        )
-    }
-
-    /// Send a one-way shell request on the private channel: never waits on
-    /// `inputd` (docs/performance-plan.md P3.6). `Err` only when it could not
-    /// be queued (a full queue is retried later; a dead peer drops the link).
-    fn shell_note(&self, method: u32, body: Vec<u8>) -> Result<()> {
-        self.events
-            .send(&request(SHELL_INTERFACE, method, body, Vec::new()))
     }
 
     /// Open a key session for `surface` (one of the compositor's own,
     /// registered with owner 0) over the private channel, so a client
     /// flooding the shared endpoint cannot refuse it: the trusted prompt's
     /// keyboard (docs/accounts-plan.md U2).
-    pub fn open_keys(&self, surface: u64) -> Result<KeySession> {
-        KeySession::open_on(self.events, surface, false)
+    pub fn open_keys(&self, surface: u64) -> CallResult<KeySession> {
+        KeySession::open_on(Held::private(self.events), surface)
     }
 
     /// One-way: every pointer event up to `seq` is handled, and the focus it
     /// led to was noted before this (`NoteInputDone`; keys typed after a
     /// click are held by `inputd` until it arrives).
-    pub fn note_input_done(&self, seq: u64) -> Result<()> {
-        let body = shell_wire::encode_note_input_done_args(&shell_wire::NoteInputDoneArgs { seq })
-            .map_err(Error::Parcel)?;
-        self.shell_note(shell_wire::METHOD_NOTEINPUTDONE, body)
+    pub fn note_input_done(&self, seq: u64) -> CallResult<()> {
+        self.shell.note_input_done(seq)
     }
 
     /// One-way: the shell's panel menu holds (or gives back) the keyboard;
     /// focus stays, key content to the focused session is held
     /// (`NoteKeysHeld`, `inputmap::hold`).
-    pub fn note_keys_held(&self, held: bool) -> Result<()> {
-        let body = shell_wire::encode_note_keys_held_args(&shell_wire::NoteKeysHeldArgs { held })
-            .map_err(Error::Parcel)?;
-        self.shell_note(shell_wire::METHOD_NOTEKEYSHELD, body)
+    pub fn note_keys_held(&self, held: bool) -> CallResult<()> {
+        self.shell.note_keys_held(held)
     }
 
     /// One-way: the logged-in user's own keyboard layout, or `None` to follow
     /// the machine default (`NoteSessionLayout`, `inputmap::session_layout`).
-    pub fn note_session_layout(&self, layout: Option<&str>) -> Result<()> {
-        let args = shell_wire::NoteSessionLayoutArgs {
-            layout: layout.map(Into::into),
-        };
-        let body = shell_wire::encode_note_session_layout_args(&args).map_err(Error::Parcel)?;
-        self.shell_note(shell_wire::METHOD_NOTESESSIONLAYOUT, body)
+    pub fn note_session_layout(&self, layout: Option<&str>) -> CallResult<()> {
+        self.shell.note_session_layout(layout)
     }
 
     /// One-way [`ShellLink::register_surface`].
-    pub fn note_surface(&self, surface: u64, owner: u64) -> Result<()> {
-        let body =
-            shell_wire::encode_note_surface_args(&shell_wire::NoteSurfaceArgs { surface, owner })
-                .map_err(Error::Parcel)?;
-        self.shell_note(shell_wire::METHOD_NOTESURFACE, body)
+    pub fn note_surface(&self, surface: u64, owner: u64) -> CallResult<()> {
+        self.shell.note_surface(surface, owner)
     }
 
     /// One-way [`ShellLink::unregister_surface`].
-    pub fn forget_surface(&self, surface: u64) -> Result<()> {
-        let body =
-            shell_wire::encode_forget_surface_args(&shell_wire::ForgetSurfaceArgs { surface })
-                .map_err(Error::Parcel)?;
-        self.shell_note(shell_wire::METHOD_FORGETSURFACE, body)
+    pub fn forget_surface(&self, surface: u64) -> CallResult<()> {
+        self.shell.forget_surface(surface)
     }
 
     /// One-way [`ShellLink::set_focus`].
-    pub fn note_focus(&self, surface: Option<u64>) -> Result<()> {
-        let body = shell_wire::encode_note_focus_args(&shell_wire::NoteFocusArgs { surface })
-            .map_err(Error::Parcel)?;
-        self.shell_note(shell_wire::METHOD_NOTEFOCUS, body)
+    pub fn note_focus(&self, surface: Option<u64>) -> CallResult<()> {
+        self.shell.note_focus(surface)
     }
 
     /// Declare that task slot `owner` created `surface`.
-    pub fn register_surface(&self, surface: u64, owner: u64) -> Result<()> {
-        let body = shell_wire::encode_register_surface_args(&shell_wire::RegisterSurfaceArgs {
-            surface,
-            owner,
-        })
-        .map_err(Error::Parcel)?;
-        self.shell_call(shell_wire::METHOD_REGISTERSURFACE, body)
-            .map(|_| ())
+    pub fn register_surface(&self, surface: u64, owner: u64) -> CallResult<()> {
+        self.shell
+            .register_surface_within(surface, owner, CALL_BOUND)
     }
 
     /// Forget `surface` (destroyed).
-    pub fn unregister_surface(&self, surface: u64) -> Result<()> {
-        let body = shell_wire::encode_unregister_surface_args(&shell_wire::UnregisterSurfaceArgs {
-            surface,
-        })
-        .map_err(Error::Parcel)?;
-        self.shell_call(shell_wire::METHOD_UNREGISTERSURFACE, body)
-            .map(|_| ())
+    pub fn unregister_surface(&self, surface: u64) -> CallResult<()> {
+        self.shell.unregister_surface_within(surface, CALL_BOUND)
     }
 
     /// Give keyboard focus to `surface` (`None`: nobody).
-    pub fn set_focus(&self, surface: Option<u64>) -> Result<()> {
-        let body = shell_wire::encode_set_focus_args(&shell_wire::SetFocusArgs { surface })
-            .map_err(Error::Parcel)?;
-        self.shell_call(shell_wire::METHOD_SETFOCUS, body)
-            .map(|_| ())
+    pub fn set_focus(&self, surface: Option<u64>) -> CallResult<()> {
+        self.shell.set_focus_within(surface, CALL_BOUND)
     }
 
     /// Register a chord; `inputd` then consumes it (client never sees it).
-    pub fn register_hotkey(&self, code: u32, mods: u32) -> Result<u64> {
-        let body =
-            shell_wire::encode_register_hotkey_args(&shell_wire::RegisterHotkeyArgs { code, mods })
-                .map_err(Error::Parcel)?;
-        let reply = self.shell_call(shell_wire::METHOD_REGISTERHOTKEY, body)?;
-        Ok(shell_wire::decode_register_hotkey_reply(&reply.body)
-            .map_err(Error::Parcel)?
-            .id)
+    pub fn register_hotkey(&self, code: u32, mods: u32) -> CallResult<u64> {
+        self.shell.register_hotkey_within(code, mods, CALL_BOUND)
     }
 
     /// Answer a `GrantRequested`: `allow` grants the grab if the session
     /// still has focus.
-    pub fn approve_grant(&self, session: u64, allow: bool) -> Result<()> {
-        let body =
-            shell_wire::encode_approve_grant_args(&shell_wire::ApproveGrantArgs { session, allow })
-                .map_err(Error::Parcel)?;
-        self.shell_call(shell_wire::METHOD_APPROVEGRANT, body)
-            .map(|_| ())
+    pub fn approve_grant(&self, session: u64, allow: bool) -> CallResult<()> {
+        self.shell.approve_grant_within(session, allow, CALL_BOUND)
     }
 
     /// Clamp the cursor to a `width` x `height` screen; it also subscribes this
     /// compositor to `PointerEvent`.
-    pub fn set_bounds(&self, width: u32, height: u32) -> Result<()> {
-        let body = shell_wire::encode_set_bounds_args(&shell_wire::SetBoundsArgs { width, height })
-            .map_err(Error::Parcel)?;
-        self.shell_call(shell_wire::METHOD_SETBOUNDS, body)
-            .map(|_| ())
+    pub fn set_bounds(&self, width: u32, height: u32) -> CallResult<()> {
+        self.shell.set_bounds_within(width, height, CALL_BOUND)
     }
 
     /// The cursor position and held buttons, to seed the compositor's cursor.
-    pub fn get_pointer(&self) -> Result<PointerState> {
-        let reply = self.shell_call(shell_wire::METHOD_GETPOINTER, Vec::new())?;
-        let seed = shell_wire::decode_get_pointer_reply(&reply.body).map_err(Error::Parcel)?;
+    pub fn get_pointer(&self) -> CallResult<PointerState> {
+        let seed = self.shell.get_pointer_within(CALL_BOUND)?;
         Ok(PointerState {
             x: seed.x,
             y: seed.y,
@@ -369,15 +310,5 @@ impl ShellLink {
                 return Ok(Some(event));
             }
         }
-    }
-}
-
-/// One bounded call to `inputd`; a structured error reply becomes its errno.
-fn call_on(service: &Endpoint, parcel: &Parcel) -> Result<Parcel> {
-    let mut buffer = alloc::vec![0u8; 256];
-    let reply = service.call_with(parcel, &mut buffer, Some(sys::clock() + CALL_TICKS))?;
-    match error_field(&reply)? {
-        Some(code) => Err(Error::Errno(-code)),
-        None => Ok(reply),
     }
 }
