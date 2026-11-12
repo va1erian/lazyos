@@ -21,7 +21,7 @@
 use std::ptr;
 
 use audioclient::{Error, Object, Result, RingBuffer, RingRef, Transport};
-use libmessenger::client::{CallError, Connection, Deadline};
+use libmessenger::client::{CallError, Connection, Deadline, Retry};
 
 use super::messenger::{Conn, Observed};
 use crate::sys::{self, errno};
@@ -75,7 +75,8 @@ impl Transport for Audio {
             Some(absolute) => Deadline::ticks(absolute.saturating_sub(sys::clock_ticks()).max(1)),
             None => Deadline::ticks(CALL_TICKS),
         };
-        match self.conn.call(interface, method, body, objects, until) {
+        match self.conn
+            .call(interface, method, body, objects, until, Retry::Never) {
             Ok(reply) => Ok(reply.body),
             Err(CallError::Remote { code, .. }) => Err(Error::Errno(i64::from(code))),
             Err(error) => Err(errno_of(error.code())),

@@ -3,7 +3,7 @@
 //! [`libmessenger::client::Connection`] on, and the one bounded wait for a
 //! service that has not registered yet.
 
-use libmessenger::client::{Deadline, Errno, Handle, Transport};
+use libmessenger::client::{CallFailure, Deadline, Errno, Handle, Transport};
 use libmessenger::Parcel;
 
 use super::{park_tick, registry, Endpoint, Error, Result};
@@ -65,16 +65,23 @@ impl Transport for Native {
             .map_err(errno_of)
     }
 
+    /// The two halves of the kernel call (`begin_call`, `await_reply`), so
+    /// a request the kernel refused before queuing is told from one the peer
+    /// had when it died.
     fn call(
         &self,
         handle: Handle,
         request: &Parcel,
         until: Deadline,
-    ) -> core::result::Result<Parcel, Errno> {
+    ) -> core::result::Result<Parcel, CallFailure> {
         let deadline = until.absolute_ticks(sys::clock());
-        Endpoint::from_raw(handle)
-            .call(request, Some(deadline))
-            .map_err(errno_of)
+        let endpoint = Endpoint::from_raw(handle);
+        let txn = endpoint
+            .begin_call(request, Some(deadline))
+            .map_err(|error| CallFailure::undelivered(errno_of(error)))?;
+        endpoint
+            .await_reply(txn)
+            .map_err(|error| CallFailure::delivered(errno_of(error)))
     }
 
     fn send(&self, handle: Handle, request: &Parcel) -> core::result::Result<(), Errno> {

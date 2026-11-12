@@ -17,7 +17,18 @@ fn connection() -> Connection<Mock> {
 }
 
 fn call(conn: &Connection<Mock>) -> Result<Parcel, CallError> {
-    conn.call(IFACE, 7, vec![1, 2], Vec::new(), Deadline::millis(500))
+    call_as(conn, Retry::Safe)
+}
+
+fn call_as(conn: &Connection<Mock>, retry: Retry) -> Result<Parcel, CallError> {
+    conn.call(
+        IFACE,
+        7,
+        vec![1, 2],
+        Vec::new(),
+        Deadline::millis(500),
+        retry,
+    )
 }
 
 fn refusal(code: u32, message: &str, detail: Option<&Encoder>) -> Parcel {
@@ -89,6 +100,68 @@ fn a_dead_peer_is_resolved_again_once_and_the_call_retried_once() {
     assert_ne!(calls[2].handle, first);
     assert_eq!(conn.transport().resolves().len(), 2);
     assert_eq!(conn.transport().released(), [first]);
+}
+
+#[test]
+fn a_safe_call_is_resent_after_the_peer_died_handling_it() {
+    let conn = connection();
+    call(&conn).unwrap();
+    conn.transport().fail(Errno::PIPE);
+    call_as(&conn, Retry::Safe).unwrap();
+    assert_eq!(
+        conn.transport().calls().len(),
+        3,
+        "the failure and one resend"
+    );
+    assert_eq!(conn.transport().resolves().len(), 2);
+}
+
+#[test]
+fn a_call_that_is_never_resent_returns_the_error_and_the_next_call_reconnects() {
+    let conn = connection();
+    call(&conn).unwrap();
+    let first = conn.transport().calls()[0].handle;
+    // The peer took the request and died before it replied.
+    conn.transport().fail(Errno::PIPE);
+    assert_eq!(
+        call_as(&conn, Retry::Never),
+        Err(CallError::Transport(Errno::PIPE))
+    );
+    assert_eq!(conn.transport().calls().len(), 2, "no resend");
+    assert!(!conn.is_connected());
+    assert_eq!(conn.transport().released(), [first]);
+    // The next call resolves again and goes through.
+    call_as(&conn, Retry::Never).unwrap();
+    assert_eq!(conn.transport().resolves().len(), 2);
+    assert_ne!(conn.transport().calls()[2].handle, first);
+}
+
+#[test]
+fn a_call_that_never_left_is_resent_whatever_its_policy() {
+    // A stale handle: the kernel refuses the request before it queues it.
+    let conn = connection();
+    call(&conn).unwrap();
+    conn.transport().kill(NAME);
+    conn.transport().register(NAME);
+    call_as(&conn, Retry::Never).unwrap();
+    assert_eq!(conn.transport().calls().len(), 3);
+    // The same through a scripted refusal.
+    conn.transport().fail_undelivered(Errno::PIPE);
+    call_as(&conn, Retry::Never).unwrap();
+    assert_eq!(conn.transport().calls().len(), 5);
+}
+
+#[test]
+fn a_never_call_that_failed_after_delivery_does_not_resolve_again() {
+    let conn = connection();
+    call(&conn).unwrap();
+    conn.transport().fail(Errno::PIPE);
+    let before = conn.transport().resolves().len();
+    assert_eq!(
+        call_as(&conn, Retry::Never),
+        Err(CallError::Transport(Errno::PIPE))
+    );
+    assert_eq!(conn.transport().resolves().len(), before);
 }
 
 #[test]

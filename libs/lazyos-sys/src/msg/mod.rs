@@ -306,6 +306,19 @@ pub fn call_begin(handle: u64, request: &[u8], deadline: u64) -> Result<u64, i64
     Ok(result.value)
 }
 
+/// Wait for the [`call_begin`] transaction `txn` and copy its reply into
+/// `buf` ([`op::CALL_AWAIT`]); the reply's length. With [`call_begin`] this
+/// is [`call`] in two halves, so a failure of the first (the request was
+/// never queued) can be told from one of the second (the peer had it).
+pub fn call_await(txn: u64, buf: &mut [u8]) -> Result<usize, i64> {
+    let len = buf.len();
+    let args = MsgArgs {
+        txn_id: txn,
+        ..with_buffers(&[], buf)
+    };
+    Ok(transfer(op::CALL_AWAIT, args, len)?.bytes as usize)
+}
+
 /// A terminal transaction's reply or failure **now**, without the park
 /// `await_reply`/[`op::CALL_AWAIT`] is: `-EAGAIN` while it is still open,
 /// the bytes in `buf` otherwise (issue #725, op [`op::CALL_CHECK`]).

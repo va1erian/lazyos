@@ -54,6 +54,25 @@ pub fn call(handle: u64, parcel: &Parcel, buf: &mut [u8], deadline: u64) -> Resu
     decode(buf.get(..len).ok_or(-E2BIG)?)
 }
 
+/// [`call`] in the kernel's two halves (`CALL_BEGIN`, `CALL_AWAIT`), so a
+/// failure says whether the request was queued: `Err((errno, delivered))`,
+/// `delivered` false when the kernel refused it before queuing (a closed
+/// endpoint, a stale handle) and true once the peer could have taken it
+/// (the peer died, the wait timed out, the reply did not fit). One extra
+/// syscall buys the answer a resend needs.
+pub fn call_tracked(
+    handle: u64,
+    parcel: &Parcel,
+    buf: &mut [u8],
+    deadline: u64,
+) -> Result<Parcel, (i64, bool)> {
+    let bytes = encode(parcel).map_err(|code| (code, false))?;
+    let txn = super::call_begin(handle, &bytes, deadline).map_err(|code| (code, false))?;
+    let len = super::call_await(txn, buf).map_err(|code| (code, true))?;
+    let reply = buf.get(..len).ok_or((-E2BIG, true))?;
+    decode(reply).map_err(|code| (code, true))
+}
+
 /// Send `parcel` one way on `handle` (it should carry `flags::ONE_WAY`).
 pub fn send(handle: u64, parcel: &Parcel) -> Result<(), i64> {
     super::send(handle, &encode(parcel)?)

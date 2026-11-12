@@ -21,12 +21,6 @@ pub enum Deadline {
 /// Length of one PIT tick in milliseconds (100 Hz).
 pub const TICK_MILLIS: u64 = 10;
 
-/// How long a generated client waits for a method whose `.midl` states no
-/// `deadline`: 5 s, the bound most hand-written clients already used
-/// (`CALL_TICKS = 500`). One value for every client, so the same call never
-/// times out in one program and not in another.
-pub const DEFAULT_DEADLINE: Deadline = Deadline::secs(5);
-
 /// The absolute deadline the kernel reads as "poll"
 /// (`lazyos_sys::msg::EXPIRED_DEADLINE`).
 const POLL_TICK: u64 = 1;

@@ -16,7 +16,7 @@
 //! app needs `os.lazy.shell.tray.v1` and `subscribe:session/+/shell/tray` in
 //! its manifest (both implied by `resident` from stage T3).
 
-use libmessenger::client::{Connection, Deadline};
+use libmessenger::client::{Connection, Deadline, Retry};
 use libmessenger::Parcel;
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 use trayclient::{wire, Event, Transport, Tray};
@@ -73,6 +73,7 @@ impl Transport for XuiTransport {
                 body,
                 objects,
                 Deadline::ticks(CALL_TICKS),
+                Retry::Never,
             )
             .map(|reply| reply.body)
             .map_err(i64::from)

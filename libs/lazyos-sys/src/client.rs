@@ -6,7 +6,7 @@
 use std::time::Duration;
 use std::vec;
 
-use libmessenger::client::{Deadline, Errno, Handle, Transport};
+use libmessenger::client::{CallFailure, Deadline, Errno, Handle, Transport};
 use libmessenger::Parcel;
 
 use crate::msg::parcel;
@@ -60,10 +60,22 @@ impl Transport for Std {
         }
     }
 
-    fn call(&self, handle: Handle, request: &Parcel, until: Deadline) -> Result<Parcel, Errno> {
+    /// The two halves of the kernel call, so a request the kernel refused
+    /// before queuing (the cached handle's peer is gone) is told from one the
+    /// peer had when it died, and the connection resends only what is safe.
+    fn call(
+        &self,
+        handle: Handle,
+        request: &Parcel,
+        until: Deadline,
+    ) -> Result<Parcel, CallFailure> {
         let mut buf = vec![0u8; REPLY_BUF];
-        parcel::call(handle, request, &mut buf, until.absolute_ticks(clock()))
-            .map_err(Errno::from_syscall)
+        parcel::call_tracked(handle, request, &mut buf, until.absolute_ticks(clock())).map_err(
+            |(code, delivered)| CallFailure {
+                errno: Errno::from_syscall(code),
+                delivered,
+            },
+        )
     }
 
     fn send(&self, handle: Handle, request: &Parcel) -> Result<(), Errno> {

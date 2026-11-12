@@ -16,7 +16,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use lazyos_sys::client::Std;
-use libmessenger::client::{is_peer_gone, Connection, Errno, Handle, Transport};
+use libmessenger::client::{is_peer_gone, CallFailure, Connection, Errno, Handle, Transport};
 pub use libmessenger::client::{CallError, Deadline};
 use libmessenger::Parcel;
 
@@ -46,7 +46,12 @@ impl Transport for Observed {
         result
     }
 
-    fn call(&self, handle: Handle, request: &Parcel, until: Deadline) -> Result<Parcel, Errno> {
+    fn call(
+        &self,
+        handle: Handle,
+        request: &Parcel,
+        until: Deadline,
+    ) -> Result<Parcel, CallFailure> {
         let began = crate::stall::start();
         let result = self.0.call(handle, request, until);
         crate::stall::finish(began, crate::stall::SLOW_NS, "call", || {
@@ -56,7 +61,7 @@ impl Transport for Observed {
                 request.header.method,
                 match &result {
                     Ok(_) => String::from("ok"),
-                    Err(errno) => errno.to_syscall().to_string(),
+                    Err(failure) => failure.errno.to_syscall().to_string(),
                 }
             )
         });

@@ -8,6 +8,7 @@ use core::cell::Cell;
 use super::deadline::Deadline;
 use super::errno::Errno;
 use super::error::{remote_error, CallError};
+use super::policy::{CallFailure, Retry};
 use crate::{flags, Header, Object, Parcel, VERSION};
 
 /// A kernel handle naming a resolved service.
@@ -35,8 +36,15 @@ pub trait Transport {
     fn resolve(&self, name: &str, until: Deadline) -> Result<Handle, Errno>;
 
     /// One synchronous call: `request` out, the reply back, no later than
-    /// `until`.
-    fn call(&self, handle: Handle, request: &Parcel, until: Deadline) -> Result<Parcel, Errno>;
+    /// `until`. A failure says whether the peer may have received the
+    /// request ([`CallFailure::delivered`]); a transport that cannot tell
+    /// answers `true`.
+    fn call(
+        &self,
+        handle: Handle,
+        request: &Parcel,
+        until: Deadline,
+    ) -> Result<Parcel, CallFailure>;
 
     /// Send `request` one way; it does not wait for the peer.
     fn send(&self, handle: Handle, request: &Parcel) -> Result<(), Errno>;
@@ -48,8 +56,11 @@ pub trait Transport {
 
 /// A service by registry name, over a [`Transport`]: it resolves on first
 /// use, keeps the handle, and when a call finds the peer gone
-/// (`EPIPE`, or `ENOENT` from a reaped name) drops it, resolves again once
-/// and retries the call once. A remote refusal is never retried.
+/// (`EPIPE`, or `ENOENT` from a reaped name) drops it, so the next use
+/// resolves a restarted service. A call is resent once, to the restarted
+/// service, when the request never left ([`CallFailure::delivered`]) or the
+/// method is [`Retry::Safe`]; otherwise the peer may have run it and the
+/// error is returned. A remote refusal is never retried.
 pub struct Connection<T: Transport> {
     transport: T,
     name: Cow<'static, str>,
@@ -151,6 +162,9 @@ impl<T: Transport> Connection<T> {
     /// `until`. A reply that is the standard error field becomes
     /// [`CallError::Remote`].
     ///
+    /// `retry` is the method's policy: after a peer that died while it may
+    /// have been handling the request, only [`Retry::Safe`] sends it again.
+    ///
     /// The request carries the transport's [`Transport::call_flags`].
     pub fn call(
         &self,
@@ -159,6 +173,7 @@ impl<T: Transport> Connection<T> {
         body: Vec<u8>,
         objects: Vec<Object>,
         until: Deadline,
+        retry: Retry,
     ) -> Result<Parcel, CallError> {
         let request = Self::request(
             interface,
@@ -168,7 +183,7 @@ impl<T: Transport> Connection<T> {
             objects,
         );
         let reply = self
-            .with_retry(|handle| self.transport.call(handle, &request, until))
+            .call_once_more(&request, until, retry)
             .map_err(CallError::Transport)?;
         Self::check(reply)
     }
@@ -196,8 +211,38 @@ impl<T: Transport> Connection<T> {
         }
     }
 
+    /// Call on the cached handle; when the peer is gone, drop the handle
+    /// and, if resending is allowed (`retry`, or a request that never
+    /// left), resolve once without waiting and call once more.
+    fn call_once_more(
+        &self,
+        request: &Parcel,
+        until: Deadline,
+        retry: Retry,
+    ) -> Result<Parcel, Errno> {
+        let handle = self.connect()?;
+        match self.transport.call(handle, request, until) {
+            Err(failure) if is_peer_gone(failure.errno) => {
+                self.evict();
+                if retry == Retry::Never && failure.delivered {
+                    return Err(failure.errno);
+                }
+                self.transport
+                    .call(self.try_connect()?, request, until)
+                    .map_err(|failure| {
+                        if is_peer_gone(failure.errno) {
+                            self.evict();
+                        }
+                        failure.errno
+                    })
+            }
+            result => result.map_err(|failure| failure.errno),
+        }
+    }
+
     /// Run `attempt` on the handle; when it reports a dead peer, drop the
-    /// handle, resolve once without waiting and run it once more.
+    /// handle, resolve once without waiting and run it once more. For a
+    /// send, which the kernel refuses before it queues anything.
     fn with_retry<R>(
         &self,
         mut attempt: impl FnMut(Handle) -> Result<R, Errno>,

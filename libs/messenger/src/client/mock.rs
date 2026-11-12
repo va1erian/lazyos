@@ -11,6 +11,7 @@ use core::cell::RefCell;
 use super::connection::{Handle, Transport};
 use super::deadline::Deadline;
 use super::errno::Errno;
+use super::policy::CallFailure;
 use crate::{Header, Object, Parcel};
 
 /// A call or send the mock saw.
@@ -42,7 +43,7 @@ struct State {
     handles: Vec<(Handle, String, u64)>,
     next_handle: Handle,
     next_generation: u64,
-    script: VecDeque<Result<Parcel, Errno>>,
+    script: VecDeque<Result<Parcel, CallFailure>>,
     resolves: Vec<(String, Deadline)>,
     calls: Vec<Recorded>,
     released: Vec<Handle>,
@@ -115,9 +116,23 @@ impl Mock {
         self.state.borrow_mut().script.push_back(Ok(reply));
     }
 
-    /// Queue a transport failure for the next call.
+    /// Queue a transport failure for the next call, one that came after the
+    /// peer took the request (`delivered`: the peer died handling it, or
+    /// the call timed out).
     pub fn fail(&self, errno: Errno) {
-        self.state.borrow_mut().script.push_back(Err(errno));
+        self.state
+            .borrow_mut()
+            .script
+            .push_back(Err(CallFailure::delivered(errno)));
+    }
+
+    /// Queue a failure of the next call that happens before the request is
+    /// queued, as a closed endpoint does ([`CallFailure::undelivered`]).
+    pub fn fail_undelivered(&self, errno: Errno) {
+        self.state
+            .borrow_mut()
+            .script
+            .push_back(Err(CallFailure::undelivered(errno)));
     }
 
     /// Every call and send so far, oldest first.
@@ -178,7 +193,12 @@ impl Transport for Mock {
         Ok(handle)
     }
 
-    fn call(&self, handle: Handle, request: &Parcel, until: Deadline) -> Result<Parcel, Errno> {
+    fn call(
+        &self,
+        handle: Handle,
+        request: &Parcel,
+        until: Deadline,
+    ) -> Result<Parcel, CallFailure> {
         let mut state = self.state.borrow_mut();
         state.calls.push(Recorded {
             handle,
@@ -187,7 +207,9 @@ impl Transport for Mock {
             objects: request.objects.clone(),
             until: Some(until),
         });
-        Mock::peer_alive(&state, handle)?;
+        // A dead peer refuses the request before queuing it, as the kernel's
+        // `begin_call` does: never delivered.
+        Mock::peer_alive(&state, handle).map_err(CallFailure::undelivered)?;
         state
             .script
             .pop_front()
