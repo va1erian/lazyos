@@ -126,8 +126,8 @@ clipboard write scope exactly:
   (`xui-app/packages/*/manifest.toml`, LazyRAD's, Doom's if it has windows)
   — all of them use xui widgets that request cursors. Unlabelled tasks
   (Terminal, LazyShell) pass by uid rules as today.
-- xuid: `carries_declared`/`handle_request` accept that interface id **only**
-  for `METHOD_SET_CURSOR`; any other method under it → empty/EINVAL reply.
+- xuid: the cursor scope is served by its generated `dispatch` (its one method
+  is `SetCursor`; any other method under it is `ENOSYS`).
   Then the `SetTitle` checks: surface exists (`ENOENT`), `owner ==
   message.sender` (`EACCES`), shape decodes (`EINVAL`).
 - Rhai: `display.rhai` regenerates; LazyRAD forms can call it if their package
