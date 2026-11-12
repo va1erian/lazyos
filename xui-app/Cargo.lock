@@ -5889,6 +5889,7 @@ dependencies = [
  "lazyarc",
  "xui-canvas",
  "xui-core",
+ "xui-host",
  "xui-work",
 ]
 
@@ -6100,6 +6101,7 @@ dependencies = [
  "lazypdf",
  "xui-canvas",
  "xui-core",
+ "xui-host",
  "xui-work",
 ]
 
@@ -6151,6 +6153,7 @@ dependencies = [
  "lazyvideo",
  "xui-canvas",
  "xui-core",
+ "xui-host",
 ]
 
 [[package]]

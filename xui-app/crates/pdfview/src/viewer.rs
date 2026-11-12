@@ -4,7 +4,6 @@
 //! app drives it, and tests drive it directly.
 
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -13,9 +12,9 @@ use xui_core::Image;
 use xui_work::Sink;
 
 use crate::cache::{Key, TileCache};
-use crate::host::LogFn;
 use crate::layout::{self, Layout, PxRect, Zoom};
 use crate::worker::{Done, Job, Pool};
+use xui_host::{report, SharedHost};
 
 /// The longest side of a page's preview, in pixels.
 const PREVIEW_SIDE: f32 = 360.0;
@@ -43,7 +42,7 @@ pub struct Viewer {
     pub cache: TileCache,
     /// Shown instead of pages: why the last open failed.
     pub error: Option<String>,
-    log: Rc<LogFn>,
+    host: SharedHost,
     threads: usize,
     /// Pages whose visible tiles at this scale have all arrived (reported once).
     drawn: HashSet<usize>,
@@ -54,7 +53,7 @@ pub struct Viewer {
 }
 
 impl Viewer {
-    pub fn new(log: Rc<LogFn>, threads: usize, results: Sink<Done>) -> Viewer {
+    pub fn new(host: SharedHost, threads: usize, results: Sink<Done>) -> Viewer {
         Viewer {
             doc: None,
             pool: None,
@@ -68,7 +67,7 @@ impl Viewer {
             dpi: 96,
             cache: TileCache::new(MIN_BUDGET),
             error: None,
-            log,
+            host,
             threads,
             drawn: HashSet::new(),
             asked: HashMap::new(),
@@ -83,12 +82,16 @@ impl Viewer {
             .filter_map(|i| doc.page_size(i))
             .collect();
         self.epoch += 1;
-        self.pool = Some(Pool::new(
+        let pool = Pool::new(
             Arc::clone(&doc),
             self.threads,
             self.epoch,
             self.results.clone(),
-        ));
+        );
+        if !pool.started() {
+            report!(self.host, "WORKER:FAIL");
+        }
+        self.pool = Some(pool);
         self.doc = Some(doc);
         self.error = None;
         self.zoom = Zoom::FitWidth;
@@ -260,7 +263,7 @@ impl Viewer {
             }
         }
         let Some(tile) = done.tile else {
-            (self.log)(&format!("PDF:PAGE:FAIL:{}", done.key.page() + 1));
+            report!(self.host, "PAGE:FAIL:{}", done.key.page() + 1);
             return false;
         };
         let Ok(image) = Image::from_rgba(tile.width, tile.height, tile.rgba) else {
@@ -302,7 +305,7 @@ impl Viewer {
                 // A page prefetched whole before it scrolled in waited 0 ms.
                 let ms = self.asked.get(&page).map_or(0, |t| t.elapsed().as_millis());
                 let render = self.spent.get(&page).copied().unwrap_or(0.0);
-                (self.log)(&format!("PDF:PAGE:DRAWN:{}:{ms}:{render:.0}", page + 1));
+                report!(self.host, "PAGE:DRAWN:{}:{ms}:{render:.0}", page + 1);
             }
         }
     }

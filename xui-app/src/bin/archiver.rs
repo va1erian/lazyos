@@ -3,8 +3,8 @@
 //!
 //! The app (state, commands, dialogs, jobs) is the portable `xui-archiver`
 //! crate over the `lazyarc` format library; this file supplies the LazyOS
-//! platform: the backend, `$HOME` for the pickers, a private folder in
-//! `/tmp`, the `mimed` launcher for files opened from inside an archive, an
+//! platform through `AppContext`: the backend, `$HOME` for the pickers, a
+//! private folder in `/tmp`, the `mimed` launcher for files opened from inside an archive, an
 //! archive named on the command line, and drag and drop: dropped
 //! `text/uri-list` payloads become [`Msg::Dropped`], and a press-and-drag on
 //! the list extracts the selection to the private folder and offers it as a
@@ -16,36 +16,20 @@
 //! `ARCHIVER:DRAGEND:<dropped>` and `ARCHIVER:DROP:FAIL:<code>` here.
 
 use std::cell::RefCell;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
 
 use xui_app::backend::{DragOffer, DropEvent};
-use xui_app::platform::launcher::LazyLauncher;
-use xui_app::platform::{dirs, urilist};
+use xui_app::platform::urilist;
 use xui_app::trace::{self, Channel};
-use xui_archiver::{drag, ArchiverApp, DragState, Host, Msg, WINDOW};
+use xui_archiver::{drag, ArchiverApp, DragState, Msg, WINDOW};
 use xui_core::app::Proxy;
-use xui_explorer::platform::Launcher;
 
 /// The app's messages from outside `update` (the drag hooks).
 type Outbox = Proxy<Msg>;
 
 fn send(outbox: &Outbox, msg: Msg) {
     let _ = outbox.send(msg);
-}
-
-/// LazyOS's side of the app.
-fn host(temp_dir: PathBuf) -> Host {
-    let mut host = Host::std(dirs::default_dir());
-    host.temp_dir = temp_dir;
-    host.launch = Rc::new(|path: &Path| {
-        LazyLauncher::new()
-            .open(path)
-            .map_err(|error| error.to_string())
-    });
-    host.log = Rc::new(|line| println!("{line}"));
-    host.read_only_roots = vec![PathBuf::from(fhs::system::SYSTEM)];
-    host
 }
 
 /// A press-and-drag on the list: extract what it carries and offer it.
@@ -113,7 +97,6 @@ fn drag_event(outbox: &Outbox, carried: &Rc<RefCell<Vec<usize>>>, event: &DropEv
 }
 
 fn main() {
-    let temp = PathBuf::from(fhs::mount::TMP).join(format!("archiver-{}", std::process::id()));
     xui_app::app(Channel::Archiver, "Archiver")
         .size(WINDOW.0, WINDOW.1)
         // The list re-flows to the window; below this the toolbar clips.
@@ -121,6 +104,10 @@ fn main() {
         .opens(Msg::OpenChosen)
         .run(move |ui, cx| {
             let backend = cx.backend();
+            // The scratch folder for files opened from inside an archive and
+            // for dragged-out entries: `/tmp/archiver-<pid>`.
+            let host = cx.host();
+            let temp = host.temp_dir();
             // Drops and drags reach the app through its proxy, which exists
             // now: the hooks run outside `update`.
             let bridge: Rc<RefCell<DragState>> = Rc::default();
@@ -138,6 +125,6 @@ fn main() {
                 });
             }
             backend.on_drag_event(move |_, event| drag_event(&outbox, &carried, event));
-            ArchiverApp::build(ui, host(temp), bridge)
+            ArchiverApp::build(ui, host, bridge)
         })
 }

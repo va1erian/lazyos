@@ -56,6 +56,12 @@ impl StdHost {
         self
     }
 
+    /// Keeps the evidence in `lines`, which the test already holds.
+    pub fn collecting(mut self, lines: Lines) -> StdHost {
+        self.lines = lines;
+        self
+    }
+
     /// The private folder [`AppHost::temp_dir`] reports.
     pub fn temp(mut self, dir: impl Into<PathBuf>) -> StdHost {
         self.temp_dir = dir.into();

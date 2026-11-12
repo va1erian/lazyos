@@ -11,8 +11,8 @@ use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
 use xui_core::message::{Key, Modifiers};
 
-use crate::host::Host;
 use crate::ui::{self, Dialogs, Widgets, SEEK_MAX};
+use xui_host::{report, SharedHost};
 
 /// The window size the binary asks for.
 pub const WINDOW: (i32, i32) = (800, 560);
@@ -44,7 +44,7 @@ pub enum Msg {
 }
 
 pub struct VideoApp {
-    host: Host,
+    host: SharedHost,
     w: Widgets,
     dialogs: Dialogs,
     path: Option<PathBuf>,
@@ -65,8 +65,8 @@ pub struct VideoApp {
 }
 
 impl VideoApp {
-    pub fn build(ui: &mut Ui<Msg>, host: Host) -> Result<VideoApp> {
-        let (w, dialogs) = ui::build_window(ui, &host)?;
+    pub fn build(ui: &mut Ui<Msg>, host: SharedHost) -> Result<VideoApp> {
+        let (w, dialogs) = ui::build_window(ui, &*host)?;
         ui.on_close(|| Some(Msg::Close));
         let dialog_open = Rc::new(Cell::new(false));
         {
@@ -119,10 +119,6 @@ impl VideoApp {
         self.w.view.picture_size()
     }
 
-    fn log(&self, line: &str) {
-        (self.host.log)(line);
-    }
-
     fn open_path(&mut self, path: PathBuf) {
         // The old player stops first: it holds the file and the decoder.
         self.player = None;
@@ -136,15 +132,16 @@ impl VideoApp {
         match opened {
             Ok(player) => {
                 let i = player.info().clone();
-                self.log(&format!(
-                    "VIDEO:OPEN:PASS:{}:{}x{}:{:.2}:{}:{}",
+                report!(
+                    self.host,
+                    "OPEN:PASS:{}:{}x{}:{:.2}:{}:{}",
                     path.display(),
                     i.width,
                     i.height,
                     i.fps(),
                     i.frames,
                     i.codec_name()
-                ));
+                );
                 self.w.view.set_note("", false);
                 self.player = Some(player);
                 self.w.seek.set_enabled(true);
@@ -155,7 +152,7 @@ impl VideoApp {
                 self.w.view.run_timer(true);
             }
             Err(error) => {
-                self.log(&format!("VIDEO:OPEN:FAIL:{}:{error}", path.display()));
+                report!(self.host, "OPEN:FAIL:{}:{error}", path.display());
                 let text = format!("{} could not be opened: {error}.", file_name(&path));
                 self.w.view.set_note(&text, true);
                 self.w.seek.set_enabled(false);
@@ -172,11 +169,11 @@ impl VideoApp {
         let status = player.status();
         if status.playing {
             player.pause();
-            self.log("VIDEO:PAUSE");
+            self.host.report("PAUSE");
         } else {
             player.play();
             self.ended_logged = false;
-            self.log("VIDEO:PLAY");
+            self.host.report("PLAY");
         }
         self.wake();
     }
@@ -186,7 +183,7 @@ impl VideoApp {
             player.pause();
             player.seek(0);
             self.pending_seek = Some(0);
-            self.log("VIDEO:STOP");
+            self.host.report("STOP");
             self.wake();
         }
     }
@@ -196,7 +193,7 @@ impl VideoApp {
             player.seek(us);
             self.pending_seek = Some(us);
             self.ended_logged = false;
-            self.log(&format!("VIDEO:SEEK:{}", us / 1000));
+            report!(self.host, "SEEK:{}", us / 1000);
             self.wake();
         }
     }
@@ -231,25 +228,28 @@ impl VideoApp {
                 let seconds = self.clock.elapsed().as_secs_f64().max(0.001);
                 let fps = fps_pairs.map_or(0.0, |(_, n)| (shown - n.min(shown)) as f64 / seconds);
                 self.clock = Instant::now();
-                self.log(&format!(
-                    "VIDEO:POS:{}:shown={}:dropped={}:fps={:.0}",
+                report!(
+                    self.host,
+                    "POS:{}:shown={}:dropped={}:fps={:.0}",
                     status.position_us / 1000,
                     status.shown,
                     status.dropped,
                     fps
-                ));
+                );
                 self.logged = Some((second, shown));
             }
         }
         if status.ended && !self.ended_logged {
             self.ended_logged = true;
-            self.log(&format!(
-                "VIDEO:END:PASS:shown={}:dropped={}",
-                status.shown, status.dropped
-            ));
+            report!(
+                self.host,
+                "END:PASS:shown={}:dropped={}",
+                status.shown,
+                status.dropped
+            );
         }
         if let Some(error) = &status.error {
-            self.log(&format!("VIDEO:ERROR:{error}"));
+            report!(self.host, "ERROR:{error}");
             let text = format!("Playback stopped: {error}.");
             self.w.view.set_note(&text, true);
             self.w.view.run_timer(false);

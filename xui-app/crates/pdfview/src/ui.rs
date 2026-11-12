@@ -12,9 +12,11 @@ use xui_core::widget::{Dialog, FileDialog, Lucide, StatusBar, Toolbar};
 use xui_core::Dip;
 
 use crate::app::Msg;
-use crate::host::Host;
 use crate::view::PageView;
 use crate::viewer::Viewer;
+use xui_host::dialogs::open_dialog;
+use xui_host::error::ErrorDialog;
+use xui_host::AppHost;
 
 const TOOLBAR_HEIGHT: Dip = Dip(36.0);
 
@@ -39,7 +41,7 @@ pub struct Widgets {
 pub struct Dialogs {
     pub open: FileDialog<Msg>,
     pub password: Dialog<Msg>,
-    pub message: Dialog<Msg>,
+    pub message: ErrorDialog<Msg>,
 }
 
 impl Dialogs {
@@ -67,21 +69,21 @@ fn commands() -> Build<Toolbar<Msg>, Msg> {
         .then(|bar| bar.on_click(|index| COMMANDS.get(index).map(|msg| msg())))
 }
 
-fn dialogs(ui: &Ui<Msg>, host: &Host) -> Result<Dialogs> {
-    let open = FileDialog::open_file(ui, "Open document")?
-        .file_system(Rc::clone(&host.file_system))
-        .initial_dir(host.start_dir.clone())
-        .require_existing(true)
-        .filter("PDF documents", &["pdf"])
-        .filter("All files", &[])
-        .on_cancel(|| Some(Msg::DialogClosed))
-        .on_accept(|path| Some(Msg::OpenChosen(path)));
+fn dialogs(ui: &Ui<Msg>, host: &dyn AppHost) -> Result<Dialogs> {
+    let open = open_dialog(
+        ui,
+        host,
+        "Open document",
+        &[("PDF documents", &["pdf"])],
+        || Some(Msg::DialogClosed),
+    )?
+    .on_accept(|path| Some(Msg::OpenChosen(path)));
     // xui gap: `Dialog::prompt` has no masked mode, so the password shows
     // as it is typed (docs/pdf-reader-plan.md, risks).
     let password = Dialog::prompt(ui, "Password", "", "")?
         .accept_label("Open")
         .on_action(|action| Some(Msg::Password(action)));
-    let message = Dialog::message(ui, "PDF Viewer", "")?.on_action(|_| Some(Msg::DialogClosed));
+    let message = ErrorDialog::new(ui, "PDF Viewer", || Some(Msg::DialogClosed))?;
     Ok(Dialogs {
         open,
         password,
@@ -92,7 +94,7 @@ fn dialogs(ui: &Ui<Msg>, host: &Host) -> Result<Dialogs> {
 /// Builds the window over `viewer` and mounts it.
 pub fn build_window(
     ui: &Ui<Msg>,
-    host: &Host,
+    host: &dyn AppHost,
     viewer: Rc<RefCell<Viewer>>,
 ) -> Result<(Widgets, Dialogs)> {
     let (view, status) = (Handle::new(), Handle::new());
