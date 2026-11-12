@@ -5,12 +5,12 @@
 //! allowed to blank the window.
 
 use alloc::string::String;
-use libmessenger::Parcel;
+use libmessenger::server::{Caller, Fault};
 use user::messenger::display::wire;
-use user::messenger::{self, Message};
+use user::messenger::errno;
 
 use super::compositor::Compositor;
-use super::protocol::{empty_reply, error_reply};
+use super::protocol::refuse;
 use super::window::surface_by_id;
 
 /// Longest title kept, in bytes.
@@ -32,29 +32,26 @@ pub(super) fn sanitize(raw: &str) -> String {
 
 impl Compositor {
     /// `SetTitle`: rename a window, repaint its chrome and tell the shell.
-    pub(super) fn set_title(&mut self, message: &Message, body: &[u8]) -> Parcel {
-        let Ok(args) = wire::decode_set_title_args(body) else {
-            return error_reply(message.method(), messenger::errno::EINVAL);
+    pub(super) fn set_title(&mut self, cx: &Caller, id: u64, title: &str) -> Result<(), Fault> {
+        let Some(surface) = surface_by_id(&self.surfaces, id) else {
+            return Err(refuse(errno::ENOENT));
         };
-        let Some(surface) = surface_by_id(&self.surfaces, args.surface) else {
-            return error_reply(message.method(), messenger::errno::ENOENT);
-        };
-        if surface.owner != message.sender {
-            return error_reply(message.method(), messenger::errno::EACCES);
+        if surface.owner != cx.sender {
+            return Err(refuse(errno::EACCES));
         }
-        let title = sanitize(&args.title);
+        let title = sanitize(title);
         // The desktop and panels have no chrome, and an empty result keeps
         // the old name rather than blanking the shell's taskbar entry.
         if !surface.is_window() || title.is_empty() || title == surface.title {
-            return empty_reply(message.method());
+            return Ok(());
         }
-        if let Some(surface) = self.surfaces.iter_mut().find(|s| s.id == args.surface) {
+        if let Some(surface) = self.surfaces.iter_mut().find(|s| s.id == id) {
             surface.title = title;
         }
-        self.notify_surface(args.surface, wire::CHANGE_TITLE);
+        self.notify_surface(id, wire::CHANGE_TITLE);
         // The title bar and the Alt+Tab list show it.
         self.repaint_full();
-        empty_reply(message.method())
+        Ok(())
     }
 }
 

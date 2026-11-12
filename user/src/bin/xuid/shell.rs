@@ -3,8 +3,9 @@
 //! notifications, and the compositor-owned window cycle.
 
 use alloc::vec::Vec;
+use libmessenger::server::{Caller, Fault};
 use user::messenger::display::{self, wire};
-use user::messenger::{self, Endpoint, Message};
+use user::messenger::{self, Endpoint};
 
 use super::compositor::Compositor;
 use super::window::{restore, surface_by_id};
@@ -154,11 +155,20 @@ impl Compositor {
     /// Whether `sender` may use the shell-only calls (`ListSurfaces`, the
     /// window-management methods, desktop and panel surfaces): the task that
     /// holds the shell subscription, or a privileged identity.
-    pub(super) fn is_shell_caller(&self, message: &Message) -> bool {
+    pub(super) fn is_shell_caller(&self, cx: &Caller) -> bool {
         self.shell
             .as_ref()
-            .is_some_and(|shell| shell.task == message.sender && !shell.dead)
-            || super::protocol::is_privileged(message)
+            .is_some_and(|shell| shell.task == cx.sender && !shell.dead)
+            || super::protocol::privileged(cx)
+    }
+
+    /// `EACCES` unless the caller is the shell (see [`Self::is_shell_caller`]).
+    pub(super) fn require_shell(&self, cx: &Caller) -> Result<(), Fault> {
+        if self.is_shell_caller(cx) {
+            Ok(())
+        } else {
+            Err(Fault::from_syscall(user::messenger::errno::EACCES))
+        }
     }
 
     /// Drop the subscribers whose endpoint was found closed. Losing the shell
