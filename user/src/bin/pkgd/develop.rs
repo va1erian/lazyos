@@ -31,6 +31,7 @@ use user::trace;
 
 use pkgstore::access::Caller;
 use pkgstore::develop::{self, Verdict};
+use user::messenger::client::Native;
 use user::messenger::pkgd::Failure;
 use user::messenger::{self, logind, policy, router, services};
 use user::sys;
@@ -107,10 +108,11 @@ impl Logouts {
 
 /// The sessions `logind` reports active, or `None` when it cannot be asked.
 fn live_sessions() -> Option<Vec<u64>> {
-    let endpoint = services::resolve_service(logind::NAME).ok()?;
-    let (_, sessions) = logind::fetch_sessions(&endpoint).ok()?;
+    let client = logind::Client::try_connect(Native).ok()?;
+    let reply = client.sessions().ok()?;
     Some(
-        sessions
+        reply
+            .sessions
             .iter()
             .filter(|session| session.state == "active")
             .map(|session| session.id)

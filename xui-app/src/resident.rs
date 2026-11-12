@@ -21,8 +21,7 @@
 //! only. Any other launch shows the window, the first as a plain start and
 //! the later ones as `Reopen`.
 
-use libmessenger::client::Deadline;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use libmessenger::Parcel;
@@ -32,14 +31,12 @@ use xui_core::app::{App, Ui};
 use xui_core::backend::Backend;
 
 use crate::backend::LazyOSBackend;
-use crate::platform::messenger::Service;
+use crate::launch::Setup;
+use crate::platform::messenger::client;
 use crate::sys::{self, errno};
+use crate::trace::{self, Channel};
 use crate::tray::TrayIcon;
 
-/// `init`'s lifecycle service.
-const INIT_APP: &str = app_wire::SERVICE_NAME;
-/// Ticks one `Watch` may take.
-const WATCH_TICKS: u64 = 100;
 /// The longest a windowless app parks before it looks at its topics again
 /// (the tray's generation): half a second.
 const IDLE_MILLIS: u64 = 500;
@@ -78,21 +75,9 @@ impl Lifecycle {
     /// not launch this task.
     pub fn watch() -> Result<Lifecycle, i64> {
         let (sent, kept) = sys::msg_create_pair()?;
-        let result = Service::try_connect(INIT_APP)
-            .ok_or(-errno::ENOENT)
-            .and_then(|init| {
-                let (body, objects) =
-                    app_wire::encode_watch_args(&app_wire::WatchArgs { events: sent })
-                        .map_err(|_| -errno::EINVAL)?;
-                init.call_moving(
-                    app_wire::INTERFACE_ID,
-                    app_wire::METHOD_WATCH,
-                    body,
-                    objects,
-                    Deadline::ticks(WATCH_TICKS),
-                )
-                .map_err(i64::from)
-            });
+        let result = client(app_wire::Client::try_connect)
+            .map_err(|_| -errno::ENOENT)
+            .and_then(|init| init.watch(sent).map_err(i64::from));
         match result {
             Ok(_) => Ok(Lifecycle {
                 channel: kept,
@@ -149,38 +134,34 @@ fn decode(parcel: &Parcel) -> Option<Wake> {
     }
 }
 
-/// A resident app's runtime: its backend (none for an app that never opens
-/// a window, so it needs no display permission), tray item and lifecycle
-/// line.
+/// A resident app's runtime, made by `xui_app::app(..).resident()` or
+/// `.windowless()` (`crate::launch`): its backend (none for an app that never
+/// opens a window, so it needs no display permission), tray item and
+/// lifecycle line.
 pub struct Resident {
     pub backend: Option<Rc<LazyOSBackend>>,
     pub tray: RefCell<TrayIcon>,
     life: RefCell<Option<Lifecycle>>,
+    channel: Channel,
+    title: String,
+    windowed: (i32, i32),
+    /// Whether the first window's first frame still owes the `UP` marker.
+    up_owed: Cell<bool>,
 }
 
 impl Resident {
-    /// Connect to the compositor and `init` (a missing lifecycle line is
-    /// reported as `<marker>:WATCH:FAIL err=<n>` and leaves the app without
+    /// Connect to `init` (a missing lifecycle line is reported as
+    /// `<channel>:WATCH:FAIL err=<n>` and leaves the app without
     /// `Reopen`/`Quit`, killed at the end of a `Stop`'s grace).
-    pub fn connect(marker: &str) -> Result<Rc<Resident>, i64> {
-        let backend = Rc::new(LazyOSBackend::connect()?);
-        Ok(Resident::start(marker, Some(backend)))
-    }
-
-    /// [`Resident::connect`] for an applet that lives in the tray only and
-    /// never opens a window.
-    pub fn windowless(marker: &str) -> Rc<Resident> {
-        Resident::start(marker, None)
-    }
-
-    fn start(marker: &str, backend: Option<Rc<LazyOSBackend>>) -> Rc<Resident> {
+    pub(crate) fn start(setup: &Setup, backend: Option<Rc<LazyOSBackend>>) -> Rc<Resident> {
+        let channel = setup.channel;
         let life = match Lifecycle::watch() {
             Ok(life) => {
-                println!("{marker}:WATCH:PASS");
+                trace::pass!(channel, "WATCH");
                 Some(life)
             }
             Err(code) => {
-                println!("{marker}:WATCH:FAIL err={}", -code);
+                trace::line!(channel, "WATCH:FAIL err={}", -code);
                 None
             }
         };
@@ -188,6 +169,10 @@ impl Resident {
             backend,
             tray: RefCell::new(TrayIcon::new()),
             life: RefCell::new(life),
+            channel,
+            title: setup.title.clone(),
+            windowed: setup.windowed,
+            up_owed: Cell::new(true),
         })
     }
 
@@ -230,10 +215,11 @@ impl Resident {
         self.poll()
     }
 
-    /// Open a window titled `title` (`size` in design pixels) built by
-    /// `make`, and run it until it closes or the app quits; the app is then
-    /// windowless again. `make` gets the window's `Ui`.
-    pub fn window<A, F>(&self, title: &str, size: (i32, i32), make: F) -> Result<(), String>
+    /// Open the app's window (the title and size the builder was given) built
+    /// by `make`, and run it until it closes or the app quits; the app is
+    /// then windowless again. `make` gets the window's `Ui`. The first
+    /// window's first frame reports `UP`.
+    pub fn window<A, F>(&self, make: F) -> Result<(), String>
     where
         A: App,
         F: FnOnce(&mut Ui<A::Msg>) -> xui_core::backend::Result<A>,
@@ -243,8 +229,12 @@ impl Resident {
             .as_ref()
             .ok_or_else(|| String::from("a windowless resident app has no display"))?;
         backend.rearm();
-        let (width, height) = backend.window_size(size);
-        xui_core::app(title)
+        if self.up_owed.replace(false) {
+            let channel = self.channel;
+            backend.on_first_frame(move || trace::pass!(channel, "UP"));
+        }
+        let (width, height) = backend.window_size(self.windowed);
+        xui_core::app(self.title.as_str())
             .size(width, height)
             .backend(Rc::clone(backend) as Rc<dyn Backend>)
             .run(make)

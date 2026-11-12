@@ -25,7 +25,7 @@ interface os.lazy.accounts.v1 {
     /// the skeleton. From `elevd`, or from the login screen while the machine
     /// has no account (the owner, who must be an admin). `EEXIST` for a taken
     /// name, `EINVAL` for a bad one, `EPERM` for any other caller.
-    method Create(name: String = 1, secret: String = 2, admin: Bool = 3) -> (user: User = 1);
+    method Create(name: String = 1, secret: String = 2, admin: Bool = 3) -> (user: User = 1) deadline=60s;
     /// Delete the account `name` (from `elevd` only). `home` says what
     /// happens to its home: `keep`, `archive` (moved aside, root-only) or
     /// `remove`. The last administrator cannot be deleted (`EBUSY`).
@@ -33,13 +33,13 @@ interface os.lazy.accounts.v1 {
     /// Set `name`'s password to `secret`. A user may change their own with
     /// the current one in `old` (checked and slowed like `Authenticate`,
     /// `EACCES` when wrong); `elevd` may set anyone's without it.
-    method SetPassword(name: String = 1, old: Option<String> = 2, secret: String = 3) -> ();
+    method SetPassword(name: String = 1, old: Option<String> = 2, secret: String = 3) -> () deadline=60s;
     /// Make `name` an administrator or not (from `elevd` only). Taking it
     /// from the last administrator is `EBUSY`.
     method SetAdmin(name: String = 1, admin: Bool = 2) -> ();
     /// Every account, in database order. `setup` is true while the machine
     /// has no account (the login screen then asks for its owner).
-    method ListUsers() -> (users: Array<User> = 1, setup: Bool = 2);
+    method ListUsers() -> (users: Array<User> = 1, setup: Bool = 2) deadline=3s;
 
     /// One account record as a lookup returns it (never the secret).
     struct User {

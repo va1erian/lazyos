@@ -174,8 +174,8 @@ covered by the upstream `xui-canvas` tests and the LazyOS screenshots below
    files session confirms a second process (Editor) launched by open-with
    coexists with Files.
 3. **Failure atomicity** — saves build a temp file then rename (unchanged);
-   `Service::call` returns the error without touching the cache on a service
-   rejection.
+   a generated client's call returns the error without touching the connection
+   cache on a service rejection.
 4. **Re-entrancy** — no new borrow is held across a callback; the endpoint
    cache borrow is released before the call.
 5. **Undo/history** — unchanged app code; Paint's undo/redo is exercised by the

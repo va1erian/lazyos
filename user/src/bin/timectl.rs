@@ -20,8 +20,10 @@ use alloc::string::String;
 use core::panic::PanicInfo;
 use user::trace;
 
+use libmessenger::client::CallError;
+use user::messenger::client::Native;
+use user::messenger::errno;
 use user::messenger::timed::Client;
-use user::messenger::{errno, Error};
 use user::sys;
 
 #[no_mangle]
@@ -41,12 +43,12 @@ pub extern "C" fn _start() -> ! {
     sys::exit(status)
 }
 
-fn text(error: Error) -> String {
+fn text(error: CallError) -> String {
     String::from(error.message())
 }
 
 fn run(command: &str, arg: Option<&str>) -> Result<(), String> {
-    let client = Client::connect().map_err(text)?;
+    let client = Client::connect(Native).map_err(text)?;
     match (command, arg) {
         ("now", _) => {
             let now = client.now().map_err(text)?;
@@ -112,7 +114,7 @@ fn selftest(client: &Client) -> Result<(), String> {
         return fail("the default zone is not UTC");
     }
     match client.set_zone("Mars/Base") {
-        Err(Error::Errno(code)) if code == -errno::EINVAL => {}
+        Err(error) if error.code() == -errno::EINVAL => {}
         _ => return fail("an unknown zone was not refused with EINVAL"),
     }
     client.set_zone("Europe/Paris").map_err(text)?;
@@ -125,7 +127,7 @@ fn selftest(client: &Client) -> Result<(), String> {
     }
     client.set_time(now.unix_ms / 1000).map_err(text)?;
     match client.set_time(-5) {
-        Err(Error::Errno(code)) if code == -errno::EINVAL => {}
+        Err(error) if error.code() == -errno::EINVAL => {}
         _ => return fail("a negative time was not refused with EINVAL"),
     }
     client.set_zone("UTC").map_err(text)?;
@@ -137,7 +139,7 @@ fn selftest(client: &Client) -> Result<(), String> {
     }
     match client.sync_now() {
         Ok(()) => {}
-        Err(Error::Errno(code)) if [errno::ENODEV, errno::EAGAIN, 101].contains(&-code) => {}
+        Err(error) if [errno::ENODEV, errno::EAGAIN, 101].contains(&-error.code()) => {}
         _ => return fail("SyncNow answered with something undocumented"),
     }
     trace::print!(

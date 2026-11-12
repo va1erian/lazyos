@@ -333,18 +333,18 @@ interface os.lazy.net.wifi.hw.v1 {
 /// shared structured error field (`services::error_field`).
 interface os.lazy.net.wifi.v1 {
     /// The wireless interfaces `wlanmd` manages, by name (`wlan0`).
-    method Interfaces() -> (names: Array<String> = 1);
+    method Interfaces() -> (names: Array<String> = 1) deadline=1s;
     /// Ask for a fresh scan; returns at once, the results arrive on
     /// `system/net/{ifname}/wifi/scan`. `ssids` are hidden networks to probe
     /// for (at most 4); empty is a wildcard scan. A scan is refused while one
     /// is under way (`EBUSY`) and may be skipped while the link is busy with
     /// the handshake.
-    method Scan(ifname: String = 1, ssids: Array<String> = 2) -> ();
+    method Scan(ifname: String = 1, ssids: Array<String> = 2) -> () deadline=1s;
     /// The current scan results merged with the known profiles: one entry per
     /// network (SSID and security), strongest BSS first, with the profile id
     /// when the caller may use a known network. Profiles of other users are
     /// not shown. At most 128 entries.
-    method Networks(ifname: String = 1) -> (list: Array<Network> = 1);
+    method Networks(ifname: String = 1) -> (list: Array<Network> = 1) deadline=1s;
     /// Remember a network; `scope` is a `Scope` ordinal. Scope `User`: the
     /// caller's network and its secret; `profile.id` must be empty (the
     /// service picks one and returns it), and the passphrase is required for
@@ -358,24 +358,24 @@ interface os.lazy.net.wifi.v1 {
     /// passphrase, or a name that matches several heard networks; `EPERM` for
     /// scope `System` from anyone but `elevd`; `ENOSPC` past 32 networks for
     /// one owner.
-    method AddNetwork(profile: Profile = 1, passphrase: Option<String> = 2) -> (id: String = 1);
+    method AddNetwork(profile: Profile = 1, passphrase: Option<String> = 2) -> (id: String = 1) deadline=1s;
     /// Join the network `id` on `ifname`: leave the current one, scan if the
     /// SSID is not in the results, pick the best BSS, authenticate, associate
     /// and run the handshake. Returns when the attempt is started; the
     /// outcome is on `system/net/{ifname}/wifi/state` (`Connected` or
     /// `Failed` with a reason). A user network belongs to its owner: another
     /// user gets `EPERM`.
-    method Connect(ifname: String = 1, id: String = 2) -> ();
+    method Connect(ifname: String = 1, id: String = 2) -> () deadline=1s;
     /// Leave the current network and do not reconnect until asked (auto-
     /// connect is suspended for this interface until the next `Connect`).
     /// Not an error when not connected.
-    method Disconnect(ifname: String = 1) -> ();
+    method Disconnect(ifname: String = 1) -> () deadline=1s;
     /// Delete a profile and its secret. Disconnects first if it is the
     /// current network. Not an error for an id that is gone.
-    method Forget(id: String = 1) -> ();
+    method Forget(id: String = 1) -> () deadline=1s;
     /// The interface's state now: the same value the retained `state` topic
     /// carries, for a client that does not subscribe.
-    method Status(ifname: String = 1) -> (status: WifiState = 1);
+    method Status(ifname: String = 1) -> (status: WifiState = 1) deadline=1s;
 
     /// A heard network, merged with what is known about it.
     struct Network {

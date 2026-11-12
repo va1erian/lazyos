@@ -4,7 +4,7 @@
 
 use std::ffi::OsString;
 use std::io;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use xui_canvas::Surface;
@@ -41,9 +41,10 @@ struct Rig {
 fn rig(reader: ThumbReader) -> Rig {
     let wakes = Arc::new(AtomicUsize::new(0));
     let counter = Arc::clone(&wakes);
-    let wake = Arc::new(move || {
+    let wake = move || {
         counter.fetch_add(1, Ordering::SeqCst);
-    });
+        true
+    };
     Rig {
         thumbs: Thumbs::new(reader, wake),
         wakes,

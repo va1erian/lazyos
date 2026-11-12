@@ -13,13 +13,11 @@ use crate::app::{ArchiverApp, Msg};
 use crate::folder::{self, RowKind};
 use crate::job::{Job, Task};
 use crate::ui::{self, MENU_DELETE, MENU_EXTRACT, MENU_OPEN, MENU_TEST};
+use xui_work::Sink;
 
 mod finish;
 
-use finish::tick;
-
-/// How often a running job's progress is read.
-const TICK_MS: u32 = 100;
+use finish::job_ended;
 
 pub fn dispatch(app: &mut ArchiverApp, msg: Msg, ui: &mut Ui<Msg>) {
     match msg {
@@ -80,7 +78,9 @@ pub fn dispatch(app: &mut ArchiverApp, msg: Msg, ui: &mut Ui<Msg>) {
         Msg::DeleteConfirmed(_) => {}
         Msg::PickerClosed => app.pending.clear(),
         Msg::MessageClosed => {}
-        Msg::Tick => tick(app, ui),
+        // `sync` mirrors the bar after every message.
+        Msg::Progress => {}
+        Msg::Finished(done) => job_ended(app, &done),
         Msg::Cancel => {
             if let Some(job) = &app.job {
                 job.cancel();
@@ -112,14 +112,15 @@ fn start(app: &mut ArchiverApp, ui: &mut Ui<Msg>, task: Task) {
         app.say("Busy: wait for the current operation or cancel it");
         return;
     }
-    match Job::start(task, app.archive.clone()) {
-        Ok(job) => {
-            app.say(format!("{}...", job.task.verb()));
-            app.job = Some(job);
-            app.timer = Some(ui.set_timer(TICK_MS));
-        }
-        Err(error) => app.tell("Archiver", &error),
-    }
+    let proxy = ui.proxy();
+    let job = Job::start(
+        task,
+        app.archive.clone(),
+        Sink::bell(&proxy, Msg::Progress),
+        Sink::new(&proxy, Msg::Finished),
+    );
+    app.say(format!("{}...", job.task.verb()));
+    app.job = Some(job);
 }
 
 fn display_name(path: &Path) -> String {

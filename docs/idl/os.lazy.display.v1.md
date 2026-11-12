@@ -91,6 +91,34 @@ fields, which never use that id.
 
 - Served under the registry name `os.lazy.display.v1` (together with `os.lazy.display.cursor.v1`); registered once.
 
+## Scopes and deadlines
+
+| Method | Scope interface | Scope id | Deadline |
+|---|---|---|---|
+| CreateSurface | this interface | - | 1000 ms |
+| DestroySurface | this interface | - | 1000 ms |
+| DragStart | this interface | - | 1000 ms |
+| DragCancel | this interface | - | 1000 ms |
+| ListSurfaces | this interface | - | 2000 ms |
+| GetWorkArea | this interface | - | 2000 ms |
+| Subscribe | this interface | - | 2000 ms |
+| GetTheme | this interface | - | 5000 ms |
+| AttachBufferSlot | this interface | - | 1000 ms |
+| SetTitle | this interface | - | 1000 ms |
+| HintOpenOrigin | this interface | - | 500 ms |
+| SetSizeHints | this interface | - | 1000 ms |
+| RequestSize | this interface | - | 1000 ms |
+| PlaceSurface | this interface | - | 2000 ms |
+| ActivateSurface | this interface | - | 2000 ms |
+| MinimizeSurface | this interface | - | 2000 ms |
+| SetWorkArea | this interface | - | 2000 ms |
+| SetIconGeometry | this interface | - | 2000 ms |
+| HintLaunchOrigin | this interface | - | 2000 ms |
+| GetOutput | this interface | - | 500 ms |
+| GrabPanelKeys | this interface | - | 2000 ms |
+| SetCloseMode | this interface | - | 1000 ms |
+| ActivateApp | this interface | - | 2000 ms |
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

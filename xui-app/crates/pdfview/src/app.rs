@@ -10,12 +10,13 @@ use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
 use xui_core::message::{Key, Modifiers};
 use xui_core::widget::DialogAction;
+use xui_work::Sink;
 
 use crate::host::Host;
 use crate::layout::{self, Zoom};
 use crate::ui::{self, Dialogs, Widgets};
 use crate::viewer::Viewer;
-use crate::worker::Pool;
+use crate::worker::{Done, Pool};
 
 /// The window size the binary asks for.
 pub const WINDOW: (i32, i32) = (820, 640);
@@ -44,8 +45,8 @@ pub enum Msg {
     ActualSize,
     /// The view scrolled itself (wheel, scroll bar).
     Scrolled,
-    /// The view's drain timer fired.
-    Tick,
+    /// A render thread finished a tile.
+    Tile(Done),
     /// Files were dropped on the window.
     Dropped(Vec<PathBuf>),
     Close,
@@ -68,7 +69,12 @@ impl PdfApp {
             0 => Pool::default_threads(),
             n => n,
         };
-        let viewer = Rc::new(RefCell::new(Viewer::new(Rc::clone(&host.log), threads)));
+        let tiles = Sink::new(&ui.proxy(), Msg::Tile);
+        let viewer = Rc::new(RefCell::new(Viewer::new(
+            Rc::clone(&host.log),
+            threads,
+            tiles,
+        )));
         let (w, dialogs) = ui::build_window(ui, &host, viewer)?;
         ui.on_close(|| Some(Msg::Close));
         let dialog_open = Rc::new(Cell::new(false));
@@ -103,11 +109,6 @@ impl PdfApp {
     /// A handle on the viewer, for a test to read after the window is built.
     pub fn viewer_handle(&self) -> Rc<RefCell<Viewer>> {
         Rc::clone(&self.w.view.viewer)
-    }
-
-    /// Whether render threads still have tiles to hand over.
-    pub fn draining(&self) -> bool {
-        self.w.view.draining()
     }
 
     fn log(&self, line: &str) {
@@ -283,13 +284,12 @@ impl App for PdfApp {
             Msg::FitPage => self.zoom(Zoom::FitPage),
             Msg::ActualSize => self.zoom(Zoom::Factor(1.0)),
             Msg::Scrolled => {}
-            Msg::Tick => {
-                self.w.view.tick();
+            Msg::Tile(done) => {
+                self.w.view.accept(done);
                 // Tiles do not move the view: nothing else to mirror.
                 return;
             }
             Msg::Close => {
-                self.log("PDF:QUIT:PASS");
                 ui.quit();
                 return;
             }

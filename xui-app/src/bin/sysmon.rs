@@ -31,11 +31,12 @@ use std::rc::Rc;
 use xui_app::backend::LazyOSBackend;
 use xui_app::platform::launcher;
 use xui_app::services::{self, Services};
-use xui_app::sysinfo::{self, ProcessTable, Snapshot, procmem};
-use xui_app::{compact, hidpi, launch};
-use xui_core::Key;
+use xui_app::sysinfo::{self, procmem, ProcessTable, Snapshot};
+use xui_app::trace::{self, Channel};
+use xui_app::{compact, hidpi};
 use xui_core::app::{App, Ui};
 use xui_core::backend::{Event, WidgetId};
+use xui_core::Key;
 
 #[path = "sysmon/advanced.rs"]
 mod advanced;
@@ -179,7 +180,11 @@ impl Sysmon {
         // The walk stalls the system for as long as it takes (milliseconds, and more with
         // gigabytes of shared pages), so only the tab about it asks every second; the others
         // reuse the last answer for a few refreshes.
-        let every = if self.view == View::Memory { 1 } else { MEMORY_EVERY };
+        let every = if self.view == View::Memory {
+            1
+        } else {
+            MEMORY_EVERY
+        };
         self.memory_age += 1;
         if self.memory.is_none() || self.memory_age >= every {
             self.memory = procmem::read().ok();
@@ -249,10 +254,7 @@ impl App for Sysmon {
                         .set_text(3, &format!("Could not open the guide: {error}"));
                 }
             },
-            Msg::Quit => {
-                println!("SYSMON:QUIT:PASS");
-                ui.quit();
-            }
+            Msg::Quit => ui.quit(),
             Msg::ToggleCompact => {
                 let rect = hidpi::design_rect(ui);
                 let (w, h) = compact::toggle_target(
@@ -298,45 +300,52 @@ fn shortcut(key: Key) -> Option<Msg> {
 fn evidence(snapshot: &Result<Snapshot, i64>) -> String {
     match snapshot {
         Ok(s) => format!(
-            "SYSMON:UP:PASS\nSYSMON:DATA:tasks={} frames_free={} frames_live={} slab_live={} heap_used={} cache_frames={}",
+            "UP:PASS\nDATA:tasks={} frames_free={} frames_live={} slab_live={} heap_used={} cache_frames={}",
             s.tasks_live, s.frames_free, s.frames_live, s.slab_live, s.heap_used, s.cache_frames
         ),
-        Err(code) => format!("SYSMON:UP:FAIL:{code}"),
+        Err(code) => format!("UP:FAIL:{code}"),
     }
 }
 
 fn main() {
-    launch::run(xui_app::trace::Channel::Sysmon, "System Monitor", WINDOW, |ui, backend| {
-        // Resizable, down to the compact view, so `RequestSize` is accepted.
-        backend.set_size_hints(compact::MIN_SIZE.0, compact::MIN_SIZE.1, 0, 0);
-        let first = evidence(&sysinfo::snapshot());
-        backend.on_first_frame(move || println!("{first}"));
+    // Resizable, down to the compact view, so `RequestSize` is accepted.
+    xui_app::app(Channel::Sysmon, "System Monitor")
+        .size(WINDOW.0, WINDOW.1)
+        .min_size(compact::MIN_SIZE.0, compact::MIN_SIZE.1)
+        .run(|ui, backend| {
+            let first = evidence(&sysinfo::snapshot());
+            // The first-frame lines carry what was read, so they are the app's.
+            backend.on_first_frame(move || {
+                first
+                    .lines()
+                    .for_each(|line| trace::line!(Channel::Sysmon, "{line}"));
+            });
 
-        let widgets = Widgets::new();
-        ui.root(widgets.layout())?;
-        ui.on_key(|key, _| shortcut(key));
-        ui.on_close(|| Some(Msg::Quit));
-        ui.register_events(WidgetId::NONE, |event| {
-            matches!(event, Event::Resize { .. }).then_some(Msg::Resized)
-        });
-        ui.every(REFRESH_MILLIS, Msg::Tick);
+            let widgets = Widgets::new();
+            ui.root(widgets.layout())?;
+            ui.on_key(|key, _| shortcut(key));
+            ui.on_close(|| Some(Msg::Quit));
+            ui.register_events(WidgetId::NONE, |event| {
+                matches!(event, Event::Resize { .. }).then_some(Msg::Resized)
+            });
+            ui.every(REFRESH_MILLIS, Msg::Tick);
 
-        let design = hidpi::design_rect(ui);
-        let small = compact::is_compact(design.width(), design.height());
-        let mut app = Sysmon {
-            widgets,
-            load: Load::default(),
-            backend: Rc::clone(backend),
-            view: View::Overview,
-            refreshes: 0,
-            reported: Reported::Nothing,
-            compact: small,
-            memory: None,
-            memory_age: 0,
-            full_size: WINDOW,
-        };
-        app.reload(ui);
-        app.widgets.set_compact(ui, small);
-        Ok(app)
-    })
+            let design = hidpi::design_rect(ui);
+            let small = compact::is_compact(design.width(), design.height());
+            let mut app = Sysmon {
+                widgets,
+                load: Load::default(),
+                backend: Rc::clone(backend),
+                view: View::Overview,
+                refreshes: 0,
+                reported: Reported::Nothing,
+                compact: small,
+                memory: None,
+                memory_age: 0,
+                full_size: WINDOW,
+            };
+            app.reload(ui);
+            app.widgets.set_compact(ui, small);
+            Ok(app)
+        })
 }

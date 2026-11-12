@@ -53,8 +53,9 @@ decompressed block is a tar header (or all zeros, an empty tarball).
 ## Behaviour worth knowing
 
 * **Jobs** (open, extract, test, create, add, delete, open inside) run on a
-  worker thread with an `Arc<Progress>`; the window polls it on a 100 ms timer
-  (the LazyOS backend has no cross-thread waker) and shows a bar with Cancel.
+  worker thread with an `Arc<Progress>`; the worker posts `Msg::Progress` (at
+  most every 100 ms) and `Msg::Finished` through `xui_app::work`, and the
+  window shows a bar with Cancel.
 * **Rewrites** go to `.<name>.partial-<pid>` beside the archive and are
   renamed over it only on success; a zip rewrite copies kept members' bytes
   raw. An added path replaces the member of the same path.

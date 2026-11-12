@@ -2,20 +2,21 @@
 //! (`os.lazy.timed.v1`), the store location through `confd`'s `Info`, uptime
 //! from the kernel `sysinfo` block and the version from `uname`.
 //!
-//! Bodies come from the generated `messenger-generated` stubs; a failure is
+//! Calls go through the generated client and wait what `idl/timed.midl` states
+//! (a read answers from memory; a write may reach the network); a failure is
 //! reported as text for the status line.
 
-use libmessenger::client::Deadline;
+use std::rc::Rc;
+
+use libmessenger::client::Errno;
 use messenger_generated::os_lazy_timed_v1 as wire;
 use xui_confd_editor::store::ConfStore;
 use xui_settings::system::{Now, NtpState, NtpStatus, StoreStatus, System};
 
 use super::confd_store::ConfdStore;
-use super::messenger::Service;
+use super::messenger::{client, CallError, Observed};
 use crate::sys::errno;
 
-/// `timed`'s registered service name.
-const NAME: &str = "os.lazy.timed";
 /// PIT ticks per second.
 const HZ: u64 = 100;
 /// How often, and how far apart, a zone change is checked for: two seconds.
@@ -45,32 +46,11 @@ impl OsSystem {
         false
     }
 
-    fn call(&self, method: u32, body: Vec<u8>) -> Result<libmessenger::Parcel, String> {
-        self.call_within(method, body, READ_TICKS)
-    }
-
-    /// [`Self::call`] with its own bound: a write may wait for the network
-    /// (a sync now) or for the machine to take it.
-    fn call_within(
-        &self,
-        method: u32,
-        body: Vec<u8>,
-        ticks: u64,
-    ) -> Result<libmessenger::Parcel, String> {
-        let service =
-            Service::connect(NAME).map_err(|_| String::from("time service unavailable"))?;
-        service
-            .call(wire::INTERFACE_ID, method, body, Deadline::ticks(ticks))
-            .map_err(|error| describe(error.code()))
+    /// `timed`'s client, waiting for the service to register.
+    fn timed(&self) -> Result<Rc<wire::Client<Observed>>, String> {
+        client(wire::Client::connect).map_err(|_| String::from("time service unavailable"))
     }
 }
-
-/// How long a read call waits for `timed` (PIT ticks, 2 s): `Now` and the
-/// NTP status answer from memory.
-const READ_TICKS: u64 = 200;
-/// Writes (set the clock, the zone, ask for a sync): a fresh sync reaches
-/// the network, so more room, but still bounded.
-const WRITE_TICKS: u64 = 1_500;
 
 /// `ENETUNREACH`: `SyncNow` with no address (the stack's own code).
 const ENETUNREACH: i64 = 101;
@@ -205,8 +185,7 @@ impl System for OsSystem {
     }
 
     fn now(&self) -> Option<Now> {
-        let reply = self.call(wire::METHOD_NOW, Vec::new()).ok()?;
-        let now = wire::decode_now_reply(&reply.body).ok()?;
+        let now = self.timed().ok()?.now().ok()?;
         Some(Now {
             unix: now.unix_ms.div_euclid(1000),
             offset: now.tz_offset_s,
@@ -218,17 +197,11 @@ impl System for OsSystem {
     /// session never holds `CAP_SYS_TIME`, so a refusal is asked again
     /// through `elevd`, where an administrator approves.
     fn set_time(&self, unix: i64) -> Result<(), String> {
-        let body = wire::encode_set_time_args(&wire::SetTimeArgs { unix_secs: unix })
-            .map_err(|_| String::from("bad time"))?;
-        let service =
-            Service::connect(NAME).map_err(|_| String::from("time service unavailable"))?;
-        match service.call(
-            wire::INTERFACE_ID,
-            wire::METHOD_SETTIME,
-            body,
-            Deadline::ticks(WRITE_TICKS),
-        ) {
-            Ok(_) => Ok(()),
+        match self.timed()?.set_time(unix) {
+            Ok(()) => Ok(()),
+            Err(CallError::Transport(errno)) if errno == Errno::INVAL => {
+                Err(String::from("bad time"))
+            }
             Err(error) if -error.code() == errno::EPERM => {
                 super::elevd::request("time.set", &[&unix.to_string()])
                     .map(|_| ())
@@ -239,8 +212,7 @@ impl System for OsSystem {
     }
 
     fn ntp_status(&self) -> Option<NtpStatus> {
-        let reply = self.call(wire::METHOD_NTPSTATUS, Vec::new()).ok()?;
-        let status = wire::decode_ntp_status_reply(&reply.body).ok()?;
+        let status = self.timed().ok()?.ntp_status().ok()?;
         Some(NtpStatus {
             enabled: status.enabled,
             state: ntp_state(status.state),
@@ -251,24 +223,18 @@ impl System for OsSystem {
     }
 
     fn ntp_sync_now(&self) -> Result<(), String> {
-        self.call(wire::METHOD_SYNCNOW, Vec::new()).map(|_| ())
+        self.timed()?
+            .sync_now()
+            .map_err(|error| describe(error.code()))
     }
 
     /// Unchanged; see the doc on the trait method (a worker builds its own).
     fn set_zone(&self, zone: &str) -> Result<(), String> {
-        let body = wire::encode_set_zone_args(&wire::SetZoneArgs {
-            name: zone.to_owned(),
-        })
-        .map_err(|_| String::from("bad zone name"))?;
-        let service =
-            Service::connect(NAME).map_err(|_| String::from("time service unavailable"))?;
-        match service.call(
-            wire::INTERFACE_ID,
-            wire::METHOD_SETZONE,
-            body,
-            Deadline::ticks(WRITE_TICKS),
-        ) {
-            Ok(_) => Ok(()),
+        match self.timed()?.set_zone(zone) {
+            Ok(()) => Ok(()),
+            Err(CallError::Transport(errno)) if errno == Errno::INVAL => {
+                Err(String::from("bad zone name"))
+            }
             // A machine setting, like the clock: a session asks an
             // administrator, and `timed` follows the confd key `elevd` writes.
             Err(error) if -error.code() == errno::EPERM => {

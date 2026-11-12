@@ -8,5 +8,5 @@
 //! `xui_app::shell` for the start-up order and the serial markers.
 
 fn main() {
-    std::process::exit(xui_app::shell::run());
+    xui_app::shell::run();
 }

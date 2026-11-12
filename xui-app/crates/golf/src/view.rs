@@ -12,11 +12,13 @@ use xui_core::geometry::{Rect, Size};
 use xui_core::layout::Constraints;
 use xui_core::message::{Key, MouseButton};
 use xui_core::widget::{Control, Placeable};
+use xui_work::Sink;
 
 use crate::app::Msg;
 use crate::fly::{action_for, EYE, WHEEL_NOTCH};
 use crate::game::Game;
 use crate::hud;
+use crate::loading::Gen;
 use crate::math::Vec3;
 
 /// The timer period: ticks fast enough for 60 frames a second; a slow
@@ -43,7 +45,8 @@ impl GolfView {
             ui,
             &NodeSpec::new(NodeKind::Custom, Rect::default()).tab_stop(),
         )?;
-        let game = Rc::new(RefCell::new(Game::new(seed, ui.dpi())));
+        let generation = Sink::new(&ui.proxy(), Msg::Gen);
+        let game = Rc::new(RefCell::new(Game::new(seed, ui.dpi(), generation)));
         {
             let game = Rc::clone(&game);
             // Never borrowed across a call back into xui (see `handle`), so
@@ -85,6 +88,14 @@ impl GolfView {
 
     pub fn focus(&self) {
         self.control.focus();
+    }
+
+    /// A message from the course generator (`Msg::Gen`).
+    pub fn generation(&self, message: Gen) {
+        if let Ok(mut game) = self.game.try_borrow_mut() {
+            game.accept(message);
+        }
+        self.control.invalidate();
     }
 
     /// The game, for a host or a test to drive and inspect.

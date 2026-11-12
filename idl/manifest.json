@@ -16,7 +16,8 @@
       {
         "name": "Create",
         "id": 420340861,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 60000
       },
       {
         "name": "Delete",
@@ -26,7 +27,8 @@
       {
         "name": "SetPassword",
         "id": 985541106,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 60000
       },
       {
         "name": "SetAdmin",
@@ -36,7 +38,8 @@
       {
         "name": "ListUsers",
         "id": 702470087,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       }
     ],
     "topics": [],
@@ -280,27 +283,32 @@
       {
         "name": "Get",
         "id": 915881719,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "Set",
         "id": 682729123,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "Delete",
         "id": 1469573738,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "List",
         "id": 220805025,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "Info",
         "id": 266462757,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       }
     ],
     "topics": [
@@ -386,6 +394,7 @@
         "name": "CreateSurface",
         "id": 1,
         "oneway": false,
+        "deadline_ms": 1000,
         "objects": [
           {
             "name": "events",
@@ -415,7 +424,8 @@
       {
         "name": "DestroySurface",
         "id": 4,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "PointerMove",
@@ -450,12 +460,14 @@
       {
         "name": "DragStart",
         "id": 11,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "DragCancel",
         "id": 12,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "DragEnter",
@@ -485,17 +497,20 @@
       {
         "name": "ListSurfaces",
         "id": 18,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "GetWorkArea",
         "id": 19,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "Subscribe",
         "id": 20,
         "oneway": false,
+        "deadline_ms": 2000,
         "objects": [
           {
             "name": "events",
@@ -508,7 +523,8 @@
       {
         "name": "GetTheme",
         "id": 21,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "SurfaceChanged",
@@ -529,6 +545,7 @@
         "name": "AttachBufferSlot",
         "id": 25,
         "oneway": false,
+        "deadline_ms": 1000,
         "objects": [
           {
             "name": "pixels",
@@ -555,12 +572,14 @@
       {
         "name": "SetTitle",
         "id": 29,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "HintOpenOrigin",
         "id": 30,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500
       },
       {
         "name": "PointerWheel",
@@ -570,7 +589,8 @@
       {
         "name": "SetSizeHints",
         "id": 32,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Configure",
@@ -580,7 +600,8 @@
       {
         "name": "RequestSize",
         "id": 34,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Ping",
@@ -590,32 +611,38 @@
       {
         "name": "PlaceSurface",
         "id": 36,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "ActivateSurface",
         "id": 37,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "MinimizeSurface",
         "id": 38,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "SetWorkArea",
         "id": 39,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "SetIconGeometry",
         "id": 40,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "HintLaunchOrigin",
         "id": 41,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "Dismiss",
@@ -625,7 +652,8 @@
       {
         "name": "GetOutput",
         "id": 43,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500
       },
       {
         "name": "AllowPopup",
@@ -635,7 +663,8 @@
       {
         "name": "GrabPanelKeys",
         "id": 45,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "PanelKey",
@@ -650,12 +679,14 @@
       {
         "name": "SetCloseMode",
         "id": 48,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "ActivateApp",
         "id": 49,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       }
     ],
     "topics": [],
@@ -670,7 +701,8 @@
       {
         "name": "SetCursor",
         "id": 1,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       }
     ],
     "topics": [],
@@ -710,12 +742,14 @@
       {
         "name": "Request",
         "id": 38093138,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 400000
       },
       {
         "name": "Release",
         "id": 1830722334,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       }
     ],
     "topics": [
@@ -793,7 +827,8 @@
       {
         "name": "Status",
         "id": 6222351,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500
       }
     ],
     "topics": [
@@ -827,27 +862,32 @@
       {
         "name": "Services",
         "id": 1672675413,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500
       },
       {
         "name": "Launch",
         "id": 936096390,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 10000
       },
       {
         "name": "ListApps",
         "id": 1009359625,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "Stop",
         "id": 1266644741,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Shutdown",
         "id": 1911669355,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       },
       {
         "name": "StartDriver",
@@ -945,6 +985,7 @@
         "name": "Watch",
         "id": 1,
         "oneway": false,
+        "deadline_ms": 1000,
         "objects": [
           {
             "name": "events",
@@ -985,6 +1026,7 @@
         "name": "Open",
         "id": 1,
         "oneway": false,
+        "deadline_ms": 1000,
         "objects": [
           {
             "name": "events",
@@ -997,7 +1039,8 @@
       {
         "name": "Close",
         "id": 2,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "GetState",
@@ -1007,22 +1050,26 @@
       {
         "name": "RequestGrant",
         "id": 4,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "ReleaseGrant",
         "id": 5,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Ping",
         "id": 6,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "AttachKeyState",
         "id": 7,
         "oneway": false,
+        "deadline_ms": 1000,
         "objects": [
           {
             "name": "state",
@@ -1334,22 +1381,26 @@
       {
         "name": "Put",
         "id": 1316564366,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       },
       {
         "name": "Get",
         "id": 915881719,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       },
       {
         "name": "Delete",
         "id": 1469573738,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       },
       {
         "name": "List",
         "id": 220805025,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       }
     ],
     "topics": [],
@@ -1411,17 +1462,20 @@
       {
         "name": "Sessions",
         "id": 916097772,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Login",
         "id": 1441655762,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 30000
       },
       {
         "name": "Logout",
         "id": 125463051,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       }
     ],
     "topics": [
@@ -1488,7 +1542,8 @@
       {
         "name": "Open",
         "id": 1401622761,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "Register",
@@ -1523,27 +1578,32 @@
       {
         "name": "Mount",
         "id": 1041399898,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "Unmount",
         "id": 2047171115,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "List",
         "id": 220805025,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "Volumes",
         "id": 2053774420,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Eject",
         "id": 819391126,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       }
     ],
     "topics": [],
@@ -1644,22 +1704,26 @@
       {
         "name": "Interfaces",
         "id": 1779791769,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500
       },
       {
         "name": "Addresses",
         "id": 912810883,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500
       },
       {
         "name": "Routes",
         "id": 321835703,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500
       },
       {
         "name": "Stats",
         "id": 267161228,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500
       },
       {
         "name": "Ping",
@@ -1674,7 +1738,8 @@
       {
         "name": "Renew",
         "id": 438534286,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500
       },
       {
         "name": "Reattach",
@@ -1807,17 +1872,20 @@
       {
         "name": "Notify",
         "id": 1,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 300
       },
       {
         "name": "Close",
         "id": 2,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 300
       },
       {
         "name": "Listen",
         "id": 3,
         "oneway": false,
+        "deadline_ms": 300,
         "objects": [
           {
             "name": "events",
@@ -1867,27 +1935,32 @@
       {
         "name": "Inspect",
         "id": 1027767735,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 12000
       },
       {
         "name": "Install",
         "id": 890027328,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 120000
       },
       {
         "name": "Remove",
         "id": 564498461,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 12000
       },
       {
         "name": "List",
         "id": 220805025,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 12000
       },
       {
         "name": "Installed",
         "id": 1755800129,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 12000
       },
       {
         "name": "LabelName",
@@ -1902,12 +1975,14 @@
       {
         "name": "Develop",
         "id": 803454394,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 12000
       },
       {
         "name": "DevelopDeclined",
         "id": 1386916580,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 12000
       },
       {
         "name": "InstallApproved",
@@ -1978,27 +2053,32 @@
       {
         "name": "Open",
         "id": 1401622761,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 10000
       },
       {
         "name": "Write",
         "id": 1717336572,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 10000
       },
       {
         "name": "Close",
         "id": 1300671683,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 10000
       },
       {
         "name": "Cancel",
         "id": 900713019,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 10000
       },
       {
         "name": "Status",
         "id": 6222351,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 10000
       },
       {
         "name": "Jobs",
@@ -2140,32 +2220,38 @@
       {
         "name": "Now",
         "id": 188597655,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "GetZone",
         "id": 697211125,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 250
       },
       {
         "name": "SetZone",
         "id": 1574816713,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 15000
       },
       {
         "name": "SetTime",
         "id": 670376986,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 15000
       },
       {
         "name": "NtpStatus",
         "id": 209271495,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "SyncNow",
         "id": 1100029530,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       }
     ],
     "topics": [
@@ -2190,12 +2276,14 @@
       {
         "name": "Publish",
         "id": 1818372520,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500
       },
       {
         "name": "Subscribe",
         "id": 6992035,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500
       },
       {
         "name": "Unsubscribe",
@@ -3036,42 +3124,50 @@
       {
         "name": "Interfaces",
         "id": 1779791769,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Scan",
         "id": 1830061320,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Networks",
         "id": 413956514,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "AddNetwork",
         "id": 69972362,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Connect",
         "id": 1535748249,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Disconnect",
         "id": 1518631179,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Forget",
         "id": 1849666444,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Status",
         "id": 6222351,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       }
     ],
     "topics": [

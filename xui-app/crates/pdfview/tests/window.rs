@@ -90,13 +90,15 @@ impl Probe {
     }
 }
 
-/// Pump timer ticks until every requested tile has arrived.
+/// Pump the window's inbox (any message does: the tiles wait there as
+/// `Msg::Tile`, and the offscreen backend delivers them on the next wake)
+/// until every requested tile has arrived.
 fn settle(stage: &Stage<'_, Msg>, probe: &Probe) {
     let started = Instant::now();
     loop {
-        stage.emit(Msg::Tick);
+        stage.emit(Msg::Scrolled);
         if !probe.viewer().borrow().busy() {
-            stage.emit(Msg::Tick);
+            stage.emit(Msg::Scrolled);
             return;
         }
         assert!(

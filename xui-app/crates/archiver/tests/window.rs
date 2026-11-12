@@ -103,11 +103,11 @@ fn drive(
     (image, seen)
 }
 
-/// Pump ticks until the running job is done.
+/// Pump the window's inbox (any message delivers what the job posted) until the job is done.
 fn wait(stage: &Stage<'_, Msg>, bridge: &Rc<RefCell<DragState>>) {
     let started = Instant::now();
     loop {
-        stage.emit(Msg::Tick);
+        stage.emit(Msg::Progress);
         if !bridge.borrow().busy {
             return;
         }

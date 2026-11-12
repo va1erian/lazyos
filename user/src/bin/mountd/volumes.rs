@@ -18,9 +18,11 @@
 use alloc::vec::Vec;
 use user::trace::{self, Channel};
 
+use libmessenger::client::Deadline;
 use mounttable::volumes::{self, disk_name, Action, DiskView, Outcome, State, Volumes};
 use user::logins::Logins;
-use user::messenger::{accounts, registry};
+use user::messenger::accounts::{self, Directory};
+use user::messenger::client::Native;
 use user::sys::{self, fuse, BlockDisk, Personality, SpawnCred};
 
 /// Ticks (100 Hz) between looks at the disks: a stick is mounted within a
@@ -232,11 +234,9 @@ impl Automount {
 /// `uid`'s primary group from `accountsd` (a user's own group, by the
 /// accounts the image ships, when it does not answer in time).
 fn group_of(uid: u32) -> u32 {
-    let Ok(endpoint) = registry::resolve(accounts::NAME) else {
+    let Ok(client) = accounts::Client::try_connect(Native) else {
         return uid;
     };
-    let deadline = Some(sys::clock() + LOOKUP_TICKS);
-    let found = accounts::lookup_uid_by(&endpoint, uid, deadline);
-    let _ = endpoint.release();
+    let found = client.lookup_uid_within(uid, Deadline::ticks(LOOKUP_TICKS));
     found.ok().flatten().map_or(uid, |record| record.gid)
 }

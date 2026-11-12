@@ -27,20 +27,8 @@ pub enum Done {
     /// The Menu page: how many entries the saved menu holds, or why the
     /// save was refused.
     Menu(std::result::Result<usize, String>),
-    /// The worker ended without an answer (it panicked).
+    /// The worker could not run or ended without an answer (it panicked).
     Lost,
-}
-
-/// Tells the window the worker is gone if it never answered, so the window
-/// does not wait on it for ever.
-struct Answer(Option<xui_core::app::Proxy<Msg>>);
-
-impl Drop for Answer {
-    fn drop(&mut self) {
-        if let Some(proxy) = self.0.take() {
-            let _ = proxy.send(Msg::Done(Done::Lost));
-        }
-    }
 }
 
 /// The status line while a worker waits for an administrator.
@@ -76,32 +64,25 @@ impl SettingsApp {
             let done = job(self.store.as_ref(), self.machine.as_ref());
             return self.finish(done, ui);
         };
-        let proxy = ui.proxy();
-        let spawned = std::thread::Builder::new()
-            .name("settings-elevated".into())
-            .spawn(move || {
+        // A worker that cannot start or panics answers `Done::Lost`, so the
+        // window never waits for a change that cannot come.
+        xui_work::spawn(
+            &ui.proxy(),
+            "settings-elevated",
+            move || {
                 // The worker's own copy of the stores: the UI's are `Rc`s,
                 // and a thread resolves its own service endpoints anyway.
                 // The thread IS one of the tree's workers by the store
                 // builders the bin hands in; `mark_worker` happens there
                 // (portable crates cannot depend on the platform crate).
-                let mut answer = Answer(Some(proxy));
                 let machine: Rc<dyn ConfigStore> = Rc::from(detached());
                 let store = UserTheme::scoped(Rc::clone(&machine));
-                let done = job(store.as_ref(), machine.as_ref());
-                if let Some(proxy) = answer.0.take() {
-                    let _ = proxy.send(Msg::Done(done));
-                }
-            });
-        match spawned {
-            Ok(_) => {
-                self.busy = true;
-                self.status.set_text(WAITING);
-            }
-            Err(error) => self
-                .status
-                .set_text(&format!("Could not start the change: {error}")),
-        }
+                job(store.as_ref(), machine.as_ref())
+            },
+            |done| Msg::Done(done.unwrap_or(Done::Lost)),
+        );
+        self.busy = true;
+        self.status.set_text(WAITING);
     }
 
     /// Show what a finished machine-wide change did.
@@ -230,31 +211,22 @@ impl SettingsApp {
             let done = job(self.machine.as_ref(), self.system.as_ref());
             return self.finish(done, ui);
         };
-        let proxy = ui.proxy();
-        let spawned = std::thread::Builder::new()
-            .name("settings-elevated".into())
-            .spawn(move || {
+        xui_work::spawn(
+            &ui.proxy(),
+            "settings-elevated",
+            move || {
                 // The worker of `with_system`: the same rules (no UI loop
                 // here, its calls may wait unboundedly) are set on the
                 // thread by the system builder it gets (`OsSystem::detached`).
-                let mut answer = Answer(Some(proxy));
                 // The worker's own copies: the UI's are `Rc`s, and a thread
                 // resolves its service endpoints anyway.
                 let machine: Rc<dyn ConfigStore> = Rc::from(detached());
                 let system = system();
-                let done = job(machine.as_ref(), system.as_ref());
-                if let Some(proxy) = answer.0.take() {
-                    let _ = proxy.send(Msg::Done(done));
-                }
-            });
-        match spawned {
-            Ok(_) => {
-                self.busy = true;
-                self.status.set_text(WAITING);
-            }
-            Err(error) => self
-                .status
-                .set_text(&format!("Could not start the change: {error}")),
-        }
+                job(machine.as_ref(), system.as_ref())
+            },
+            |done| Msg::Done(done.unwrap_or(Done::Lost)),
+        );
+        self.busy = true;
+        self.status.set_text(WAITING);
     }
 }

@@ -5,24 +5,21 @@ use std::sync::Arc;
 
 use lazyarc::extract::Report;
 use lazyarc::Error;
-use xui_core::app::Ui;
 
 use super::display_name;
-use crate::app::{ArchiverApp, Msg};
+use crate::app::ArchiverApp;
 use crate::folder;
-use crate::job::{Job, Outcome};
+use crate::job::{Finished, Outcome};
 
 /// Skipped entries listed in a report box before "and N more".
 const REPORT_LINES: usize = 8;
 
-pub(super) fn tick(app: &mut ArchiverApp, ui: &mut Ui<Msg>) {
-    let Some(outcome) = app.job.as_ref().and_then(Job::poll) else {
+/// The job's answer: report it and forget the job.
+pub(super) fn job_ended(app: &mut ArchiverApp, done: &Finished) {
+    let Some(outcome) = done.take() else {
         return;
     };
     let job = app.job.take();
-    if let Some(timer) = app.timer.take() {
-        ui.kill_timer(timer);
-    }
     let verb = job.as_ref().map(|job| job.task.verb()).unwrap_or("");
     let target = job
         .as_ref()

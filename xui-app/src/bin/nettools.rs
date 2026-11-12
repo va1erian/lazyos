@@ -21,13 +21,14 @@
 //! from=<peer>` (from the server thread); `NETTOOLS:CLOSE:PASS`.
 
 use std::net::Ipv4Addr;
+use xui_app::trace::{self, Channel};
 
 use xui_app::format;
 use xui_app::net::http::{self, PageInfo};
 use xui_app::net::model::{self, NetStatus};
 use xui_app::net::stack;
-use xui_app::net::web::{Fetch, Server};
-use xui_app::{launch, sys};
+use xui_app::net::web::{self, Fetched, Server};
+use xui_app::sys;
 use xui_core::app::{App, Ui};
 use xui_core::HasText;
 
@@ -58,6 +59,8 @@ pub enum Msg {
     StopPing,
     Lookup,
     Fetch,
+    /// The fetch thread's answer.
+    Fetched(Result<Fetched, String>),
     ToggleServer,
     Close,
 }
@@ -75,7 +78,8 @@ struct NetTools {
     ticks: u64,
     status: Option<NetStatus>,
     ping: Option<PingRun>,
-    fetch: Option<Fetch>,
+    /// A fetch is running on its worker thread.
+    fetching: bool,
     server: Option<Server>,
     /// A server asked to stop whose worker may still hold the port (it can be
     /// mid-request for up to the request timeout); a Start waits for it.
@@ -96,7 +100,8 @@ impl App for NetTools {
             Msg::Ping => self.start_ping(),
             Msg::StopPing => self.finish_ping("stopped"),
             Msg::Lookup => self.lookup(),
-            Msg::Fetch => self.start_fetch(),
+            Msg::Fetch => self.start_fetch(ui),
+            Msg::Fetched(outcome) => self.show_fetched(outcome),
             Msg::ToggleServer => self.toggle_server(),
             Msg::Close => {
                 println!("NETTOOLS:CLOSE:PASS");
@@ -128,7 +133,7 @@ impl NetTools {
             ticks: 0,
             status: None,
             ping: None,
-            fetch: None,
+            fetching: false,
             server: None,
             stopping: None,
             start_pending: false,
@@ -145,7 +150,6 @@ impl NetTools {
             self.refresh_status();
             self.next_ping();
         }
-        self.poll_fetch();
         self.finish_stopping();
         self.show_server();
     }
@@ -289,8 +293,8 @@ impl NetTools {
             .set_text(&format::clip(&text, 60));
     }
 
-    fn start_fetch(&mut self) {
-        if self.fetch.is_some() {
+    fn start_fetch(&mut self, ui: &Ui<Msg>) {
+        if self.fetching {
             return;
         }
         let started = http::parse_url(&self.w.url.get().text()).and_then(|url| {
@@ -301,16 +305,17 @@ impl NetTools {
                 url.port,
                 url.path
             );
-            Fetch::start(Ipv4Addr::from(addr), url).map(|fetch| (fetch, shown))
+            web::fetch_on_thread(&ui.proxy(), Ipv4Addr::from(addr), url, Msg::Fetched);
+            Ok(shown)
         });
         match started {
-            Ok((fetch, shown)) => {
+            Ok(shown) => {
                 self.w
                     .fetch_result
                     .get()
                     .set_text(&format::clip(&shown, 90));
                 self.w.preview.get().set_items(&[]);
-                self.fetch = Some(fetch);
+                self.fetching = true;
             }
             Err(why) => {
                 println!("NETTOOLS:FETCH:FAIL");
@@ -319,11 +324,8 @@ impl NetTools {
         }
     }
 
-    fn poll_fetch(&mut self) {
-        let Some(outcome) = self.fetch.as_ref().and_then(Fetch::take) else {
-            return;
-        };
-        self.fetch = None;
+    fn show_fetched(&mut self, outcome: Result<Fetched, String>) {
+        self.fetching = false;
         match outcome {
             Ok(done) => {
                 let s = &done.summary;
@@ -409,13 +411,14 @@ impl NetTools {
 }
 
 fn main() {
-    launch::run(xui_app::trace::Channel::Nettools, "Net Tools", WINDOW, |ui, backend| {
-        backend.on_first_frame(|| println!("NETTOOLS:UP:PASS"));
-        let widgets = Widgets::default();
-        ui.root(widgets.layout())
-            .inspect_err(|error| println!("NETTOOLS:BUILD:FAIL:{error}"))?;
-        ui.every(TICK_MILLIS, Msg::Tick);
-        ui.on_close(|| Some(Msg::Close));
-        Ok(NetTools::new(widgets))
-    })
+    xui_app::app(Channel::Nettools, "Net Tools")
+        .size(WINDOW.0, WINDOW.1)
+        .run(|ui, _backend| {
+            let widgets = Widgets::default();
+            ui.root(widgets.layout())
+                .inspect_err(|error| trace::fail!(Channel::Nettools, "BUILD", "{error}"))?;
+            ui.every(TICK_MILLIS, Msg::Tick);
+            ui.on_close(|| Some(Msg::Close));
+            Ok(NetTools::new(widgets))
+        })
 }

@@ -111,6 +111,66 @@ class ScanTests(unittest.TestCase):
             ALLOWLIST.update(real)
 
 
+IDL = """\
+service "os.lazy.demo" implements os.lazy.demo.v1;
+
+interface os.lazy.demo.v1 {
+    method Quick(a: U32 = 1) -> () deadline=500ms;
+    method Slow(a: U32 = 1) -> (b: U32 = 1);
+    method ListApps() -> (n: U32 = 1);
+    method Connect() -> ();
+    method Notice(a: U32 = 1) -> () oneway;
+}
+"""
+IMPORTS = "use messenger_generated::os_lazy_demo_v1 as wire;\n"
+
+
+class IdlDeadlineTests(unittest.TestCase):
+    def tree(self, source: str, rel: str = "xui-app/src/platform/m.rs") -> Path:
+        return build({"idl/demo.midl": IDL, rel: source})
+
+    def test_a_method_without_a_deadline_in_the_idl_is_reported(self):
+        root = self.tree(IMPORTS + "fn f(c: &wire::Client<T>) { c.slow(1); }\n")
+        hits = scan(root)
+        self.assertEqual(len(hits), 1, hits)
+        self.assertIn("`slow` of os_lazy_demo_v1", hits[0].why)
+
+    def test_snake_case_and_the_reserved_name_follow_the_generator(self):
+        root = self.tree(
+            IMPORTS + "fn f(c: &wire::Client<T>) { c.list_apps(); c.connect_call(); }\n"
+        )
+        self.assertEqual(
+            sorted(h.why.split("`")[1] for h in scan(root)), ["connect_call", "list_apps"]
+        )
+
+    def test_a_stated_deadline_a_within_call_and_a_oneway_are_not_reported(self):
+        root = self.tree(
+            IMPORTS
+            + "fn f(c: &wire::Client<T>) { c.quick(); c.slow_within(1, d); c.notice(1); }\n"
+        )
+        self.assertEqual(scan(root), [])
+
+    def test_a_file_that_builds_no_client_of_the_interface_is_not_checked(self):
+        root = self.tree(IMPORTS + "fn f(x: &Other) { x.slow(1); }\n")
+        self.assertEqual(scan(root), [])
+
+    def test_a_test_file_is_not_checked(self):
+        root = self.tree(
+            IMPORTS + "fn f(c: &wire::Client<T>) { c.slow(1); }\n",
+            "xui-app/crates/x/tests/main.rs",
+        )
+        self.assertEqual(scan(root), [])
+
+    def test_lazyrad_os_is_scanned_too(self):
+        root = self.tree(
+            IMPORTS + "fn f(c: &wire::Client<T>) { c.slow(1); }\n", "lazyrad-os/src/m.rs"
+        )
+        self.assertEqual(len(scan(root)), 1)
+
+    def test_the_real_tree_calls_no_method_the_idl_leaves_unbounded(self):
+        self.assertEqual(scan(Path(__file__).resolve().parents[2]), [])
+
+
 class StripTests(unittest.TestCase):
     def test_a_line_comment_ends_at_the_marker(self):
         self.assertEqual(strip_comments(["a // // line"]), ["a "])

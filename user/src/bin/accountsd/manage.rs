@@ -13,9 +13,12 @@ use user::trace;
 use accountdb::ops::OpError;
 use accountdb::policy::{authorize, Allowed, Change, Who};
 use accountdb::{Db, Verifier};
+use libmessenger::client::Deadline;
 use user::messenger::accounts::{wire, UserRecord};
-use user::messenger::{errno, keyd, services, Message};
-use user::sys;
+use user::messenger::client::Native;
+use user::messenger::services::init::Client as InitClient;
+
+use user::messenger::{errno, keyd, Message};
 
 use super::{authn, record, store, Refusal, State};
 
@@ -200,9 +203,13 @@ fn check_secret(secret: &str) -> Result<(), Refusal> {
 /// Have `keyd` derive `name`'s verifier from `secret` (and start answering
 /// for it); the verifier the database keeps.
 fn provision(name: &str, secret: &str) -> Result<Verifier, Refusal> {
-    let unavailable = |_| Refusal::new(errno::EIO, "the key service could not store the password");
-    let client = keyd::Client::connect().map_err(unavailable)?;
-    let text = client.provision(name, secret).map_err(unavailable)?;
+    let unavailable = |_: keyd::ClientError| {
+        Refusal::new(errno::EIO, "the key service could not store the password")
+    };
+    let client = keyd::Client::try_connect(Native).map_err(unavailable)?;
+    let text = client
+        .provision_within(name, secret, Deadline::Never)
+        .map_err(unavailable)?;
     Verifier::parse(&text).ok_or_else(|| Refusal::new(errno::EIO, "keyd returned no verifier"))
 }
 
@@ -211,7 +218,7 @@ fn provision(name: &str, secret: &str) -> Result<Verifier, Refusal> {
 /// none. A failure is reported: `keyd` then answers for the new password
 /// until it restarts and reloads the database.
 fn undo_provision(name: &str, old: Option<&Verifier>) {
-    let restored = keyd::Client::connect().and_then(|client| match old {
+    let restored = keyd::Client::try_connect(Native).and_then(|client| match old {
         Some(verifier) => client.restore(name, &verifier.to_text()),
         None => client.forget(name),
     });
@@ -226,7 +233,7 @@ fn undo_provision(name: &str, old: Option<&Verifier>) {
 
 /// Have `keyd` drop `name`'s verifier (best effort: an unknown name is fine).
 fn forget(name: &str) {
-    if let Ok(client) = keyd::Client::connect() {
+    if let Ok(client) = keyd::Client::try_connect(Native) {
         let _ = client.forget(name);
     }
 }
@@ -249,9 +256,8 @@ pub(crate) fn ensure_homes(db: &Db) {
 
 /// Ask `init` to apply `op` to the home of `name`.
 fn home(op: &str, name: &str, uid: u32, gid: u32) -> Result<(), Refusal> {
-    let result = services::resolve_service(services::INIT_NAME).and_then(|init| {
-        services::init::home(&init, op, name, uid, gid, Some(sys::clock() + HOME_TICKS))
-    });
+    let result = InitClient::try_connect(Native)
+        .and_then(|init| init.home_within(op, name, uid, gid, Deadline::ticks(HOME_TICKS)));
     match result {
         Ok(()) => {
             trace::line!(trace::Channel::Accounts, "HOME:PASS op={op} user={name}");

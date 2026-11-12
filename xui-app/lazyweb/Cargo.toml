@@ -34,6 +34,7 @@ lazywebnotify = { path = "../crates/webnotify" }
 xui-core = { git = "https://github.com/va1erian/xui", rev = "832c61f29419bf31a0518a47e050b15c97b316e3" }
 # The seam: the engine trait, the mailbox, the page view.
 xui-webkit = { path = "../crates/webkit" }
+xui-work = { path = "../crates/work" }
 # The ad blocker's converter (Adblock Plus lists to WebKit rule lists; MIT, no dependencies).
 lazyadblock = { path = "../crates/adblock" }
 

@@ -9,8 +9,9 @@
 use libmessenger::Parcel;
 use messenger_generated::os_lazy_display_v1 as wire;
 
-use super::{request, Client};
-use crate::sys::errno;
+#[cfg(test)]
+use super::request;
+use super::Client;
 
 /// A drag-and-drop event on a surface's event endpoint.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -74,32 +75,17 @@ pub fn decode_drag_event(parcel: &Parcel) -> Option<DragEvent> {
     })
 }
 
-/// The `DragStart` request parcel.
-pub(super) fn drag_start_parcel(surface: u64, token: u64, mime: &str) -> Result<Parcel, i64> {
-    let body = wire::encode_drag_start_args(&wire::DragStartArgs {
-        surface,
-        token,
-        mime: mime.into(),
-    })
-    .map_err(|_| -errno::EINVAL)?;
-    Ok(request(wire::METHOD_DRAGSTART, body, Vec::new()))
-}
-
 impl Client {
     /// `DragStart`: hand the compositor the pointer for a drag of clipboard
     /// offer `token` (`mime`) from `surface`. Refused unless a pointer button
     /// is still held and this task created the surface.
     pub fn drag_start(&self, surface: u64, token: u64, mime: &str) -> Result<(), i64> {
-        let parcel = drag_start_parcel(surface, token, mime)?;
-        self.call(&parcel).map(|_| ())
+        Ok(self.wire()?.drag_start(surface, token, mime)?)
     }
 
     /// `DragCancel`: abandon the drag that started at `surface`.
     pub fn drag_cancel(&self, surface: u64) -> Result<(), i64> {
-        let body = wire::encode_drag_cancel_args(&wire::DragCancelArgs { surface })
-            .map_err(|_| -errno::EINVAL)?;
-        let parcel = request(wire::METHOD_DRAGCANCEL, body, Vec::new());
-        self.call(&parcel).map(|_| ())
+        Ok(self.wire()?.drag_cancel(surface)?)
     }
 }
 
@@ -163,17 +149,6 @@ mod tests {
         assert_eq!(
             decode_drag_event(&event(wire::METHOD_POINTERMOVE, Vec::new())),
             None
-        );
-    }
-
-    #[test]
-    fn the_start_parcel_carries_method_11() {
-        let parcel = drag_start_parcel(5, 77, "text/uri-list").unwrap();
-        assert_eq!(parcel.header.method, 11);
-        let args = wire::decode_drag_start_args(&parcel.body).unwrap();
-        assert_eq!(
-            (args.surface, args.token, args.mime.as_str()),
-            (5, 77, "text/uri-list")
         );
     }
 }

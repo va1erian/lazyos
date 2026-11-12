@@ -458,3 +458,168 @@ pub fn decode_list_reply(body: &[u8]) -> Result<ListReply, Error> {
 pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
     (METHOD_CONNECTED, CONNECTED_OBJECTS),
 ];
+
+#[cfg(feature = "messenger_registry_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "messenger_registry_v1_client")]
+/// A client of `os.lazy.messenger.registry.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "messenger_registry_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Publish `endpoint` (a handle in the owner's table) under `name`. The
+    /// owner becomes the registering task. A `lease_ticks` of `0` registers a
+    /// permanent name; otherwise the name expires after that many ticks.
+    /// `interface_names` spells out `interfaces`, in order (issue #495): an
+    /// id is the FNV-1a 64 hash of its name, so the kernel cannot tell from
+    /// an id alone which domain an interface belongs to. When present it must
+    /// match `interfaces` one for one, hash for hash. A task labelled
+    /// `app:<id>` (or `dev:<id>`) must send it, and every name must lie in its
+    /// own domain, `<id>.<name>.v<N>`; anything else is refused (`EACCES`,
+    /// audited). Other callers may leave it empty.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn register(&self, name: &str, endpoint: core::option::Option<u64>, interfaces: &[u64], lease_ticks: u64, interface_names: &[alloc::string::String]) -> Result<(), ClientError> {
+        self.register_within(name, endpoint, interfaces, lease_ticks, interface_names, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::register`] with the caller's deadline instead of the IDL's.
+    pub fn register_within(&self, name: &str, endpoint: core::option::Option<u64>, interfaces: &[u64], lease_ticks: u64, interface_names: &[alloc::string::String], within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_register_args(&RegisterArgs { name: name.into(), endpoint, interfaces: interfaces.to_vec(), lease_ticks, interface_names: interface_names.to_vec() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_REGISTER, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Look `name` up. Over the gate the new handle is the call's return value;
+    /// over the daemon it is `handle`, already open in the caller's table.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn resolve(&self, name: &str) -> Result<u64, ClientError> {
+        self.resolve_within(name, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::resolve`] with the caller's deadline instead of the IDL's.
+    pub fn resolve_within(&self, name: &str, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let wire_body = encode_resolve_args(&ResolveArgs { name: name.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_RESOLVE, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_resolve_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.handle)
+    }
+
+    /// Open a private connection to `name` (issue #483): the kernel mints a
+    /// fresh channel, returns one end to the caller (the call's return value
+    /// over the gate) and posts the other to the service as `Connected`.
+    /// Unlike `Resolve`, whose handles all alias the one registered endpoint,
+    /// closing a connection ends only that connection. Kernel gate only;
+    /// `messengerd` does not proxy it. Allowed wherever `Resolve` is.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn connect_call(&self, name: &str) -> Result<u64, ClientError> {
+        self.connect_call_within(name, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::connect_call`] with the caller's deadline instead of the IDL's.
+    pub fn connect_call_within(&self, name: &str, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let wire_body = encode_connect_args(&ConnectArgs { name: name.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_CONNECT, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_connect_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.handle)
+    }
+
+    /// Posted by the kernel on a registered endpoint for each `Connect`: the
+    /// service serves the caller's requests on `connection`, which speaks the
+    /// registered name's interfaces (the `Channel` type below is nominal: MIDL
+    /// has no untyped channel, and a service answers on its own interfaces,
+    /// not on this one). The message is stamped with the connecting task's
+    /// identity.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn connected(&self, name: &str, connection: u64) -> Result<(), ClientError> {
+        let (wire_body, wire_objects) = encode_connected_args(&ConnectedArgs { name: name.into(), connection }).map_err(ClientError::bad_request)?;
+        self.conn
+            .send(INTERFACE_ID, METHOD_CONNECTED, wire_body, wire_objects)
+    }
+
+    /// Withdraw `name`. Only its owner (or an administrator) may.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn unregister(&self, name: &str) -> Result<(), ClientError> {
+        self.unregister_within(name, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::unregister`] with the caller's deadline instead of the IDL's.
+    pub fn unregister_within(&self, name: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_unregister_args(&UnregisterArgs { name: name.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_UNREGISTER, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Snapshot the name table.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn list(&self) -> Result<alloc::vec::Vec<Entry>, ClientError> {
+        self.list_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::list`] with the caller's deadline instead of the IDL's.
+    pub fn list_within(&self, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<Entry>, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_LIST, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_list_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.entries)
+    }
+}

@@ -899,3 +899,289 @@ pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
     (METHOD_ATTACHSLOT, ATTACH_SLOT_OBJECTS),
     (METHOD_LOADHTML, LOAD_HTML_OBJECTS),
 ];
+
+#[cfg(feature = "webd_light_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "webd_light_v1_client")]
+/// A client of `os.lazy.webd.light.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "webd_light_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Make a view of `width` x `height` pixels and return its id (non-zero,
+    /// chosen by webd and never reused). `events` is the endpoint webd sends
+    /// this view's events on; it is closed when the view ends. The view shows
+    /// a blank page until `LoadHtml`. webd derives the web process group from
+    /// the caller's kernel-stamped label: the views of one app share a web
+    /// process, the views of two apps never do.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn create_view(&self, config: &LightConfig, width: u32, height: u32, events: u64) -> Result<u64, ClientError> {
+        self.create_view_within(config, width, height, events, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::create_view`] with the caller's deadline instead of the IDL's.
+    pub fn create_view_within(&self, config: &LightConfig, width: u32, height: u32, events: u64, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let (wire_body, wire_objects) = encode_create_view_args(&CreateViewArgs { config: config.clone(), width, height, events }).map_err(ClientError::bad_request)?;
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_CREATEVIEW, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_create_view_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.view)
+    }
+
+    /// End the view, its page and its event endpoint. Slots the app still
+    /// holds stay its own memory. Not an error for a view that is already gone.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn destroy_view(&self, view: u64) -> Result<(), ClientError> {
+        self.destroy_view_within(view, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::destroy_view`] with the caller's deadline instead of the IDL's.
+    pub fn destroy_view_within(&self, view: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_destroy_view_args(&DestroyViewArgs { view }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_DESTROYVIEW, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Register `pixels` as slot `slot` (0 to 2) of `view`; it starts free.
+    /// The buffer must hold at least `width * height * 4` bytes of the view's
+    /// current size after its `offset`. Replaces a free slot of that number
+    /// (`EBUSY` while webd has handed it out), so a slot is re-attached only
+    /// after `ReleaseSlot`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn attach_slot(&self, view: u64, slot: u32, pixels: libmessenger::Buffer) -> Result<(), ClientError> {
+        self.attach_slot_within(view, slot, pixels, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::attach_slot`] with the caller's deadline instead of the IDL's.
+    pub fn attach_slot_within(&self, view: u64, slot: u32, pixels: libmessenger::Buffer, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let (wire_body, wire_objects) = encode_attach_slot_args(&AttachSlotArgs { view, slot, pixels }).map_err(ClientError::bad_request)?;
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_ATTACHSLOT, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// The app is done reading `slot`; webd may paint into it again. A slot
+    /// that is not busy, or a view that is not the caller's, is ignored.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn release_slot(&self, view: u64, slot: u32) -> Result<(), ClientError> {
+        let wire_body = encode_release_slot_args(&ReleaseSlotArgs { view, slot }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_RELEASESLOT, wire_body, wire_objects)
+    }
+
+    /// Change the view's size. Every slot is detached (attach new ones of the
+    /// new size); the next frame has the new size.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn resize(&self, view: u64, width: u32, height: u32) -> Result<(), ClientError> {
+        self.resize_within(view, width, height, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::resize`] with the caller's deadline instead of the IDL's.
+    pub fn resize_within(&self, view: u64, width: u32, height: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_resize_args(&ResizeArgs { view, width, height }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_RESIZE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// A view that is not visible gets no paints (its page still runs).
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn set_visible(&self, view: u64, visible: bool) -> Result<(), ClientError> {
+        let wire_body = encode_set_visible_args(&SetVisibleArgs { view, visible }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_SETVISIBLE, wire_body, wire_objects)
+    }
+
+    /// Ask for a whole frame (the app lost or discarded its picture).
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn refresh(&self, view: u64) -> Result<(), ClientError> {
+        let wire_body = encode_refresh_args(&RefreshArgs { view }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_REFRESH, wire_body, wire_objects)
+    }
+
+    /// Replace the page with `html` (UTF-8, the buffer's range) at the base
+    /// URL `base_url`: empty, `about:blank`, `about:...` or a `data:` URL; a
+    /// network or `file:` base is `EINVAL`. webd copies the bytes before it
+    /// replies, so the app may reuse the buffer.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn load_html(&self, view: u64, html: libmessenger::Buffer, base_url: &str) -> Result<(), ClientError> {
+        self.load_html_within(view, html, base_url, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::load_html`] with the caller's deadline instead of the IDL's.
+    pub fn load_html_within(&self, view: u64, html: libmessenger::Buffer, base_url: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let (wire_body, wire_objects) = encode_load_html_args(&LoadHtmlArgs { view, html, base_url: base_url.into() }).map_err(ClientError::bad_request)?;
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_LOADHTML, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Input, as the display protocol delivers it, in view pixels. `kind` is a
+    /// `MouseKind`, `button` 0 left, 1 middle, 2 right (-1 none: a move with no
+    /// button held); `mods` bit 0 shift, 1 control, 2 alt, 3 meta.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn mouse(&self, view: u64, kind: u32, button: i32, x: i32, y: i32, mods: u32) -> Result<(), ClientError> {
+        let wire_body = encode_mouse_args(&MouseArgs { view, kind, button, x, y, mods }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_MOUSE, wire_body, wire_objects)
+    }
+
+    /// A wheel turn of `ticks_x` / `ticks_y` notches at `(x, y)`. `seq` numbers
+    /// the turns of a full view for `WheelDone` (the full interface); 0 asks
+    /// for no answer, and a light view is never answered.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn wheel(&self, view: u64, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32, seq: u64) -> Result<(), ClientError> {
+        let wire_body = encode_wheel_args(&WheelArgs { view, x, y, ticks_x, ticks_y, mods, seq }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_WHEEL, wire_body, wire_objects)
+    }
+
+    /// A key edge: `keysym` is the X11 keysym the display protocol carries,
+    /// `text` the character it types (empty for none).
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn key(&self, view: u64, press: bool, keysym: u32, text: &str, mods: u32) -> Result<(), ClientError> {
+        let wire_body = encode_key_args(&KeyArgs { view, press, keysym, text: text.into(), mods }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_KEY, wire_body, wire_objects)
+    }
+
+    /// The view gained or lost keyboard focus.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn focus(&self, view: u64, focused: bool) -> Result<(), ClientError> {
+        let wire_body = encode_focus_args(&FocusArgs { view, focused }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_FOCUS, wire_body, wire_objects)
+    }
+
+    /// Event: slot `slot` of `view` holds frame number `seq` (counting from 1)
+    /// of `width` x `height` pixels. The slot is the app's until `ReleaseSlot`.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn frame(&self, view: u64, slot: u32, seq: u64, width: u32, height: u32) -> Result<(), ClientError> {
+        let wire_body = encode_frame_args(&FrameArgs { view, slot, seq, width, height }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_FRAME, wire_body, wire_objects)
+    }
+
+    /// Event: what the page says about itself. `loading` while a load is in
+    /// progress; `finished` counts the loads that have finished (so the first
+    /// paint of a `LoadHtml` can be told from the old page's); `error` is
+    /// empty or a short reason a load failed. Texts are cut at 48 KiB.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn state(&self, view: u64, title: &str, loading: bool, finished: u32, error: &str) -> Result<(), ClientError> {
+        let wire_body = encode_state_args(&StateArgs { view, title: title.into(), loading, finished, error: error.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_STATE, wire_body, wire_objects)
+    }
+
+    /// Event: the page scrolled to `(x, y)` in document pixels; `at_bottom`
+    /// when it cannot scroll further.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn scroll(&self, view: u64, x: i32, y: i32, at_bottom: bool) -> Result<(), ClientError> {
+        let wire_body = encode_scroll_args(&ScrollArgs { view, x, y, at_bottom }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_SCROLL, wire_body, wire_objects)
+    }
+
+    /// Event: a link was clicked, a form submitted or a meta refresh fired,
+    /// and nothing loaded. `url` is absolute.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn link_clicked(&self, view: u64, url: &str) -> Result<(), ClientError> {
+        let wire_body = encode_link_clicked_args(&LinkClickedArgs { view, url: url.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_LINKCLICKED, wire_body, wire_objects)
+    }
+
+    /// Event: the user copied `text` out of the page.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn clipboard_write(&self, view: u64, text: &str) -> Result<(), ClientError> {
+        let wire_body = encode_clipboard_write_args(&ClipboardWriteArgs { view, text: text.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_CLIPBOARDWRITE, wire_body, wire_objects)
+    }
+
+    /// Event: the view cannot go on (`reason` is a `LostReason`). The id stays
+    /// the app's to `DestroyView`; the app makes a new view and loads again.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn view_lost(&self, view: u64, reason: u32) -> Result<(), ClientError> {
+        let wire_body = encode_view_lost_args(&ViewLostArgs { view, reason }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_VIEWLOST, wire_body, wire_objects)
+    }
+
+    /// Event: liveness probe, about once a second; nothing to answer. `EPIPE`
+    /// on the endpoint tells webd the app is gone and ends its views.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn ping(&self) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_PING, wire_body, wire_objects)
+    }
+}

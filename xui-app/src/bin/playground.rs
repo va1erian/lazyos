@@ -103,12 +103,9 @@ const WINDOW: (i32, i32) = (1180, 660);
 fn main() {
     // The code editor is a monospace grid; the doc pane's headings are bold and its code monospace.
     xui_app::font::register_docs();
-    // A panic is reported on the console (and `init` restarts the app).
-    xui_app::trace::install_panic_hook(Channel::Playground);
-    devtool::run(
-        Channel::Playground,
-        "Messenger Playground",
-        WINDOW,
-        startup::build,
-    )
+    devtool::app(Channel::Playground, "Messenger Playground")
+        .size(WINDOW.0, WINDOW.1)
+        // Below this the panes clip.
+        .min_size(900, 560)
+        .run(startup::build)
 }

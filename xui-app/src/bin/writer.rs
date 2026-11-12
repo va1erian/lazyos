@@ -18,13 +18,10 @@
 
 use std::rc::Rc;
 
-use xui_app::backend::LazyOSBackend;
 use xui_app::platform::confd_store::ConfdStore;
-use xui_core::app::run_app;
-use xui_core::backend::{Backend, PlatformSpec};
-use xui_core::units::Dip;
+use xui_app::trace::Channel;
 use xui_settings::store::{ConfigStore, Value};
-use xui_writer::Host;
+use xui_writer::{Host, Msg};
 
 /// Window size a compositor lays LazyWriter out at. The issue's 960x680 does
 /// not fit the 1280x720 desktop: with xuid's title bar and border it is taller
@@ -58,39 +55,14 @@ fn printer_key() -> Option<String> {
     Some(format!("user/{uid}/writer/printer"))
 }
 
-fn main() -> std::process::ExitCode {
+fn main() {
     // Sans (regular and bold), Serif and Mono; no italic face, so italic is
     // synthesised by the shaper.
     xui_app::font::register_writer();
-    let path = xui_app::platform::argv::file_arg(std::env::args_os());
-    let backend = match LazyOSBackend::connect() {
-        Ok(backend) => Rc::new(backend),
-        Err(code) => {
-            println!("WRITER:BIND:FAIL:{code}");
-            return std::process::ExitCode::FAILURE;
-        }
-    };
-    let (width, height) = backend.window_size(WINDOW);
-    // The editor re-flows its text to the window width.
-    backend.set_size_hints(480, 320, 0, 0);
-    backend.on_first_frame(|| println!("WRITER:UP:PASS"));
-
-    // Match the desktop's light/dark mode and accent (Settings).
-    let theme = backend.desktop_theme();
-    let spec = PlatformSpec::new("LazyWriter").size(Dip(width as f32), Dip(height as f32));
-    let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, move |ui| {
-        if let Some(theme) = theme {
-            ui.set_theme(theme);
-        }
-        let mut writer = xui_writer::ui::build(ui, host()).expect("LazyWriter's widgets built");
-        if let Some(path) = path {
-            xui_writer::commands::files::open_path(&mut writer, ui, path);
-        }
-        writer
-    });
-    backend.unbind();
-    if outcome.is_ok() {
-        println!("WRITER:QUIT:PASS");
-    }
-    std::process::ExitCode::from(xui_app::launch::finish(xui_app::trace::Channel::Writer, outcome))
+    xui_app::app(Channel::Writer, "LazyWriter")
+        .size(WINDOW.0, WINDOW.1)
+        // The editor re-flows its text to the window width.
+        .min_size(480, 320)
+        .opens(Msg::OpenChosen)
+        .run(|ui, _| xui_writer::ui::build(ui, host()))
 }

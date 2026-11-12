@@ -8,9 +8,12 @@
 use alloc::vec::Vec;
 
 use inputmap::{Layout, LAYOUT_KEY};
+use libmessenger::client::{CallError, Errno};
 use user::central::Subscription;
-use user::messenger::confd::{name_system_confd_changed, Client as Confd};
-use user::messenger::{self, Error, EXPIRED_DEADLINE};
+use user::messenger::confd::{
+    connect, name_system_confd_changed, watch, Client as Confd, StoreError, ValueClient,
+};
+use user::messenger::{self, EXPIRED_DEADLINE};
 use user::sys;
 
 /// Ticks (100 Hz) between attempts to reach `confd`.
@@ -93,7 +96,7 @@ impl Config {
         };
         let topic = name_system_confd_changed(LAYOUT_KEY).ok();
         self.watch = match (&self.confd, topic) {
-            (Some(confd), Some(topic)) => confd.watch(&topic).ok(),
+            (Some(_), Some(topic)) => watch(&topic).ok(),
             _ => None,
         };
         if self.watch.is_some() {
@@ -108,15 +111,15 @@ impl Config {
 
     /// The layout `confd` holds; absent or unknown falls back to the default
     /// rather than trusting arbitrary text.
-    fn read(&mut self) -> Result<Layout, Error> {
+    fn read(&mut self) -> Result<Layout, CallError<StoreError>> {
         if self.confd.is_none() {
-            self.confd = Some(Confd::connect()?);
+            self.confd = Some(connect()?);
         }
         let client = self
             .confd
             .as_ref()
-            .ok_or(Error::Errno(-messenger::errno::ENOENT))?;
-        Ok(match client.get(LAYOUT_KEY)? {
+            .ok_or(CallError::Transport(Errno::NOENT))?;
+        Ok(match client.get_value(LAYOUT_KEY)? {
             Some(confd::Value::Str(name)) => {
                 Layout::from_name(&name).unwrap_or_else(default_layout)
             }

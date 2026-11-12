@@ -22,7 +22,6 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::SystemTime;
 
@@ -30,6 +29,7 @@ use xui_core::Color;
 use xui_core::backend::Canvas;
 use xui_core::geometry::Rect;
 use xui_core::image::Image;
+use xui_work::{Inbox, Sink};
 
 use super::entry::Entry;
 use super::thumb_decode;
@@ -143,11 +143,9 @@ struct Shared {
     decode_ready: Condvar,
     /// Readers wait here for room in the decode backlog.
     decode_room: Condvar,
-    done: Mutex<Vec<(Key, Outcome)>>,
-    /// Whether the UI was woken and has not drained since.
-    notified: AtomicBool,
+    /// Finished thumbnails, to the UI's inbox (one doorbell per burst).
+    done: Sink<(Key, Outcome)>,
     reader: ThumbReader,
-    wake_ui: Arc<dyn Fn() + Send + Sync>,
 }
 
 #[derive(Default)]
@@ -185,11 +183,7 @@ impl Shared {
     }
 
     fn post(&self, key: Key, outcome: Outcome) {
-        locked(&self.done).push((key, outcome));
-        // One wake per burst: the UI clears the flag when it drains.
-        if !self.notified.swap(true, Ordering::AcqRel) {
-            (self.wake_ui)();
-        }
+        self.done.send((key, outcome));
     }
 
     /// A reader thread: takes the newest job, reads it, hands the bytes to
@@ -270,6 +264,7 @@ impl Shared {
 /// workers serve. Lives on the UI thread; the workers see only [`Shared`].
 pub struct Thumbs {
     shared: Arc<Shared>,
+    results: Inbox<(Key, Outcome)>,
     cache: RefCell<HashMap<Key, Slot>>,
     /// Ready keys, oldest first, for eviction.
     order: RefCell<VecDeque<Key>>,
@@ -277,20 +272,21 @@ pub struct Thumbs {
 }
 
 impl Thumbs {
-    /// Thumbnails read through `reader`; `wake_ui` is called (from a worker
-    /// thread) when results are waiting for [`drain`](Thumbs::drain).
-    pub fn new(reader: ThumbReader, wake_ui: Arc<dyn Fn() + Send + Sync>) -> Thumbs {
+    /// Thumbnails read through `reader`; `ring` is called (from a worker
+    /// thread, once per burst) when results are waiting for
+    /// [`drain`](Thumbs::drain): the window posts its doorbell message there.
+    pub fn new(reader: ThumbReader, ring: impl Fn() -> bool + Send + Sync + 'static) -> Thumbs {
+        let (done, results) = xui_work::inbox_with(ring);
         Thumbs {
             shared: Arc::new(Shared {
                 work: Mutex::default(),
                 wake_worker: Condvar::new(),
                 decode_ready: Condvar::new(),
                 decode_room: Condvar::new(),
-                done: Mutex::default(),
-                notified: AtomicBool::new(false),
+                done,
                 reader,
-                wake_ui,
             }),
+            results,
             cache: RefCell::default(),
             order: RefCell::default(),
             started: Cell::new(false),
@@ -351,9 +347,8 @@ impl Thumbs {
     /// Takes in the results the workers posted. Returns whether the view
     /// should repaint.
     pub fn drain(&self) -> bool {
-        // Clear before taking, so a result posted meanwhile wakes us again.
-        self.shared.notified.store(false, Ordering::Release);
-        let done = std::mem::take(&mut *locked(&self.shared.done));
+        // Taking re-arms the doorbell, so a result posted meanwhile rings again.
+        let done = self.results.drain();
         let mut changed = false;
         let mut cache = self.cache.borrow_mut();
         let mut order = self.order.borrow_mut();

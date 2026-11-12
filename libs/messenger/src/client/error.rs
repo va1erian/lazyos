@@ -64,10 +64,49 @@ impl<E> CallError<E> {
         }
     }
 
+    /// The error of a request a generated client could not encode (a field
+    /// over its limit): the caller's fault, `EINVAL`, and nothing was sent.
+    pub fn bad_request(_: crate::Error) -> CallError<E> {
+        CallError::Transport(Errno::INVAL)
+    }
+
+    /// The error of a reply that does not decode as the method's declared
+    /// reply: the service answered with a malformed message, `EBADMSG`.
+    pub fn bad_reply(_: crate::Error) -> CallError<E> {
+        CallError::Transport(Errno::BADMSG)
+    }
+
     /// Whether the call timed out: a poll that found nothing, or a service
     /// that did not answer.
     pub fn is_timeout(&self) -> bool {
         matches!(self, CallError::Transport(errno) if *errno == Errno::TIMEDOUT)
+    }
+
+    /// The error with its declared service error spelled out as a refusal:
+    /// `describe` gives the code and the sentence. For a caller that shows
+    /// or forwards any service's failure (`code`, `message` and `Display`
+    /// work on the untyped form).
+    pub fn flatten(self, describe: impl FnOnce(E) -> (u32, String)) -> CallError {
+        match self {
+            CallError::Transport(errno) => CallError::Transport(errno),
+            CallError::Remote {
+                code,
+                message,
+                detail,
+            } => CallError::Remote {
+                code,
+                message,
+                detail,
+            },
+            CallError::Service(error) => {
+                let (code, message) = describe(error);
+                CallError::Remote {
+                    code,
+                    message,
+                    detail: Detail::default(),
+                }
+            }
+        }
     }
 }
 
@@ -99,6 +138,27 @@ impl CallError {
             CallError::Transport(errno) => errno.describe(),
             CallError::Remote { message, .. } => message,
             CallError::Service(never) => match *never {},
+        }
+    }
+
+    /// Re-type an untyped error for a client with a declared error enum
+    /// (`docs/client-api-plan.md` 3.2): a refusal whose code `from_code`
+    /// names becomes [`CallError::Service`]; any other stays what it was.
+    pub fn lift<E>(self, from_code: impl FnOnce(u32) -> Option<E>) -> CallError<E> {
+        match self {
+            CallError::Remote {
+                code,
+                message,
+                detail,
+            } => match from_code(code) {
+                Some(error) => CallError::Service(error),
+                None => CallError::Remote {
+                    code,
+                    message,
+                    detail,
+                },
+            },
+            other => other.widen(),
         }
     }
 

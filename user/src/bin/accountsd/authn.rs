@@ -18,6 +18,8 @@
 
 use accountdb::policy::Who;
 use accountdb::ratelimit::Attempt;
+use libmessenger::client::Deadline;
+use user::messenger::client::Native;
 use user::messenger::{errno, keyd};
 use user::sys::{self, Cred};
 
@@ -96,7 +98,7 @@ pub(crate) fn check(
 /// refusal. `keyd` is resolved again on every check, so one that registered
 /// late or restarted is found without restarting this service.
 fn verify(state: &mut State, name: &str, secret: &str) -> bool {
-    let Ok(client) = keyd::Client::connect() else {
+    let Ok(client) = keyd::Client::try_connect(Native) else {
         if !state.keyd_warned {
             state.keyd_warned = true;
             sys::write_str("accountsd: keyd unreachable; every login is refused\n");
@@ -104,5 +106,8 @@ fn verify(state: &mut State, name: &str, secret: &str) -> bool {
         return false;
     };
     state.keyd_warned = false;
-    client.verify(name, secret).unwrap_or(false)
+    // Argon2id: as long as it takes, as before the generated client.
+    client
+        .verify_within(name, secret, Deadline::Never)
+        .unwrap_or(false)
 }

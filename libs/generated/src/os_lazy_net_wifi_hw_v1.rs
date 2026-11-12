@@ -1027,3 +1027,399 @@ pub fn decode_deauthenticated_args(body: &[u8]) -> Result<DeauthenticatedArgs, E
 pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
     (METHOD_ATTACH, ATTACH_OBJECTS),
 ];
+
+#[cfg(feature = "net_wifi_hw_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "net_wifi_hw_v1_client")]
+/// A client of `os.lazy.net.wifi.hw.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "net_wifi_hw_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Describe the radio: addresses, bands, ciphers, limits. Any caller the
+    /// label policy lets reach the driver may ask, attached or not: it reveals
+    /// only hardware facts.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn info(&self) -> Result<HwInfo, ClientError> {
+        self.info_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::info`] with the caller's deadline instead of the IDL's.
+    pub fn info_within(&self, within: libmessenger::client::Deadline) -> Result<HwInfo, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_INFO, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_info_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.info)
+    }
+
+    /// Become the radio's one client. `events` is the channel the driver
+    /// sends events on. `EBUSY` when attached.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn attach(&self, events: u64) -> Result<(), ClientError> {
+        self.attach_within(events, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::attach`] with the caller's deadline instead of the IDL's.
+    pub fn attach_within(&self, events: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let (wire_body, wire_objects) = encode_attach_args(&AttachArgs { events }).map_err(ClientError::bad_request)?;
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_ATTACH, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Release the radio (also implied when the owner exits). Leaves the BSS,
+    /// aborts a scan and deletes every key.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn detach(&self) -> Result<(), ClientError> {
+        self.detach_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::detach`] with the caller's deadline instead of the IDL's.
+    pub fn detach_within(&self, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_DETACH, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Tell the radio which regulatory domain applies: an ISO 3166 alpha-2
+    /// code, or `00` for the world domain (passive scanning only on channels
+    /// where transmitting first is not universally allowed, no 6 GHz). The
+    /// driver must not transmit on a channel the domain forbids and may refuse
+    /// to transmit at all before the first call (`EAGAIN` from `Scan` with
+    /// active probing, `Join`, `TxMgmt`). A code that is not an assigned ISO
+    /// 3166-1 code (`ZZ`) is `EINVAL`. A new domain applies at once: a running
+    /// scan skips the channels it forbids and probes only where it allows,
+    /// and a joined BSS on a channel it forbids is left without transmitting
+    /// and reported as `Deauthenticated` (reason 3). The value comes from
+    /// `wlanmd`, which reads `sys/net/wifi/country`; the driver trusts nobody
+    /// else for it.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn set_country(&self, alpha2: &str) -> Result<(), ClientError> {
+        self.set_country_within(alpha2, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::set_country`] with the caller's deadline instead of the IDL's.
+    pub fn set_country_within(&self, alpha2: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_set_country_args(&SetCountryArgs { alpha2: alpha2.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SETCOUNTRY, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Start a scan. The reply is the id `ScanDone` and `ScanResults` name; it
+    /// does not wait. Only one scan runs at a time (`EBUSY`). At most
+    /// `HwInfo.max_scan_ssids` SSIDs of at most 32 bytes and at most
+    /// `HwInfo.max_scan_channels` channels (`EINVAL` beyond, or for a channel
+    /// the radio or its domain does not have). A scan during an association
+    /// is allowed and pauses traffic while the radio is on other channels:
+    /// nothing is sent to the BSS from another channel (see `TxMgmt`).
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn scan(&self, request: &ScanRequest) -> Result<u32, ClientError> {
+        self.scan_within(request, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::scan`] with the caller's deadline instead of the IDL's.
+    pub fn scan_within(&self, request: &ScanRequest, within: libmessenger::client::Deadline) -> Result<u32, ClientError> {
+        let wire_body = encode_scan_args(&ScanArgs { request: request.clone() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_SCAN, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_scan_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.scan_id)
+    }
+
+    /// Stop the running scan early; `ScanDone` follows with `aborted` set.
+    /// Not an error when none runs.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn abort_scan(&self, scan_id: u32) -> Result<(), ClientError> {
+        self.abort_scan_within(scan_id, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::abort_scan`] with the caller's deadline instead of the IDL's.
+    pub fn abort_scan_within(&self, scan_id: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_abort_scan_args(&AbortScanArgs { scan_id }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_ABORTSCAN, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// One page of a finished (or running) scan's results, in the order the
+    /// radio heard them, from entry `first`; at most `max` entries (capped at
+    /// 64). `more` says whether a later page holds entries. Each entry is the
+    /// raw management frame, **unparsed**: parsing it is `wlanmd`'s job.
+    /// An unknown `scan_id` is `ENOENT`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn scan_results(&self, scan_id: u32, first: u32, max: u32) -> Result<ScanResultsReply, ClientError> {
+        self.scan_results_within(scan_id, first, max, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::scan_results`] with the caller's deadline instead of the IDL's.
+    pub fn scan_results_within(&self, scan_id: u32, first: u32, max: u32, within: libmessenger::client::Deadline) -> Result<ScanResultsReply, ClientError> {
+        let wire_body = encode_scan_results_args(&ScanResultsArgs { scan_id, first, max }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_SCANRESULTS, wire_body, wire_objects, within)
+            ?;
+        decode_scan_results_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// Tune to the BSS's channel and filter to its address so `TxMgmt` and
+    /// `RxMgmt` carry the authentication and association exchange. Leaves any
+    /// previous BSS first. The reply means the radio is on the channel, not
+    /// that anything was heard.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn join(&self, request: &JoinRequest) -> Result<(), ClientError> {
+        self.join_within(request, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::join`] with the caller's deadline instead of the IDL's.
+    pub fn join_within(&self, request: &JoinRequest, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_join_args(&JoinArgs { request: request.clone() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_JOIN, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Send a management or EAPOL frame `wlanmd` built, as is. `kind` is a
+    /// `FrameKind` ordinal; for `Mgmt` the frame is a complete 802.11
+    /// management frame without FCS, for `Eapol` a complete 802.3 EAPOL frame
+    /// (the radio adds the 802.11 header and, once keys are installed, the
+    /// encryption). Only while joined (`ENOTCONN`); a frame longer than
+    /// `HwInfo.max_mgmt` (or, as EAPOL, too long for the radio once
+    /// wrapped) is `EINVAL`. A management frame is from the station to the
+    /// joined BSS (receiver and BSSID, or broadcast in either for a probe
+    /// request), an EAPOL frame to the BSSID; anything else is `EINVAL`. The
+    /// reply means queued, not delivered: while a scan has the radio on
+    /// another channel, or on a passive channel before the BSS was heard
+    /// there, the frame waits (`EBUSY` when too many already wait), and a
+    /// full transmit queue is `EBUSY`. A frame goes out under the keys in
+    /// force when it was queued: message 4 of the 4-way handshake is queued
+    /// just before the pairwise key is installed and must leave unencrypted.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn tx_mgmt(&self, kind: u32, frame: &[u8]) -> Result<(), ClientError> {
+        self.tx_mgmt_within(kind, frame, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::tx_mgmt`] with the caller's deadline instead of the IDL's.
+    pub fn tx_mgmt_within(&self, kind: u32, frame: &[u8], within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_tx_mgmt_args(&TxMgmtArgs { kind, frame: frame.to_vec() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_TXMGMT, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Move the radio's association state: a `StaState` ordinal. `Associated`
+    /// carries the association id the AP assigned; `Authorized` opens the
+    /// controlled port (data frames flow, the NIC's link comes up) and is
+    /// valid only from `Associated`, and only after the pairwise key is
+    /// installed, or straight after `Associated` for an open network (no key
+    /// at all; a BSS whose scan entry or beacons advertised privacy or an RSN
+    /// element is never open, `EINVAL`). Going to a lower state is always
+    /// allowed and takes the link down; below `Associated` it deletes every
+    /// key.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn set_state(&self, state: u32, aid: u32) -> Result<(), ClientError> {
+        self.set_state_within(state, aid, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::set_state`] with the caller's deadline instead of the IDL's.
+    pub fn set_state_within(&self, state: u32, aid: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_set_state_args(&SetStateArgs { state, aid }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SETSTATE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Install a key in a hardware slot. `kind` is a `KeyKind` ordinal,
+    /// `index` the key id (pairwise 0, group 1 to 3, IGTK 4 to 5), `cipher`
+    /// a `Cipher` ordinal the radio advertised, `key` its exact length,
+    /// `rsc` the receive sequence counter the handshake delivered (little
+    /// endian, up to 8 bytes) and `addr` the peer address (the BSSID for a
+    /// group key). Replaces a key in the same slot atomically. The transmit
+    /// packet number belongs to the association, not the key: a new or
+    /// reinstalled pairwise key continues it, and only leaving the BSS starts
+    /// it over. `EINVAL` for a length or index that does not fit, `ENOSPC`
+    /// for no free slot; when the radio refuses a key, the slot is left
+    /// empty.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn set_key(&self, kind: u32, index: u32, cipher: u32, key: &[u8], rsc: &[u8], addr: &[u8]) -> Result<(), ClientError> {
+        self.set_key_within(kind, index, cipher, key, rsc, addr, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::set_key`] with the caller's deadline instead of the IDL's.
+    pub fn set_key_within(&self, kind: u32, index: u32, cipher: u32, key: &[u8], rsc: &[u8], addr: &[u8], within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_set_key_args(&SetKeyArgs { kind, index, cipher, key: key.to_vec(), rsc: rsc.to_vec(), addr: addr.to_vec() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SETKEY, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Remove a key; not an error when the slot is empty.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn del_key(&self, kind: u32, index: u32) -> Result<(), ClientError> {
+        self.del_key_within(kind, index, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::del_key`] with the caller's deadline instead of the IDL's.
+    pub fn del_key_within(&self, kind: u32, index: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_del_key_args(&DelKeyArgs { kind, index }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_DELKEY, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Leave the BSS: a `Deauthentication` with this IEEE 802.11 reason code
+    /// is sent if the radio can, every key is deleted, the NIC's link goes
+    /// down and the radio returns to idle. Not an error when not joined.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn leave(&self, reason: u32) -> Result<(), ClientError> {
+        self.leave_within(reason, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::leave`] with the caller's deadline instead of the IDL's.
+    pub fn leave_within(&self, reason: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_leave_args(&LeaveArgs { reason }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_LEAVE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Counters since the driver started.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn stats(&self) -> Result<HwStats, ClientError> {
+        self.stats_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::stats`] with the caller's deadline instead of the IDL's.
+    pub fn stats_within(&self, within: libmessenger::client::Deadline) -> Result<HwStats, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_STATS, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_stats_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.stats)
+    }
+
+    /// Event, driver to client: the scan finished (`aborted` false) or was
+    /// stopped (`aborted` true, or the radio could not finish); its results
+    /// are readable with `ScanResults` until the next `Scan`.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn scan_done(&self, scan_id: u32, aborted: bool) -> Result<(), ClientError> {
+        let wire_body = encode_scan_done_args(&ScanDoneArgs { scan_id, aborted }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_SCANDONE, wire_body, wire_objects)
+    }
+
+    /// Event, driver to client: a management or EAPOL frame addressed to this
+    /// station arrived from the joined BSS, and the client can be waiting for
+    /// it: an authentication or (re)association response only after
+    /// `TxMgmt` sent its request, an action frame once `Associated`, EAPOL
+    /// once the AP answered the association; a retransmission of the last
+    /// unprotected frame is dropped. `kind` is a `FrameKind` ordinal,
+    /// `rssi_dbm` the signal in dBm. The frame has the shape `TxMgmt` takes:
+    /// a whole management frame (from the MAC header, no FCS), or EAPOL as
+    /// an 802.3 frame (destination, source, ethertype 0x888E, then the
+    /// EAPOL PDU), decrypted. The bytes are unparsed and hostile.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn rx_mgmt(&self, kind: u32, rssi_dbm: i32, frame: &[u8]) -> Result<(), ClientError> {
+        let wire_body = encode_rx_mgmt_args(&RxMgmtArgs { kind, rssi_dbm, frame: frame.to_vec() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_RXMGMT, wire_body, wire_objects)
+    }
+
+    /// Event, driver to client: the radio stopped hearing the AP (the
+    /// firmware's missed-beacon threshold). The client decides what to do.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn beacon_loss(&self) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_BEACONLOSS, wire_body, wire_objects)
+    }
+
+    /// Event, driver to client: the AP deauthenticated or disassociated us.
+    /// `reason` is the IEEE 802.11 reason code, taken from the frame by the
+    /// firmware (the one field of a frame the driver reports; the frame
+    /// itself is also delivered as `RxMgmt`).
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn deauthenticated(&self, reason: u32) -> Result<(), ClientError> {
+        let wire_body = encode_deauthenticated_args(&DeauthenticatedArgs { reason }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_DEAUTHENTICATED, wire_body, wire_objects)
+    }
+}

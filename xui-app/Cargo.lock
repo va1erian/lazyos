@@ -2405,6 +2405,7 @@ dependencies = [
  "serde_json",
  "xui-canvas",
  "xui-core",
+ "xui-work",
 ]
 
 [[package]]
@@ -5858,6 +5859,7 @@ dependencies = [
  "xui-settings",
  "xui-videoview",
  "xui-webd-client",
+ "xui-work",
  "xui-writer",
 ]
 
@@ -5876,6 +5878,7 @@ dependencies = [
  "lazyarc",
  "xui-canvas",
  "xui-core",
+ "xui-work",
 ]
 
 [[package]]
@@ -5954,6 +5957,7 @@ dependencies = [
  "xui-app",
  "xui-core",
  "xui-markdown",
+ "xui-work",
 ]
 
 [[package]]
@@ -5965,6 +5969,7 @@ dependencies = [
  "xui-canvas",
  "xui-core",
  "xui-icons",
+ "xui-work",
 ]
 
 [[package]]
@@ -5973,6 +5978,7 @@ version = "0.1.0"
 dependencies = [
  "xui-canvas",
  "xui-core",
+ "xui-work",
 ]
 
 [[package]]
@@ -6008,6 +6014,7 @@ dependencies = [
  "xui-settings",
  "xui-webkit",
  "xui-webkit-remote",
+ "xui-work",
 ]
 
 [[package]]
@@ -6068,6 +6075,7 @@ dependencies = [
  "lazypdf",
  "xui-canvas",
  "xui-core",
+ "xui-work",
 ]
 
 [[package]]
@@ -6108,6 +6116,7 @@ dependencies = [
  "uitheme",
  "xui-canvas",
  "xui-core",
+ "xui-work",
 ]
 
 [[package]]
@@ -6173,6 +6182,13 @@ dependencies = [
  "xui-webd",
  "xui-webd-client",
  "xui-webkit",
+]
+
+[[package]]
+name = "xui-work"
+version = "0.1.0"
+dependencies = [
+ "xui-core",
 ]
 
 [[package]]

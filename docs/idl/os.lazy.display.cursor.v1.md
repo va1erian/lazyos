@@ -28,6 +28,12 @@ error field (id 15) like the display interface's.
 
 - Served under the registry name `os.lazy.display.v1` (together with `os.lazy.display.v1`); registered once.
 
+## Scopes and deadlines
+
+| Method | Scope interface | Scope id | Deadline |
+|---|---|---|---|
+| SetCursor | this interface | - | 1000 ms |
+
 ## enum `CursorShape`
 
 - Default, Busy, Text, Hand, ResizeH, ResizeV, ResizeNwse, ResizeNesw

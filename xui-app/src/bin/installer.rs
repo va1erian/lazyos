@@ -38,7 +38,6 @@ use std::process::ExitCode;
 use std::rc::Rc;
 
 use xui_app::installer::{class_counts, clean, Model, Request, Screen};
-use xui_app::launch;
 use xui_app::platform::{argv, pkg};
 use xui_app::trace::{self, Channel};
 use xui_core::app::{App, Ui};
@@ -379,19 +378,15 @@ fn main() -> ExitCode {
         return develop::main(path);
     }
     let start = argv::file_arg(std::env::args_os());
-    launch::run(
-        xui_app::trace::Channel::Installer,
-        "Installer",
-        WINDOW,
-        move |ui, backend| {
+    xui_app::app(Channel::Installer, "Installer")
+        .size(WINDOW.0, WINDOW.1)
+        .min_size(480, 360)
+        .run(move |ui, _backend| {
             // Resizable; the screens' layouts follow the client area. The
             // minimum keeps the consent screen's lists readable.
-            backend.set_size_hints(480, 360, 0, 0);
-            backend.on_first_frame(|| println!("INSTALLER:UP:PASS"));
             Installer::build(ui, start).map_err(|error| {
-                println!("INSTALLER:BUILD:FAIL:{error}");
+                trace::fail!(Channel::Installer, "BUILD", "{error}");
                 BackendError::Other(error)
             })
-        },
-    )
+        })
 }

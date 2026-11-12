@@ -57,7 +57,7 @@ fn the_request_header_is_built_for_the_interface_and_method() {
     assert_eq!(seen.header.flags, 0);
     assert_eq!(seen.body, [1, 2]);
     assert_eq!(seen.until, Some(Deadline::millis(500)));
-    conn.send(IFACE, 9, vec![3]).unwrap();
+    conn.send(IFACE, 9, vec![3], Vec::new()).unwrap();
     let sent = &conn.transport().calls()[1];
     assert_eq!(sent.header.flags, flags::ONE_WAY);
     assert_eq!(sent.until, None);
@@ -128,10 +128,10 @@ fn a_peer_that_stays_dead_is_tried_twice_and_the_handle_dropped() {
 #[test]
 fn a_oneway_send_reconnects_too() {
     let conn = connection();
-    conn.send(IFACE, 1, Vec::new()).unwrap();
+    conn.send(IFACE, 1, Vec::new(), Vec::new()).unwrap();
     conn.transport().kill(NAME);
     conn.transport().register(NAME);
-    conn.send(IFACE, 1, Vec::new()).unwrap();
+    conn.send(IFACE, 1, Vec::new(), Vec::new()).unwrap();
     assert_eq!(conn.transport().resolves().len(), 2);
 }
 
@@ -254,4 +254,40 @@ fn errors_display_friendly_text() {
     assert!(matches!(service, CallError::Remote { .. }));
     let typed: CallError<&str> = CallError::Service("not found");
     assert_eq!(typed.to_string(), "not found");
+}
+
+#[test]
+fn lift_maps_a_declared_code_and_leaves_the_rest() {
+    #[derive(Debug, PartialEq)]
+    struct Known;
+    let known = |code| (code == 1001).then_some(Known);
+    assert_eq!(
+        CallError::refusal(1001, "x").lift(known),
+        CallError::Service(Known)
+    );
+    let other = CallError::refusal(5, "text").lift(known);
+    assert!(matches!(&other, CallError::Remote { code: 5, message, .. } if message == "text"));
+    let down = CallError::Transport(Errno::PIPE).lift(known);
+    assert_eq!(down, CallError::Transport(Errno::PIPE));
+}
+
+#[test]
+fn a_one_way_send_moves_its_objects() {
+    let conn = connection();
+    let objects = vec![crate::Object::Channel(9)];
+    conn.send(IFACE, 3, Vec::new(), objects.clone()).unwrap();
+    assert_eq!(conn.transport().calls()[0].objects, objects);
+}
+
+#[test]
+fn codec_failures_are_distinguished_by_direction() {
+    let bad = crate::Error::BadValue;
+    assert_eq!(
+        CallError::<core::convert::Infallible>::bad_request(bad),
+        CallError::Transport(Errno::INVAL)
+    );
+    assert_eq!(
+        CallError::<core::convert::Infallible>::bad_reply(bad),
+        CallError::Transport(Errno::BADMSG)
+    );
 }

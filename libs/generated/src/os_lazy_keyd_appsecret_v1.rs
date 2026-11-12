@@ -29,12 +29,20 @@ pub const SERVICE_NAME: &str = "os.lazy.keyd.appsecret";
 
 /// `Put` method id.
 pub const METHOD_PUT: u32 = 1316564366;
+/// How long a client waits for `Put`'s reply, in milliseconds.
+pub const METHOD_PUT_DEADLINE_MS: u32 = 3000;
 /// `Get` method id.
 pub const METHOD_GET: u32 = 915881719;
+/// How long a client waits for `Get`'s reply, in milliseconds.
+pub const METHOD_GET_DEADLINE_MS: u32 = 3000;
 /// `Delete` method id.
 pub const METHOD_DELETE: u32 = 1469573738;
+/// How long a client waits for `Delete`'s reply, in milliseconds.
+pub const METHOD_DELETE_DEADLINE_MS: u32 = 3000;
 /// `List` method id.
 pub const METHOD_LIST: u32 = 220805025;
+/// How long a client waits for `List`'s reply, in milliseconds.
+pub const METHOD_LIST_DEADLINE_MS: u32 = 3000;
 
 /// Keep `secret` under `name` for the calling app and user, replacing one
 /// of that name.
@@ -170,3 +178,122 @@ pub fn decode_list_reply(body: &[u8]) -> Result<ListReply, Error> {
 /// and the declared kinds, in object-list order.
 pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
 ];
+
+#[cfg(feature = "keyd_appsecret_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "keyd_appsecret_v1_client")]
+/// A client of `os.lazy.keyd.appsecret.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "keyd_appsecret_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Keep `secret` under `name` for the calling app and user, replacing one
+    /// of that name.
+    ///
+    /// Waits for the reply at most 3000 ms (`deadline` in the `.midl`).
+    pub fn put(&self, name: &str, secret: &[u8]) -> Result<(), ClientError> {
+        self.put_within(name, secret, libmessenger::client::Deadline::millis(METHOD_PUT_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::put`] with the caller's deadline instead of the IDL's.
+    pub fn put_within(&self, name: &str, secret: &[u8], within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_put_args(&PutArgs { name: name.into(), secret: secret.to_vec() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_PUT, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// The calling app's secret `name` (`ENOENT` when there is none).
+    ///
+    /// Waits for the reply at most 3000 ms (`deadline` in the `.midl`).
+    pub fn get(&self, name: &str) -> Result<alloc::vec::Vec<u8>, ClientError> {
+        self.get_within(name, libmessenger::client::Deadline::millis(METHOD_GET_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::get`] with the caller's deadline instead of the IDL's.
+    pub fn get_within(&self, name: &str, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<u8>, ClientError> {
+        let wire_body = encode_get_args(&GetArgs { name: name.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_GET, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_get_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.secret)
+    }
+
+    /// Forget the calling app's secret `name` (`ENOENT` when there is none).
+    ///
+    /// Waits for the reply at most 3000 ms (`deadline` in the `.midl`).
+    pub fn delete(&self, name: &str) -> Result<(), ClientError> {
+        self.delete_within(name, libmessenger::client::Deadline::millis(METHOD_DELETE_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::delete`] with the caller's deadline instead of the IDL's.
+    pub fn delete_within(&self, name: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_delete_args(&DeleteArgs { name: name.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_DELETE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// The names of the calling app's secrets, sorted. Names only.
+    ///
+    /// Waits for the reply at most 3000 ms (`deadline` in the `.midl`).
+    pub fn list(&self) -> Result<alloc::vec::Vec<alloc::string::String>, ClientError> {
+        self.list_within(libmessenger::client::Deadline::millis(METHOD_LIST_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::list`] with the caller's deadline instead of the IDL's.
+    pub fn list_within(&self, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<alloc::string::String>, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_LIST, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_list_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.names)
+    }
+}

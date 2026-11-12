@@ -52,8 +52,11 @@ pub enum Report {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Msg {
-    /// The timer: drain the core's and the layout thread's answers.
+    /// The timer: drain the core's answers and the rows the layout thread
+    /// finished.
     Tick,
+    /// The layout thread finished rows (a doorbell; they wait in the inbox).
+    Laid,
     /// The Sign in button: read the fields.
     SignInClicked,
     /// Sign in with these credentials (the button's message, with the fields

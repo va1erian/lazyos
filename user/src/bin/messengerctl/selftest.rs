@@ -2,6 +2,7 @@
 
 use alloc::format;
 use alloc::string::String;
+use user::messenger::client::Native;
 use user::messenger::{self, keyd, topics_client};
 use user::sys;
 use user::trace;
@@ -112,9 +113,9 @@ pub(crate) fn keyd_selftest() {
     // the service itself is the authoritative marker, this one is a bonus.
     const ATTEMPTS: usize = 64;
     for _ in 0..ATTEMPTS {
-        match keyd::Client::connect() {
+        match keyd::Client::try_connect(Native) {
             Ok(client) => {
-                match client.keys() {
+                match client.list() {
                     Ok(keys) => trace::print!(trace::Channel::Keyd, "KEYS:PASS {}", keys.len()),
                     Err(error) => {
                         trace::print!(trace::Channel::Keyd, "KEYS:FAIL:{}", error.message())

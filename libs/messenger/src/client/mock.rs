@@ -11,7 +11,7 @@ use core::cell::RefCell;
 use super::connection::{Handle, Transport};
 use super::deadline::Deadline;
 use super::errno::Errno;
-use crate::{Header, Parcel};
+use crate::{Header, Object, Parcel};
 
 /// A call or send the mock saw.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -22,6 +22,8 @@ pub struct Recorded {
     pub header: Header,
     /// The request body.
     pub body: Vec<u8>,
+    /// The objects the request moved or shared.
+    pub objects: Vec<Object>,
     /// The deadline the caller gave (`None` for a one-way send).
     pub until: Option<Deadline>,
 }
@@ -210,6 +212,7 @@ impl Transport for Mock {
             handle,
             header: request.header,
             body: request.body.clone(),
+            objects: request.objects.clone(),
             until: Some(until),
         });
         Mock::peer_alive(&state, handle)?;
@@ -225,6 +228,7 @@ impl Transport for Mock {
             handle,
             header: request.header,
             body: request.body.clone(),
+            objects: request.objects.clone(),
             until: None,
         });
         Mock::peer_alive(&state, handle)

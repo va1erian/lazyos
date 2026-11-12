@@ -29,8 +29,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 
+use libmessenger::client::{CallError, Deadline};
+use user::messenger::client::Native;
 use user::messenger::mime;
-use user::messenger::pkgd::{self, Client, Failure, Installed, PackageInfo};
+use user::messenger::pkgd::{self, Client, Installed, PackageInfo};
 use user::sys;
 
 const USAGE: &str = "usage: pkgctl <inspect|install|remove|list|open|develop> [args]\n\
@@ -67,8 +69,8 @@ fn say(text: &str) {
     sys::write_str("\n");
 }
 
-fn failed(failure: Failure) -> String {
-    format!("pkgctl: {}", failure.text)
+fn failed(failure: CallError) -> String {
+    format!("pkgctl: {}", failure.message())
 }
 
 fn run(args: &[String]) -> Result<(), String> {
@@ -85,7 +87,7 @@ fn run(args: &[String]) -> Result<(), String> {
     if command == Some("develop") {
         return open_with_installer(arg(args, "develop <path>")?, "develop");
     }
-    let client = Client::connect_waiting().map_err(|error| {
+    let client = Client::connect(Native).map_err(|error| {
         format!(
             "pkgctl: the package manager is not running: {}",
             error.message()
@@ -94,12 +96,18 @@ fn run(args: &[String]) -> Result<(), String> {
     match command {
         Some("inspect") => {
             let path = arg(args, "inspect <path>")?;
-            show_info(&client.inspect(path).map_err(failed)?);
+            show_info(
+                &client
+                    .inspect_within(path, Deadline::Never)
+                    .map_err(failed)?,
+            );
             Ok(())
         }
         Some("install") => {
             let path = arg(args, "install <path>")?;
-            let app = client.install(path).map_err(failed)?;
+            let app = client
+                .install_within(path, Deadline::Never)
+                .map_err(failed)?;
             say(&format!(
                 "PKGCTL:INSTALL:PASS {} {} {}",
                 app.system_name, app.version, app.install_dir
@@ -108,12 +116,14 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         Some("remove") => {
             let name = arg(args, "remove <system-name>")?;
-            client.remove(name).map_err(failed)?;
+            client
+                .remove_within(name, Deadline::Never)
+                .map_err(failed)?;
             say(&format!("PKGCTL:REMOVE:PASS {name}"));
             Ok(())
         }
         _ => {
-            let apps = client.list().map_err(failed)?;
+            let apps = client.list_within(Deadline::Never).map_err(failed)?;
             say(&format!("PKGCTL:LIST:{}", apps.len()));
             for app in &apps {
                 show_installed(app);
@@ -131,10 +141,10 @@ fn run(args: &[String]) -> Result<(), String> {
 /// `pkgctl develop <path>` is the same with the `develop` verb: the route an
 /// IDE takes to have a project's development run approved (issue #529).
 fn open_with_installer(path: &str, verb: &str) -> Result<(), String> {
-    let mimed = mime::Client::connect()
+    let mimed = mime::Client::connect(user::messenger::client::Native)
         .map_err(|error| format!("pkgctl: mimed is not running: {}", error.message()))?;
     let opened = mimed
-        .open(path, verb)
+        .open_within(path, verb, Deadline::Never)
         .map_err(|error| format!("pkgctl: open failed: {}", error.message()))?;
     if !opened.launched {
         return Err(format!(

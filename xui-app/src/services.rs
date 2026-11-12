@@ -2,32 +2,23 @@
 //! supervision table joined with `healthd`'s retained health rows.
 //!
 //! Both calls go through the generated `os.lazy.init.v1` and
-//! `os.lazy.healthd.v1` stubs, never hand-written field ids. Both services are
+//! `os.lazy.healthd.v1` clients, never hand-written field ids. Both services are
 //! read without any capability: `Services` and `Status` are snapshots open to
 //! every task. Every reply is untrusted, so rows are capped, text is stripped
 //! of control characters and shortened before it reaches the painter.
 //!
 //! Neither service exists in an image built without `LAZYOS_SERVICES=1`, so a
 //! missing name is resolved once per refresh and reported as an errno instead
-//! of blocking the UI thread (`Service::try_connect`). Both calls run on the
-//! UI thread, so each is bounded by [`CALL_TICKS`]: a peer that accepts the
-//! request and never answers costs one refresh, not the whole window.
+//! of blocking the UI thread (`wire::Client::try_connect`). Both calls run on the
+//! UI thread, so each waits only what the `.midl` states (half of the 1 s
+//! refresh period): a peer that accepts the request and never answers costs one
+//! refresh, not the whole window.
 
-use libmessenger::client::Deadline;
 use messenger_generated::os_lazy_healthd_v1 as health_wire;
 use messenger_generated::os_lazy_init_v1 as init_wire;
 
-use crate::platform::messenger::Service;
+use crate::platform::messenger::client;
 use crate::sys::errno;
-
-/// The supervisor's registered name.
-const INIT_NAME: &str = init_wire::SERVICE_NAME;
-/// The health aggregator's registered name.
-const HEALTHD_NAME: &str = health_wire::SERVICE_NAME;
-/// How long one snapshot call may wait for its reply (PIT ticks, 100 Hz): half
-/// of the 1 s refresh period, so a stuck peer never stalls the event loop for
-/// longer than a frame or two of input.
-pub const CALL_TICKS: u64 = 50;
 
 /// The most rows the view keeps; `init` supervises a few dozen at most, so a
 /// longer reply is a broken or hostile peer, not a bigger system.
@@ -132,32 +123,13 @@ impl Services {
 
 /// Read both services now. Never blocks on a service that is not registered.
 pub fn fetch() -> Services {
-    let table = call(
-        INIT_NAME,
-        init_wire::INTERFACE_ID,
-        init_wire::METHOD_SERVICES,
-    )
-    .and_then(|body| {
-        init_wire::decode_services_reply(&body)
-            .map(|reply| reply.services)
-            .map_err(|_| -errno::EINVAL)
-    });
-    let health = call(
-        HEALTHD_NAME,
-        health_wire::INTERFACE_ID,
-        health_wire::METHOD_STATUS,
-    )
-    .and_then(|body| health_wire::decode_status_reply(&body).map_err(|_| -errno::EINVAL));
+    let table = client(init_wire::Client::try_connect)
+        .map_err(|_| -errno::ENOENT)
+        .and_then(|init| init.services().map_err(i64::from));
+    let health = client(health_wire::Client::try_connect)
+        .map_err(|_| -errno::ENOENT)
+        .and_then(|healthd| healthd.status().map_err(i64::from));
     assemble(table, health)
-}
-
-/// One argument-less call on `name`, returning the reply body.
-fn call(name: &'static str, interface: u64, method: u32) -> Result<Vec<u8>, i64> {
-    let service = Service::try_connect(name).ok_or(-errno::ENOENT)?;
-    service
-        .call(interface, method, Vec::new(), Deadline::ticks(CALL_TICKS))
-        .map(|reply| reply.body)
-        .map_err(i64::from)
 }
 
 /// Combine the two (possibly failed) replies into one view.

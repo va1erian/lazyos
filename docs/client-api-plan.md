@@ -6,9 +6,13 @@ with a plan to make apps smaller, make every client behave the same way, and
 make the IDL the only place a protocol is written.
 
 Status: in progress (2026-11-11). Built: C1 (the client runtime, section
-3.4) and C2a (the `service`, `errors`, `scope` and `deadline` syntax, their
+3.4), C2a (the `service`, `errors`, `scope` and `deadline` syntax, their
 generated constants and the per-interface crate layout, sections 3.1 and
-3.6). The rest is not.
+3.6) and C2b (the generated Rust client, section 3.2; `user::messenger::timed`
+and the xui `platform/notify.rs` already use it) and X1 (`xui_app::app(..)`,
+section 4.1: `.opens` takes a path-to-message function and `.drops` a
+paths-to-message one, since the MIME types an app opens live in its
+manifest; `lrplay` still starts lazily on its own). The rest is not.
 
 Related: [messenger.md](messenger.md) (sections 11 and 15),
 [midl.md](midl.md), [lazyrad-messenger-plan.md](lazyrad-messenger-plan.md)
@@ -125,8 +129,9 @@ set-up written differently:
   golf, LazySky) and `Host.log` closures; three panic hooks.
 * **Worker to UI thread:** four mechanisms (`Proxy::send`; mpsc polled from a
   timer; an `Arc<Mutex<Option<..>>>` slot polled from a timer; custom wake
-  callbacks). `archiver/src/job.rs:4` and `pdfview/src/worker.rs:5` say the
-  backend has no cross-thread waker; `backend/wakeup.rs` is one.
+  callbacks). `archiver/src/job.rs:4` and `pdfview/src/worker.rs:5` said the
+  backend has no cross-thread waker; `backend/wakeup.rs` is one. (X3 replaced
+  all four with `xui_app::work`, section 4.3.)
 * **Per-app services re-derived:** settings (confd keys built with `format!`
   in six places, a TOML file in LazySky, environment variables in Mail, a
   `recent.txt` in NES); the app data directory three ways; `$HOME` resolved
@@ -218,6 +223,67 @@ generated `errors` module and mapped to the interface's `errors` enum.
 `oneway` methods return `Result<(), CallError<_>>` without waiting. A
 `call_async` form returns a `Pending<R>` whose completion a UI hands to its
 `Proxy` (section 4.3), so no UI thread ever blocks on a service.
+
+As built (C2b; the user-facing description is [midl.md](midl.md), "Generated
+client"): the client is `Client<T: Transport>` in the interface's module, behind
+`<interface>_client`, and its error alias is `ClientError`
+(`CallError<ServiceError>`, or `CallError` without `errors`). Where the runtime
+forced a change to the sketch above:
+
+* **Deadlines.** `with_deadline(&self, ..) -> Self` cannot exist (a
+  `Connection` is not `Clone`: it owns the cached handle), so the one override
+  is per call, `<method>_within(.., Deadline)`. A method without a `deadline`
+  waits `libmessenger::client::DEFAULT_DEADLINE`, 5 s: `CALL_TICKS = 500` is
+  the most common hand-written bound and the clipboard's longer bound.
+* **`_begin` is not built.** `Transport` has no asynchronous call; the xui
+  lane (`platform::messenger::call_async` over `backend::calls::begin`) is
+  outside it.
+  Section 4.5's `Pending<R>` needs a `begin`/`complete` pair on the transport
+  first; until then a UI-thread caller keeps its existing lane for those calls.
+* **Families.** A family member (`os.lazy.net.nic/eth0`) is a
+  `Connection::named(.., format!("{prefix}{instance}"))` handed to
+  `Client::from_connection`; the connection owns its name.
+* **Copies.** The generated `XxxArgs` structs own their fields, so a borrowed
+  argument (`&str`, `&[u8]`) is copied once before it is encoded; a large
+  `Bytes` argument pays one extra `memcpy` (use a `Buffer`, which is shared).
+* **Mapping.** `Service(ServiceError)` carries the code only; a service's
+  sentence and detail survive on an undeclared code (`Remote`). A malformed
+  reply is `Transport(EBADMSG)`, an unencodable request `Transport(EINVAL)`.
+* **Which interfaces.** No client for a kernel scope (`KERNEL_SCOPES`) or an
+  interface no `service` serves. `Connection::send` now takes the objects of a
+  `oneway` request, and `Mock` records them.
+
+As built (C3, the xui half): every client in `xui-app` and `lazyrad-os`'s
+failure report goes through the generated `wire::Client<Observed>`, and
+`Service`'s `call`, `call_moving` and `send_oneway` are gone. One helper holds
+them: `xui_app::platform::messenger::client(wire::Client::connect)` (or
+`try_connect`, for a caller that must not wait for the service) returns this
+thread's `Rc<Client>`, made on first use and kept for the thread, so no module
+keeps a cache of its own; `instance_client(prefix, instance,
+wire::Client::from_connection)` does the same for a family member. What stays
+hand-framed, and why:
+
+* `platform::messenger::call_async`, the pkgd install's non-parking lane (no
+  generated `_begin` yet, see above).
+* The raw transports of libraries whose seam is method id, body and objects:
+  `libs/audioclient` (`platform::audio`), `libs/trayclient` (`tray`) and
+  `xui-webd-client` (`platform::webd`, one seam over the light and the full
+  interface). They hold a `Connection` of their own (`Connection::named`) and
+  call `Connection::call`/`send`; moving them to generated clients is a change
+  of those libraries' `Transport` traits, not of the xui side.
+* The topic subscriptions (`fabric`, `platform::topic_feed`,
+  `shell::failures`, the LazyRAD handoff): C5. Their `Subscribe`/`NextEvent`
+  calls already use the generated client, but the pull loops stay.
+* The LazyRAD handoff's `Transport` seam (`lazyrad-os/src/transport.rs`):
+  its 426 lines of tests script that trait, and the crate does not build on
+  this tree's xui pin (its `lazyrad-ide` git dependency is older than the xui
+  revision), so it keeps the seam over `instance_client("", name,
+  identity)` until it can be built and migrated onto `Mock`.
+
+`tools/xui/check_call_bounds.py` polices the new form: a file that builds a
+generated client of an interface may not call a method the `.midl` gives no
+`deadline=` (it would wait the 5 s default unseen); use `<method>_within`
+where one caller needs another bound.
 
 ### 3.3 Generated server
 
@@ -358,6 +424,46 @@ the timer-polled mpsc and mutex slots in pdfview, archiver, golf, LazySky
 and `net/web.rs`, and is how a `Pending<R>` from a generated async call
 reaches the UI. Progress uses the same channel.
 
+**As built (X3).** The helper is the tiny crate `xui-app/crates/work`
+(`xui-work`, re-exported as `xui_app::work`), over xui's `Proxy` (whose
+`send` already ends in the backend's waker). It lives in its own crate rather
+than in `xui-app` because the portable, host-tested app crates (pdfview,
+archiver, golf, lazysky-ui, explorer, settings) depend on `xui-core` only and
+must not gain `xui-app`; `xui-work` needs nothing else. There is no
+`AppContext` yet (X2), so the calls take the window's `ui.proxy()` (or a
+`Sink`) instead of `cx`:
+
+* `work::spawn(&proxy, "name", || work(), |result| Msg::Done(result))`: a
+  named thread; `result` is `Result<R, Failed>`, so a thread that cannot
+  start or a panic still answers (under the image's `panic = "abort"` a panic
+  ends the process, as everywhere).
+* `work::spawn_with(&proxy, name, |report| .., Msg::Progress, Msg::Done)`: the
+  same with `report.report(p)`, `report.paced(gap, || p)` and
+  `report.cancelled()`; the returned `Job` cancels on drop (`detach()` opts
+  out).
+* `work::Queue`: one long-lived worker for a stream of requests (`start`, or
+  `start_latest` to skip a burst's stale ones): the docs loader and the
+  desktop scanner.
+* `work::Sink<R>` (a handle that posts `R` as the app's message; `Sink::bell`
+  for a doorbell) and `work::inbox` (a queue of small results behind one
+  doorbell message, drained in batches): pdfview's render threads, LazySky's
+  layout thread, the explorer's thumbnails and paste, LazyWeb's relay.
+
+Migrated: pdfview (tiles as `Msg::Tile`, a document epoch drops tiles of a
+closed file; the 30 ms drain timer is gone), archiver (`Msg::Progress` and
+`Msg::Finished`; `lazyarc::Progress::observed` tells the window at most every
+100 ms; the poll timer is gone), golf (`Msg::Gen`, a generation number drops
+a superseded search), lazysky-ui (layout rows through an inbox; a `Msg::Laid`
+doorbell promotes the tick), explorer (thumbnails through an inbox, paste
+through `spawn`), settings (elevated changes through `spawn`, `Done::Lost` on
+failure), docs loader and `desk-scan` (`Queue`), Net Tools' fetch (`spawn`,
+the status refresh timer stays), LazyWeb (`Waker` replaced by `Sink::bell`).
+Not migrated, on purpose: frame clocks (golf's and the video player's frame
+timers pace drawing, they do not poll for a result), LazySky's tick for the
+core's events and pictures (its own design, R5/R8), the Playground's runner
+wake, and LazyWeb's helper threads whose doorbell already is a `Proxy`
+send.
+
 ### 4.4 Shared plumbing, once
 
 * One `atomic_write` (in `libs/fhs` or a small std helper crate) for the 16
@@ -415,14 +521,14 @@ leaves `main` green.
 | C1 | `Transport`, `Connection`, `CallError`, `Errno`, `Mock` in `libmessenger`; native and std transports; registry-subscription wait | the four connect/cache implementations, `CONNECT_TICKS` copies |
 | C1b (built) | Kernel registry: `WaitFor` parks a resolve until the name registers, with kernel correctness and stress tests (`ipc_registry_wait_*`); both transports block on it | the resolve sleep loops |
 | C2a | midlc: `service`, `errors`, `scope`, `deadline` syntax and their generated constants; per-interface modules and features | service-name literals, `fnv1a64` copies, confd/clipboard constant copies |
-| C2b | Rust client generation over C1's `Transport` (blocking and `_begin` forms); conformance tests for the client against the corpus through `Mock` | (enables C3) |
-| C3 | Migrate clients interface by interface (confd, init, topics, clipboard first: the most duplicated); `user::messenger::*` and `xui_app::platform::*` keep only domain adapters | per-module `fn header`/`fn parcel`/`error_code`, `Service::call_*` |
+| C2b | **Built.** Rust client generation over C1's `Transport` (blocking forms; `_begin` waits for an asynchronous transport call); host tests through `Mock` (`libs/generated/tests/client.rs`); `timed` and `notify` migrated as proof | (enables C3) |
+| C3 | Migrate clients interface by interface (confd, init, topics, clipboard first: the most duplicated); `user::messenger::*` and `xui_app::platform::*` keep only domain adapters. **Native half built for** confd, mimed, pkgd, accountsd, keyd, logind, mountd, devd, gpud, usb audio, init, healthd, logd, sysmond and the clipboard (`user/src/messenger/<svc>.rs` is `pub type Client = wire::Client<Native>` plus domain meaning; slow calls keep `Deadline::Never`, `Nested` carries the clipboard's `ALLOW_NESTED`). Not yet: `net`/`netstack`/`netsock`/`netstd`, `wifi`, `display`, `input`, the `audioclient`/`trayclient` seams, and the xui lane | per-module `fn header`/`fn parcel`/`error_code`, `Service::call_*` |
 | C4 | Server generation and `dispatch`; migrate daemons, starting with small ones (`timed`, `mimed`, `pkgd`) then `xuid`, `netd`, `inputd` | 469 dispatch arms, 16 `error_reply`, `xui-app/src/server.rs` |
 | C5 | Typed bell subscriptions; move `init`/`healthd` off the interim router; declare or drop the undeclared topics | `topic_feed`, `router`, three ad hoc pollers |
 | C6 | `check_handrolled.py --ratchet` in CI | (keeps it from coming back) |
 | X1 | `xui_app::app(..)` builder, `.opens`, panic hook, `finish`; new template; migrate every bin | `themed.rs`, outboxes, seven launch paths |
 | X2 | `AppContext`: settings, dirs, recent, dialogs, error, files | four `Host` structs, `format!` confd keys, `$HOME` lookups |
-| X3 | `cx.spawn` | four worker handoff mechanisms |
+| X3 | **Built** (`xui_app::work`, section 4.3; `cx.spawn` follows X2) | four worker handoff mechanisms |
 | X4 | Shared plumbing (4.4) and the marker migration | atomic-write, image, zip, HTTP copies; `println!` markers |
 
 C1, C2a and X1 are independent and run in parallel; C2b needs C1 and C2a;

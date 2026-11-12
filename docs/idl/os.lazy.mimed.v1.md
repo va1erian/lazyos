@@ -25,6 +25,12 @@ as a typed reply.
 
 - Served under the registry name `os.lazy.mimed`; registered once.
 
+## Scopes and deadlines
+
+| Method | Scope interface | Scope id | Deadline |
+|---|---|---|---|
+| Open | this interface | - | 2000 ms |
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

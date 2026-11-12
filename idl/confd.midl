@@ -30,18 +30,18 @@ interface os.lazy.confd.v1 {
 
     /// Read the value at `path`. An absent path has an empty `value`.
     /// A path the caller may not read fails with `Denied`.
-    method Get(path: String = 1) -> (value: Option<Value> = 1);
+    method Get(path: String = 1) -> (value: Option<Value> = 1) deadline=2s;
     /// Create or overwrite `path`; the change is persisted before the reply.
-    method Set(path: String = 1, value: Value = 2) -> ();
+    method Set(path: String = 1, value: Value = 2) -> () deadline=2s;
     /// Remove `path`; deleting an absent path succeeds.
-    method Delete(path: String = 1) -> ();
+    method Delete(path: String = 1) -> () deadline=2s;
     /// Every path the caller may read under `prefix`, in sorted order.
-    method List(prefix: String = 1) -> (paths: Array<String> = 1);
+    method List(prefix: String = 1) -> (paths: Array<String> = 1) deadline=2s;
     /// Where the store lives: the directory confd chose and whether it
     /// survives a reboot (`/conf`; `false` when it fell back to the ramfs
     /// `/transient/conf`).
     /// Not restricted by path, so any caller may ask.
-    method Info() -> (store_dir: String = 1, persistent: Bool = 2);
+    method Info() -> (store_dir: String = 1, persistent: Bool = 2) deadline=2s;
 
     /// One typed value. `kind` selects which optional payload field is set.
     struct Value {

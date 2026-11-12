@@ -68,10 +68,13 @@ use elevpolicy::approvals::{Approvals, Caller, LabelKind, LabelKinds};
 use elevpolicy::backoff::{Backoff, Hold};
 use elevpolicy::queue::Queue;
 use elevpolicy::{Class, Operation};
+use libmessenger::client::{CallError, Deadline};
 use libmessenger::{Encoder, Parcel};
 use messenger_generated::errors::ERROR_FIELD;
 use messenger_generated::os_lazy_elevd_v1 as wire;
-use user::messenger::{self, accounts, errno, pkgd, registry, services, Endpoint, Error, Message};
+use user::messenger::accounts::Directory;
+use user::messenger::client::Native;
+use user::messenger::{self, accounts, errno, pkgd, registry, services, Endpoint, Message};
 use user::sys;
 
 use approve::Verdict;
@@ -110,10 +113,10 @@ impl Refusal {
         Refusal(code, text.to_string())
     }
 
-    /// A service's refusal, as it reported it.
-    pub(crate) fn of(error: Error) -> Refusal {
-        let code = error.errno().map(|code| -code).unwrap_or(errno::EIO);
-        Refusal(code, error.message().to_string())
+    /// The refusal of a generated client's call: the service's own code and
+    /// sentence, or the transport's errno.
+    pub(crate) fn of_call(error: CallError) -> Refusal {
+        Refusal(-error.code(), error.message().to_string())
     }
 }
 
@@ -252,10 +255,11 @@ fn label_kind(state: &mut State, caller: Caller, class: Class) -> LabelKind {
     if let Some(kind) = state.label_kinds.get(caller.label) {
         return kind;
     }
-    let deadline = sys::clock().saturating_add(LABEL_NAME_TICKS);
-    let name = pkgd::Client::connect()
-        .ok()
-        .and_then(|client| client.label_name_until(caller.label, Some(deadline)).ok());
+    let name = pkgd::Client::try_connect(Native).ok().and_then(|client| {
+        client
+            .label_name_within(caller.label, Deadline::ticks(LABEL_NAME_TICKS))
+            .ok()
+    });
     let kind = LabelKind::of(caller.label, name.as_deref());
     state.label_kinds.put(caller.label, kind);
     kind
@@ -286,9 +290,9 @@ fn request(
             "only a program of a login session may ask for an administrator",
         ));
     }
-    let asker = accounts_endpoint()
+    let asker = accounts_client()
         .ok()
-        .and_then(|endpoint| accounts::lookup_uid(&endpoint, caller.uid).ok().flatten());
+        .and_then(|client| client.lookup_uid(caller.uid).ok().flatten());
     record.user = asker.as_ref().map_or_else(
         || alloc::format!("uid {}", caller.uid),
         |user| user.name.clone(),
@@ -372,9 +376,9 @@ fn request(
     }
 }
 
-/// `accountsd`'s endpoint.
-pub(crate) fn accounts_endpoint() -> messenger::Result<messenger::Endpoint> {
-    registry::resolve(accounts::NAME)
+/// A client of `accountsd` (one attempt: it may not be up).
+pub(crate) fn accounts_client() -> Result<accounts::Client, CallError> {
+    accounts::Client::try_connect(Native)
 }
 
 /// A reply of `method` carrying `body`.

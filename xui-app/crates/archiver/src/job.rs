@@ -1,16 +1,23 @@
 //! Long operations on a worker thread.
 //!
 //! A [`Job`] runs one [`Task`] on its own thread with a shared
-//! [`Progress`]; the window polls [`Job::poll`] from a timer (LazyOS's
-//! backend has no cross-thread waker, as Net Tools found) and reads the
-//! progress for its bar. Every task that changes an archive reopens it on the
-//! worker too, so the window only ever swaps in a finished [`Archive`].
+//! [`Progress`]. The worker answers the window with messages (`xui-work`,
+//! through the backend's waker): [`Msg::Progress`](crate::app::Msg) when the
+//! progress moved (at most every [`PROGRESS_GAP`], for the window's bar) and
+//! [`Msg::Finished`](crate::app::Msg) with the outcome. Every task that
+//! changes an archive reopens it on the worker too, so the window only ever
+//! swaps in a finished [`Archive`].
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use lazyarc::extract::{self, Options, Report};
 use lazyarc::{create, rewrite, Archive, Error, Format, Level, Progress, Source};
+use xui_work::Sink;
+
+/// How often a running task's progress moves the window's bar.
+pub const PROGRESS_GAP: Duration = Duration::from_millis(100);
 
 /// What to do.
 #[derive(Clone, Debug)]
@@ -88,39 +95,55 @@ pub enum Outcome {
     Unpacked(PathBuf),
 }
 
-type Slot = Arc<Mutex<Option<Result<Outcome, Error>>>>;
+/// What a finished task left, in a message: taken once by the window.
+#[derive(Clone, Debug)]
+pub struct Finished(Arc<Mutex<Option<Result<Outcome, Error>>>>);
+
+impl Finished {
+    fn new(outcome: Result<Outcome, Error>) -> Finished {
+        Finished(Arc::new(Mutex::new(Some(outcome))))
+    }
+
+    /// The outcome (once; `None` after).
+    pub fn take(&self) -> Option<Result<Outcome, Error>> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).take()
+    }
+}
 
 /// A task running on its worker thread.
 pub struct Job {
     pub task: Task,
     pub progress: Arc<Progress>,
-    slot: Slot,
 }
 
 impl Job {
     /// Start `task` against `archive` (the open one, for tasks that need it).
-    pub fn start(task: Task, archive: Option<Arc<Archive>>) -> Result<Job, String> {
-        let progress = Arc::new(Progress::new());
-        let slot: Slot = Arc::default();
-        let (worker_task, worker_progress, worker_slot) =
-            (task.clone(), Arc::clone(&progress), Arc::clone(&slot));
-        std::thread::Builder::new()
-            .name("archiver-job".into())
-            .spawn(move || {
-                let outcome = run(worker_task, archive.as_deref(), &worker_progress);
-                *worker_slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(outcome);
-            })
-            .map_err(|error| format!("could not start a worker thread: {error}"))?;
-        Ok(Job {
+    /// `progress` is rung when the task's progress moves; `finished` gets the
+    /// outcome, also when the worker could not start or panicked.
+    pub fn start(
+        task: Task,
+        archive: Option<Arc<Archive>>,
+        progress: Sink<()>,
+        finished: Sink<Finished>,
+    ) -> Job {
+        let shared = Arc::new(Progress::observed(PROGRESS_GAP, move || {
+            progress.ring();
+        }));
+        let (worker_task, worker_progress) = (task.clone(), Arc::clone(&shared));
+        xui_work::spawn(
+            &finished,
+            "archiver-job",
+            move || run(worker_task, archive.as_deref(), &worker_progress),
+            |result| {
+                Finished::new(
+                    result.unwrap_or_else(|failed| Err(Error::unsupported(failed.to_string()))),
+                )
+            },
+        );
+        Job {
             task,
-            progress,
-            slot,
-        })
-    }
-
-    /// The outcome, once the task has finished.
-    pub fn poll(&self) -> Option<Result<Outcome, Error>> {
-        self.slot.lock().unwrap_or_else(|e| e.into_inner()).take()
+            progress: shared,
+        }
     }
 
     /// Ask the task to stop.
@@ -226,7 +249,10 @@ mod tests {
         let file = dir.join("a.txt");
         std::fs::write(&file, "hello").unwrap();
         let dest = dir.join("a.zip");
-        let job = Job::start(
+        let (tx, rx) = std::sync::mpsc::channel();
+        let tx = Mutex::new(tx);
+        let finished = Sink::from_fn(move |done| tx.lock().unwrap().send(done).is_ok());
+        let _job = Job::start(
             Task::Create {
                 dest: dest.clone(),
                 format: Format::Zip,
@@ -234,14 +260,14 @@ mod tests {
                 sources: vec![file],
             },
             None,
-        )
-        .unwrap();
-        let outcome = loop {
-            if let Some(outcome) = job.poll() {
-                break outcome;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        };
+            Sink::from_fn(|()| true),
+            finished,
+        );
+        let outcome = rx
+            .recv_timeout(Duration::from_secs(30))
+            .unwrap()
+            .take()
+            .unwrap();
         match outcome.unwrap() {
             Outcome::Changed { archive, verb, .. } => {
                 assert_eq!(verb, "Created");

@@ -17,7 +17,7 @@ pub use client::*;
 pub use protocol::*;
 
 /// The service's registered name.
-pub const NAME: &str = "os.lazy.clipboard";
+pub const NAME: &str = wire::SERVICE_NAME;
 
 /// The generated `os.lazy.clipboard.v1` stubs (`idl/clipboard.midl`).
 pub use messenger_generated::os_lazy_clipboard_v1 as wire;

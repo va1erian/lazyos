@@ -29,6 +29,8 @@ pub const SERVICE_NAME: &str = "os.lazy.init.app";
 
 /// `Watch` method id.
 pub const METHOD_WATCH: u32 = 1;
+/// How long a client waits for `Watch`'s reply, in milliseconds.
+pub const METHOD_WATCH_DEADLINE_MS: u32 = 1000;
 
 /// Ask for this instance's lifecycle events; replaces an earlier channel.
 /// `Reopen`s queued before the first `Watch` (at most 16, the oldest
@@ -76,3 +78,67 @@ pub const WATCH_OBJECTS: &[objects::Kind] = &[objects::Kind::Channel];
 pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
     (METHOD_WATCH, WATCH_OBJECTS),
 ];
+
+#[cfg(feature = "init_app_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "init_app_v1_client")]
+/// A client of `os.lazy.init.app.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "init_app_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Ask for this instance's lifecycle events; replaces an earlier channel.
+    /// `Reopen`s queued before the first `Watch` (at most 16, the oldest
+    /// dropped first) are sent on it at once, in order; a `Stop` pending at
+    /// that moment sends `Quit` with the grace remaining.
+    ///
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    pub fn watch(&self, events: u64) -> Result<(), ClientError> {
+        self.watch_within(events, libmessenger::client::Deadline::millis(METHOD_WATCH_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::watch`] with the caller's deadline instead of the IDL's.
+    pub fn watch_within(&self, events: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let (wire_body, wire_objects) = encode_watch_args(&WatchArgs { events }).map_err(ClientError::bad_request)?;
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_WATCH, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+}

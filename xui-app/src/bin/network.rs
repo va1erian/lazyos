@@ -22,12 +22,12 @@
 //! `wifi_networks`, `wifi_passphrase`, `wifi_join`, `wifi_leave`, `wifi_scan`,
 //! `wifi_hidden`, `wifi_forget` and `wifi_join_hidden`.
 
-use xui_app::launch;
 use xui_app::net::apply;
 use xui_app::net::model::{self, Form, NetStatus};
 use xui_app::net::stack;
 use xui_app::platform::confd_store::ConfdStore;
 use xui_app::platform::elevd;
+use xui_app::trace::{self, Channel};
 use xui_core::app::{App, Ui};
 use xui_core::prelude::*;
 use xui_core::widget::RadioGroup;
@@ -407,39 +407,40 @@ fn main() {
     // without, the Ethernet-only window the sessions know.
     let wifi = wifipage::Page::detect();
     let size = if wifi.is_some() { WINDOW_WIFI } else { WINDOW };
-    launch::run(xui_app::trace::Channel::Netapp, TITLE, size, move |ui, backend| {
-        backend.on_first_frame(|| println!("NETAPP:UP:PASS"));
-        let w = Widgets::default();
-        let mut wifi = wifi;
-        let tab_bar = Handle::<Tabs<Msg>>::default();
-        let root = match wifi.as_ref() {
-            Some(page) => column().children((tabs()
-                .page("Status", w.layout())
-                .page("Wi-Fi", page.layout())
-                .on_change(|_| Msg::Tab)
-                .bind(&tab_bar)
-                .fill(1),)),
-            None => w.layout(),
-        };
-        ui.root(root)
-            .inspect_err(|error| println!("NETAPP:BUILD:FAIL:{error}"))?;
-        ui.every(REFRESH_MILLIS, Msg::Tick);
-        ui.on_close(|| Some(Msg::Close));
-        if let Some(page) = wifi.as_mut() {
-            page.start();
-        }
-        let mut app = Network {
-            w,
-            store: ConfdStore::new(),
-            status: None,
-            selected: None,
-            wifi,
-            tabs: tab_bar,
-            probe_due: true,
-            reported: None,
-            form_card: None,
-        };
-        app.refresh();
-        Ok(app)
-    })
+    xui_app::app(Channel::Netapp, TITLE)
+        .size(size.0, size.1)
+        .run(move |ui, _backend| {
+            let w = Widgets::default();
+            let mut wifi = wifi;
+            let tab_bar = Handle::<Tabs<Msg>>::default();
+            let root = match wifi.as_ref() {
+                Some(page) => column().children((tabs()
+                    .page("Status", w.layout())
+                    .page("Wi-Fi", page.layout())
+                    .on_change(|_| Msg::Tab)
+                    .bind(&tab_bar)
+                    .fill(1),)),
+                None => w.layout(),
+            };
+            ui.root(root)
+                .inspect_err(|error| trace::fail!(Channel::Netapp, "BUILD", "{error}"))?;
+            ui.every(REFRESH_MILLIS, Msg::Tick);
+            ui.on_close(|| Some(Msg::Close));
+            if let Some(page) = wifi.as_mut() {
+                page.start();
+            }
+            let mut app = Network {
+                w,
+                store: ConfdStore::new(),
+                status: None,
+                selected: None,
+                wifi,
+                tabs: tab_bar,
+                probe_due: true,
+                reported: None,
+                form_card: None,
+            };
+            app.refresh();
+            Ok(app)
+        })
 }

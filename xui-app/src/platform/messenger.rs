@@ -1,31 +1,26 @@
-//! A tiny synchronous Messenger client for the platform services (mimed,
-//! clipboardd) the migrated apps call.
+//! How an xui program holds a Messenger client: one generated client per
+//! interface per thread, over the std transport with the UI-thread stall trace.
 //!
-//! The display client ([`crate::display`]) has its own endpoint because it also
-//! receives one-way events; the platform services are request/reply only. The
-//! resolve, handle cache, reconnect-once and error-field decoding are
-//! [`libmessenger::client::Connection`] over the std transport
-//! ([`lazyos_sys::client::Std`]), shared by every runtime; this module keeps
-//! one `Connection` per service name per thread and adds the UI-thread stall
-//! trace. It never writes wire fields by hand: bodies are built with the
-//! generated `messenger-generated` stubs.
-//!
-//! A resolved handle is released when its connection is dropped (the kernel
-//! opens every resolver onto the service's single endpoint, and `release`
-//! closes a side only when no other handle names it), so a connection is
-//! kept for the life of the thread: it is shared by every [`Service`] of
-//! that name. A call that finds the peer gone drops the handle, resolves a
-//! restarted service once and retries once.
+//! The registry name, header ids, deadlines and error mapping all come from the
+//! interface's `.midl` (`messenger_generated::<interface>::Client`); nothing
+//! here frames a request. [`client`] connects a generated client on first use
+//! and keeps it for the life of the thread: a resolved handle is released when
+//! its [`Connection`] drops (the kernel opens every resolver onto the
+//! service's single endpoint, and `release` closes a side only when no other
+//! handle names it), so the client is kept, not rebuilt per call. A call that
+//! finds the peer gone drops the handle, resolves a restarted service once and
+//! retries once ([`Connection`]).
 
+use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use lazyos_sys::client::Std;
 use libmessenger::client::{is_peer_gone, Connection, Errno, Handle, Transport};
 pub use libmessenger::client::{CallError, Deadline};
-use libmessenger::{Object, Parcel};
+use libmessenger::Parcel;
 
-use crate::sys::{self, errno};
+use crate::sys;
 
 /// The std transport with the UI-thread stall trace: a resolve or a call
 /// that holds the thread longer than [`crate::stall::SLOW_NS`] leaves a
@@ -80,9 +75,13 @@ impl Transport for Observed {
 /// A connection over the transport every xui program uses.
 pub type Conn = Connection<Observed>;
 
+/// What one thread keeps: a generated client by its type (and, for a member
+/// of a service family, the instance name).
+type Held = (TypeId, Option<String>, Rc<dyn Any>);
+
 thread_local! {
-    /// The connections of this thread, one per service name.
-    static SERVICES: RefCell<Vec<Rc<Conn>>> = const { RefCell::new(Vec::new()) };
+    /// The clients of this thread.
+    static CLIENTS: RefCell<Vec<Held>> = const { RefCell::new(Vec::new()) };
     /// Threads the tree's worker closures run on (`mark_worker`): a
     /// [`Deadline::Never`] call is only legitimate on them, and the UI-thread
     /// paths they share code with consult [`worker_thread`] to keep the
@@ -103,138 +102,121 @@ pub fn worker_thread() -> bool {
     WORKER.with(Cell::get)
 }
 
-/// This thread's connection to `name`, made on first use: what every
-/// client of a service in this process (the display, the input grab, the
-/// audio mixer, [`Service`]) shares, so a name resolves once.
-pub fn shared(name: &'static str) -> Rc<Conn> {
-    SERVICES.with(|services| {
-        let mut services = services.borrow_mut();
-        if let Some(known) = services.iter().find(|conn| conn.name() == name) {
-            return known.clone();
-        }
-        let conn = Rc::new(Connection::new(Observed::default(), name));
-        services.push(conn.clone());
-        conn
+fn held<C: 'static>(instance: Option<&str>) -> Option<Rc<C>> {
+    CLIENTS.with(|clients| {
+        let clients = clients.borrow();
+        let (_, _, any) = clients
+            .iter()
+            .find(|(id, name, _)| *id == TypeId::of::<C>() && name.as_deref() == instance)?;
+        any.clone().downcast::<C>().ok()
     })
 }
 
-/// A Messenger service by registry name.
-pub struct Service {
-    conn: Rc<Conn>,
+fn keep<C: 'static>(instance: Option<&str>, made: C) -> Rc<C> {
+    let made = Rc::new(made);
+    CLIENTS.with(|clients| {
+        clients.borrow_mut().push((
+            TypeId::of::<C>(),
+            instance.map(str::to_owned),
+            made.clone() as Rc<dyn Any>,
+        ));
+    });
+    made
 }
 
-impl Service {
-    /// The service `name`, waiting for it to register (services start
-    /// alongside the app, so a cold boot can race) for the std runtime's
-    /// connect bound; the negative errno when it never does.
-    pub fn connect(name: &'static str) -> Result<Service, i64> {
-        let conn = shared(name);
-        conn.connect().map_err(Errno::to_syscall)?;
-        Ok(Service { conn })
+/// This thread's generated client `C`, made on first use with `connect` and
+/// kept after: `wire::Client::connect` waits for the service to register (the
+/// std runtime's connect bound), `wire::Client::try_connect` makes one attempt,
+/// for a caller whose service being absent has a cheap fallback (the
+/// clipboard, the notifications) and which must never wait for it. A failed
+/// connect keeps nothing, so the next call tries again. The client is shared
+/// by everything on the thread, so a name resolves once.
+pub fn client<C: 'static, E>(
+    connect: fn(Observed) -> Result<C, CallError<E>>,
+) -> Result<Rc<C>, CallError<E>> {
+    if let Some(known) = held::<C>(None) {
+        return Ok(known);
     }
+    Ok(keep(None, connect(Observed::default())?))
+}
 
-    /// The service `name` if it is registered now, without waiting, so a
-    /// caller whose absence has a cheap fallback (the clipboard) never blocks.
-    pub fn try_connect(name: &'static str) -> Option<Service> {
-        let conn = shared(name);
-        conn.try_connect().ok()?;
-        Some(Service { conn })
+/// This thread's client `C` of the family member `instance` (the interface's
+/// `SERVICE_INSTANCE_PREFIX` and `instance`, such as `os.lazy.net.nic/eth0`),
+/// made with `wire::Client::from_connection` on first use. Nothing resolves
+/// until its first call.
+pub fn instance_client<C: 'static>(
+    prefix: &str,
+    instance: &str,
+    from_connection: fn(Conn) -> C,
+) -> Rc<C> {
+    let name = format!("{prefix}{instance}");
+    if let Some(known) = held::<C>(Some(&name)) {
+        return known;
     }
+    let conn = Connection::named(Observed::default(), name.clone());
+    keep(Some(&name), from_connection(conn))
+}
 
-    /// One synchronous call, answered within `until`: a call whose UI must
-    /// not freeze behind a stalled or missing service. [`Deadline::Never`]
-    /// is for worker threads only (`tools/xui/check_call_bounds.py` keeps it
-    /// off the UI thread). A structured error field in the reply is
-    /// [`CallError::Remote`], with the service's friendly text.
-    pub fn call(
-        &self,
-        interface: u64,
-        method: u32,
-        body: Vec<u8>,
-        until: Deadline,
-    ) -> Result<Parcel, CallError> {
-        self.call_moving(interface, method, body, Vec::new(), until)
-    }
-
-    /// [`Service::call`] whose request carries `objects` (what the generated
-    /// `encode_*_args` returned beside the body: the tray's `Set` moves its
-    /// event channel, `init`'s `Watch` likewise).
-    pub fn call_moving(
-        &self,
-        interface: u64,
-        method: u32,
-        body: Vec<u8>,
-        objects: Vec<Object>,
-        until: Deadline,
-    ) -> Result<Parcel, CallError> {
-        self.conn.call(interface, method, body, objects, until)
-    }
-
-    /// Begin a call and keep the window paintable while the service works
-    /// (issue #725's UI integration): the request goes out now and `on_done`
-    /// carries the reply, on the UI thread, at the tick the kernel's
-    /// `WAIT_CALLS` doorbell gave the loop. `until` [`Deadline::Never`] waits
-    /// for ever: the caller who began it is not parked, so only the app's own
-    /// patience for a still-open call is a bound. The lane runs on the thread
-    /// the backend's loop runs on (the only one whose `tick` drains it); a
-    /// call begun elsewhere waits for a drain that thread never makes, so do
-    /// not.
-    ///
-    /// The begin's own errors are transport failures; they arrive in
-    /// `on_done`'s result, and a dead peer evicts the cached handle, as for
-    /// [`Service::call`].
-    pub fn call_async(
-        &self,
-        interface: u64,
-        method: u32,
-        body: Vec<u8>,
-        until: Deadline,
-        on_done: Box<dyn FnOnce(Result<Parcel, CallError>)>,
-    ) -> Result<(), i64> {
-        let request = Conn::request(
-            interface,
-            method,
-            libmessenger::flags::ALLOW_NESTED,
-            body,
-            Vec::new(),
-        );
-        let mut bytes = Vec::new();
-        if request.encode(&mut bytes).is_err() {
-            return Err(-errno::EINVAL);
-        }
-        let handle = self.conn.connect().map_err(Errno::to_syscall)?;
-        let conn = self.conn.clone();
-        let deadline = until.absolute_ticks(sys::clock_ticks());
-        crate::backend::calls::begin(
-            handle,
-            &bytes,
-            deadline,
-            Box::new(move |result| {
-                on_done(match result {
-                    Ok(reply) => Conn::check(reply),
-                    Err(code) => {
-                        let errno = Errno::from_syscall(code);
-                        if is_peer_gone(errno) {
-                            conn.evict();
-                        }
-                        Err(CallError::Transport(errno))
+/// Begin a call and keep the window paintable while the service works
+/// (issue #725's UI integration): the request goes out now and `on_done`
+/// carries the reply, on the UI thread, at the tick the kernel's
+/// `WAIT_CALLS` doorbell gave the loop. `until` [`Deadline::Never`] waits
+/// for ever: the caller who began it is not parked, so only the app's own
+/// patience for a still-open call is a bound. The lane runs on the thread
+/// the backend's loop runs on (the only one whose `tick` drains it); a
+/// call begun elsewhere waits for a drain that thread never makes, so do
+/// not.
+///
+/// The generated clients have no asynchronous form yet (`docs/client-api-plan.md`
+/// 3.2: `_begin` waits for an asynchronous transport call), so this is the one
+/// place an xui program frames a request: `body` is what the interface's
+/// generated `encode_*_args` returned, and `connection` names the generated
+/// `client`'s [`Connection`] (`wire::Client::connection`).
+///
+/// The begin's own errors are transport failures; they arrive in `on_done`'s
+/// result, and a dead peer evicts the cached handle, as for a synchronous call.
+pub fn call_async<C: 'static>(
+    client: &Rc<C>,
+    connection: fn(&C) -> &Conn,
+    interface: u64,
+    method: u32,
+    body: Vec<u8>,
+    until: Deadline,
+    on_done: Box<dyn FnOnce(Result<Parcel, CallError>)>,
+) -> Result<(), Errno> {
+    let request = Conn::request(
+        interface,
+        method,
+        libmessenger::flags::ALLOW_NESTED,
+        body,
+        Vec::new(),
+    );
+    let mut bytes = Vec::new();
+    request.encode(&mut bytes).map_err(|_| Errno::INVAL)?;
+    let handle = connection(client).connect()?;
+    let owner = client.clone();
+    let deadline = until.absolute_ticks(sys::clock_ticks());
+    crate::backend::calls::begin(
+        handle,
+        &bytes,
+        deadline,
+        Box::new(move |result| {
+            on_done(match result {
+                Ok(reply) => Conn::check(reply),
+                Err(code) => {
+                    let errno = Errno::from_syscall(code);
+                    if is_peer_gone(errno) {
+                        connection(&owner).evict();
                     }
-                })
-            }),
-        )
-        .inspect_err(|&code| {
-            if is_peer_gone(Errno::from_syscall(code)) {
-                self.conn.evict();
-            }
-        })
-    }
-
-    /// A oneway message (`flags::ONE_WAY`): input and slot returns that
-    /// have no answer. Never parks. A dead peer evicts the cached handle, as
-    /// for a call.
-    pub fn send_oneway(&self, interface: u64, method: u32, body: Vec<u8>) -> Result<(), i64> {
-        self.conn
-            .send(interface, method, body)
-            .map_err(|error| error.code())
-    }
+                    Err(CallError::Transport(errno))
+                }
+            })
+        }),
+    )
+    .map_err(Errno::from_syscall)
+    .inspect_err(|&errno| {
+        if is_peer_gone(errno) {
+            connection(client).evict();
+        }
+    })
 }

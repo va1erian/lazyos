@@ -6,6 +6,7 @@ use xui_core::backend::Result;
 use xui_core::{App, Ui};
 
 use crate::game::Report;
+use crate::loading::Gen;
 use crate::view::GolfView;
 
 /// The window's design size when a compositor lays the app out.
@@ -14,6 +15,8 @@ pub const WINDOW: (i32, i32) = (1024, 640);
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
     Report(Report),
+    /// The course generator's progress or result (a worker thread's message).
+    Gen(Gen),
     Quit,
 }
 
@@ -52,6 +55,10 @@ impl App for GolfApp {
     type Msg = Msg;
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
+        if let Msg::Gen(message) = msg {
+            self.view.get().generation(message);
+            return;
+        }
         (self.report)(&msg);
         if msg == Msg::Quit {
             ui.quit();

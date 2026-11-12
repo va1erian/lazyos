@@ -305,3 +305,147 @@ pub fn decode_tail_file_reply(body: &[u8]) -> Result<TailFileReply, Error> {
 /// and the declared kinds, in object-list order.
 pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
 ];
+
+#[cfg(feature = "logd_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "logd_v1_client")]
+/// A client of `os.lazy.logd.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "logd_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Return the newest `count` records; an absent `count` means `10`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn tail(&self, count: core::option::Option<u64>) -> Result<alloc::vec::Vec<LogRecord>, ClientError> {
+        self.tail_within(count, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::tail`] with the caller's deadline instead of the IDL's.
+    pub fn tail_within(&self, count: core::option::Option<u64>, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<LogRecord>, ClientError> {
+        let wire_body = encode_tail_args(&TailArgs { count }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_TAIL, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_tail_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.records)
+    }
+
+    /// Return the number of records appended since boot.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn count(&self) -> Result<u64, ClientError> {
+        self.count_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::count`] with the caller's deadline instead of the IDL's.
+    pub fn count_within(&self, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_COUNT, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_count_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.count)
+    }
+
+    /// Recompute the hash chain and report `ok`/first bad `index` (the record
+    /// count when the chain is intact).
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn verify(&self) -> Result<VerifyReply, ClientError> {
+        self.verify_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::verify`] with the caller's deadline instead of the IDL's.
+    pub fn verify_within(&self, within: libmessenger::client::Deadline) -> Result<VerifyReply, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_VERIFY, wire_body, wire_objects, within)
+            ?;
+        decode_verify_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// The sources that have a persisted journal (`/logs/<source>.log`),
+    /// sorted; empty when the store is absent. Served to uid 0 only, like
+    /// `TailFile`: the journals carry every user's activity.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn sources(&self) -> Result<alloc::vec::Vec<alloc::string::String>, ClientError> {
+        self.sources_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::sources`] with the caller's deadline instead of the IDL's.
+    pub fn sources_within(&self, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<alloc::string::String>, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_SOURCES, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_sources_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.sources)
+    }
+
+    /// The newest `count` lines of `/logs/<source>.log` (records of earlier
+    /// boots included), oldest first. Served to uid 0 only (`EACCES`
+    /// otherwise); a source outside `[a-z0-9_-]{1,32}` fails with `EINVAL`
+    /// and one without a journal with `ENOENT`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn tail_file(&self, source: &str, count: u64) -> Result<alloc::vec::Vec<alloc::string::String>, ClientError> {
+        self.tail_file_within(source, count, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::tail_file`] with the caller's deadline instead of the IDL's.
+    pub fn tail_file_within(&self, source: &str, count: u64, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<alloc::string::String>, ClientError> {
+        let wire_body = encode_tail_file_args(&TailFileArgs { source: source.into(), count }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_TAILFILE, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_tail_file_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.lines)
+    }
+}

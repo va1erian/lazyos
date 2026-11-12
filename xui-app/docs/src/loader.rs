@@ -4,12 +4,12 @@
 
 use std::io;
 use std::path::PathBuf;
-use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
 use xui_core::app::Proxy;
 use xui_docs::load_file;
 use xui_markdown::Document;
+use xui_work::Queue;
 
 use crate::app::Msg;
 
@@ -33,35 +33,22 @@ pub struct Done {
 
 /// The handle the window keeps on the worker.
 pub struct Loader {
-    requests: Sender<Request>,
+    requests: Queue<Request>,
 }
 
 impl Loader {
-    /// Starts the worker; it answers through `proxy` and ends with the window.
+    /// Starts the worker; it answers through `proxy` and ends with the window. A request
+    /// overtaken by newer ones still waiting is skipped for the last of them.
     pub fn start(proxy: Proxy<Msg>) -> io::Result<Loader> {
-        let (requests, inbox) = channel();
-        std::thread::Builder::new()
-            .name("docs-load".into())
-            .spawn(move || serve(&inbox, &proxy))?;
+        let requests = Queue::start_latest(&proxy, "docs-load", |request: Request| {
+            let result = load_file(&request.path).map_err(|e| e.to_string());
+            Msg::Loaded(Arc::new(Done { request, result }))
+        })?;
         Ok(Loader { requests })
     }
 
     /// Asks for `request`; `false` when the worker is gone.
     pub fn load(&self, request: Request) -> bool {
-        self.requests.send(request).is_ok()
-    }
-}
-
-/// Reads each request, newest first: requests queued behind it are dropped for the last of them.
-fn serve(inbox: &Receiver<Request>, proxy: &Proxy<Msg>) {
-    while let Ok(mut request) = inbox.recv() {
-        while let Ok(newer) = inbox.try_recv() {
-            request = newer;
-        }
-        let result = load_file(&request.path).map_err(|e| e.to_string());
-        let done = Arc::new(Done { request, result });
-        if proxy.send(Msg::Loaded(done)).is_err() {
-            return;
-        }
+        self.requests.send(request)
     }
 }

@@ -86,8 +86,12 @@ pub fn decode_record(body: &[u8]) -> Result<Record, Error> {
 
 /// `Request` method id.
 pub const METHOD_REQUEST: u32 = 38093138;
+/// How long a client waits for `Request`'s reply, in milliseconds.
+pub const METHOD_REQUEST_DEADLINE_MS: u32 = 400000;
 /// `Release` method id.
 pub const METHOD_RELEASE: u32 = 1830722334;
+/// How long a client waits for `Release`'s reply, in milliseconds.
+pub const METHOD_RELEASE_DEADLINE_MS: u32 = 1000;
 
 /// Perform `operation` (a row of the operation table, e.g.
 /// `account.create`, `conf.set`, `time.set`) with its `args`, after an
@@ -233,4 +237,92 @@ where
     let filter = topics::build(TOPIC_SYSTEM_EVENTS_ELEVD_REQUEST, &[], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
     subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_ELEVD_REQUEST_QOS)
+}
+
+#[cfg(feature = "elevd_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "elevd_v1_client")]
+/// A client of `os.lazy.elevd.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "elevd_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Perform `operation` (a row of the operation table, e.g.
+    /// `account.create`, `conf.set`, `time.set`) with its `args`, after an
+    /// administrator approved it on the prompt. Every change asks every time;
+    /// only the elevated editor's view (`conf.elevate`, then `conf.list` and
+    /// `conf.get`) covers the same caller (uid, label and session; never an
+    /// unlabelled one) for five minutes, until its session ends or it calls
+    /// `Release`. `detail` describes what was done,
+    /// `values` carries the operation's results (`conf.list`'s paths,
+    /// `conf.get`'s kind and value).
+    ///
+    /// Waits for the reply at most 400000 ms (`deadline` in the `.midl`).
+    pub fn request(&self, operation: &str, args: &[alloc::string::String]) -> Result<RequestReply, ClientError> {
+        self.request_within(operation, args, libmessenger::client::Deadline::millis(METHOD_REQUEST_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::request`] with the caller's deadline instead of the IDL's.
+    pub fn request_within(&self, operation: &str, args: &[alloc::string::String], within: libmessenger::client::Deadline) -> Result<RequestReply, ClientError> {
+        let wire_body = encode_request_args(&RequestArgs { operation: operation.into(), args: args.to_vec() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_REQUEST, wire_body, wire_objects, within)
+            ?;
+        decode_request_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// End the caller's standing approvals now (an elevated editor closing).
+    ///
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    pub fn release(&self) -> Result<(), ClientError> {
+        self.release_within(libmessenger::client::Deadline::millis(METHOD_RELEASE_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::release`] with the caller's deadline instead of the IDL's.
+    pub fn release_within(&self, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_RELEASE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
 }

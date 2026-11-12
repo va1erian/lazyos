@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use lazyarc::{Archive, Level};
 use xui_core::app::{App, Ui};
-use xui_core::backend::{Result, TimerId};
+use xui_core::backend::Result;
 use xui_core::geometry::Point;
 use xui_core::message::{Key, Modifiers};
 use xui_core::widget::{DialogAction, MenuId, SortDirection, TaskDialogAction};
@@ -18,7 +18,7 @@ use crate::cells::Cells;
 use crate::drag::DragState;
 use crate::folder::{self, Column, Row};
 use crate::host::Host;
-use crate::job::Job;
+use crate::job::{Finished, Job};
 use crate::ui::{self, Dialogs, Widgets};
 
 /// The list view's header height (xui's `ListView` draws it at 24 dip).
@@ -54,7 +54,10 @@ pub enum Msg {
     PickerClosed,
     MessageClosed,
     // The running job.
-    Tick,
+    /// Its progress moved (the bar is mirrored by `sync`).
+    Progress,
+    /// It ended.
+    Finished(Finished),
     Cancel,
     // Drag and drop, from the platform.
     /// A drag carrying files entered the window.
@@ -86,7 +89,6 @@ pub struct ArchiverApp {
     pub(crate) sort: (Column, bool),
     pub(crate) level: Level,
     pub(crate) job: Option<Job>,
-    pub(crate) timer: Option<TimerId>,
     /// Files waiting for the New picker to name their archive.
     pub(crate) pending: Vec<PathBuf>,
     /// The row a context menu was opened on.
@@ -112,7 +114,6 @@ impl ArchiverApp {
     ) -> Result<ArchiverApp> {
         let (w, dialogs) = ui::build(ui, &host)?;
         ui.on_close(|| Some(Msg::Close));
-        ui.on_timer(|_| Some(Msg::Tick));
         let dialog_open = Rc::new(Cell::new(false));
         {
             let dialog_open = Rc::clone(&dialog_open);
@@ -141,7 +142,6 @@ impl ArchiverApp {
             sort: (Column::Name, true),
             level: Level::Normal,
             job: None,
-            timer: None,
             pending: Vec::new(),
             context_row: None,
             hover: false,
@@ -304,7 +304,7 @@ impl App for ArchiverApp {
     type Msg = Msg;
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
-        if !matches!(msg, Msg::Tick | Msg::Selection(_)) {
+        if !matches!(msg, Msg::Progress | Msg::Selection(_)) {
             (self.host.log)(&format!("ARCHIVER:MSG:{}", short(&msg)));
         }
         crate::commands::dispatch(self, msg, ui);

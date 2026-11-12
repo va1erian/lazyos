@@ -122,7 +122,7 @@ impl Ctx {
                 return false;
             }
             if let Some(scanner) = &desk.scanner {
-                if scanner.jobs.send(job).is_ok() {
+                if scanner.jobs.send(job) {
                     desk.busy = true;
                 } else {
                     // The worker is gone: scan here from the next call on.

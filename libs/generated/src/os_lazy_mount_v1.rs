@@ -156,14 +156,24 @@ pub fn decode_volume_info(body: &[u8]) -> Result<VolumeInfo, Error> {
 
 /// `Mount` method id.
 pub const METHOD_MOUNT: u32 = 1041399898;
+/// How long a client waits for `Mount`'s reply, in milliseconds.
+pub const METHOD_MOUNT_DEADLINE_MS: u32 = 2000;
 /// `Unmount` method id.
 pub const METHOD_UNMOUNT: u32 = 2047171115;
+/// How long a client waits for `Unmount`'s reply, in milliseconds.
+pub const METHOD_UNMOUNT_DEADLINE_MS: u32 = 2000;
 /// `List` method id.
 pub const METHOD_LIST: u32 = 220805025;
+/// How long a client waits for `List`'s reply, in milliseconds.
+pub const METHOD_LIST_DEADLINE_MS: u32 = 2000;
 /// `Volumes` method id.
 pub const METHOD_VOLUMES: u32 = 2053774420;
+/// How long a client waits for `Volumes`'s reply, in milliseconds.
+pub const METHOD_VOLUMES_DEADLINE_MS: u32 = 5000;
 /// `Eject` method id.
 pub const METHOD_EJECT: u32 = 819391126;
+/// How long a client waits for `Eject`'s reply, in milliseconds.
+pub const METHOD_EJECT_DEADLINE_MS: u32 = 5000;
 
 /// The mount's name: it is served at `path`, `/mnt/<name>`.
 /// The filesystem daemon's protocol (`ftp` or `smb`).
@@ -435,3 +445,184 @@ pub fn decode_eject_reply(body: &[u8]) -> Result<EjectReply, Error> {
 /// and the declared kinds, in object-list order.
 pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
 ];
+
+#[cfg(feature = "mount_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "mount_v1_client")]
+/// A client of `os.lazy.mount.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "mount_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// The mount's name: it is served at `path`, `/mnt/<name>`.
+    /// The filesystem daemon's protocol (`ftp` or `smb`).
+    /// The server's host name or address, as given.
+    /// The server's TCP port.
+    /// The account it logs in as (`anonymous` when none was given).
+    /// Where it is mounted.
+    /// `connecting`, `mounted` or `failed`.
+    /// Why a mount failed, empty otherwise.
+    /// The requester's uid: the files' owner.
+    /// The SMB share, empty for an FTP mount.
+    /// Mount a server at `/mnt/<name>`, logged in as `user` with `password`.
+    /// `kind` is `ftp` (or empty) for the FTP server `host:port`, where an
+    /// empty `user` is the anonymous login, or `smb` for the SMB 2.1 share
+    /// `\\host\share`, which needs a `user` (the NTLM domain comes from the
+    /// server). `name` is 1 to 32 of `a-z`, `0-9`, `-` and `_`; `host` 1 to
+    /// 253 of letters, digits, `.` and `-`, not starting with `-` and with no
+    /// `:` (the port goes in `port`, 1 to 65535, 0 meaning 21 for FTP and 445
+    /// for SMB); `share` (SMB only) 1 to 80 characters with none of
+    /// `\ / : * ? " < > |`; `user` and `password` at most 128 bytes with no
+    /// control character, and a `password` only with a `user`. An SMB
+    /// password reaches `smbfuse` through its environment, never its
+    /// arguments. `path` is the mount point the daemon will serve.
+    ///
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    pub fn mount(&self, name: &str, host: &str, port: u32, user: &str, password: &str, kind: &str, share: &str) -> Result<alloc::string::String, ClientError> {
+        self.mount_within(name, host, port, user, password, kind, share, libmessenger::client::Deadline::millis(METHOD_MOUNT_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::mount`] with the caller's deadline instead of the IDL's.
+    pub fn mount_within(&self, name: &str, host: &str, port: u32, user: &str, password: &str, kind: &str, share: &str, within: libmessenger::client::Deadline) -> Result<alloc::string::String, ClientError> {
+        let wire_body = encode_mount_args(&MountArgs { name: name.into(), host: host.into(), port, user: user.into(), password: password.into(), kind: kind.into(), share: share.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_MOUNT, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_mount_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.path)
+    }
+
+    /// Stop the mount `name` and forget it (a failed one is just forgotten).
+    /// The daemon is stopped at once; the kernel takes the dead mount out of
+    /// `/mnt` within a few seconds, and until then it fails every call.
+    ///
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    pub fn unmount(&self, name: &str) -> Result<(), ClientError> {
+        self.unmount_within(name, libmessenger::client::Deadline::millis(METHOD_UNMOUNT_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::unmount`] with the caller's deadline instead of the IDL's.
+    pub fn unmount_within(&self, name: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_unmount_args(&UnmountArgs { name: name.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_UNMOUNT, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Every mount the service knows about, in the order they were asked for.
+    ///
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    pub fn list(&self) -> Result<alloc::vec::Vec<MountInfo>, ClientError> {
+        self.list_within(libmessenger::client::Deadline::millis(METHOD_LIST_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::list`] with the caller's deadline instead of the IDL's.
+    pub fn list_within(&self, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<MountInfo>, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_LIST, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_list_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.mounts)
+    }
+
+    /// The disk, `usb<n>`: what `Eject` names.
+    /// The mount's name, the volume's label made safe for a path; empty
+    /// until the volume is mounted.
+    /// Where it is mounted, `/media/<name>`; empty until mounted.
+    /// `starting` (a daemon is looking for a volume), `mounted`,
+    /// `ejecting`, `ejected` (flushed and unmounted: safe to pull),
+    /// `removed` (the stick was pulled while mounted), `unsupported`
+    /// (no FAT volume on it) or `failed` (see `detail`).
+    /// Why, for `failed`, `unsupported` and `removed`; empty otherwise.
+    /// The session user it belongs to: its files' owner.
+    /// The stick is not write protected.
+    /// The removable volumes of the caller (all of them for root), oldest
+    /// plug first. An ended volume stays listed until its stick is pulled,
+    /// so its outcome can be read.
+    ///
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`).
+    pub fn volumes(&self) -> Result<alloc::vec::Vec<VolumeInfo>, ClientError> {
+        self.volumes_within(libmessenger::client::Deadline::millis(METHOD_VOLUMES_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::volumes`] with the caller's deadline instead of the IDL's.
+    pub fn volumes_within(&self, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<VolumeInfo>, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_VOLUMES, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_volumes_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.volumes)
+    }
+
+    /// Eject the volume on `disk` (`usb<n>`): flush, close and unmount it,
+    /// then let the stick be pulled. Answers at once; the answer's `state`
+    /// is `ejecting` (poll `Volumes` for `ejected`), `ejected` (nothing was
+    /// mounted, or it already was), or `busy` with the holders in `detail`:
+    /// one line per program and open file or working directory. `force`
+    /// ejects anyway: open files then fail with an I/O error. Failures of the
+    /// request itself are `ENOENT` (no such disk), `EPERM` (another user's
+    /// volume), `EINVAL` (not a disk name) and `EAGAIN` (still starting:
+    /// ask again in a moment).
+    ///
+    /// Waits for the reply at most 5000 ms (`deadline` in the `.midl`).
+    pub fn eject(&self, disk: &str, force: bool) -> Result<EjectReply, ClientError> {
+        self.eject_within(disk, force, libmessenger::client::Deadline::millis(METHOD_EJECT_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::eject`] with the caller's deadline instead of the IDL's.
+    pub fn eject_within(&self, disk: &str, force: bool, within: libmessenger::client::Deadline) -> Result<EjectReply, ClientError> {
+        let wire_body = encode_eject_args(&EjectArgs { disk: disk.into(), force }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_EJECT, wire_body, wire_objects, within)
+            ?;
+        decode_eject_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+}

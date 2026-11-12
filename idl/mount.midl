@@ -62,15 +62,15 @@ interface os.lazy.mount.v1 {
     /// control character, and a `password` only with a `user`. An SMB
     /// password reaches `smbfuse` through its environment, never its
     /// arguments. `path` is the mount point the daemon will serve.
-    method Mount(name: String = 1, host: String = 2, port: U32 = 3, user: String = 4, password: String = 5, kind: String = 6, share: String = 7) -> (path: String = 1);
+    method Mount(name: String = 1, host: String = 2, port: U32 = 3, user: String = 4, password: String = 5, kind: String = 6, share: String = 7) -> (path: String = 1) deadline=2s;
 
     /// Stop the mount `name` and forget it (a failed one is just forgotten).
     /// The daemon is stopped at once; the kernel takes the dead mount out of
     /// `/mnt` within a few seconds, and until then it fails every call.
-    method Unmount(name: String = 1) -> ();
+    method Unmount(name: String = 1) -> () deadline=2s;
 
     /// Every mount the service knows about, in the order they were asked for.
-    method List() -> (mounts: Array<MountInfo> = 1);
+    method List() -> (mounts: Array<MountInfo> = 1) deadline=2s;
 
     /// One removable volume the service knows about.
     struct VolumeInfo {
@@ -97,7 +97,7 @@ interface os.lazy.mount.v1 {
     /// The removable volumes of the caller (all of them for root), oldest
     /// plug first. An ended volume stays listed until its stick is pulled,
     /// so its outcome can be read.
-    method Volumes() -> (volumes: Array<VolumeInfo> = 1);
+    method Volumes() -> (volumes: Array<VolumeInfo> = 1) deadline=5s;
 
     /// Eject the volume on `disk` (`usb<n>`): flush, close and unmount it,
     /// then let the stick be pulled. Answers at once; the answer's `state`
@@ -108,5 +108,5 @@ interface os.lazy.mount.v1 {
     /// request itself are `ENOENT` (no such disk), `EPERM` (another user's
     /// volume), `EINVAL` (not a disk name) and `EAGAIN` (still starting:
     /// ask again in a moment).
-    method Eject(disk: String = 1, force: Bool = 2) -> (state: String = 1, detail: String = 2);
+    method Eject(disk: String = 1, force: Bool = 2) -> (state: String = 1, detail: String = 2) deadline=5s;
 }

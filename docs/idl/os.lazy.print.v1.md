@@ -27,6 +27,16 @@ the shared structured error field, `EINVAL` with one line for the user
 
 - Served under the registry name `os.lazy.print`; registered once.
 
+## Scopes and deadlines
+
+| Method | Scope interface | Scope id | Deadline |
+|---|---|---|---|
+| Open | this interface | - | 10000 ms |
+| Write | this interface | - | 10000 ms |
+| Close | this interface | - | 10000 ms |
+| Cancel | this interface | - | 10000 ms |
+| Status | this interface | - | 10000 ms |
+
 ## struct `Ticket`
 
 - `name: String`

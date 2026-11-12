@@ -415,3 +415,161 @@ pub fn decode_select_output_args(body: &[u8]) -> Result<SelectOutputArgs, Error>
 /// and the declared kinds, in object-list order.
 pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
 ];
+
+#[cfg(feature = "audio_mixer_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "audio_mixer_v1_client")]
+/// A client of `os.lazy.audio.mixer.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "audio_mixer_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Every open stream, in opening order.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn list_streams(&self) -> Result<alloc::vec::Vec<StreamStatus>, ClientError> {
+        self.list_streams_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::list_streams`] with the caller's deadline instead of the IDL's.
+    pub fn list_streams_within(&self, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<StreamStatus>, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_LISTSTREAMS, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_list_streams_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.streams)
+    }
+
+    /// Set one stream's gain and mute flag, whoever owns it.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn set_stream_volume(&self, stream: u32, gain_q16: u32, mute: bool) -> Result<(), ClientError> {
+        self.set_stream_volume_within(stream, gain_q16, mute, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::set_stream_volume`] with the caller's deadline instead of the IDL's.
+    pub fn set_stream_volume_within(&self, stream: u32, gain_q16: u32, mute: bool, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_set_stream_volume_args(&SetStreamVolumeArgs { stream, gain_q16, mute }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SETSTREAMVOLUME, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// The master gain, the mute flag and what the card runs at.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn get_master(&self) -> Result<Master, ClientError> {
+        self.get_master_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::get_master`] with the caller's deadline instead of the IDL's.
+    pub fn get_master_within(&self, within: libmessenger::client::Deadline) -> Result<Master, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_GETMASTER, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_get_master_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.master)
+    }
+
+    /// Set the master gain and mute flag, applied after mixing.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn set_master(&self, gain_q16: u32, mute: bool) -> Result<(), ClientError> {
+        self.set_master_within(gain_q16, mute, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::set_master`] with the caller's deadline instead of the IDL's.
+    pub fn set_master_within(&self, gain_q16: u32, mute: bool, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_set_master_args(&SetMasterArgs { gain_q16, mute }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SETMASTER, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Every sound output a driver serves now (a built-in codec, a USB
+    /// headset, an HDMI display), the one playing first.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn list_outputs(&self) -> Result<alloc::vec::Vec<Output>, ClientError> {
+        self.list_outputs_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::list_outputs`] with the caller's deadline instead of the IDL's.
+    pub fn list_outputs_within(&self, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<Output>, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_LISTOUTPUTS, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_list_outputs_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.outputs)
+    }
+
+    /// Play through output `id` from now on, and prefer it whenever it is
+    /// present. Streams keep playing across the switch. `ENOENT` for an
+    /// output that is not present.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn select_output(&self, id: &str) -> Result<(), ClientError> {
+        self.select_output_within(id, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::select_output`] with the caller's deadline instead of the IDL's.
+    pub fn select_output_within(&self, id: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_select_output_args(&SelectOutputArgs { id: id.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SELECTOUTPUT, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+}

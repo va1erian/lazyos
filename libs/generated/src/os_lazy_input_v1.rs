@@ -54,18 +54,30 @@ pub const GRANT_REASON_CLOSED: u32 = 5;
 
 /// `Open` method id.
 pub const METHOD_OPEN: u32 = 1;
+/// How long a client waits for `Open`'s reply, in milliseconds.
+pub const METHOD_OPEN_DEADLINE_MS: u32 = 1000;
 /// `Close` method id.
 pub const METHOD_CLOSE: u32 = 2;
+/// How long a client waits for `Close`'s reply, in milliseconds.
+pub const METHOD_CLOSE_DEADLINE_MS: u32 = 1000;
 /// `GetState` method id.
 pub const METHOD_GETSTATE: u32 = 3;
 /// `RequestGrant` method id.
 pub const METHOD_REQUESTGRANT: u32 = 4;
+/// How long a client waits for `RequestGrant`'s reply, in milliseconds.
+pub const METHOD_REQUESTGRANT_DEADLINE_MS: u32 = 1000;
 /// `ReleaseGrant` method id.
 pub const METHOD_RELEASEGRANT: u32 = 5;
+/// How long a client waits for `ReleaseGrant`'s reply, in milliseconds.
+pub const METHOD_RELEASEGRANT_DEADLINE_MS: u32 = 1000;
 /// `Ping` method id.
 pub const METHOD_PING: u32 = 6;
+/// How long a client waits for `Ping`'s reply, in milliseconds.
+pub const METHOD_PING_DEADLINE_MS: u32 = 1000;
 /// `AttachKeyState` method id.
 pub const METHOD_ATTACHKEYSTATE: u32 = 7;
+/// How long a client waits for `AttachKeyState`'s reply, in milliseconds.
+pub const METHOD_ATTACHKEYSTATE_DEADLINE_MS: u32 = 1000;
 /// `AttachGamepadState` method id.
 pub const METHOD_ATTACHGAMEPADSTATE: u32 = 8;
 /// `KeyEvent` method id.
@@ -770,3 +782,353 @@ pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
     (METHOD_ATTACHKEYSTATE, ATTACH_KEY_STATE_OBJECTS),
     (METHOD_ATTACHGAMEPADSTATE, ATTACH_GAMEPAD_STATE_OBJECTS),
 ];
+
+#[cfg(feature = "input_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "input_v1_client")]
+/// A client of `os.lazy.input.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "input_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Open an input session bound to the calling task (the kernel-stamped
+    /// sender). `surface` names the window it wants keys for: it must be a
+    /// surface the compositor registered as owned by this same task, so a
+    /// client can never claim someone else's window (`EACCES`; `ENOENT` when
+    /// the compositor has not registered it). An absent `surface` opens the
+    /// login console's session (issue #396): only the task holding the
+    /// kernel's console claim may (`logind`; anyone else gets `EACCES`, a
+    /// second holder `EBUSY`), and it receives keys only while no compositor
+    /// is attached. `events` is the event endpoint that receives every
+    /// event below. A task may hold several sessions, one per surface.
+    ///
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    pub fn open(&self, surface: core::option::Option<u64>, events: u64) -> Result<u64, ClientError> {
+        self.open_within(surface, events, libmessenger::client::Deadline::millis(METHOD_OPEN_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::open`] with the caller's deadline instead of the IDL's.
+    pub fn open_within(&self, surface: core::option::Option<u64>, events: u64, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let (wire_body, wire_objects) = encode_open_args(&OpenArgs { surface, events }).map_err(ClientError::bad_request)?;
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_OPEN, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_open_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.session)
+    }
+
+    /// End a session. Only the task that opened it may.
+    ///
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    pub fn close(&self, session: u64) -> Result<(), ClientError> {
+        self.close_within(session, libmessenger::client::Deadline::millis(METHOD_CLOSE_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::close`] with the caller's deadline instead of the IDL's.
+    pub fn close_within(&self, session: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_close_args(&CloseArgs { session }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_CLOSE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// The current layout name, modifier and lock bits (`mods` as in
+    /// `KeyEvent`) and the key-repeat timing in milliseconds.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn get_state(&self) -> Result<GetStateReply, ClientError> {
+        self.get_state_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::get_state`] with the caller's deadline instead of the IDL's.
+    pub fn get_state_within(&self, within: libmessenger::client::Deadline) -> Result<GetStateReply, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_GETSTATE, wire_body, wire_objects, within)
+            ?;
+        decode_get_state_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// Ask for a grab of kind `kind` (a `GrantKind`) for `session`, which
+    /// must be the caller's and have keyboard focus (`EACCES` otherwise;
+    /// `EINVAL` for an unknown kind). The compositor decides: the answer
+    /// arrives later as `GrantChanged`. A keyboard grab sends the session
+    /// every key, the compositor's own chords (Alt+Tab, Ctrl+Esc) included,
+    /// until the session releases it, loses focus or closes, or the user
+    /// presses the reserved escape chord (Ctrl+Alt+Esc), which nobody can
+    /// grab or register and which always reverts the grab.
+    ///
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    pub fn request_grant(&self, session: u64, kind: u32) -> Result<(), ClientError> {
+        self.request_grant_within(session, kind, libmessenger::client::Deadline::millis(METHOD_REQUESTGRANT_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::request_grant`] with the caller's deadline instead of the IDL's.
+    pub fn request_grant_within(&self, session: u64, kind: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_request_grant_args(&RequestGrantArgs { session, kind }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_REQUESTGRANT, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Give up the grab (or a pending request) `session` holds. Only its
+    /// owner may; releasing nothing is not an error.
+    ///
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    pub fn release_grant(&self, session: u64) -> Result<(), ClientError> {
+        self.release_grant_within(session, libmessenger::client::Deadline::millis(METHOD_RELEASEGRANT_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::release_grant`] with the caller's deadline instead of the IDL's.
+    pub fn release_grant_within(&self, session: u64, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_release_grant_args(&ReleaseGrantArgs { session }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_RELEASEGRANT, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Liveness and freshness for the caller's own `session`: echoes `token`
+    /// and returns `seq`, the raw sequence number of the newest key edge
+    /// `inputd` has processed *while that session has keyboard focus* (`0`
+    /// otherwise, so a session cannot watch typing aimed at another window),
+    /// so a client polling its key-state page can tell the page is current
+    /// (`KeyStateSeq >= seq`). `EACCES` for another task's session.
+    ///
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    pub fn ping(&self, session: u64, token: u64) -> Result<PingReply, ClientError> {
+        self.ping_within(session, token, libmessenger::client::Deadline::millis(METHOD_PING_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::ping`] with the caller's deadline instead of the IDL's.
+    pub fn ping_within(&self, session: u64, token: u64, within: libmessenger::client::Deadline) -> Result<PingReply, ClientError> {
+        let wire_body = encode_ping_args(&PingArgs { session, token }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_PING, wire_body, wire_objects, within)
+            ?;
+        decode_ping_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// Attach a key-state page to `session` (the caller's): `state`, a
+    /// shared buffer the client created (one page is plenty). While the
+    /// session has keyboard focus `inputd` writes the
+    /// keys held right now into it (layout: `inputmap::keystate`, a seqlock
+    /// word, the newest raw `seq`, a focused flag and a 256-bit bitmap of
+    /// HID usages); the moment focus leaves it clears the page, before
+    /// `KeyboardLeave` is sent. `inputd` only ever writes the page. Attaching
+    /// again replaces the previous page.
+    ///
+    /// Waits for the reply at most 1000 ms (`deadline` in the `.midl`).
+    pub fn attach_key_state(&self, session: u64, state: libmessenger::Buffer) -> Result<(), ClientError> {
+        self.attach_key_state_within(session, state, libmessenger::client::Deadline::millis(METHOD_ATTACHKEYSTATE_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::attach_key_state`] with the caller's deadline instead of the IDL's.
+    pub fn attach_key_state_within(&self, session: u64, state: libmessenger::Buffer, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let (wire_body, wire_objects) = encode_attach_key_state_args(&AttachKeyStateArgs { session, state }).map_err(ClientError::bad_request)?;
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_ATTACHKEYSTATE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Attach a gamepad-state page to `session` (the caller's): `state`, a
+    /// shared buffer the client created (one page is plenty). While the
+    /// session has keyboard focus `inputd` writes every connected pad's
+    /// current state into it (layout: `inputmap::gamepad`, a seqlock word,
+    /// the newest raw `seq`, a focused flag, the pad count and up to four
+    /// slots of device id, 32 button bits, the d-pad hat and eight `i16`
+    /// axes, deadzone already applied); the moment focus leaves it clears the
+    /// page, before `GamepadLeave` is sent. `inputd` only ever writes the
+    /// page. Attaching again replaces the previous page; same contract as
+    /// `AttachKeyState`. **Attaching is also how a session opts in to pad
+    /// events**: `GamepadAxis`, `GamepadButton`, `GamepadEnter` and
+    /// `GamepadLeave` go only to a focused session that attached a page (they
+    /// share the session's 64-message endpoint with its keystrokes, and a
+    /// stick wiggled under an app that ignores pads must not be able to
+    /// overflow it). The opt-in lasts until the session closes; a session that
+    /// attaches while it holds the keyboard is sent `GamepadEnter` once.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn attach_gamepad_state(&self, session: u64, state: libmessenger::Buffer) -> Result<(), ClientError> {
+        self.attach_gamepad_state_within(session, state, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::attach_gamepad_state`] with the caller's deadline instead of the IDL's.
+    pub fn attach_gamepad_state_within(&self, session: u64, state: libmessenger::Buffer, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let (wire_body, wire_objects) = encode_attach_gamepad_state_args(&AttachGamepadStateArgs { session, state }).map_err(ClientError::bad_request)?;
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_ATTACHGAMEPADSTATE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Event: a key changed state. `code` is the physical key, `sym` its
+    /// keysym under the active layout (a Unicode scalar for character keys,
+    /// an X11-style `0xFFxx` value otherwise, `0` when the key has no meaning
+    /// on the current level), `mods` the modifier and lock bits in force after
+    /// this event (`1` Shift, `2` Ctrl, `4` Alt, `8` Super, `0x10` AltGr,
+    /// `0x20` CapsLock, `0x40` NumLock, `0x80` ScrollLock), `state` a
+    /// `KeyState`, `ts_ns` the kernel timestamp and `seq` the raw sequence
+    /// number. Auto-repeat is always flagged `Repeat`, never `Down`.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn key_event(&self, code: u32, sym: u32, mods: u32, state: u32, ts_ns: u64, seq: u64) -> Result<(), ClientError> {
+        let wire_body = encode_key_event_args(&KeyEventArgs { code, sym, mods, state, ts_ns, seq }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_KEYEVENT, wire_body, wire_objects)
+    }
+
+    /// Event: composed text (UTF-8) for a character-producing press or repeat.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn text_input(&self, utf8: &str) -> Result<(), ClientError> {
+        let wire_body = encode_text_input_args(&TextInputArgs { utf8: utf8.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_TEXTINPUT, wire_body, wire_objects)
+    }
+
+    /// Event: keyboard focus arrived. `down` lists the physical keys held right
+    /// now, so the client seeds its key state.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn keyboard_enter(&self, down: &[u32]) -> Result<(), ClientError> {
+        let wire_body = encode_keyboard_enter_args(&KeyboardEnterArgs { down: down.to_vec() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_KEYBOARDENTER, wire_body, wire_objects)
+    }
+
+    /// Event: keyboard focus left. The client **must release every key** it
+    /// believes is down; `inputd` also cancels repeat.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn keyboard_leave(&self) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_KEYBOARDLEAVE, wire_body, wire_objects)
+    }
+
+    /// Event: the layout changed (a `confd` write, live).
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn layout_changed(&self, layout: &str) -> Result<(), ClientError> {
+        let wire_body = encode_layout_changed_args(&LayoutChangedArgs { layout: layout.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_LAYOUTCHANGED, wire_body, wire_objects)
+    }
+
+    /// Event: the session's grab of kind `kind` started (`active`) or ended;
+    /// `reason` is a `GrantReason`.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn grant_changed(&self, kind: u32, active: bool, reason: u32) -> Result<(), ClientError> {
+        let wire_body = encode_grant_changed_args(&GrantChangedArgs { kind, active, reason }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_GRANTCHANGED, wire_body, wire_objects)
+    }
+
+    /// Event: a gamepad axis changed (only the focused session that attached
+    /// a pad page receives it).
+    /// `device` is the pad's id (as in the state page), `code` the Generic
+    /// Desktop usage (`0x30` X, `0x31` Y, `0x32` Z, `0x33` Rx, `0x34` Ry,
+    /// `0x35` Rz, `0x36` Slider, `0x37` Dial), `value` `-32768..=32767` with
+    /// `0` the axis's rest, the deadzone already applied (Y and Ry are
+    /// positive down). The hat is not an axis event: it arrives as the
+    /// d-pad buttons (`GamepadButton` codes 33..=36). Changes are coalesced
+    /// per drain: one event per axis, the newest value.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn gamepad_axis(&self, device: u32, code: u32, value: i32, ts_ns: u64, seq: u64) -> Result<(), ClientError> {
+        let wire_body = encode_gamepad_axis_args(&GamepadAxisArgs { device, code, value, ts_ns, seq }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_GAMEPADAXIS, wire_body, wire_objects)
+    }
+
+    /// Event: a gamepad button changed (only the focused session that
+    /// attached a pad page receives it). `code` is the HID button usage `1..=32`, or `33` d-pad up, `34`
+    /// down, `35` left, `36` right (the hat, one edge per direction;
+    /// diagonals press two). Edges are never merged.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn gamepad_button(&self, device: u32, code: u32, pressed: bool, ts_ns: u64, seq: u64) -> Result<(), ClientError> {
+        let wire_body = encode_gamepad_button_args(&GamepadButtonArgs { device, code, pressed, ts_ns, seq }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_GAMEPADBUTTON, wire_body, wire_objects)
+    }
+
+    /// Event: gamepad input arrived with this session's focus: read the
+    /// state page to seed. Sent to a session that attached a pad page
+    /// whenever keyboard focus enters it, when it attaches one while it
+    /// already has focus, and right after a `GamepadLeave` that was a resync.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn gamepad_enter(&self) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_GAMEPADENTER, wire_body, wire_objects)
+    }
+
+    /// Event: focus left, or events were lost. The client **must release
+    /// every pad button** it believes is down and centre the axes; the page
+    /// was cleared first. After a dropped-events resync (the keyboard's
+    /// `KeyboardLeave` + `KeyboardEnter` pair) it is followed at once by a
+    /// `GamepadEnter` with the page live again; the page is cleared before
+    /// the Leave and restored before the Enter either way.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn gamepad_leave(&self) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_GAMEPADLEAVE, wire_body, wire_objects)
+    }
+}

@@ -199,14 +199,24 @@ pub fn decode_change(body: &[u8]) -> Result<Change, Error> {
 
 /// `Get` method id.
 pub const METHOD_GET: u32 = 915881719;
+/// How long a client waits for `Get`'s reply, in milliseconds.
+pub const METHOD_GET_DEADLINE_MS: u32 = 2000;
 /// `Set` method id.
 pub const METHOD_SET: u32 = 682729123;
+/// How long a client waits for `Set`'s reply, in milliseconds.
+pub const METHOD_SET_DEADLINE_MS: u32 = 2000;
 /// `Delete` method id.
 pub const METHOD_DELETE: u32 = 1469573738;
+/// How long a client waits for `Delete`'s reply, in milliseconds.
+pub const METHOD_DELETE_DEADLINE_MS: u32 = 2000;
 /// `List` method id.
 pub const METHOD_LIST: u32 = 220805025;
+/// How long a client waits for `List`'s reply, in milliseconds.
+pub const METHOD_LIST_DEADLINE_MS: u32 = 2000;
 /// `Info` method id.
 pub const METHOD_INFO: u32 = 266462757;
+/// How long a client waits for `Info`'s reply, in milliseconds.
+pub const METHOD_INFO_DEADLINE_MS: u32 = 2000;
 
 /// The service errors of this interface (`errors` in the `.midl`). A failed
 /// call carries one of these codes in the standard error field.
@@ -571,4 +581,144 @@ where
     let filter = topics::build(TOPIC_USER_CONFD_CHANGED, &[uid, path], topics::Mode::Subscribe)
         .map_err(S::Error::from)?;
     subscriber.subscribe_topic(&filter, TOPIC_USER_CONFD_CHANGED_QOS)
+}
+
+#[cfg(feature = "confd_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<ServiceError>;
+
+#[cfg(feature = "confd_v1_client")]
+/// A client of `os.lazy.confd.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "confd_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Read the value at `path`. An absent path has an empty `value`.
+    /// A path the caller may not read fails with `Denied`.
+    ///
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    pub fn get(&self, path: &str) -> Result<core::option::Option<Value>, ClientError> {
+        self.get_within(path, libmessenger::client::Deadline::millis(METHOD_GET_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::get`] with the caller's deadline instead of the IDL's.
+    pub fn get_within(&self, path: &str, within: libmessenger::client::Deadline) -> Result<core::option::Option<Value>, ClientError> {
+        let wire_body = encode_get_args(&GetArgs { path: path.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_GET, wire_body, wire_objects, within)
+            .map_err(|error| error.lift(ServiceError::from_code))?;
+        let reply = decode_get_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.value)
+    }
+
+    /// Create or overwrite `path`; the change is persisted before the reply.
+    ///
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    pub fn set(&self, path: &str, value: &Value) -> Result<(), ClientError> {
+        self.set_within(path, value, libmessenger::client::Deadline::millis(METHOD_SET_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::set`] with the caller's deadline instead of the IDL's.
+    pub fn set_within(&self, path: &str, value: &Value, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_set_args(&SetArgs { path: path.into(), value: value.clone() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SET, wire_body, wire_objects, within)
+            .map_err(|error| error.lift(ServiceError::from_code))?;
+        Ok(())
+    }
+
+    /// Remove `path`; deleting an absent path succeeds.
+    ///
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    pub fn delete(&self, path: &str) -> Result<(), ClientError> {
+        self.delete_within(path, libmessenger::client::Deadline::millis(METHOD_DELETE_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::delete`] with the caller's deadline instead of the IDL's.
+    pub fn delete_within(&self, path: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_delete_args(&DeleteArgs { path: path.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_DELETE, wire_body, wire_objects, within)
+            .map_err(|error| error.lift(ServiceError::from_code))?;
+        Ok(())
+    }
+
+    /// Every path the caller may read under `prefix`, in sorted order.
+    ///
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    pub fn list(&self, prefix: &str) -> Result<alloc::vec::Vec<alloc::string::String>, ClientError> {
+        self.list_within(prefix, libmessenger::client::Deadline::millis(METHOD_LIST_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::list`] with the caller's deadline instead of the IDL's.
+    pub fn list_within(&self, prefix: &str, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<alloc::string::String>, ClientError> {
+        let wire_body = encode_list_args(&ListArgs { prefix: prefix.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_LIST, wire_body, wire_objects, within)
+            .map_err(|error| error.lift(ServiceError::from_code))?;
+        let reply = decode_list_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.paths)
+    }
+
+    /// Where the store lives: the directory confd chose and whether it
+    /// survives a reboot (`/conf`; `false` when it fell back to the ramfs
+    /// `/transient/conf`).
+    /// Not restricted by path, so any caller may ask.
+    ///
+    /// Waits for the reply at most 2000 ms (`deadline` in the `.midl`).
+    pub fn info(&self) -> Result<InfoReply, ClientError> {
+        self.info_within(libmessenger::client::Deadline::millis(METHOD_INFO_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::info`] with the caller's deadline instead of the IDL's.
+    pub fn info_within(&self, within: libmessenger::client::Deadline) -> Result<InfoReply, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_INFO, wire_body, wire_objects, within)
+            .map_err(|error| error.lift(ServiceError::from_code))?;
+        decode_info_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
 }

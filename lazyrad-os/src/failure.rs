@@ -10,12 +10,9 @@
 //! player exits.
 
 use lazyrad_player::Report;
-use libmessenger::{Header, Parcel, VERSION};
 use messenger_generated::os_lazy_init_v1 as init_wire;
-use xui_app::sys;
+use xui_app::platform::messenger::client;
 
-/// `init`'s registered name.
-const INIT: &str = init_wire::SERVICE_NAME;
 /// The last report line seen, as readable text.
 #[cfg_attr(not(any(unix, test)), allow(dead_code))]
 fn summarize(line: &str) -> Option<String> {
@@ -133,28 +130,9 @@ mod tap {
 /// Tell `init` why this run fails (`ReportFailure`, one way). Best effort: a
 /// player started outside `init` is simply not listened to.
 pub fn report_to_init(reason: &str) {
-    let Ok(body) = init_wire::encode_report_failure_args(&init_wire::ReportFailureArgs {
-        reason: reason.to_owned(),
-    }) else {
-        return;
-    };
-    let Ok(endpoint) = sys::msg_resolve(INIT) else {
-        return;
-    };
-    let parcel = Parcel {
-        header: Header {
-            version: VERSION,
-            flags: libmessenger::flags::ONE_WAY,
-            interface_id: init_wire::INTERFACE_ID,
-            method: init_wire::METHOD_REPORTFAILURE,
-            txn_id: 0,
-            reply_to: 0,
-            deadline_ns: 0,
-        },
-        body,
-        objects: Vec::new(),
-    };
-    let _ = sys::msg_send(endpoint, &parcel);
+    if let Ok(init) = client(init_wire::Client::try_connect) {
+        let _ = init.report_failure(reason);
+    }
 }
 
 #[cfg(test)]

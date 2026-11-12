@@ -388,7 +388,10 @@ def emit_topic_table(interfaces: list[Interface]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def emit_rust(interface: Interface) -> str:
+def emit_rust(interface: Interface, client: bool = True) -> str:
+    """The interface's module. `client=False` leaves out the typed `Client`
+    (it sits behind a cargo feature of the generated crate, which the
+    conformance corpus's inline copies do not have)."""
     lines = [
         f"/// `{interface.name}` (interface id `{interface.id:#x}`).",
         "#[rustfmt::skip]",
@@ -458,5 +461,12 @@ def emit_rust(interface: Interface) -> str:
         lines.append("")
     if lines[-1] == "":
         lines.pop()
+    if client:
+        # Imported here: the client emitter builds on this module's helpers.
+        from midlc_rust_client import emit_client
+
+        tail = emit_client(interface)
+        if tail:
+            lines += [""] + tail
     lines.append("}")
     return "\n".join(lines)

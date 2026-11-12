@@ -11,7 +11,7 @@ impl LazyOSBackend {
     /// (`min_w`/`min_h` at least, `max_w`/`max_h` at most; a `max` of 0 means
     /// the screen), in design pixels: they are multiplied by the UI scale.
     /// Windows already open take them at once, so an app may call it while it
-    /// builds its first window (`launch::run`'s `make`). Apps that never call
+    /// builds its first window (`xui_app::app`'s `run` closure). Apps that never call
     /// it keep the old fixed-size behaviour.
     pub fn set_size_hints(&self, min_w: u32, min_h: u32, max_w: u32, max_h: u32) {
         self.size_hints.set(Some((min_w, min_h, max_w, max_h)));

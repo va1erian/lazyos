@@ -175,3 +175,94 @@ pub fn decode_notify_args(body: &[u8]) -> Result<NotifyArgs, Error> {
 /// and the declared kinds, in object-list order.
 pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
 ];
+
+#[cfg(feature = "echo_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "echo_v1_client")]
+/// A client of `os.lazy.echo.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "echo_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Reply with `text` and the number of bytes received.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn echo(&self, text: &str, count: u32) -> Result<alloc::string::String, ClientError> {
+        self.echo_within(text, count, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::echo`] with the caller's deadline instead of the IDL's.
+    pub fn echo_within(&self, text: &str, count: u32, within: libmessenger::client::Deadline) -> Result<alloc::string::String, ClientError> {
+        let wire_body = encode_echo_args(&EchoArgs { text: text.into(), count }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_ECHO, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_echo_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.reply)
+    }
+
+    /// Health probe.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn ping(&self) -> Result<bool, ClientError> {
+        self.ping_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::ping`] with the caller's deadline instead of the IDL's.
+    pub fn ping_within(&self, within: libmessenger::client::Deadline) -> Result<bool, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_PING, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_ping_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.alive)
+    }
+
+    /// Broadcast an event; no reply is expected.
+    /// Sent one way: it returns once the message is queued, never waiting for the service.
+    pub fn notify(&self, event: &Event) -> Result<(), ClientError> {
+        let wire_body = encode_notify_args(&NotifyArgs { event: event.clone() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self.conn
+            .send(INTERFACE_ID, METHOD_NOTIFY, wire_body, wire_objects)
+    }
+}

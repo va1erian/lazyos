@@ -7,10 +7,10 @@ use super::*;
 /// registered, so a browser that starts first (an app at login) runs with the defaults rather than
 /// waiting for it.
 pub(super) fn load() -> Prefs {
-    if Service::try_connect(blocker::CONFD).is_none() {
+    let store = ConfdStore::new();
+    if !store.registered() {
         return Prefs::default();
     }
-    let store = ConfdStore::new();
     let Some(uid) = store.uid() else {
         return Prefs::default();
     };

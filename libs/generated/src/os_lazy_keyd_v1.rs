@@ -853,3 +853,411 @@ pub fn decode_delete_secret_for_args(body: &[u8]) -> Result<DeleteSecretForArgs,
 /// and the declared kinds, in object-list order.
 pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
 ];
+
+#[cfg(feature = "keyd_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "keyd_v1_client")]
+/// A client of `os.lazy.keyd.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "keyd_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Check a username/password pair against the stored Argon2id verifier.
+    /// Accepted only from the accounts service (the `_accounts` system uid,
+    /// unlabelled), which slows password guessing (`Authenticate`); anyone
+    /// else gets `EPERM`. The plaintext `secret` crosses the channel.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn verify(&self, user: &str, secret: &str) -> Result<bool, ClientError> {
+        self.verify_within(user, secret, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::verify`] with the caller's deadline instead of the IDL's.
+    pub fn verify_within(&self, user: &str, secret: &str, within: libmessenger::client::Deadline) -> Result<bool, ClientError> {
+        let wire_body = encode_verify_args(&VerifyArgs { user: user.into(), secret: secret.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_VERIFY, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_verify_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.ok)
+    }
+
+    /// HMAC-SHA256 `digest` under the caller's stored key `key`; returns the tag.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn sign(&self, key: u64, digest: &[u8]) -> Result<alloc::vec::Vec<u8>, ClientError> {
+        self.sign_within(key, digest, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::sign`] with the caller's deadline instead of the IDL's.
+    pub fn sign_within(&self, key: u64, digest: &[u8], within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<u8>, ClientError> {
+        let wire_body = encode_sign_args(&SignArgs { key, digest: digest.to_vec() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_SIGN, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_sign_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.tag)
+    }
+
+    /// Seal `plaintext` under the caller's stored key `key`; returns an
+    /// authenticated blob.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn wrap(&self, key: u64, plaintext: &[u8]) -> Result<alloc::vec::Vec<u8>, ClientError> {
+        self.wrap_within(key, plaintext, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::wrap`] with the caller's deadline instead of the IDL's.
+    pub fn wrap_within(&self, key: u64, plaintext: &[u8], within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<u8>, ClientError> {
+        let wire_body = encode_wrap_args(&WrapArgs { key, plaintext: plaintext.to_vec() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_WRAP, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_wrap_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.blob)
+    }
+
+    /// Open a `blob` produced by `Wrap` under `key`; returns the plaintext.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn unwrap(&self, key: u64, blob: &[u8]) -> Result<alloc::vec::Vec<u8>, ClientError> {
+        self.unwrap_within(key, blob, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::unwrap`] with the caller's deadline instead of the IDL's.
+    pub fn unwrap_within(&self, key: u64, blob: &[u8], within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<u8>, ClientError> {
+        let wire_body = encode_unwrap_args(&UnwrapArgs { key, blob: blob.to_vec() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_UNWRAP, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_unwrap_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.plaintext)
+    }
+
+    /// `len` cryptographically strong random bytes.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn random(&self, len: u64) -> Result<alloc::vec::Vec<u8>, ClientError> {
+        self.random_within(len, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::random`] with the caller's deadline instead of the IDL's.
+    pub fn random_within(&self, len: u64, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<u8>, ClientError> {
+        let wire_body = encode_random_args(&RandomArgs { len }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_RANDOM, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_random_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.bytes)
+    }
+
+    /// Create a fresh random key of type `kind` (`hmac` or `wrap`); returns
+    /// its opaque id.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn generate(&self, kind: &str) -> Result<u64, ClientError> {
+        self.generate_within(kind, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::generate`] with the caller's deadline instead of the IDL's.
+    pub fn generate_within(&self, kind: &str, within: libmessenger::client::Deadline) -> Result<u64, ClientError> {
+        let wire_body = encode_generate_args(&GenerateArgs { kind: kind.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_GENERATE, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_generate_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.id)
+    }
+
+    /// The caller's key ids, types and use counters; never material.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn list(&self) -> Result<alloc::vec::Vec<KeyInfo>, ClientError> {
+        self.list_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::list`] with the caller's deadline instead of the IDL's.
+    pub fn list_within(&self, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<KeyInfo>, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_LIST, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_list_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.keys)
+    }
+
+    /// Round-trip probe.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn ping(&self) -> Result<(), ClientError> {
+        self.ping_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::ping`] with the caller's deadline instead of the IDL's.
+    pub fn ping_within(&self, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_PING, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Install or replace an account's password verifier (docs/accounts-plan.md
+    /// U1). Accepted only from the accounts service (the `_accounts` system
+    /// uid, unlabelled): whoever may plant a verifier may become that user.
+    /// `keyd` derives the Argon2id verifier over a fresh salt, starts
+    /// answering `Verify` with it, and returns it as the account database
+    /// stores it (`argon2id:<m_kib>:<t>:<p>:<salt>:<hash>`), so the account
+    /// survives a reboot; the secret does not outlive the call.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn provision(&self, user: &str, secret: &str) -> Result<alloc::string::String, ClientError> {
+        self.provision_within(user, secret, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::provision`] with the caller's deadline instead of the IDL's.
+    pub fn provision_within(&self, user: &str, secret: &str, within: libmessenger::client::Deadline) -> Result<alloc::string::String, ClientError> {
+        let wire_body = encode_provision_args(&ProvisionArgs { user: user.into(), secret: secret.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_PROVISION, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_provision_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.verifier)
+    }
+
+    /// Drop an account's verifier: it can no longer log in. Accepted only
+    /// from the accounts service, like `Provision`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn forget(&self, user: &str) -> Result<(), ClientError> {
+        self.forget_within(user, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::forget`] with the caller's deadline instead of the IDL's.
+    pub fn forget_within(&self, user: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_forget_args(&ForgetArgs { user: user.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_FORGET, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Put back a verifier the account database holds
+    /// (`argon2id:<m_kib>:<t>:<p>:<salt>:<hash>`), replacing what `keyd` has
+    /// for `user`: `accountsd` undoes a `Provision` whose database write
+    /// failed, so `keyd` never answers for a password the database lost.
+    /// Accepted only from the accounts service, like `Provision`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn restore(&self, user: &str, verifier: &str) -> Result<(), ClientError> {
+        self.restore_within(user, verifier, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::restore`] with the caller's deadline instead of the IDL's.
+    pub fn restore_within(&self, user: &str, verifier: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_restore_args(&RestoreArgs { user: user.into(), verifier: verifier.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_RESTORE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Keep `secret` (1..=256 bytes, a Wi-Fi passphrase) under `name`
+    /// (1..=64 of letters, digits and `. _ - :`), replacing one of that name
+    /// (docs/wifi-prerequisites-plan.md WP2). `scope` is `user`: the caller's
+    /// own, by its kernel-stamped uid; or `system`: available to every user
+    /// and before login, accepted only from `elevd` (the `net.wifi.system`
+    /// operation, after an administrator approved it on the trusted prompt;
+    /// `EPERM` for anyone else). Secrets persist across reboots, sealed under
+    /// a machine key (docs/security-model.md section 8). `EINVAL` for a bad
+    /// scope, name or secret; `ENOSPC` when the caller (or the table) holds
+    /// as many as it may; `EIO` when it could not be made durable (nothing
+    /// changed). No method ever returns a secret.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn store_secret(&self, scope: &str, name: &str, secret: &[u8]) -> Result<(), ClientError> {
+        self.store_secret_within(scope, name, secret, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::store_secret`] with the caller's deadline instead of the IDL's.
+    pub fn store_secret_within(&self, scope: &str, name: &str, secret: &[u8], within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_store_secret_args(&StoreSecretArgs { scope: scope.into(), name: name.into(), secret: secret.to_vec() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_STORESECRET, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Forget the secret `name` of `scope` (the same rules as `StoreSecret`;
+    /// `ENOENT` when there is none).
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn delete_secret(&self, scope: &str, name: &str) -> Result<(), ClientError> {
+        self.delete_secret_within(scope, name, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::delete_secret`] with the caller's deadline instead of the IDL's.
+    pub fn delete_secret_within(&self, scope: &str, name: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_delete_secret_args(&DeleteSecretArgs { scope: scope.into(), name: name.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_DELETESECRET, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// The names of the caller's `user` secrets, or of the `system` ones
+    /// (any caller may list those: they name the machine's networks). Names
+    /// only, never material.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn list_secrets(&self, scope: &str) -> Result<alloc::vec::Vec<alloc::string::String>, ClientError> {
+        self.list_secrets_within(scope, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::list_secrets`] with the caller's deadline instead of the IDL's.
+    pub fn list_secrets_within(&self, scope: &str, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<alloc::string::String>, ClientError> {
+        let wire_body = encode_list_secrets_args(&ListSecretsArgs { scope: scope.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_LISTSECRETS, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_list_secrets_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.names)
+    }
+
+    /// The WPA2 pairwise master key of the passphrase `name` of `scope` for
+    /// `ssid` (PBKDF2-HMAC-SHA1, 4096 rounds, IEEE 802.11 Annex J.4; a
+    /// 64-hex-digit secret is a raw PSK and is its own PMK). Computed once
+    /// per (secret, SSID) and cached sealed beside the secret. Answered only
+    /// to `wlanmd` (the `_wlan` system uid, unlabelled, outside any session);
+    /// everyone else gets `EPERM`. For `user` the secret is the one `owner`
+    /// (a uid) owns, so a PMK is never given for another user's secret by
+    /// naming it; for `system`, `owner` must be 0. `name` must be a Wi-Fi
+    /// profile id (`w` and 12 lowercase hex digits), so no PMK is ever
+    /// derived from a secret that is not a network's (`EPERM` otherwise).
+    /// `ENOENT` for no such secret, `EINVAL` for a secret that is not a
+    /// passphrase (8 to 63 octets of UTF-8 without control characters) or
+    /// raw PSK, or an SSID outside 1..=32 octets.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn wifi_pmk(&self, scope: &str, name: &str, ssid: &[u8], owner: u32) -> Result<alloc::vec::Vec<u8>, ClientError> {
+        self.wifi_pmk_within(scope, name, ssid, owner, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::wifi_pmk`] with the caller's deadline instead of the IDL's.
+    pub fn wifi_pmk_within(&self, scope: &str, name: &str, ssid: &[u8], owner: u32, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<u8>, ClientError> {
+        let wire_body = encode_wifi_pmk_args(&WifiPmkArgs { scope: scope.into(), name: name.into(), ssid: ssid.to_vec(), owner }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_WIFIPMK, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_wifi_pmk_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.pmk)
+    }
+
+    /// Keep `secret` under `name` for the user `owner` (scope `user`).
+    /// Answered only to `wlanmd` (the `_wlan` system uid, unlabelled, outside
+    /// any session), which takes a passphrase in `os.lazy.net.wifi.v1`
+    /// `AddNetwork` for the user who called it, and only for a `name` that is
+    /// a Wi-Fi profile id (`w` and 12 lowercase hex digits); everyone else,
+    /// any other name and the `system` scope (written by `elevd` alone) get
+    /// `EPERM`. Otherwise the rules of `StoreSecret`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn store_secret_for(&self, scope: &str, name: &str, secret: &[u8], owner: u32) -> Result<(), ClientError> {
+        self.store_secret_for_within(scope, name, secret, owner, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::store_secret_for`] with the caller's deadline instead of the IDL's.
+    pub fn store_secret_for_within(&self, scope: &str, name: &str, secret: &[u8], owner: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_store_secret_for_args(&StoreSecretForArgs { scope: scope.into(), name: name.into(), secret: secret.to_vec(), owner }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_STORESECRETFOR, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Forget the secret `name` of `owner` in `scope` (the rules of
+    /// `StoreSecretFor`; `ENOENT` when there is none).
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn delete_secret_for(&self, scope: &str, name: &str, owner: u32) -> Result<(), ClientError> {
+        self.delete_secret_for_within(scope, name, owner, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::delete_secret_for`] with the caller's deadline instead of the IDL's.
+    pub fn delete_secret_for_within(&self, scope: &str, name: &str, owner: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_delete_secret_for_args(&DeleteSecretForArgs { scope: scope.into(), name: name.into(), owner }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_DELETESECRETFOR, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+}

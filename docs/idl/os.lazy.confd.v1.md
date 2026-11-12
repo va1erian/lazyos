@@ -23,6 +23,16 @@ Change notifications are best-effort: a subscriber observes
 
 - Served under the registry name `os.lazy.confd`; registered once.
 
+## Scopes and deadlines
+
+| Method | Scope interface | Scope id | Deadline |
+|---|---|---|---|
+| Get | this interface | - | 2000 ms |
+| Set | this interface | - | 2000 ms |
+| Delete | this interface | - | 2000 ms |
+| List | this interface | - | 2000 ms |
+| Info | this interface | - | 2000 ms |
+
 ## Errors
 
 Carried in the reply's standard error field (id 15).

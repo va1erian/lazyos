@@ -1,36 +1,30 @@
 //! Typed client of the network stack service `netd` (`os.lazy.net.stack.v1`,
 //! `idl/net.midl`) for the network apps.
 //!
-//! Bodies come from the generated stubs, never hand-written field ids. Every
-//! call runs on the UI thread, so each is bounded: a status call by
-//! [`STATUS_TICKS`], a ping or a lookup by its own timeout plus a margin. A
+//! Calls go through the generated client, never hand-written field ids. Every
+//! call runs on the UI thread, so each is bounded: a status call by the
+//! `.midl` deadline, a ping or a lookup by its own timeout plus a margin. A
 //! missing `netd` (an image without the stack, or one still booting) is one
 //! failed resolve per call, reported as [`Error::NotRunning`], never a hang.
 //! Replies are untrusted: addresses of the wrong length are dropped and names
 //! are clipped before they reach a label.
 
-use libmessenger::client::Deadline;
+use std::rc::Rc;
+
+use libmessenger::client::{CallError, Deadline};
 use messenger_generated::os_lazy_net_stack_v1 as wire;
 
 use super::model::{self, Address, ConfigMode, DhcpState, Interface, NetStatus, Traffic};
 use crate::format;
-use crate::platform::messenger::Service;
+use crate::platform::messenger::{client, Observed};
+use crate::sys::errno::{EACCES, EAGAIN, EINVAL, ENOENT, EPIPE, ETIMEDOUT};
 
-/// `netd`'s registered name.
-const NAME: &str = wire::SERVICE_NAME;
-/// The longest one status call may wait (PIT ticks, 100 Hz).
-pub const STATUS_TICKS: u64 = 50;
 /// Ticks a ping or lookup may run past its own timeout before the caller
 /// gives up on `netd` itself.
 const MARGIN_TICKS: u64 = 30;
 
-const ENOENT: i64 = 2;
-const EAGAIN: i64 = 11;
-const EACCES: i64 = 13;
-const EINVAL: i64 = 22;
-const EPIPE: i64 = 32;
+/// `ENETUNREACH`: the stack's own code (it is not in the kernel's table).
 const ENETUNREACH: i64 = 101;
-const ETIMEDOUT: i64 = 110;
 
 /// Why a call to the stack failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,36 +56,23 @@ impl Error {
     }
 }
 
-/// One call on `netd` that may wait `ticks`; the reply body.
-///
-/// A `netd` that was restarted (a crash, an update) leaves this task's
-/// endpoint dead (`EPIPE`). The failed call evicts it, so one retry resolves
-/// the new `netd` instead of failing a click.
-fn call(method: u32, body: Vec<u8>, ticks: u64) -> Result<Vec<u8>, Error> {
-    match call_once(method, body.clone(), ticks) {
-        Err(Error::Code(code)) if -code == EPIPE => call_once(method, body, ticks),
-        other => other,
-    }
+/// `netd`'s client. A `netd` that was restarted (a crash, an update) leaves
+/// this task's endpoint dead (`EPIPE`); the client resolves the new one and
+/// retries once instead of failing a click.
+fn netd() -> Result<Rc<wire::Client<Observed>>, Error> {
+    client(wire::Client::try_connect).map_err(|_| Error::NotRunning)
 }
 
-fn call_once(method: u32, body: Vec<u8>, ticks: u64) -> Result<Vec<u8>, Error> {
-    let service = Service::try_connect(NAME).ok_or(Error::NotRunning)?;
-    service
-        .call(wire::INTERFACE_ID, method, body, Deadline::ticks(ticks))
-        .map(|reply| reply.body)
-        .map_err(|error| Error::Code(error.code()))
-}
-
-fn decoded<T, E>(result: Result<T, E>) -> Result<T, Error> {
-    result.map_err(|_| Error::Code(-EINVAL))
+fn failed(error: CallError) -> Error {
+    Error::Code(error.code())
 }
 
 /// Read interfaces, addresses, routes and counters now, shown for the
 /// interface called `selected` (the primary one, else the first, when `None`
 /// or when that one is gone).
 pub fn status(selected: Option<&str>) -> Result<NetStatus, Error> {
-    let body = call(wire::METHOD_INTERFACES, Vec::new(), STATUS_TICKS)?;
-    let list = decoded(wire::decode_interfaces_reply(&body))?.list;
+    let netd = netd()?;
+    let list = netd.interfaces().map_err(failed)?;
     let names: Vec<String> = list.iter().map(|i| clipped(&i.name)).collect();
     let chosen = selected
         .and_then(|name| list.iter().position(|i| clipped(&i.name) == name))
@@ -99,20 +80,19 @@ pub fn status(selected: Option<&str>) -> Result<NetStatus, Error> {
         .or(if list.is_empty() { None } else { Some(0) });
     let chosen_name = chosen.map(|at| names[at].clone());
     let interface = chosen.map(|at| interface(&list[at]));
-    let body = call(wire::METHOD_ADDRESSES, Vec::new(), STATUS_TICKS)?;
-    let address = decoded(wire::decode_addresses_reply(&body))?
-        .list
+    let address = netd
+        .addresses()
+        .map_err(failed)?
         .iter()
         .filter(|a| Some(clipped(&a.interface)) == chosen_name)
         .find_map(address);
-    let body = call(wire::METHOD_ROUTES, Vec::new(), STATUS_TICKS)?;
-    let gateway = decoded(wire::decode_routes_reply(&body))?
-        .list
+    let gateway = netd
+        .routes()
+        .map_err(failed)?
         .iter()
         .filter(|route| route.prefix_len == 0 && Some(clipped(&route.interface)) == chosen_name)
         .find_map(|route| model::ipv4(&route.gateway).filter(|gw| *gw != [0; 4]));
-    let body = call(wire::METHOD_STATS, Vec::new(), STATUS_TICKS)?;
-    let traffic = traffic(&decoded(wire::decode_stats_reply(&body))?.stats);
+    let traffic = traffic(&netd.stats().map_err(failed)?);
     Ok(NetStatus {
         names,
         interface,
@@ -184,14 +164,10 @@ pub struct Echo {
 
 /// Ping `dst` once with `payload` bytes, waiting at most `timeout_ms`.
 pub fn ping(dst: [u8; 4], payload: u32, timeout_ms: u32) -> Result<Echo, Error> {
-    let body = decoded(wire::encode_ping_args(&wire::PingArgs {
-        dst: dst.to_vec(),
-        payload_len: payload,
-        timeout_ms,
-    }))?;
-    let ticks = u64::from(timeout_ms / 10) + MARGIN_TICKS;
-    let reply = call(wire::METHOD_PING, body, ticks)?;
-    let result = decoded(wire::decode_ping_reply(&reply))?.result;
+    let until = Deadline::ticks(u64::from(timeout_ms / 10) + MARGIN_TICKS);
+    let result = netd()?
+        .ping_within(&dst, payload, timeout_ms, until)
+        .map_err(failed)?;
     Ok(Echo {
         rtt_ms: result.rtt_ms,
         from: model::ipv4(&result.source).unwrap_or(dst),
@@ -202,14 +178,11 @@ pub fn ping(dst: [u8; 4], payload: u32, timeout_ms: u32) -> Result<Echo, Error> 
 /// Look `name` up (A records), waiting at most `timeout_ms`. A dotted quad is
 /// answered at once.
 pub fn resolve(name: &str, timeout_ms: u32) -> Result<Vec<[u8; 4]>, Error> {
-    let body = decoded(wire::encode_resolve_args(&wire::ResolveArgs {
-        name: name.into(),
-        timeout_ms,
-    }))?;
-    let ticks = u64::from(timeout_ms / 10) + MARGIN_TICKS;
-    let reply = call(wire::METHOD_RESOLVE, body, ticks)?;
-    Ok(decoded(wire::decode_resolve_reply(&reply))?
-        .addrs
+    let until = Deadline::ticks(u64::from(timeout_ms / 10) + MARGIN_TICKS);
+    let addrs = netd()?
+        .resolve_within(name, timeout_ms, until)
+        .map_err(failed)?;
+    Ok(addrs
         .iter()
         .filter_map(|addr| model::ipv4(addr))
         .take(8)
@@ -218,7 +191,7 @@ pub fn resolve(name: &str, timeout_ms: u32) -> Result<Vec<[u8; 4]>, Error> {
 
 /// Ask for a fresh DHCP lease (the current one is dropped).
 pub fn renew() -> Result<(), Error> {
-    call(wire::METHOD_RENEW, Vec::new(), STATUS_TICKS).map(|_| ())
+    netd()?.renew().map_err(failed)
 }
 
 /// `text` without control characters, so a peer cannot break a label.

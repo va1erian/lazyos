@@ -36,7 +36,7 @@ pub(super) fn launcher() -> ! {
 /// `LAZYOS_XUID=1` boot has no supervisor, and the drag's token transfer needs
 /// the service. In services mode `init` already runs it, so this is a no-op.
 fn ensure_clipboard() {
-    if clipboard::Client::connect_waiting().is_ok() {
+    if clipboard::Client::connect(clipboard::Nested).is_ok() {
         sys::write_str("dragdemo: clipboardd already present\n");
         return;
     }

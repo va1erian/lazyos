@@ -26,9 +26,6 @@ pub enum Error {
     /// The topics broker refused the request with a positive errno-style code
     /// (`topics` carries it in the reply's `ERROR` field).
     Topics(i64),
-    /// The MIME service refused the request with a positive errno-style code
-    /// (`mimed` carries it in the reply's `ERROR` field).
-    Mime(i64),
     /// The supervisor refused the request with a positive errno-style code
     /// (`init` carries it in the reply's `ERROR` field).
     Init(i64),
@@ -57,9 +54,7 @@ impl Error {
             Error::Errno(code) => Some(code),
             // Registry and broker codes travel positive; normalise to the
             // syscall shape.
-            Error::Registry(code) | Error::Topics(code) | Error::Mime(code) | Error::Init(code) => {
-                Some(-code)
-            }
+            Error::Registry(code) | Error::Topics(code) | Error::Init(code) => Some(-code),
             Error::Confd(code) => Some(-code),
             Error::Parcel(_) => None,
         }
@@ -71,7 +66,6 @@ impl Error {
             Error::Parcel(error) => error.message(),
             Error::Registry(code) => registry_message(code),
             Error::Topics(code) => topics_message(code),
-            Error::Mime(code) => mime_message(code),
             Error::Init(code) => init_message(code),
             Error::Confd(code) => confd_message(code),
             // A match guard keeps the named constants readable; a bare
@@ -152,19 +146,6 @@ fn topics_message(code: i64) -> &'static str {
     }
 }
 
-/// Friendly text for a MIME-service error code crossing the daemon protocol.
-fn mime_message(code: i64) -> &'static str {
-    if code == errno::ENOENT {
-        "no application is registered for that file type and verb"
-    } else if code == errno::EINVAL {
-        "the MIME request is malformed"
-    } else if code == errno::E2BIG {
-        "the MIME reply exceeds the Messenger buffer limit"
-    } else {
-        "the MIME request failed"
-    }
-}
-
 /// Friendly text for a supervisor (`init`) error code crossing the protocol.
 fn init_message(code: i64) -> &'static str {
     if code == errno::EPERM {
@@ -186,14 +167,9 @@ fn init_message(code: i64) -> &'static str {
 /// the `errors` block of `idl/confd.midl`, so the service and client agree on
 /// one set.
 fn confd_message(code: i64) -> &'static str {
-    use super::confd::{store_error, StoreError};
-    match store_error(code) {
-        Some(StoreError::NotFound) => "no value is stored at that path",
-        Some(StoreError::BadPath) => "that is not a valid confd path",
-        Some(StoreError::TooLarge) => "the value or store exceeds a confd size limit",
-        Some(StoreError::Denied) => "the caller may not access that path",
-        Some(StoreError::BadValue) => "the request carried a malformed confd value",
-        Some(StoreError::Io) => "the confd store could not be read or written",
+    use super::confd::{store_message, StoreError};
+    match u32::try_from(code).ok().and_then(StoreError::from_code) {
+        Some(store) => store_message(store),
         None => "the confd request failed",
     }
 }

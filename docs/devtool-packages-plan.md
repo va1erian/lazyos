@@ -183,7 +183,7 @@ file-server mounts) are on the deny list unless declared, and the kernel's raw
 
 A small module so every tool behaves the same and the warning text exists once:
 
-* `devtool::run(Channel, ...)`: the `launch::run` wrapper that adds the title
+* `devtool::app(Channel, name)`: `xui_app::app` with the title
   suffix "(developer tool)", the strip ("Runs with your full
   authority, exactly like the Terminal. Read a script before you run it."), and
   a `<CH>:DEVTOOL:UP` evidence line.

@@ -84,14 +84,20 @@ pub const METHOD_LOOKUP: u32 = 1772818603;
 pub const METHOD_AUTHENTICATE: u32 = 1137183084;
 /// `Create` method id.
 pub const METHOD_CREATE: u32 = 420340861;
+/// How long a client waits for `Create`'s reply, in milliseconds.
+pub const METHOD_CREATE_DEADLINE_MS: u32 = 60000;
 /// `Delete` method id.
 pub const METHOD_DELETE: u32 = 1469573738;
 /// `SetPassword` method id.
 pub const METHOD_SETPASSWORD: u32 = 985541106;
+/// How long a client waits for `SetPassword`'s reply, in milliseconds.
+pub const METHOD_SETPASSWORD_DEADLINE_MS: u32 = 60000;
 /// `SetAdmin` method id.
 pub const METHOD_SETADMIN: u32 = 1706675794;
 /// `ListUsers` method id.
 pub const METHOD_LISTUSERS: u32 = 702470087;
+/// How long a client waits for `ListUsers`'s reply, in milliseconds.
+pub const METHOD_LISTUSERS_DEADLINE_MS: u32 = 3000;
 
 /// Find a user by `name` or, when `name` is absent, by `uid`.
 /// `found` is false (and `user` empty) when no account matches.
@@ -478,3 +484,188 @@ pub fn decode_list_users_reply(body: &[u8]) -> Result<ListUsersReply, Error> {
 /// and the declared kinds, in object-list order.
 pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
 ];
+
+#[cfg(feature = "accounts_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "accounts_v1_client")]
+/// A client of `os.lazy.accounts.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "accounts_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Find a user by `name` or, when `name` is absent, by `uid`.
+    /// `found` is false (and `user` empty) when no account matches.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn lookup(&self, name: core::option::Option<&str>, uid: core::option::Option<u32>) -> Result<LookupReply, ClientError> {
+        self.lookup_within(name, uid, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::lookup`] with the caller's deadline instead of the IDL's.
+    pub fn lookup_within(&self, name: core::option::Option<&str>, uid: core::option::Option<u32>, within: libmessenger::client::Deadline) -> Result<LookupReply, ClientError> {
+        let wire_body = encode_lookup_args(&LookupArgs { name: name.map(Into::into), uid }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_LOOKUP, wire_body, wire_objects, within)
+            ?;
+        decode_lookup_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// Verify `secret` against the stored verifier of `name`. After three
+    /// failures in a row for a name or from a caller, further attempts are
+    /// refused with `EAGAIN` for a delay that doubles from 1 s to 60 s.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn authenticate(&self, name: &str, secret: &str) -> Result<bool, ClientError> {
+        self.authenticate_within(name, secret, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::authenticate`] with the caller's deadline instead of the IDL's.
+    pub fn authenticate_within(&self, name: &str, secret: &str, within: libmessenger::client::Deadline) -> Result<bool, ClientError> {
+        let wire_body = encode_authenticate_args(&AuthenticateArgs { name: name.into(), secret: secret.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_AUTHENTICATE, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_authenticate_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.ok)
+    }
+
+    /// Create the account `name` with the password `secret` (an
+    /// administrator when `admin`): the next free uid, a 0700 home made from
+    /// the skeleton. From `elevd`, or from the login screen while the machine
+    /// has no account (the owner, who must be an admin). `EEXIST` for a taken
+    /// name, `EINVAL` for a bad one, `EPERM` for any other caller.
+    ///
+    /// Waits for the reply at most 60000 ms (`deadline` in the `.midl`).
+    pub fn create(&self, name: &str, secret: &str, admin: bool) -> Result<User, ClientError> {
+        self.create_within(name, secret, admin, libmessenger::client::Deadline::millis(METHOD_CREATE_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::create`] with the caller's deadline instead of the IDL's.
+    pub fn create_within(&self, name: &str, secret: &str, admin: bool, within: libmessenger::client::Deadline) -> Result<User, ClientError> {
+        let wire_body = encode_create_args(&CreateArgs { name: name.into(), secret: secret.into(), admin }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_CREATE, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_create_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.user)
+    }
+
+    /// Delete the account `name` (from `elevd` only). `home` says what
+    /// happens to its home: `keep`, `archive` (moved aside, root-only) or
+    /// `remove`. The last administrator cannot be deleted (`EBUSY`).
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn delete(&self, name: &str, home: &str) -> Result<(), ClientError> {
+        self.delete_within(name, home, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::delete`] with the caller's deadline instead of the IDL's.
+    pub fn delete_within(&self, name: &str, home: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_delete_args(&DeleteArgs { name: name.into(), home: home.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_DELETE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Set `name`'s password to `secret`. A user may change their own with
+    /// the current one in `old` (checked and slowed like `Authenticate`,
+    /// `EACCES` when wrong); `elevd` may set anyone's without it.
+    ///
+    /// Waits for the reply at most 60000 ms (`deadline` in the `.midl`).
+    pub fn set_password(&self, name: &str, old: core::option::Option<&str>, secret: &str) -> Result<(), ClientError> {
+        self.set_password_within(name, old, secret, libmessenger::client::Deadline::millis(METHOD_SETPASSWORD_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::set_password`] with the caller's deadline instead of the IDL's.
+    pub fn set_password_within(&self, name: &str, old: core::option::Option<&str>, secret: &str, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_set_password_args(&SetPasswordArgs { name: name.into(), old: old.map(Into::into), secret: secret.into() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SETPASSWORD, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Make `name` an administrator or not (from `elevd` only). Taking it
+    /// from the last administrator is `EBUSY`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn set_admin(&self, name: &str, admin: bool) -> Result<(), ClientError> {
+        self.set_admin_within(name, admin, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::set_admin`] with the caller's deadline instead of the IDL's.
+    pub fn set_admin_within(&self, name: &str, admin: bool, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_set_admin_args(&SetAdminArgs { name: name.into(), admin }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SETADMIN, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Every account, in database order. `setup` is true while the machine
+    /// has no account (the login screen then asks for its owner).
+    ///
+    /// Waits for the reply at most 3000 ms (`deadline` in the `.midl`).
+    pub fn list_users(&self) -> Result<ListUsersReply, ClientError> {
+        self.list_users_within(libmessenger::client::Deadline::millis(METHOD_LISTUSERS_DEADLINE_MS as u64))
+    }
+
+    /// [`Self::list_users`] with the caller's deadline instead of the IDL's.
+    pub fn list_users_within(&self, within: libmessenger::client::Deadline) -> Result<ListUsersReply, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_LISTUSERS, wire_body, wire_objects, within)
+            ?;
+        decode_list_users_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+}

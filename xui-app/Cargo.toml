@@ -91,6 +91,8 @@ members = [
     # LazyWeb's ad blocker core (docs/lazyweb.md, issue #845): filter lists to
     # WebKit content-rule lists; portable and host-tested.
     "crates/adblock",
+    # Worker threads that answer a window with messages (docs/client-api-plan.md 4.3).
+    "crates/work",
 ]
 
 [dependencies]
@@ -175,6 +177,7 @@ printd = { path = "crates/printd" }
 xui-explorer = { path = "crates/explorer", features = ["village-icons"] }
 # The Archiver (docs/archiver-plan.md): its app core and format library.
 xui-archiver = { path = "crates/archiver" }
+xui-work = { path = "crates/work" }
 # The PDF Viewer (docs/pdf-reader-plan.md): its window over `lazypdf`.
 xui-pdfview = { path = "crates/pdfview" }
 # The Video Player (docs/video-player-plan.md): its window over `lazyvideo`.

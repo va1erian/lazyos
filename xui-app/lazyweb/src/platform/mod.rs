@@ -16,18 +16,14 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use xui_app::backend::LazyOSBackend;
 use xui_app::platform::confd_store::ConfdStore;
-use xui_app::platform::messenger::Service;
 use xui_app::platform::webd::WebdTransport;
 use xui_app::platform::{launcher, notify};
-use xui_app::trace::{self, Channel};
-use xui_core::app::run_app;
-use xui_core::backend::{Backend, PlatformSpec};
-use xui_core::units::Dip;
+use xui_app::trace::Channel;
 use xui_settings::store::{ConfigStore, Value as StoreValue};
 use xui_webkit::abi::first_address;
 use xui_webkit::engine::NotifyAnswer;
@@ -94,29 +90,6 @@ fn folders() -> Folders {
     Folders { profile, downloads }
 }
 
-/// The compositor client, waiting for the compositor: an app that opens at login starts while the
-/// core apps are still being installed (LazyShell retries the same way).
-fn connect() -> Option<Rc<LazyOSBackend>> {
-    let started = Instant::now();
-    let mut said = false;
-    loop {
-        match LazyOSBackend::connect() {
-            Ok(backend) => return Some(Rc::new(backend)),
-            Err(code) if started.elapsed() < CONNECT_WAIT => {
-                if !said {
-                    trace::line!(Channel::LazyWeb, "WAIT:{code}");
-                    said = true;
-                }
-                std::thread::sleep(Duration::from_secs(1));
-            }
-            Err(code) => {
-                trace::fail!(Channel::LazyWeb, "BIND", "{code}");
-                return None;
-            }
-        }
-    }
-}
-
 /// The window's policy for a navigation webd held (another scheme, one of the browser's commands):
 /// what the in-process policy decided on WebKit's thread (`policy.rs`), with the window's own lock
 /// on real input for a hand-off to another program.
@@ -166,6 +139,6 @@ fn visits(profile: Option<&PathBuf>) -> Visits {
 mod run;
 
 /// Runs the browser until its window is closed; the process exit status.
-pub fn main() -> i32 {
+pub fn main() -> ! {
     run::run()
 }

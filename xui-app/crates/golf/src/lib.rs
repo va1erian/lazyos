@@ -28,3 +28,4 @@ pub mod view;
 pub use app::{GolfApp, Msg, WINDOW};
 pub use course::{Archetype, Course, Hole, Material, Object, ObjectKind, Species};
 pub use gen::{generate, Generator, Params, Stage};
+pub use loading::{Gen, Shared};

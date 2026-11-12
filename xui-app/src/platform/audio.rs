@@ -15,16 +15,15 @@
 //!
 //! Requests travel over the mixer's Messenger endpoint, resolved by name;
 //! rings are display shared buffers, which the mixer maps when the ring is
-//! attached. Every call is bounded (`CALL_TICKS`), so a stalled mixer costs a
+//! attached. Every call is bounded ([`CALL_TICKS`]), so a stalled mixer costs a
 //! UI thread an error rather than a frozen window.
 
 use std::ptr;
-use std::rc::Rc;
 
 use audioclient::{Error, Object, Result, RingBuffer, RingRef, Transport};
-use libmessenger::client::{CallError, Deadline};
+use libmessenger::client::{CallError, Connection, Deadline};
 
-use super::messenger::{shared, Conn};
+use super::messenger::{Conn, Observed};
 use crate::sys::{self, errno};
 
 pub use audioclient::{Params, PlaybackStream, NAME, TICK_HZ, UNITY_GAIN};
@@ -37,19 +36,20 @@ fn errno_of(code: i64) -> Error {
     Error::Errno(code.unsigned_abs() as i64)
 }
 
-/// The system mixer (or a card) reached over this thread's shared
-/// connection to it ([`super::messenger::shared`]): resolved once per name
-/// and reused; a call that finds the service gone drops the handle and
-/// resolves a restarted mixer once.
+/// The system mixer (or a card) reached over its own connection: resolved
+/// once and reused; a call that finds the service gone drops the handle and
+/// resolves a restarted mixer once. `libs/audioclient` frames its own
+/// requests (its `Transport` takes the interface and method ids), so this is
+/// a raw [`Conn`] and not a generated client.
 pub struct Audio {
-    conn: Rc<Conn>,
+    conn: Conn,
 }
 
 impl Audio {
     /// The service `name`, resolved once; `None` when no such service runs (an
     /// image without a sound card), so a caller can fall back without waiting.
-    pub fn try_connect_to(name: &'static str) -> Option<Audio> {
-        let conn = shared(name);
+    pub fn try_connect_to(name: &str) -> Option<Audio> {
+        let conn = Connection::named(Observed::default(), name.to_owned());
         conn.try_connect().ok()?;
         Some(Audio { conn })
     }

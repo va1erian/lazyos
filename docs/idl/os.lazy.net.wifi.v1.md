@@ -57,6 +57,19 @@ shared structured error field (`services::error_field`).
 
 - Served under the registry name `os.lazy.net.wifi`; registered once.
 
+## Scopes and deadlines
+
+| Method | Scope interface | Scope id | Deadline |
+|---|---|---|---|
+| Interfaces | this interface | - | 1000 ms |
+| Scan | this interface | - | 1000 ms |
+| Networks | this interface | - | 1000 ms |
+| AddNetwork | this interface | - | 1000 ms |
+| Connect | this interface | - | 1000 ms |
+| Disconnect | this interface | - | 1000 ms |
+| Forget | this interface | - | 1000 ms |
+| Status | this interface | - | 1000 ms |
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

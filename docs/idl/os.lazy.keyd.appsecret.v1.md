@@ -39,3 +39,12 @@ a structured error field (errno-style code, friendly text).
 ## Service
 
 - Served under the registry name `os.lazy.keyd.appsecret`; registered once.
+
+## Scopes and deadlines
+
+| Method | Scope interface | Scope id | Deadline |
+|---|---|---|---|
+| Put | this interface | - | 3000 ms |
+| Get | this interface | - | 3000 ms |
+| Delete | this interface | - | 3000 ms |
+| List | this interface | - | 3000 ms |

@@ -896,3 +896,339 @@ pub fn decode_stats_reply(body: &[u8]) -> Result<StatsReply, Error> {
 /// and the declared kinds, in object-list order.
 pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
 ];
+
+#[cfg(feature = "net_socket_v1_client")]
+/// What a call of the generated [`Client`] returns on failure: a transport or remote
+/// failure, or one of this interface's declared errors.
+pub type ClientError = libmessenger::client::CallError<core::convert::Infallible>;
+
+#[cfg(feature = "net_socket_v1_client")]
+/// A client of `os.lazy.net.socket.v1` over a [`libmessenger::client::Transport`]
+/// (`docs/client-api-plan.md` 3.2): the registry name, the header ids, the deadlines and the
+/// error mapping all come from the `.midl`, so no caller frames a request by hand.
+pub struct Client<T: libmessenger::client::Transport> {
+    conn: libmessenger::client::Connection<T>,
+}
+
+#[cfg(feature = "net_socket_v1_client")]
+#[allow(clippy::too_many_arguments)]
+impl<T: libmessenger::client::Transport> Client<T> {
+    /// Connect to the service ([`SERVICE_NAME`]), waiting for it to register for the
+    /// transport's connect bound.
+    pub fn connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// [`Self::connect`] with one attempt, for a caller whose service being absent has
+    /// a cheap fallback.
+    pub fn try_connect(transport: T) -> Result<Self, ClientError> {
+        let client = Self::from_connection(libmessenger::client::Connection::new(transport, SERVICE_NAME));
+        client.conn.try_connect().map_err(ClientError::Transport)?;
+        Ok(client)
+    }
+
+    /// A client over an existing connection: one to a member of the interface's service
+    /// family (`SERVICE_INSTANCE_PREFIX` and the instance), or a test's [`libmessenger::client::Mock`].
+    pub fn from_connection(conn: libmessenger::client::Connection<T>) -> Self {
+        Client { conn }
+    }
+
+    /// The connection behind this client.
+    pub fn connection(&self) -> &libmessenger::client::Connection<T> {
+        &self.conn
+    }
+
+    /// Make a socket of `kind` (a `SockKind` ordinal). The reply is the id
+    /// every other call names.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn open(&self, kind: u32) -> Result<u32, ClientError> {
+        self.open_within(kind, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::open`] with the caller's deadline instead of the IDL's.
+    pub fn open_within(&self, kind: u32, within: libmessenger::client::Deadline) -> Result<u32, ClientError> {
+        let wire_body = encode_open_args(&OpenArgs { kind }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_OPEN, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_open_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.sock)
+    }
+
+    /// Choose the local address and port. `addr.addr` must be all zeros (any)
+    /// or the interface's own address; port 0 picks an ephemeral one.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn bind(&self, sock: u32, addr: &SockAddr) -> Result<(), ClientError> {
+        self.bind_within(sock, addr, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::bind`] with the caller's deadline instead of the IDL's.
+    pub fn bind_within(&self, sock: u32, addr: &SockAddr, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_bind_args(&BindArgs { sock, addr: addr.clone() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_BIND, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Stream: open a connection to `addr`; parks until it is established or
+    /// refused. Datagram: fix the peer `Send`/`Recv` use (never parks).
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn connect_call(&self, sock: u32, addr: &SockAddr, timeout_ms: u32) -> Result<(), ClientError> {
+        self.connect_call_within(sock, addr, timeout_ms, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::connect_call`] with the caller's deadline instead of the IDL's.
+    pub fn connect_call_within(&self, sock: u32, addr: &SockAddr, timeout_ms: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_connect_args(&ConnectArgs { sock, addr: addr.clone(), timeout_ms }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_CONNECT, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Stream only: accept connections on the bound port. `backlog` (1 to 8)
+    /// is how many connections may complete before `Accept` collects them.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn listen(&self, sock: u32, backlog: u32) -> Result<(), ClientError> {
+        self.listen_within(sock, backlog, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::listen`] with the caller's deadline instead of the IDL's.
+    pub fn listen_within(&self, sock: u32, backlog: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_listen_args(&ListenArgs { sock, backlog }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_LISTEN, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Stream only: take one established connection off a listener as a new
+    /// socket owned by the caller; parks until one is there.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn accept(&self, sock: u32, timeout_ms: u32) -> Result<AcceptReply, ClientError> {
+        self.accept_within(sock, timeout_ms, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::accept`] with the caller's deadline instead of the IDL's.
+    pub fn accept_within(&self, sock: u32, timeout_ms: u32, within: libmessenger::client::Deadline) -> Result<AcceptReply, ClientError> {
+        let wire_body = encode_accept_args(&AcceptArgs { sock, timeout_ms }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_ACCEPT, wire_body, wire_objects, within)
+            ?;
+        decode_accept_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// Queue `data` (at most 16384 bytes) on a connected socket. Returns how
+    /// many bytes were taken (possibly fewer than sent); parks while no byte
+    /// would fit.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn send(&self, sock: u32, data: &[u8], timeout_ms: u32) -> Result<u32, ClientError> {
+        self.send_within(sock, data, timeout_ms, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::send`] with the caller's deadline instead of the IDL's.
+    pub fn send_within(&self, sock: u32, data: &[u8], timeout_ms: u32, within: libmessenger::client::Deadline) -> Result<u32, ClientError> {
+        let wire_body = encode_send_args(&SendArgs { sock, data: data.to_vec(), timeout_ms }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_SEND, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_send_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.sent)
+    }
+
+    /// Take up to `max` (1 to 16384) bytes from a connected socket; parks
+    /// until at least one is there. An empty reply is the end of the stream.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn recv(&self, sock: u32, max: u32, timeout_ms: u32) -> Result<alloc::vec::Vec<u8>, ClientError> {
+        self.recv_within(sock, max, timeout_ms, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::recv`] with the caller's deadline instead of the IDL's.
+    pub fn recv_within(&self, sock: u32, max: u32, timeout_ms: u32, within: libmessenger::client::Deadline) -> Result<alloc::vec::Vec<u8>, ClientError> {
+        let wire_body = encode_recv_args(&RecvArgs { sock, max, timeout_ms }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_RECV, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_recv_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.data)
+    }
+
+    /// Datagram: send `data` (at most 1472 bytes) to `addr`. Never parks: a
+    /// full send queue is `EAGAIN`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn send_to(&self, sock: u32, addr: &SockAddr, data: &[u8]) -> Result<u32, ClientError> {
+        self.send_to_within(sock, addr, data, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::send_to`] with the caller's deadline instead of the IDL's.
+    pub fn send_to_within(&self, sock: u32, addr: &SockAddr, data: &[u8], within: libmessenger::client::Deadline) -> Result<u32, ClientError> {
+        let wire_body = encode_send_to_args(&SendToArgs { sock, addr: addr.clone(), data: data.to_vec() }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_SENDTO, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_send_to_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.sent)
+    }
+
+    /// Datagram: take the next datagram, cut to `max` bytes (1 to 16384), and
+    /// where it came from; parks until one is there.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn recv_from(&self, sock: u32, max: u32, timeout_ms: u32) -> Result<RecvFromReply, ClientError> {
+        self.recv_from_within(sock, max, timeout_ms, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::recv_from`] with the caller's deadline instead of the IDL's.
+    pub fn recv_from_within(&self, sock: u32, max: u32, timeout_ms: u32, within: libmessenger::client::Deadline) -> Result<RecvFromReply, ClientError> {
+        let wire_body = encode_recv_from_args(&RecvFromArgs { sock, max, timeout_ms }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_RECVFROM, wire_body, wire_objects, within)
+            ?;
+        decode_recv_from_reply(&wire_reply.body).map_err(ClientError::bad_reply)
+    }
+
+    /// Wait until any bit of `interest` (a bitmap of `Ready` ordinals) is
+    /// ready; the reply is the bitmap of what is. `Closed` and `Error` are
+    /// always of interest. Parks until then.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn poll(&self, sock: u32, interest: u32, timeout_ms: u32) -> Result<u32, ClientError> {
+        self.poll_within(sock, interest, timeout_ms, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::poll`] with the caller's deadline instead of the IDL's.
+    pub fn poll_within(&self, sock: u32, interest: u32, timeout_ms: u32, within: libmessenger::client::Deadline) -> Result<u32, ClientError> {
+        let wire_body = encode_poll_args(&PollArgs { sock, interest, timeout_ms }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_POLL, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_poll_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.ready)
+    }
+
+    /// Stream: end one or both directions (a `Shutdown` ordinal). `Write`
+    /// sends FIN after the queued bytes; the socket stays open for reading.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn shutdown(&self, sock: u32, how: u32) -> Result<(), ClientError> {
+        self.shutdown_within(sock, how, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::shutdown`] with the caller's deadline instead of the IDL's.
+    pub fn shutdown_within(&self, sock: u32, how: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_shutdown_args(&ShutdownArgs { sock, how }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_SHUTDOWN, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// The socket's own address and port (`EINVAL` before `Bind`/`Connect`).
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn local_addr(&self, sock: u32) -> Result<SockAddr, ClientError> {
+        self.local_addr_within(sock, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::local_addr`] with the caller's deadline instead of the IDL's.
+    pub fn local_addr_within(&self, sock: u32, within: libmessenger::client::Deadline) -> Result<SockAddr, ClientError> {
+        let wire_body = encode_local_addr_args(&LocalAddrArgs { sock }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_LOCALADDR, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_local_addr_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.addr)
+    }
+
+    /// The peer's address and port (`ENOTCONN` when there is none).
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn peer_addr(&self, sock: u32) -> Result<SockAddr, ClientError> {
+        self.peer_addr_within(sock, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::peer_addr`] with the caller's deadline instead of the IDL's.
+    pub fn peer_addr_within(&self, sock: u32, within: libmessenger::client::Deadline) -> Result<SockAddr, ClientError> {
+        let wire_body = encode_peer_addr_args(&PeerAddrArgs { sock }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_PEERADDR, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_peer_addr_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.addr)
+    }
+
+    /// Release the socket. A stream closes gracefully (FIN); a parked call on
+    /// it is answered with `EBADF`.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn close(&self, sock: u32) -> Result<(), ClientError> {
+        self.close_within(sock, libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::close`] with the caller's deadline instead of the IDL's.
+    pub fn close_within(&self, sock: u32, within: libmessenger::client::Deadline) -> Result<(), ClientError> {
+        let wire_body = encode_close_args(&CloseArgs { sock }).map_err(ClientError::bad_request)?;
+        let wire_objects = Vec::new();
+        self
+            .conn
+            .call(INTERFACE_ID, METHOD_CLOSE, wire_body, wire_objects, within)
+            ?;
+        Ok(())
+    }
+
+    /// Counters since `netd` started; anyone may read them.
+    ///
+    /// Waits for the reply at most the crate-wide default ([`libmessenger::client::DEFAULT_DEADLINE`]).
+    pub fn stats(&self) -> Result<SocketStats, ClientError> {
+        self.stats_within(libmessenger::client::DEFAULT_DEADLINE)
+    }
+
+    /// [`Self::stats`] with the caller's deadline instead of the IDL's.
+    pub fn stats_within(&self, within: libmessenger::client::Deadline) -> Result<SocketStats, ClientError> {
+        let wire_body = Vec::new();
+        let wire_objects = Vec::new();
+        let wire_reply = self
+            .conn
+            .call(INTERFACE_ID, METHOD_STATS, wire_body, wire_objects, within)
+            ?;
+        let reply = decode_stats_reply(&wire_reply.body).map_err(ClientError::bad_reply)?;
+        Ok(reply.stats)
+    }
+}

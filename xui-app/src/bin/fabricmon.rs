@@ -21,7 +21,8 @@ use std::rc::Rc;
 
 use xui_app::backend::LazyOSBackend;
 use xui_app::fabric::{self, FabricStats, RegistryEntry, Topics};
-use xui_app::{compact, hidpi, launch};
+use xui_app::trace::{self, Channel};
+use xui_app::{compact, hidpi};
 use xui_core::app::{App, Ui};
 use xui_core::backend::{Event, WidgetId};
 use xui_core::Key;
@@ -127,7 +128,7 @@ impl State {
     fn evidence(&self) -> String {
         match &self.stats {
             Some(s) => format!(
-                "FABMON:UP:PASS\nFABMON:DATA:channels={} endpoints={} buffers={} handoffs={} names={} topics={}",
+                "UP:PASS\nDATA:channels={} endpoints={} buffers={} handoffs={} names={} topics={}",
                 s.channels,
                 s.endpoints,
                 s.buffers,
@@ -135,7 +136,7 @@ impl State {
                 self.names(),
                 self.topic_count()
             ),
-            None => format!("FABMON:UP:FAIL:{}", self.stats_error.unwrap_or(-22)),
+            None => format!("UP:FAIL:{}", self.stats_error.unwrap_or(-22)),
         }
     }
 }
@@ -172,10 +173,7 @@ impl App for Fabricmon {
             }
             Msg::Show(index) => self.widgets.tabs.get().select(index),
             Msg::Sort(table) => self.widgets.resort(table),
-            Msg::Quit => {
-                println!("FABMON:QUIT:PASS");
-                ui.quit();
-            }
+            Msg::Quit => ui.quit(),
             Msg::ToggleCompact => {
                 let rect = hidpi::design_rect(ui);
                 let (w, h) = compact::toggle_target(
@@ -214,32 +212,39 @@ fn shortcut(key: Key) -> Option<Msg> {
 }
 
 fn main() {
-    launch::run(xui_app::trace::Channel::Fabmon, "fabricmon", WINDOW, |ui, backend| {
-        // Resizable, down to the compact view, so `RequestSize` is accepted.
-        backend.set_size_hints(compact::MIN_SIZE.0, compact::MIN_SIZE.1, 0, 0);
-        let state = State::load();
-        let first = state.evidence();
-        backend.on_first_frame(move || println!("{first}"));
+    // Resizable, down to the compact view, so `RequestSize` is accepted.
+    xui_app::app(Channel::Fabmon, "fabricmon")
+        .size(WINDOW.0, WINDOW.1)
+        .min_size(compact::MIN_SIZE.0, compact::MIN_SIZE.1)
+        .run(|ui, backend| {
+            let state = State::load();
+            let first = state.evidence();
+            // The first-frame line carries what was read, so it is the app's.
+            backend.on_first_frame(move || {
+                first
+                    .lines()
+                    .for_each(|line| trace::line!(Channel::Fabmon, "{line}"));
+            });
 
-        let widgets = Widgets::default();
-        ui.root(widgets.layout())?;
-        ui.on_key(|key, _| shortcut(key));
-        ui.on_close(|| Some(Msg::Quit));
-        ui.register_events(WidgetId::NONE, |event| {
-            matches!(event, Event::Resize { .. }).then_some(Msg::Resized)
-        });
-        ui.every(REFRESH_MILLIS, Msg::Tick);
+            let widgets = Widgets::default();
+            ui.root(widgets.layout())?;
+            ui.on_key(|key, _| shortcut(key));
+            ui.on_close(|| Some(Msg::Quit));
+            ui.register_events(WidgetId::NONE, |event| {
+                matches!(event, Event::Resize { .. }).then_some(Msg::Resized)
+            });
+            ui.every(REFRESH_MILLIS, Msg::Tick);
 
-        widgets.show(&state, 0);
-        let design = hidpi::design_rect(ui);
-        widgets.set_compact(ui, compact::is_compact(design.width(), design.height()));
-        Ok(Fabricmon {
-            widgets,
-            backend: Rc::clone(backend),
-            state,
-            refreshes: 0,
-            ticked: false,
-            full_size: WINDOW,
+            widgets.show(&state, 0);
+            let design = hidpi::design_rect(ui);
+            widgets.set_compact(ui, compact::is_compact(design.width(), design.height()));
+            Ok(Fabricmon {
+                widgets,
+                backend: Rc::clone(backend),
+                state,
+                refreshes: 0,
+                ticked: false,
+                full_size: WINDOW,
+            })
         })
-    })
 }

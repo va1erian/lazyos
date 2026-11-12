@@ -19,10 +19,12 @@
 
 use alloc::string::String;
 use deskmenu::defaults;
-use user::messenger::confd::Client;
+use libmessenger::client::Deadline;
+use user::messenger::confd::{connect, Client, ValueClient};
 
 /// How long one `confd` read may take, in PIT ticks (100 Hz): a fifth of a second.
 const READ_TICKS: u64 = 20;
+const READ_BOUND: Deadline = Deadline::ticks(READ_TICKS);
 
 /// The users' choices, read from `confd` when asked.
 pub(crate) struct Prefs {
@@ -38,12 +40,10 @@ impl Prefs {
     pub(crate) fn default_app(&mut self, uid: u32, mime: &str) -> Option<String> {
         let path = defaults::user_key(uid, mime)?;
         if self.client.is_none() {
-            self.client = Client::connect()
-                .ok()
-                .map(|client| client.with_timeout(READ_TICKS));
+            self.client = connect().ok();
         }
         let client = self.client.as_ref()?;
-        match client.get(&path) {
+        match client.get_value_within(&path, READ_BOUND) {
             Ok(value) => defaults::app(value.as_ref()).map(String::from),
             Err(_) => {
                 // A service that restarted has a new endpoint: resolve again next time (an

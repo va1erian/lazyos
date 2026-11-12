@@ -9,18 +9,22 @@
 //! [`listen`] and polls the [`Listener`]; a toast must never be the only way to
 //! do something, so nothing here is required.
 
-use libmessenger::client::Deadline;
 use libmessenger::Parcel;
 use messenger_generated::os_lazy_notify_events_v1 as events;
 use messenger_generated::os_lazy_notify_v1 as wire;
 
-use super::messenger::Service;
+use super::messenger::{client, Observed};
 use crate::sys::{self, errno};
 
-/// The shell's registered name for the interface.
-const NAME: &str = "os.lazy.notify";
-/// How long a post may take (PIT ticks, 100 Hz): the UI thread calls it.
-const POST_TICKS: u64 = 30;
+/// Run `call` on the shell's generated client (bounded by the deadlines
+/// `idl/notify.midl` declares, because the UI thread calls them): `-ENOENT` when
+/// there is none (no desktop, an older image), else the call's own negative errno.
+fn with_shell<R>(
+    call: impl FnOnce(&wire::Client<Observed>) -> Result<R, wire::ClientError>,
+) -> Result<R, i64> {
+    let shell = client(wire::Client::try_connect).map_err(|_| -errno::ENOENT)?;
+    call(&shell).map_err(i64::from)
+}
 
 /// How serious a notice is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,46 +108,28 @@ fn fit_paragraphs(text: &str, max: usize) -> String {
 /// Close toast `id` (one [`post`] returned) at once. Not an error when it
 /// is already gone.
 pub fn close(id: u64) -> Result<(), i64> {
-    let service = Service::try_connect(NAME).ok_or(-errno::ENOENT)?;
-    let body = wire::encode_close_args(&wire::CloseArgs { id }).map_err(|_| -errno::EINVAL)?;
-    service
-        .call(
-            wire::INTERFACE_ID,
-            wire::METHOD_CLOSE,
-            body,
-            Deadline::ticks(POST_TICKS),
-        )
-        .map(|_| ())
-        .map_err(i64::from)
+    with_shell(|shell| shell.close(id))
 }
 
 /// Show `notice`; the toast's id (for [`Notice::replaces`]) or the negative
 /// errno (`-ENOENT` when there is no shell, `-EBUSY` when rate limited).
 pub fn post(notice: &Notice) -> Result<u64, i64> {
-    let service = Service::try_connect(NAME).ok_or(-errno::ENOENT)?;
-    let body = wire::encode_notify_args(&wire::NotifyArgs {
-        level: notice.level.wire(),
-        title: notice.title.clone(),
-        body: notice.body.clone(),
-        icon: notice.icon.clone().map(|name| wire::Icon {
-            lucide: Some(name),
-            image: None,
-        }),
-        actions: Vec::new(),
-        progress: notice.progress.map(|p| p.min(100)),
-        replaces_id: notice.replaces,
-        timeout: notice.timeout_ms,
+    let icon = notice.icon.clone().map(|name| wire::Icon {
+        lucide: Some(name),
+        image: None,
+    });
+    with_shell(|shell| {
+        shell.notify(
+            notice.level.wire(),
+            &notice.title,
+            &notice.body,
+            icon.as_ref(),
+            &[],
+            notice.progress.map(|p| p.min(100)),
+            notice.replaces,
+            notice.timeout_ms,
+        )
     })
-    .map_err(|_| -errno::EINVAL)?;
-    let reply = service.call(
-        wire::INTERFACE_ID,
-        wire::METHOD_NOTIFY,
-        body,
-        Deadline::ticks(POST_TICKS),
-    )?;
-    wire::decode_notify_reply(&reply.body)
-        .map(|reply| reply.id)
-        .map_err(|_| -errno::EINVAL)
 }
 
 /// Why a toast went away (`CloseReason` in `idl/notify.midl`).
@@ -190,8 +176,6 @@ pub enum Event {
     Closed { id: u64, reason: CloseReason },
 }
 
-/// Ticks (100 Hz) the `Listen` call may take.
-const LISTEN_TICKS: u64 = 30;
 /// Receive buffer for one event (a few dozen bytes).
 const EVENT_BYTES: usize = 512;
 /// Most events read per poll.
@@ -207,23 +191,9 @@ pub struct Listener {
 /// Ask the shell for this app's toast events. `Err` is a negative errno (`-ENOENT` without a
 /// shell, `-EACCES` when the manifest lacks `os.lazy.notify.v1`).
 pub fn listen() -> Result<Listener, i64> {
-    let service = Service::try_connect(NAME).ok_or(-errno::ENOENT)?;
     let (sent, kept) = sys::msg_create_pair()?;
-    let result = wire::encode_listen_args(&wire::ListenArgs { events: sent })
-        .map_err(|_| -errno::EINVAL)
-        .and_then(|(body, objects)| {
-            service
-                .call_moving(
-                    wire::INTERFACE_ID,
-                    wire::METHOD_LISTEN,
-                    body,
-                    objects,
-                    Deadline::ticks(LISTEN_TICKS),
-                )
-                .map_err(i64::from)
-        });
-    match result {
-        Ok(_) => Ok(Listener {
+    match with_shell(|shell| shell.listen(sent)) {
+        Ok(()) => Ok(Listener {
             channel: kept,
             buf: vec![0; EVENT_BYTES],
         }),

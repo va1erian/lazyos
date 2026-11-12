@@ -20,7 +20,7 @@ interface os.lazy.mimed.v1 {
     /// `open`), ask `init` to launch it and publish the launch event.
     /// `published` reports whether the event went out, `launched` whether
     /// `init` accepted the launch request.
-    method Open(path: String = 1, verb: String = 2) -> (app: String = 1, mime: String = 2, topic: String = 3, published: Bool = 4, launched: Bool = 5);
+    method Open(path: String = 1, verb: String = 2) -> (app: String = 1, mime: String = 2, topic: String = 3, published: Bool = 4, launched: Bool = 5) deadline=2s;
     /// Add or replace the app registered for `mime` and `verb`; the registry
     /// keeps the latest registration for each pair. Only a system service (the
     /// package manager, which registers an installed app's handlers) may

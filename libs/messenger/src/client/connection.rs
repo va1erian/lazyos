@@ -1,5 +1,7 @@
 //! [`Transport`] and [`Connection`]: resolve once, call, survive a restart.
 
+use alloc::borrow::Cow;
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::Cell;
 
@@ -50,7 +52,7 @@ pub trait Transport {
 /// and retries the call once. A remote refusal is never retried.
 pub struct Connection<T: Transport> {
     transport: T,
-    name: &'static str,
+    name: Cow<'static, str>,
     handle: Cell<Option<Handle>>,
 }
 
@@ -60,14 +62,25 @@ impl<T: Transport> Connection<T> {
     pub const fn new(transport: T, name: &'static str) -> Connection<T> {
         Connection {
             transport,
-            name,
+            name: Cow::Borrowed(name),
+            handle: Cell::new(None),
+        }
+    }
+
+    /// A connection to a name built at run time: a member of a service
+    /// family (`SERVICE_INSTANCE_PREFIX` plus an instance, such as
+    /// `os.lazy.net.nic/eth0`).
+    pub fn named(transport: T, name: String) -> Connection<T> {
+        Connection {
+            transport,
+            name: Cow::Owned(name),
             handle: Cell::new(None),
         }
     }
 
     /// The registry name.
-    pub fn name(&self) -> &'static str {
-        self.name
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// The runtime behind it.
@@ -96,7 +109,7 @@ impl<T: Transport> Connection<T> {
         if let Some(handle) = self.handle.get() {
             return Ok(handle);
         }
-        let handle = self.transport.resolve(self.name, until)?;
+        let handle = self.transport.resolve(&self.name, until)?;
         self.handle.set(Some(handle));
         Ok(handle)
     }
@@ -161,8 +174,15 @@ impl<T: Transport> Connection<T> {
     }
 
     /// A one-way message (`flags::ONE_WAY`): never waits for the peer.
-    pub fn send(&self, interface: u64, method: u32, body: Vec<u8>) -> Result<(), CallError> {
-        let request = Self::request(interface, method, flags::ONE_WAY, body, Vec::new());
+    /// `objects` move with it, as for [`Connection::call`].
+    pub fn send(
+        &self,
+        interface: u64,
+        method: u32,
+        body: Vec<u8>,
+        objects: Vec<Object>,
+    ) -> Result<(), CallError> {
+        let request = Self::request(interface, method, flags::ONE_WAY, body, objects);
         self.with_retry(|handle| self.transport.send(handle, &request))
             .map_err(CallError::Transport)
     }

@@ -84,9 +84,9 @@ carries the earlier selection.
 
 A job (`open`, `extract`, `test`, `create`, `add`, `delete`) runs on a
 `std::thread` with an `Arc<Progress>` (bytes done/total, current name,
-cancel flag) and a result slot; the app polls it on a 100 ms timer while a job
-runs (LazyOS's backend has no cross-thread waker; Net Tools uses the same
-pattern). Writes go to a temporary sibling and are renamed over the target only
+cancel flag); the worker answers the window with messages through
+`xui_app::work` (`Msg::Progress`, at most every 100 ms, and `Msg::Finished`
+with the outcome), so nothing polls. Writes go to a temporary sibling and are renamed over the target only
 when the job succeeds, so a cancelled or failed rewrite leaves the original
 intact.
 
