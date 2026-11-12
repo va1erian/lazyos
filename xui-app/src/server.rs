@@ -57,6 +57,36 @@ impl Request {
     }
 }
 
+/// The std runtime's side of the generated servers (`libmessenger::server`):
+/// a received request is what `dispatch` reads.
+impl libmessenger::server::Incoming for Request {
+    fn interface_id(&self) -> u64 {
+        self.parcel.header.interface_id
+    }
+
+    fn method(&self) -> u32 {
+        self.parcel.header.method
+    }
+
+    fn caller(&self) -> libmessenger::server::Caller {
+        libmessenger::server::Caller {
+            uid: self.origin.uid,
+            gid: self.origin.gid,
+            caps: self.origin.caps,
+            label_id: self.origin.label_id,
+            session: self.origin.session,
+            sender: self.sender,
+        }
+    }
+
+    fn decode<T>(
+        &self,
+        decoder: impl FnOnce(&[u8], &[Object]) -> Result<T, libmessenger::Error>,
+    ) -> Result<T, libmessenger::Error> {
+        Request::decode(self, decoder)
+    }
+}
+
 impl Request {
     /// Take over the objects the kernel installed for this request, in object-list order, for a
     /// service that routes them itself (`webd` hands them to its `Service`, which keeps, maps or
