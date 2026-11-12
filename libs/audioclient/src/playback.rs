@@ -255,7 +255,7 @@ impl<T: Transport, R: Runtime> PlaybackStream<T, R> {
             self.start()?;
         }
         self.client.drain_within(self.grant.stream, within)?;
-        Ok(self.position()?)
+        self.position()
     }
 
     /// Drain, then close; returns the frames played.

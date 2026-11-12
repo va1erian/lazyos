@@ -295,12 +295,12 @@ fn stray_transfers(
     checks.expect(
         "a stray buffer on another method is refused",
         is_errno(
-            &raw(&client, wire::METHOD_POSITION, position, stray()),
+            &raw(client, wire::METHOD_POSITION, position, stray()),
             EINVAL,
         ),
     )?;
     let flood =
-        (0..300).all(|_| raw(&client, wire::METHOD_ATTACHRING, Vec::new(), stray()).is_err());
+        (0..300).all(|_| raw(client, wire::METHOD_ATTACHRING, Vec::new(), stray()).is_err());
     checks.expect("malformed AttachRing flood is refused", flood)?;
     checks.expect(
         "mixer still serves after the flood",
