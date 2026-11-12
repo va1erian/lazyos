@@ -12,12 +12,13 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
+use libmessenger::client::CallError;
 use libmessenger::{flags, Header, Parcel, VERSION};
+use user::messenger::errno;
 use user::messenger::netsock::{errno as se, parcel, wire, Addr, Client, MAX_CHUNK};
-use user::messenger::{errno, Error as MsgError};
 use user::sys;
 
-use super::common::{fail, failed, is_errno, nap};
+use super::common::{answered_with, endpoint_of, fail, failed, is_errno, nap, send_parcel};
 
 const GATEWAY: [u8; 4] = [10, 0, 2, 2];
 /// A port nothing on the host listens on.
@@ -41,13 +42,12 @@ impl Checks {
     fn refused<T>(
         &mut self,
         name: &str,
-        result: Result<T, MsgError>,
+        result: Result<T, CallError>,
         code: i64,
     ) -> Result<(), String> {
         let got = match &result {
             Ok(_) => String::from("succeeded"),
-            Err(MsgError::Errno(c)) => format!("errno {}", -c),
-            Err(other) => String::from(other.message()),
+            Err(error) => format!("errno {}", -error.code()),
         };
         self.expect(
             &format!("{name} -> errno {code} (got: {got})"),
@@ -55,7 +55,7 @@ impl Checks {
         )
     }
 
-    fn rejected<T>(&mut self, name: &str, result: Result<T, MsgError>) -> Result<(), String> {
+    fn rejected<T>(&mut self, name: &str, result: Result<T, CallError>) -> Result<(), String> {
         self.expect(&format!("{name} is refused"), failed(&result))
     }
 }
@@ -80,6 +80,7 @@ fn any(port: u16) -> Addr {
 /// resolved socket client.
 pub(super) fn run(client: &Client) -> Result<u32, String> {
     let mut c = Checks { done: 0 };
+    let conn = client.wire().connection();
     let before = client.stats().map_err(fail("socket stats"))?;
 
     // --- Out-of-contract calls. ---------------------------------------------
@@ -97,12 +98,12 @@ pub(super) fn run(client: &Client) -> Result<u32, String> {
     };
     c.refused(
         "a foreign interface id",
-        client.call_parcel(foreign, None),
+        send_parcel(conn, &foreign, None),
         errno::EINVAL,
     )?;
     c.refused(
         "an unknown method",
-        client.raw(0xDEAD_BEEF, Vec::new()),
+        send_parcel(conn, &parcel(0xDEAD_BEEF, Vec::new()), None),
         errno::EINVAL,
     )?;
     for (name, method) in [
@@ -115,14 +116,14 @@ pub(super) fn run(client: &Client) -> Result<u32, String> {
     ] {
         c.rejected(
             &format!("{name} with a garbage body"),
-            client.raw(method, vec![0xFF; 9]),
+            send_parcel(conn, &parcel(method, vec![0xFF; 9]), None),
         )?;
         // An empty `Open` is a valid stream `Open` (every field defaults), so it
         // is the one empty body that must not be refused.
         if method != wire::METHOD_OPEN {
             c.rejected(
                 &format!("{name} with an empty body"),
-                client.raw(method, Vec::new()),
+                send_parcel(conn, &parcel(method, Vec::new()), None),
             )?;
         }
     }
@@ -184,7 +185,7 @@ pub(super) fn run(client: &Client) -> Result<u32, String> {
     .map_err(encoding)?;
     c.refused(
         "Bind with a three-byte address",
-        client.raw(wire::METHOD_BIND, short),
+        send_parcel(conn, &parcel(wire::METHOD_BIND, short), None),
         errno::EINVAL,
     )?;
     let wide = wire::encode_bind_args(&wire::BindArgs {
@@ -197,7 +198,7 @@ pub(super) fn run(client: &Client) -> Result<u32, String> {
     .map_err(encoding)?;
     c.refused(
         "Bind to port 70000",
-        client.raw(wire::METHOD_BIND, wide),
+        send_parcel(conn, &parcel(wire::METHOD_BIND, wide), None),
         errno::EINVAL,
     )?;
     for to in [
@@ -226,7 +227,7 @@ pub(super) fn run(client: &Client) -> Result<u32, String> {
         .map_err(encoding)?;
         c.refused(
             &format!("Connect with a {timeout} ms timeout"),
-            client.raw(wire::METHOD_CONNECT, body),
+            send_parcel(conn, &parcel(wire::METHOD_CONNECT, body), None),
             errno::EINVAL,
         )?;
     }
@@ -240,7 +241,7 @@ pub(super) fn run(client: &Client) -> Result<u32, String> {
         .map_err(encoding)?;
         c.rejected(
             &format!("Recv of {what} bytes"),
-            client.raw(wire::METHOD_RECV, body),
+            send_parcel(conn, &parcel(wire::METHOD_RECV, body), None),
         )?;
     }
     for len in [0usize, MAX_CHUNK + 1] {
@@ -252,7 +253,7 @@ pub(super) fn run(client: &Client) -> Result<u32, String> {
         .map_err(encoding)?;
         c.refused(
             &format!("Send of {len} bytes"),
-            client.raw(wire::METHOD_SEND, body),
+            send_parcel(conn, &parcel(wire::METHOD_SEND, body), None),
             errno::EINVAL,
         )?;
     }
@@ -266,7 +267,11 @@ pub(super) fn run(client: &Client) -> Result<u32, String> {
         timeout_ms: 100,
     })
     .map_err(encoding)?;
-    let dropped = client.call_parcel(nested(wire::METHOD_SEND, huge), Some(sys::clock() + 30));
+    let dropped = send_parcel(
+        conn,
+        &nested(wire::METHOD_SEND, huge),
+        Some(sys::clock() + 30),
+    );
     c.refused(
         "a Send of 48 KiB, which fits no buffer",
         dropped,
@@ -380,7 +385,7 @@ pub(super) fn run(client: &Client) -> Result<u32, String> {
         .open(wire::SOCK_KIND_DATAGRAM)
         .map_err(fail("open"))?;
     client.bind(waiter, any(0)).map_err(fail("bind"))?;
-    let endpoint = client.endpoint();
+    let endpoint = endpoint_of(conn).map_err(fail("resolving the stack"))?;
     let recv_body = |ms| {
         wire::encode_recv_from_args(&wire::RecvFromArgs {
             sock: waiter,
@@ -394,17 +399,18 @@ pub(super) fn run(client: &Client) -> Result<u32, String> {
         txns.push(
             endpoint
                 .begin_call(&request, Some(sys::clock() + 600))
-                .map_err(fail("starting a parked RecvFrom"))?,
+                .map_err(super::common::local("starting a parked RecvFrom"))?,
         );
     }
-    let fifth = client.call_parcel(
-        nested(wire::METHOD_RECVFROM, recv_body(1500).map_err(encoding)?),
+    let fifth = send_parcel(
+        conn,
+        &nested(wire::METHOD_RECVFROM, recv_body(1500).map_err(encoding)?),
         Some(sys::clock() + 100),
     );
     c.refused("a fifth parked call from one caller", fifth, EAGAIN)?;
     for (i, txn) in txns.into_iter().enumerate() {
         let reply = endpoint.await_reply(txn);
-        let timed_out = matches!(&reply, Ok(p) if user::messenger::services::error_field(p).ok().flatten() == Some(errno::ETIMEDOUT));
+        let timed_out = answered_with(reply, errno::ETIMEDOUT);
         c.expect(
             &format!("parked call {i} ends with ETIMEDOUT, not silence"),
             timed_out,
@@ -413,16 +419,21 @@ pub(super) fn run(client: &Client) -> Result<u32, String> {
     let request = nested(wire::METHOD_RECVFROM, recv_body(30_000).map_err(encoding)?);
     let txn = endpoint
         .begin_call(&request, Some(sys::clock() + 3000))
-        .map_err(fail("starting a parked call to close under"))?;
+        .map_err(super::common::local(
+            "starting a parked call to close under",
+        ))?;
     for _ in 0..5 {
         nap();
     }
     let close = wire::encode_close_args(&wire::CloseArgs { sock: waiter }).map_err(encoding)?;
-    client
-        .call_parcel(nested(wire::METHOD_CLOSE, close), Some(sys::clock() + 300))
-        .map_err(fail("close under a waiter"))?;
+    send_parcel(
+        conn,
+        &nested(wire::METHOD_CLOSE, close),
+        Some(sys::clock() + 300),
+    )
+    .map_err(fail("close under a waiter"))?;
     let reply = endpoint.await_reply(txn);
-    let ebadf = matches!(&reply, Ok(p) if user::messenger::services::error_field(p).ok().flatten() == Some(se::EBADF));
+    let ebadf = answered_with(reply, se::EBADF);
     c.expect("closing a socket answers its waiter with EBADF", ebadf)?;
     // A caller whose own deadline passes first: `netd` must survive answering nobody.
     let lone = client
@@ -435,7 +446,11 @@ pub(super) fn run(client: &Client) -> Result<u32, String> {
         timeout_ms: 500,
     })
     .map_err(encoding)?;
-    let gave_up = client.call_parcel(nested(wire::METHOD_RECVFROM, body), Some(sys::clock() + 3));
+    let gave_up = send_parcel(
+        conn,
+        &nested(wire::METHOD_RECVFROM, body),
+        Some(sys::clock() + 3),
+    );
     c.refused(
         "a caller whose own deadline passes first",
         gave_up,

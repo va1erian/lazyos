@@ -18,8 +18,9 @@ use alloc::string::String;
 use core::panic::PanicInfo;
 use user::trace;
 
-use user::messenger::netstack::Client;
-use user::messenger::{errno, Error as MsgError};
+use user::messenger::client::Native;
+use user::messenger::netsock::{errno, is_errno};
+use user::messenger::netstack::{self, Client};
 use user::sys;
 
 /// How long one lookup may take, milliseconds.
@@ -28,7 +29,7 @@ const TIMEOUT_MS: u32 = 5000;
 const ADDRESS_TICKS: u64 = 1500;
 
 fn connect() -> Result<Client, String> {
-    Client::connect_waiting().map_err(|error| format!("no network stack: {}", error.message()))
+    Client::connect(Native).map_err(|error| format!("no network stack: {}", error.message()))
 }
 
 /// Wait for the stack to hold an address: a lookup before that is
@@ -58,7 +59,7 @@ fn run() -> Result<Outcome, String> {
     let client = connect()?;
     wait_for_address(&client);
     sys::write_str(&format!("Looking up {name}\n"));
-    match client.resolve(name, TIMEOUT_MS) {
+    match netstack::resolve(&client, name, TIMEOUT_MS) {
         Ok(addrs) => {
             for a in &addrs {
                 sys::write_str(&format!(
@@ -68,17 +69,17 @@ fn run() -> Result<Outcome, String> {
             }
             Ok(Outcome::Found(addrs.len()))
         }
-        Err(MsgError::Errno(code)) if code == -errno::ENOENT => {
+        Err(error) if is_errno(&error, errno::ENOENT) => {
             sys::write_str(&format!("** can't find {name}: NXDOMAIN\n"));
             Ok(Outcome::NoSuchName)
         }
-        Err(MsgError::Errno(code)) if code == -errno::EINVAL => {
-            Err(format!("{name}: not a host name"))
-        }
-        Err(MsgError::Errno(code)) if code == -errno::ETIMEDOUT => {
+        Err(error) if is_errno(&error, errno::EINVAL) => Err(format!("{name}: not a host name")),
+        Err(error) if is_errno(&error, errno::ETIMEDOUT) => {
             Err(format!("{name}: the resolver did not answer"))
         }
-        Err(MsgError::Errno(-101)) => Err(String::from("no resolver (no address yet?)")),
+        Err(error) if is_errno(&error, errno::ENETUNREACH) => {
+            Err(String::from("no resolver (no address yet?)"))
+        }
         Err(other) => Err(format!("{name}: {}", other.message())),
     }
 }

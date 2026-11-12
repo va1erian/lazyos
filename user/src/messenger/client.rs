@@ -23,6 +23,12 @@ fn errno_of(error: Error) -> Errno {
     error.errno().map_or(Errno::INVAL, Errno::from_syscall)
 }
 
+/// A failed local Messenger operation as the call error the generated clients
+/// return, for code that mixes the two (a malformed parcel is `EINVAL`).
+pub fn call_error(error: Error) -> libmessenger::client::CallError {
+    libmessenger::client::CallError::Transport(errno_of(error))
+}
+
 /// Resolve `name`, waiting for it to register no longer than `until`.
 ///
 /// The kernel-served registry has no "wait for name" operation, so this is

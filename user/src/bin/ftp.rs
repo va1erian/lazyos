@@ -37,9 +37,10 @@ use core::panic::PanicInfo;
 use user::trace;
 
 use ftpwire::{crc32_update, Pattern};
-use session::{describe, drain, send_all, Control};
-use user::messenger::netsock::{Addr, Client};
-use user::messenger::netstack::Client as Stack;
+use session::{drain, send_all, Control};
+use user::messenger::client::Native;
+use user::messenger::netsock::{describe, Addr, Client};
+use user::messenger::netstack::{self, Client as Stack};
 use user::sys;
 
 const ADDRESS_TICKS: u64 = 1500;
@@ -114,8 +115,8 @@ fn parse() -> Result<Options, String> {
 }
 
 fn connect() -> Result<(Rc<Client>, Stack), String> {
-    let stack = Stack::connect_waiting()
-        .map_err(|error| format!("no network stack: {}", error.message()))?;
+    let stack =
+        Stack::connect(Native).map_err(|error| format!("no network stack: {}", error.message()))?;
     let deadline = sys::clock() + ADDRESS_TICKS;
     while sys::clock() < deadline && !stack.addresses().is_ok_and(|a| !a.is_empty()) {
         sys::nap();
@@ -269,8 +270,7 @@ fn read_line() -> Option<String> {
 fn run() -> Result<usize, String> {
     let opts = parse()?;
     let (sockets, stack) = connect()?;
-    let ip = stack
-        .lookup_host(&opts.host, 5000)
+    let ip = netstack::lookup_host(&stack, &opts.host, 5000)
         .map_err(|e| format!("{}: cannot resolve ({})", opts.host, describe(&e)))?;
     let mut c = Control::open(&sockets, Addr::new(ip, opts.port), !opts.quiet)?;
     let greeting = c.reply()?;

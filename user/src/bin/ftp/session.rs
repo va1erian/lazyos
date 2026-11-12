@@ -12,9 +12,8 @@ use alloc::rc::Rc;
 use alloc::string::String;
 
 use ftpwire::{command, parse_pasv, Reply, ReplyParser};
-use user::messenger::netsock::{Addr, Client};
+use user::messenger::netsock::{describe, Addr, Client};
 use user::messenger::netstd::{is_timeout, TcpStream};
-use user::messenger::Error as MsgError;
 use user::sys;
 
 /// Milliseconds to wait for the connection to open.
@@ -25,19 +24,6 @@ const REPLY_MS: u64 = 20_000;
 const SLICE_MS: u32 = 200;
 /// Milliseconds a data transfer may stall.
 const STALL_MS: u64 = 15_000;
-
-pub(super) fn describe(error: &MsgError) -> String {
-    use user::messenger::netsock::errno as e;
-    match error {
-        MsgError::Errno(code) if *code == -e::ECONNREFUSED => String::from("connection refused"),
-        MsgError::Errno(code) if *code == -e::ENETUNREACH => String::from("network is unreachable"),
-        MsgError::Errno(code) if *code == -e::ECONNRESET => String::from("connection reset"),
-        MsgError::Errno(code) if *code == -user::messenger::errno::ETIMEDOUT => {
-            String::from("timed out")
-        }
-        other => String::from(other.message()),
-    }
-}
 
 pub(super) struct Control {
     sockets: Rc<Client>,

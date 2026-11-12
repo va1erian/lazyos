@@ -9,10 +9,10 @@ use alloc::vec::Vec;
 use smbwire::client::{Client, Config, Logon, Signing, Transport};
 use smbwire::header::command;
 use smbwire::{status, Error};
-use user::messenger::netsock::{errno, Addr, Client as Sockets};
-use user::messenger::netstack::Client as Stack;
+use user::messenger::client::Native;
+use user::messenger::netsock::{describe, Addr, Client as Sockets};
+use user::messenger::netstack::{self, Client as Stack};
 use user::messenger::netstd::{is_timeout, TcpStream};
-use user::messenger::Error as MsgError;
 use user::sys;
 
 /// Milliseconds to wait for the connection to open.
@@ -58,27 +58,11 @@ impl Transport for Tcp {
     }
 }
 
-pub fn describe(error: &MsgError) -> String {
-    match error {
-        MsgError::Errno(code) if *code == -errno::ECONNREFUSED => {
-            String::from("connection refused")
-        }
-        MsgError::Errno(code) if *code == -errno::ENETUNREACH => {
-            String::from("network is unreachable")
-        }
-        MsgError::Errno(code) if *code == -errno::ECONNRESET => String::from("connection reset"),
-        MsgError::Errno(code) if *code == -user::messenger::errno::ETIMEDOUT => {
-            String::from("timed out")
-        }
-        other => String::from(other.message()),
-    }
-}
-
 /// The stack and an address, waiting for `netd` at boot.
 fn sockets() -> Result<(Rc<Sockets>, Stack), String> {
     let deadline = sys::clock() + STACK_TICKS;
     let stack = loop {
-        match Stack::connect() {
+        match Stack::try_connect(Native) {
             Ok(stack) => break stack,
             Err(error) if sys::clock() >= deadline => {
                 return Err(format!("no network stack: {}", error.message()))
@@ -130,7 +114,7 @@ pub fn open(target: &Target) -> Result<(Client<Tcp>, Logon), String> {
 /// as its exit code).
 pub fn open_step(target: &Target) -> Result<(Client<Tcp>, Logon), (Step, String)> {
     let (sockets, stack) = sockets().map_err(|text| (Step::Network, text))?;
-    let ip = stack.lookup_host(target.server, 5000).map_err(|e| {
+    let ip = netstack::lookup_host(&stack, target.server, 5000).map_err(|e| {
         let text = format!("{}: cannot resolve ({})", target.server, describe(&e));
         (Step::Resolve, text)
     })?;

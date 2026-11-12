@@ -7,19 +7,22 @@
 //! early never leaks a slot in `netd`'s table (and `netd` reclaims whatever a
 //! crashed tool leaves behind).
 //!
-//! Timeouts are explicit milliseconds: a read that times out is
-//! `Err(Errno(-ETIMEDOUT))`, which a caller treats as "nothing yet", not a
-//! failure of the socket.
+//! Timeouts are explicit milliseconds: a read that times out is a
+//! [`CallError`] for which [`is_timeout`] holds, which a caller treats as
+//! "nothing yet", not a failure of the socket.
 
 use alloc::rc::Rc;
 use alloc::vec::Vec;
 
-use super::netsock::{wire, Addr, Client, MAX_CHUNK};
-use super::{errno, Error, Result};
+use libmessenger::client::{CallError, Errno};
+
+use super::netsock::{errno, is_errno, wire, Addr, Client, MAX_CHUNK};
+
+type Result<T> = core::result::Result<T, CallError>;
 
 /// Whether `error` is only a wait that ran out.
-pub fn is_timeout(error: &Error) -> bool {
-    matches!(error, Error::Errno(code) if *code == -errno::ETIMEDOUT)
+pub fn is_timeout(error: &CallError) -> bool {
+    is_errno(error, errno::ETIMEDOUT)
 }
 
 /// Parse `a.b.c.d`.
@@ -85,7 +88,7 @@ impl TcpStream {
                 .client
                 .send(self.sock, &rest[..rest.len().min(MAX_CHUNK)], timeout_ms)?;
             if n == 0 {
-                return Err(Error::Errno(-errno::EIO));
+                return Err(CallError::Transport(Errno::IO));
             }
             rest = &rest[n..];
         }

@@ -13,17 +13,18 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use user::messenger::netstack;
 use user::messenger::{fabric_stats, TaskUsage};
 use user::{sys, sysinfo};
 
-use super::common::{connect, fail, nap, wait_for_address};
+use super::common::{connect, fail, local, nap, wait_for_address};
 
 const GATEWAY: [u8; 4] = [10, 0, 2, 2];
 
 /// What `netd` and `netdrv` hold right now: `(name, usage)` per live task
 /// with those names, in slot order.
 fn holdings() -> Result<Vec<(String, TaskUsage)>, String> {
-    let fabric = fabric_stats().map_err(fail("fabric stats"))?;
+    let fabric = fabric_stats().map_err(local("fabric stats"))?;
     let snapshot =
         sysinfo::snapshot().map_err(|code| format!("system snapshot: errno {}", -code))?;
     let mut out = Vec::new();
@@ -83,8 +84,7 @@ pub(super) fn run(iterations: u32) -> Result<u32, String> {
     let mut reattachments = 0u64;
     for round in 1..=iterations {
         let what = |step: &str| format!("round {round}: {step}");
-        let echo = client
-            .ping(GATEWAY, 1 + (round * 37) % 1400, 3000)
+        let echo = netstack::ping(&client, GATEWAY, 1 + (round * 37) % 1400, 3000)
             .map_err(fail(&what("ping")))?;
         if echo.source != GATEWAY {
             return Err(what("the reply came from another address"));

@@ -43,9 +43,9 @@ use core::panic::PanicInfo;
 use user::trace;
 
 use fused::daemon::{serve_one, Buffers};
-use session::describe;
-use user::messenger::netsock::{Addr, Client};
-use user::messenger::netstack::Client as Stack;
+use user::messenger::client::Native;
+use user::messenger::netsock::{describe, Addr, Client};
+use user::messenger::netstack::{self, Client as Stack};
 use user::sys;
 
 const DEFAULT_PORT: u16 = 21;
@@ -131,7 +131,7 @@ fn parse() -> Result<Options, Failed> {
 
 /// The stack and socket services, once `netd` is up and has an address.
 fn connect() -> Result<(Rc<Client>, Stack), Failed> {
-    let stack = Stack::connect_waiting().map_err(|error| {
+    let stack = Stack::connect(Native).map_err(|error| {
         let why = format!("no network stack: {}", error.message());
         (Failure::Network, why)
     })?;
@@ -157,7 +157,7 @@ fn files_owner(opts: &Options) -> Result<(u32, u32), Failed> {
 fn run() -> Result<(), Failed> {
     let opts = parse()?;
     let (sockets, stack) = connect()?;
-    let ip = stack.lookup_host(&opts.host, 5000).map_err(|e| {
+    let ip = netstack::lookup_host(&stack, &opts.host, 5000).map_err(|e| {
         let why = format!("{}: cannot resolve ({})", opts.host, describe(&e));
         (Failure::Resolve, why)
     })?;

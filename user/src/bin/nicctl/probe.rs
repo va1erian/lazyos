@@ -13,7 +13,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use framering::{ring_bytes, Ring};
-use libmessenger::{Buffer, Header, Parcel, VERSION};
+use libmessenger::client::{CallError, Deadline, Errno, Retry};
+use libmessenger::{Buffer, Parcel};
+use user::messenger::client::call_error;
 use user::messenger::net::{self as api, wire, Client};
 use user::messenger::{create_pair, errno};
 use user::sys;
@@ -26,6 +28,29 @@ const SETTLE_TICKS: u64 = 300;
 /// The EtherType carried by the probe frames (IEEE 802 local experimental),
 /// so the capture analyser can tell them from ARP and from real traffic.
 pub(super) const PROBE_ETHERTYPE: [u8; 2] = [0x88, 0xB5];
+
+/// How long a hostile request may wait for the driver's answer.
+const PROBE_BOUND: Deadline = Deadline::secs(5);
+
+/// One request framed by hand, which is the point of this probe: it sends
+/// what the generated client cannot (a missing object, a method the interface
+/// does not have, a foreign interface id), so it goes through the untyped
+/// [`libmessenger::client::Connection`] instead.
+fn raw(
+    client: &Client,
+    method: u32,
+    body: Vec<u8>,
+    objects: Vec<libmessenger::Object>,
+) -> Result<Parcel, CallError> {
+    client.connection().call(
+        api::INTERFACE,
+        method,
+        body,
+        objects,
+        PROBE_BOUND,
+        Retry::Never,
+    )
+}
 
 struct Checks {
     done: u32,
@@ -44,7 +69,7 @@ impl Checks {
     fn refused<T>(
         &mut self,
         name: &str,
-        result: Result<T, user::messenger::Error>,
+        result: Result<T, CallError>,
         code: i64,
     ) -> Result<(), String> {
         self.expect(&format!("{name} -> errno {code}"), is_errno(&result, code))
@@ -80,16 +105,15 @@ impl Attempt {
     /// Send it; whatever the driver refused is cleaned up here. The request
     /// is built by hand so an attempt can leave an object out, which the
     /// generated encoder cannot.
-    fn send(&self, client: &Client) -> Result<Parcel, user::messenger::Error> {
+    fn send(&self, client: &Client) -> Result<Parcel, CallError> {
         let mut body = libmessenger::Encoder::new();
         let mut objects = Vec::new();
-        body.u32(1, self.slots)
-            .map_err(user::messenger::Error::Parcel)?;
+        body.u32(1, self.slots).map_err(CallError::bad_request)?;
         let mut buffer = None;
         if self.with_buffer {
             let size = self.buffer_bytes.max(4096) as u64;
-            let (handle, va, _) =
-                sys::buffer_create(size).map_err(|code| user::messenger::Error::Errno(-code))?;
+            let (handle, va, _) = sys::buffer_create(size)
+                .map_err(|code| CallError::Transport(Errno::from_syscall(code)))?;
             buffer = Some(handle);
             let one = ring_bytes(self.init_slots);
             if one != 0 && self.buffer_bytes >= one * 2 {
@@ -105,16 +129,16 @@ impl Attempt {
                 &Buffer::whole(handle, self.declared as u64),
                 &mut objects,
             )
-            .map_err(user::messenger::Error::Parcel)?;
+            .map_err(CallError::bad_request)?;
         }
         let mut pair = None;
         if self.with_endpoint {
-            let (mine, theirs) = create_pair()?;
+            let (mine, theirs) = create_pair().map_err(call_error)?;
             body.channel(3, theirs.handle(), &mut objects)
-                .map_err(user::messenger::Error::Parcel)?;
+                .map_err(CallError::bad_request)?;
             pair = Some((mine, theirs));
         }
-        let result = client.raw(wire::METHOD_ATTACHRING, body.finish(), objects);
+        let result = raw(client, wire::METHOD_ATTACHRING, body.finish(), objects);
         if result.is_err() {
             // The driver closed its copies; ours are closed here.
             if let Some(handle) = buffer {
@@ -159,26 +183,21 @@ pub(super) fn run() -> Result<u32, String> {
         .map_err(|_| String::from("bad MAC"))?;
 
     // --- Nothing attached: refusals that need no ring. -------------------
-    let foreign = Parcel {
-        header: Header {
-            version: VERSION,
-            flags: 0,
-            interface_id: 0x1234_5678_9ABC_DEF0,
-            method: wire::METHOD_INFO,
-            txn_id: 0,
-            reply_to: 0,
-            deadline_ns: 0,
-        },
-        ..Parcel::default()
-    };
     checks.refused(
         "a call on a foreign interface id",
-        client.call_parcel(foreign),
+        client.connection().call(
+            0x1234_5678_9ABC_DEF0,
+            wire::METHOD_INFO,
+            Vec::new(),
+            Vec::new(),
+            PROBE_BOUND,
+            Retry::Never,
+        ),
         errno::EINVAL,
     )?;
     checks.refused(
         "an unknown method",
-        client.raw(0xDEAD_BEEF, Vec::new(), Vec::new()),
+        raw(&client, 0xDEAD_BEEF, Vec::new(), Vec::new()),
         errno::EINVAL,
     )?;
     checks.refused(
@@ -188,13 +207,13 @@ pub(super) fn run() -> Result<u32, String> {
     )?;
     checks.refused(
         "DetachRing with nothing attached",
-        client.detach(1),
+        client.detach_ring(1),
         errno::EINVAL,
     )?;
     // A body that is not a valid request.
     checks.refused(
         "AttachRing with an empty body",
-        client.raw(wire::METHOD_ATTACHRING, Vec::new(), Vec::new()),
+        raw(&client, wire::METHOD_ATTACHRING, Vec::new(), Vec::new()),
         errno::EINVAL,
     )?;
     let mut no_buffer = Attempt::good(16);
@@ -252,7 +271,7 @@ pub(super) fn run() -> Result<u32, String> {
     )?;
 
     // --- A valid attachment, then abuse of it. ---------------------------
-    let mut attachment = client.attach(16).map_err(fail("a valid attach"))?;
+    let mut attachment = api::attach(&client, 16).map_err(fail("a valid attach"))?;
     checks.expect("a valid attach", attachment.ring != 0)?;
     checks.refused(
         "a second AttachRing",
@@ -278,7 +297,7 @@ pub(super) fn run() -> Result<u32, String> {
     )?;
     checks.refused(
         "DetachRing with the wrong ring id",
-        client.detach(attachment.ring + 1),
+        client.detach_ring(attachment.ring + 1),
         errno::EINVAL,
     )?;
 
@@ -343,17 +362,15 @@ pub(super) fn run() -> Result<u32, String> {
     )?;
     checks.refused(
         "DetachRing after the driver dropped the client",
-        client.detach(attachment.ring),
+        client.detach_ring(attachment.ring),
         errno::EINVAL,
     )?;
     attachment.close();
 
     // The driver is still there, and a new client can attach.
-    let again = client
-        .attach(16)
-        .map_err(fail("re-attach after a corrupt ring"))?;
+    let again = api::attach(&client, 16).map_err(fail("re-attach after a corrupt ring"))?;
     checks.expect("a new attach after a corrupt ring", again.ring != 0)?;
-    client.detach(again.ring).map_err(fail("detach"))?;
+    client.detach_ring(again.ring).map_err(fail("detach"))?;
     again.close();
     client.info().map_err(fail("info at the end"))?;
     checks.expect("the driver still answers", true)?;
@@ -400,7 +417,7 @@ pub(super) fn run_intruder_role(ring: u32) -> Result<u32, String> {
     let mut checks = Checks { done: 0 };
     checks.refused(
         "DetachRing by a stranger",
-        client.detach(ring),
+        client.detach_ring(ring),
         errno::EACCES,
     )?;
     checks.refused(

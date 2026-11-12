@@ -11,12 +11,16 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
+use libmessenger::client::CallError;
 use libmessenger::{flags, Header, Parcel, VERSION};
-use user::messenger::netstack::{parcel, wire, Client};
-use user::messenger::{errno, Error as MsgError};
+use user::messenger::errno;
+use user::messenger::netstack::{self, parcel, wire};
 use user::sys;
 
-use super::common::{connect, fail, failed, is_errno, nap, wait_for_address};
+use super::common::{
+    answered_with, connect, endpoint_of, fail, failed, is_errno, local, nap, send_parcel,
+    wait_for_address,
+};
 
 const GATEWAY: [u8; 4] = [10, 0, 2, 2];
 /// An on-link address nobody answers: ARP for it gets no reply.
@@ -41,21 +45,32 @@ impl Checks {
     fn refused<T>(
         &mut self,
         name: &str,
-        result: Result<T, MsgError>,
+        result: Result<T, CallError>,
         code: i64,
     ) -> Result<(), String> {
         self.expect(&format!("{name} -> errno {code}"), is_errno(&result, code))
     }
 
-    fn rejected<T>(&mut self, name: &str, result: Result<T, MsgError>) -> Result<(), String> {
+    fn rejected<T>(&mut self, name: &str, result: Result<T, CallError>) -> Result<(), String> {
         self.expect(&format!("{name} is refused"), failed(&result))
     }
+}
+
+/// The body of a `Ping` for `dst`, whatever its length: the hostile cases
+/// need addresses the typed `ping` never takes.
+fn ping_body(dst: &[u8], payload_len: u32, timeout_ms: u32) -> Result<Vec<u8>, String> {
+    wire::encode_ping_args(&wire::PingArgs {
+        dst: dst.to_vec(),
+        payload_len,
+        timeout_ms,
+    })
+    .map_err(|error| format!("encoding a ping: {error:?}"))
 }
 
 /// A `Ping` request whose caller allows nesting, so several can be in flight
 /// on the one channel.
 fn ping_parcel(dst: &[u8], payload_len: u32, timeout_ms: u32) -> Result<Parcel, String> {
-    let body = Client::ping_body(dst, payload_len, timeout_ms).map_err(fail("encoding a ping"))?;
+    let body = ping_body(dst, payload_len, timeout_ms)?;
     let mut request = parcel(wire::METHOD_PING, body);
     request.header.flags = flags::ALLOW_NESTED;
     Ok(request)
@@ -64,6 +79,7 @@ fn ping_parcel(dst: &[u8], payload_len: u32, timeout_ms: u32) -> Result<Parcel, 
 /// Run the probe; returns how many checks passed.
 pub(super) fn run() -> Result<u32, String> {
     let client = connect()?;
+    let conn = client.connection();
     let mut checks = Checks { done: 0 };
     wait_for_address(&client)?;
     let before = client.stats().map_err(fail("stats"))?;
@@ -83,21 +99,21 @@ pub(super) fn run() -> Result<u32, String> {
     };
     checks.refused(
         "a call on a foreign interface id",
-        client.call_parcel(foreign, None),
+        send_parcel(conn, &foreign, None),
         errno::EINVAL,
     )?;
     checks.refused(
         "an unknown method",
-        client.raw(0xDEAD_BEEF, Vec::new()),
+        send_parcel(conn, &parcel(0xDEAD_BEEF, Vec::new()), None),
         errno::EINVAL,
     )?;
     checks.rejected(
         "a Ping with an empty body",
-        client.raw(wire::METHOD_PING, Vec::new()),
+        send_parcel(conn, &parcel(wire::METHOD_PING, Vec::new()), None),
     )?;
     checks.rejected(
         "a Ping with a garbage body",
-        client.raw(wire::METHOD_PING, vec![0xFF; 9]),
+        send_parcel(conn, &parcel(wire::METHOD_PING, vec![0xFF; 9]), None),
     )?;
 
     // --- Bad arguments: each refused before anything is sent. ----------------
@@ -109,26 +125,26 @@ pub(super) fn run() -> Result<u32, String> {
         &[0u8; 16][..],
         &[1u8; 200][..],
     ] {
-        let body = Client::ping_body(dst, 8, 1000).map_err(fail("encoding"))?;
+        let body = ping_body(dst, 8, 1000)?;
         checks.refused(
             &format!("a Ping to a {}-byte address", dst.len()),
-            client.raw(wire::METHOD_PING, body),
+            send_parcel(conn, &parcel(wire::METHOD_PING, body), None),
             errno::EINVAL,
         )?;
     }
     for payload in [1401u32, 65_536, u32::MAX] {
-        let body = Client::ping_body(&GATEWAY, payload, 1000).map_err(fail("encoding"))?;
+        let body = ping_body(&GATEWAY, payload, 1000)?;
         checks.refused(
             &format!("a Ping with {payload} payload bytes"),
-            client.raw(wire::METHOD_PING, body),
+            send_parcel(conn, &parcel(wire::METHOD_PING, body), None),
             errno::EINVAL,
         )?;
     }
     for timeout in [0u32, 1, 9, 60_001, u32::MAX] {
-        let body = Client::ping_body(&GATEWAY, 8, timeout).map_err(fail("encoding"))?;
+        let body = ping_body(&GATEWAY, 8, timeout)?;
         checks.refused(
             &format!("a Ping with a {timeout} ms timeout"),
-            client.raw(wire::METHOD_PING, body),
+            send_parcel(conn, &parcel(wire::METHOD_PING, body), None),
             errno::EINVAL,
         )?;
     }
@@ -139,20 +155,20 @@ pub(super) fn run() -> Result<u32, String> {
         [255, 255, 255, 255],
         [240, 1, 2, 3],
     ] {
-        let body = Client::ping_body(&dst, 8, 1000).map_err(fail("encoding"))?;
+        let body = ping_body(&dst, 8, 1000)?;
         checks.refused(
             &format!("a Ping to {dst:?}"),
-            client.raw(wire::METHOD_PING, body),
+            send_parcel(conn, &parcel(wire::METHOD_PING, body), None),
             errno::EINVAL,
         )?;
     }
     // A one-way message cannot be answered: it is ignored, and nothing breaks.
     let mut oneway = ping_parcel(&GATEWAY, 8, 1000)?;
     oneway.header.flags = flags::ONE_WAY;
-    client
-        .endpoint()
+    endpoint_of(conn)
+        .map_err(fail("resolving the stack"))?
         .send(&oneway)
-        .map_err(fail("sending a one-way ping"))?;
+        .map_err(local("sending a one-way ping"))?;
     client
         .interfaces()
         .map_err(fail("interfaces after a one-way ping"))?;
@@ -185,21 +201,25 @@ pub(super) fn run() -> Result<u32, String> {
     )?;
 
     // --- Parked pings: a cap per caller, honest timeouts. -------------------
-    let endpoint = client.endpoint();
+    let endpoint = endpoint_of(conn).map_err(fail("resolving the stack"))?;
     let mut parked = Vec::new();
     for _ in 0..4 {
         let deadline = sys::clock() + 600;
         parked.push(
             endpoint
                 .begin_call(&ping_parcel(&NOBODY, 8, 1500)?, Some(deadline))
-                .map_err(fail("starting a parked ping"))?,
+                .map_err(local("starting a parked ping"))?,
         );
     }
-    let fifth = client.call_parcel(ping_parcel(&NOBODY, 8, 1500)?, Some(sys::clock() + 200));
+    let fifth = send_parcel(
+        conn,
+        &ping_parcel(&NOBODY, 8, 1500)?,
+        Some(sys::clock() + 200),
+    );
     checks.refused("a fifth parked ping from one caller", fifth, EAGAIN)?;
     for (i, txn) in parked.into_iter().enumerate() {
         let reply = endpoint.await_reply(txn);
-        let timed_out = matches!(&reply, Ok(p) if user::messenger::services::error_field(p).ok().flatten() == Some(errno::ETIMEDOUT));
+        let timed_out = answered_with(reply, errno::ETIMEDOUT);
         checks.expect(
             &format!("parked ping {i} ends with ETIMEDOUT, not silence"),
             timed_out,
@@ -207,7 +227,7 @@ pub(super) fn run() -> Result<u32, String> {
     }
 
     // A caller that gives up: the stack must survive answering nobody.
-    let gave_up = client.call_parcel(ping_parcel(&NOBODY, 8, 500)?, Some(sys::clock() + 3));
+    let gave_up = send_parcel(conn, &ping_parcel(&NOBODY, 8, 500)?, Some(sys::clock() + 3));
     checks.refused(
         "a caller whose own deadline passes first",
         gave_up,
@@ -226,9 +246,7 @@ pub(super) fn run() -> Result<u32, String> {
     checks.expect("and sent five", after.pings_sent == before.pings_sent + 5)?;
 
     // --- A real ping still works, and a renewal and a reattach are survived. -
-    let echo = client
-        .ping(GATEWAY, 56, 2000)
-        .map_err(fail("a ping to the gateway"))?;
+    let echo = netstack::ping(&client, GATEWAY, 56, 2000).map_err(fail("a ping to the gateway"))?;
     checks.expect(
         "the gateway answers with the 56 bytes sent",
         echo.bytes == 56 && echo.source == GATEWAY,
@@ -257,9 +275,8 @@ pub(super) fn run() -> Result<u32, String> {
         "the NIC attachment was rebuilt once",
         rebuilt.nic_resets == before.nic_resets + 1,
     )?;
-    let echo = client
-        .ping(GATEWAY, 8, 3000)
-        .map_err(fail("a ping after reattaching"))?;
+    let echo =
+        netstack::ping(&client, GATEWAY, 8, 3000).map_err(fail("a ping after reattaching"))?;
     checks.expect("the stack pings again after reattaching", echo.bytes == 8)?;
     checks.expect(
         "no frame was dropped for length or ring trouble",

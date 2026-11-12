@@ -11,6 +11,7 @@ use alloc::rc::Rc;
 use alloc::vec::Vec;
 
 use user::central::{Bus, Subscription};
+use user::messenger::client::Native;
 use user::messenger::{self};
 use user::messenger::{netsock, netstack, Endpoint, EXPIRED_DEADLINE};
 use user::sys;
@@ -114,7 +115,7 @@ impl NetWatch {
     /// registered.
     pub(super) fn clients(&mut self) -> Option<(&netstack::Client, &Rc<netsock::Client>)> {
         if self.stack.is_none() {
-            self.stack = netstack::Client::connect().ok();
+            self.stack = netstack::Client::try_connect(Native).ok();
         }
         if self.sockets.is_none() {
             self.sockets = netsock::Client::connect().ok().map(Rc::new);
