@@ -306,6 +306,11 @@ pub fn name_time_tick() -> Result<String, topics::TopicError> {
     topics::build(TOPIC_TIME_TICK, &[], topics::Mode::Publish)
 }
 
+/// Build a `time/tick` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_time_tick() -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_TIME_TICK, &[], topics::Mode::Subscribe)
+}
+
 /// Encode a `Tick` payload for `time/tick`.
 pub fn encode_time_tick(value: &Tick) -> Result<Vec<u8>, Error> {
     encode_tick(value)
@@ -334,8 +339,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_TIME_TICK, &[], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_time_tick().map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_TIME_TICK_QOS)?;
     Ok(topics::Subscription::new(handle, decode_time_tick))
 }

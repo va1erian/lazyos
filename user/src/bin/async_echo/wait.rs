@@ -6,6 +6,7 @@
 use alloc::vec::Vec;
 use user::trace;
 
+use messenger_generated::os_lazy_messenger_topics_v1 as topics_wire;
 use user::central::Bus;
 use user::messenger::wait::{wait_items, WaitItem, MAX_ENDPOINTS};
 use user::messenger::{self, errno, Endpoint, Error};
@@ -130,11 +131,13 @@ fn topic_check() -> Check {
         trace::line!(trace::Channel::Async, "WAIT:TOPIC:SKIP");
         return Ok(());
     };
-    let mut subscription = bus.subscribe("demo/waitany").map_err(report)?;
+    let mut subscription = bus
+        .subscribe(topics_wire::TOPIC_DEMO_WAITANY)
+        .map_err(report)?;
     let bell = subscription.bell().map_err(report)?;
     let (sender_a, inbox_a) = messenger::create_pair().map_err(report)?;
     let (sender_b, inbox_b) = messenger::create_pair().map_err(report)?;
-    bus.publish("demo/waitany", b"ping", false)
+    bus.publish(topics_wire::TOPIC_DEMO_WAITANY, b"ping", false)
         .map_err(report)?;
     let items = [
         WaitItem::Endpoint(inbox_a),

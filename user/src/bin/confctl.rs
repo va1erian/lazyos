@@ -29,12 +29,16 @@ use core::panic::PanicInfo;
 
 use confd::Value as StoreValue;
 use lazyos_crypto::hex;
+use messenger_generated::os_lazy_confd_v1 as topics_wire;
 use user::messenger::confd::{self as wire, ValueClient};
 use user::messenger::{self};
 use user::sys;
 
 /// The topic `watch` subscribes to when the caller gives no filter.
-const DEFAULT_FILTER: &str = "system/confd/changed/sys/#";
+fn default_filter() -> String {
+    topics_wire::filter_system_confd_changed("sys/#")
+        .unwrap_or_else(|_| String::from(topics_wire::TOPIC_SYSTEM_CONFD_CHANGED))
+}
 
 const USAGE: &str = "usage: confctl <get|set|delete|list|watch> [args]\n\
     get <path>\n\
@@ -128,10 +132,7 @@ fn run(args: &[String]) -> Result<(), String> {
             Ok(())
         }
         Some("watch") => {
-            let filter = args
-                .get(1)
-                .cloned()
-                .unwrap_or_else(|| String::from(DEFAULT_FILTER));
+            let filter = args.get(1).cloned().unwrap_or_else(default_filter);
             watch(&filter)
         }
         // `confd` spawns this at boot (`demo=1`) to prove the whole path over

@@ -398,6 +398,11 @@ pub mod os_lazy_conformance_decl_v1 {
         topics::build(TOPIC_SESSION_MOVED, &[session, rest], topics::Mode::Publish)
     }
 
+    /// Build a `session/+/moved/#` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+    pub fn filter_session_moved(session: &str, rest: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SESSION_MOVED, &[session, rest], topics::Mode::Subscribe)
+    }
+
     /// Encode a `Moved` payload for `session/+/moved/#`.
     pub fn encode_session_moved(value: &Moved) -> Result<Vec<u8>, Error> {
         encode_moved(value)
@@ -426,8 +431,7 @@ pub mod os_lazy_conformance_decl_v1 {
         S: topics::Subscribe,
         S::Error: From<topics::TopicError>,
     {
-        let filter = topics::build(TOPIC_SESSION_MOVED, &[session, rest], topics::Mode::Subscribe)
-            .map_err(S::Error::from)?;
+        let filter = filter_session_moved(session, rest).map_err(S::Error::from)?;
         let handle = subscriber.subscribe_topic(&filter, TOPIC_SESSION_MOVED_QOS)?;
         Ok(topics::Subscription::new(handle, decode_session_moved))
     }
@@ -442,6 +446,11 @@ pub mod os_lazy_conformance_decl_v1 {
     /// Build the concrete `system/conformance/mode` name; each wildcard takes one literal segment.
     pub fn name_system_conformance_mode() -> Result<String, topics::TopicError> {
         topics::build(TOPIC_SYSTEM_CONFORMANCE_MODE, &[], topics::Mode::Publish)
+    }
+
+    /// Build a `system/conformance/mode` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+    pub fn filter_system_conformance_mode() -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_CONFORMANCE_MODE, &[], topics::Mode::Subscribe)
     }
 
     /// Encode a `Mode` payload for `system/conformance/mode` (travels as a `U32`).
@@ -481,8 +490,7 @@ pub mod os_lazy_conformance_decl_v1 {
         S: topics::Subscribe,
         S::Error: From<topics::TopicError>,
     {
-        let filter = topics::build(TOPIC_SYSTEM_CONFORMANCE_MODE, &[], topics::Mode::Subscribe)
-            .map_err(S::Error::from)?;
+        let filter = filter_system_conformance_mode().map_err(S::Error::from)?;
         let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_CONFORMANCE_MODE_QOS)?;
         Ok(topics::Subscription::new(handle, decode_system_conformance_mode))
     }

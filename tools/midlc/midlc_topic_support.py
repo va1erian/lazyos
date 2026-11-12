@@ -102,6 +102,10 @@ pub mod topics {
         pub topic: String,
         /// Whether this is a replay of the retained value.
         pub retained: bool,
+        /// The publisher's task slot, kernel-stamped when the publish reached
+        /// the broker (slots are reused: act on it now); `0` when the
+        /// transport does not know it.
+        pub publisher: u64,
         /// The payload, still encoded.
         pub payload: Vec<u8>,
     }
@@ -123,6 +127,8 @@ pub mod topics {
         pub topic: String,
         /// Whether this is a replay of the retained value.
         pub retained: bool,
+        /// The publisher's task slot (see [`RawEvent::publisher`]).
+        pub publisher: u64,
         /// The payload, decoded as the topic declares.
         pub value: T,
     }
@@ -153,12 +159,20 @@ pub mod topics {
         }
 
         /// The next queued event, decoded; `Ok(None)` when nothing is queued.
+        // Not an `Iterator`: it reports a failure per call and `None` means
+        // "nothing queued now", not "finished".
+        #[allow(clippy::should_implement_trait)]
         pub fn next(&mut self) -> Result<Option<Event<T>>, NextError<H::Error>> {
             let Some(raw) = self.handle.next_event().map_err(NextError::Transport)? else {
                 return Ok(None);
             };
             let value = (self.decode)(&raw.payload).map_err(NextError::Decode)?;
-            Ok(Some(Event { topic: raw.topic, retained: raw.retained, value }))
+            Ok(Some(Event {
+                topic: raw.topic,
+                retained: raw.retained,
+                publisher: raw.publisher,
+                value,
+            }))
         }
 
         /// The transport handle, for what it offers beyond events (a doorbell

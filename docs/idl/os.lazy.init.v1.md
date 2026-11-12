@@ -48,7 +48,7 @@ reply, so the error field is hand-written next to these stubs.
 | Topic | Payload | QoS | Retained | Permissions |
 |---|---|---|---|---|
 | `system/power/state` | `PowerState` | latest | yes | `publish:system/power/state`, `subscribe:system/power/state` |
-| `system/events/service/+` | `ServiceEvent` | latest | yes | `publish:system/events/service/+`, `subscribe:system/events/service/+` |
+| `system/events/service/+` | `ServiceEvent` | buffered | yes | `publish:system/events/service/+`, `subscribe:system/events/service/+` |
 | `system/events/app/+` | `AppFailure` | buffered | yes | `publish:system/events/app/+`, `subscribe:system/events/app/+` |
 | `session/+/apps/resident` | `ResidentApps` | latest | yes | `publish:session/+/apps/resident`, `subscribe:session/+/apps/resident` |
 

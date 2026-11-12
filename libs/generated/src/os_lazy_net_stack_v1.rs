@@ -720,6 +720,11 @@ pub fn name_system_net_interfaces() -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SYSTEM_NET_INTERFACES, &[], topics::Mode::Publish)
 }
 
+/// Build a `system/net/interfaces` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_net_interfaces() -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_NET_INTERFACES, &[], topics::Mode::Subscribe)
+}
+
 /// Encode a `InterfaceList` payload for `system/net/interfaces`.
 pub fn encode_system_net_interfaces(value: &InterfaceList) -> Result<Vec<u8>, Error> {
     encode_interface_list(value)
@@ -748,8 +753,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_NET_INTERFACES, &[], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_net_interfaces().map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_NET_INTERFACES_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_net_interfaces))
 }
@@ -769,6 +773,11 @@ pub const TOPIC_SYSTEM_NET_ADDR_RETAINED: bool = true;
 /// Build the concrete `system/net/+/addr` name; each wildcard takes one literal segment.
 pub fn name_system_net_addr(ifname: &str) -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SYSTEM_NET_ADDR, &[ifname], topics::Mode::Publish)
+}
+
+/// Build a `system/net/+/addr` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_net_addr(ifname: &str) -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_NET_ADDR, &[ifname], topics::Mode::Subscribe)
 }
 
 /// Encode a `AddressEvent` payload for `system/net/+/addr`.
@@ -799,8 +808,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_NET_ADDR, &[ifname], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_net_addr(ifname).map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_NET_ADDR_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_net_addr))
 }
@@ -817,6 +825,11 @@ pub const TOPIC_SYSTEM_EVENTS_NETWORK_UP_RETAINED: bool = false;
 /// Build the concrete `system/events/network/up` name; each wildcard takes one literal segment.
 pub fn name_system_events_network_up() -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SYSTEM_EVENTS_NETWORK_UP, &[], topics::Mode::Publish)
+}
+
+/// Build a `system/events/network/up` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_events_network_up() -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_EVENTS_NETWORK_UP, &[], topics::Mode::Subscribe)
 }
 
 /// Encode a `AddressEvent` payload for `system/events/network/up`.
@@ -847,8 +860,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_EVENTS_NETWORK_UP, &[], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_events_network_up().map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_NETWORK_UP_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_events_network_up))
 }

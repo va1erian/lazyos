@@ -438,6 +438,11 @@ pub fn name_system_events_open(app: &str) -> Result<String, topics::TopicError> 
     topics::build(TOPIC_SYSTEM_EVENTS_OPEN, &[app], topics::Mode::Publish)
 }
 
+/// Build a `system/events/open/+` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_events_open(app: &str) -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_EVENTS_OPEN, &[app], topics::Mode::Subscribe)
+}
+
 /// Encode a `OpenEvent` payload for `system/events/open/+`.
 pub fn encode_system_events_open(value: &OpenEvent) -> Result<Vec<u8>, Error> {
     encode_open_event(value)
@@ -466,8 +471,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_EVENTS_OPEN, &[app], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_events_open(app).map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_OPEN_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_events_open))
 }

@@ -11,7 +11,7 @@ use user::messenger::topics_client;
 
 use super::topic_tests::{err_text, test_parcel};
 
-const TOPIC: &str = "topics/depth";
+const TOPIC: &str = generated::TOPIC_TOPICS_DEPTH;
 
 /// One raw broker call that fails on an error reply, like the client's own.
 fn call(client: &topics_client::Client, request: Parcel) -> Result<Parcel, String> {

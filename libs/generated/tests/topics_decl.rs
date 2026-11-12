@@ -387,6 +387,7 @@ fn raw(topic: &str, retained: bool, payload: Vec<u8>) -> topics::RawEvent {
     topics::RawEvent {
         topic: String::from(topic),
         retained,
+        publisher: 9,
         payload,
     }
 }
@@ -408,6 +409,7 @@ fn a_subscription_decodes_each_event_as_the_topic_declares() {
     let first = stream.next().unwrap().unwrap();
     assert_eq!(first.topic, "session/3/clipboard/changed");
     assert!(first.retained);
+    assert_eq!(first.publisher, 9);
     assert_eq!(first.value, meta());
 
     assert!(matches!(stream.next(), Err(topics::NextError::Decode(_))));

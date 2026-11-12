@@ -30,9 +30,9 @@ answers the query `messengerctl sessions` renders.
 | Topic | Payload | QoS | Retained | Permissions |
 |---|---|---|---|---|
 | `system/events/login/start` | `LoginStart` | latest | yes | `publish:system/events/login/start`, `subscribe:system/events/login/start` |
-| `system/events/login/session/+` | `LoginSession` | latest | yes | `publish:system/events/login/session/+`, `subscribe:system/events/login/session/+` |
+| `system/events/login/session/+` | `LoginSession` | buffered | yes | `publish:system/events/login/session/+`, `subscribe:system/events/login/session/+` |
 | `system/events/login/denied` | `LoginDenied` | latest | yes | `publish:system/events/login/denied`, `subscribe:system/events/login/denied` |
-| `system/events/login/end` | `LoginEnd` | latest | yes | `publish:system/events/login/end`, `subscribe:system/events/login/end` |
+| `system/events/login/end` | `LoginEnd` | buffered | yes | `publish:system/events/login/end`, `subscribe:system/events/login/end` |
 
 ## struct `Session`
 

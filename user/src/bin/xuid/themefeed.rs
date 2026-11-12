@@ -40,7 +40,9 @@ const RETRY_TICKS: u64 = 300;
 /// Ticks the subscribe call may wait for the broker before it is abandoned.
 const SUBSCRIBE_TICKS: u64 = 5;
 /// Topic filter for every `sys/ui/*` change.
-const FILTER: &str = "system/confd/changed/sys/ui/#";
+fn system_filter() -> Option<String> {
+    wire::filter_system_confd_changed("sys/ui/#").ok()
+}
 
 pub(super) struct ThemeFeed {
     /// Held for the life of the compositor: closing a resolved handle would
@@ -204,7 +206,7 @@ impl ThemeFeed {
             return false;
         }
         if self.watch.is_none() {
-            self.watch = subscribe(String::from(FILTER), now);
+            self.watch = system_filter().and_then(|filter| subscribe(filter, now));
         }
         if let (Some(uid), None) = (self.user, &self.user_watch) {
             self.user_watch = self.subscribe_user(uid);

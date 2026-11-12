@@ -590,6 +590,11 @@ pub fn name_session_shell_tray(session: &str) -> Result<String, topics::TopicErr
     topics::build(TOPIC_SESSION_SHELL_TRAY, &[session], topics::Mode::Publish)
 }
 
+/// Build a `session/+/shell/tray` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_session_shell_tray(session: &str) -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SESSION_SHELL_TRAY, &[session], topics::Mode::Subscribe)
+}
+
 /// Encode a `Generation` payload for `session/+/shell/tray`.
 pub fn encode_session_shell_tray(value: &Generation) -> Result<Vec<u8>, Error> {
     encode_generation(value)
@@ -618,8 +623,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SESSION_SHELL_TRAY, &[session], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_session_shell_tray(session).map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SESSION_SHELL_TRAY_QOS)?;
     Ok(topics::Subscription::new(handle, decode_session_shell_tray))
 }

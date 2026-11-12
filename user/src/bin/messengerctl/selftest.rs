@@ -2,6 +2,7 @@
 
 use alloc::format;
 use alloc::string::String;
+use messenger_generated::os_lazy_messenger_topics_v1 as topics_wire;
 use user::messenger::client::Native;
 use user::messenger::{self, keyd, topics_client};
 use user::sys;
@@ -85,7 +86,7 @@ pub(crate) fn run_forbidden_publish_probe() -> ! {
     let denied = match topics_client::Client::connect() {
         Ok(client) => match test_parcel("forbidden") {
             Ok(payload) => matches!(
-                client.publish("system/events/selftest/forbidden", &payload),
+                client.publish(topics_wire::TOPIC_SYSTEM_EVENTS_SELFTEST_FORBIDDEN, &payload),
                 Err(error) if error.errno() == Some(-messenger::errno::EACCES)
             ),
             Err(_) => false,

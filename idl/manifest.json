@@ -845,7 +845,7 @@
         "name": "system/health/+",
         "source": "system/health/{name}",
         "payload": "HealthRecord",
-        "qos": "latest",
+        "qos": "buffered",
         "retained": true,
         "publish_permission": "publish:system/health/+",
         "subscribe_permission": "subscribe:system/health/+"
@@ -949,7 +949,7 @@
         "name": "system/events/service/+",
         "source": "system/events/service/{name}",
         "payload": "ServiceEvent",
-        "qos": "latest",
+        "qos": "buffered",
         "retained": true,
         "publish_permission": "publish:system/events/service/+",
         "subscribe_permission": "subscribe:system/events/service/+"
@@ -1492,7 +1492,7 @@
         "name": "system/events/login/session/+",
         "source": "system/events/login/session/{id}",
         "payload": "LoginSession",
-        "qos": "latest",
+        "qos": "buffered",
         "retained": true,
         "publish_permission": "publish:system/events/login/session/+",
         "subscribe_permission": "subscribe:system/events/login/session/+"
@@ -1510,7 +1510,7 @@
         "name": "system/events/login/end",
         "source": "system/events/login/end",
         "payload": "LoginEnd",
-        "qos": "latest",
+        "qos": "buffered",
         "retained": true,
         "publish_permission": "publish:system/events/login/end",
         "subscribe_permission": "subscribe:system/events/login/end"
@@ -2324,7 +2324,35 @@
         ]
       }
     ],
-    "topics": [],
+    "topics": [
+      {
+        "name": "demo/waitany",
+        "source": "demo/waitany",
+        "payload": "Probe",
+        "qos": "latest",
+        "retained": false,
+        "publish_permission": "publish:demo/waitany",
+        "subscribe_permission": "subscribe:demo/waitany"
+      },
+      {
+        "name": "topics/depth",
+        "source": "topics/depth",
+        "payload": "Probe",
+        "qos": "buffered",
+        "retained": false,
+        "publish_permission": "publish:topics/depth",
+        "subscribe_permission": "subscribe:topics/depth"
+      },
+      {
+        "name": "system/events/selftest/forbidden",
+        "source": "system/events/selftest/forbidden",
+        "payload": "Probe",
+        "qos": "latest",
+        "retained": false,
+        "publish_permission": "publish:system/events/selftest/forbidden",
+        "subscribe_permission": "subscribe:system/events/selftest/forbidden"
+      }
+    ],
     "services": [
       "os.lazy.messenger.topics"
     ]

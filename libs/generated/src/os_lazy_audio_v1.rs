@@ -748,6 +748,11 @@ pub fn name_system_audio_event(card: &str) -> Result<String, topics::TopicError>
     topics::build(TOPIC_SYSTEM_AUDIO_EVENT, &[card], topics::Mode::Publish)
 }
 
+/// Build a `system/audio/+/event` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_audio_event(card: &str) -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_AUDIO_EVENT, &[card], topics::Mode::Subscribe)
+}
+
 /// Encode a `AudioEvent` payload for `system/audio/+/event`.
 pub fn encode_system_audio_event(value: &AudioEvent) -> Result<Vec<u8>, Error> {
     encode_audio_event(value)
@@ -776,8 +781,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_AUDIO_EVENT, &[card], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_audio_event(card).map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_AUDIO_EVENT_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_audio_event))
 }

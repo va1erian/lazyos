@@ -701,6 +701,11 @@ pub fn name_system_net_wifi_state(ifname: &str) -> Result<String, topics::TopicE
     topics::build(TOPIC_SYSTEM_NET_WIFI_STATE, &[ifname], topics::Mode::Publish)
 }
 
+/// Build a `system/net/+/wifi/state` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_net_wifi_state(ifname: &str) -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_NET_WIFI_STATE, &[ifname], topics::Mode::Subscribe)
+}
+
 /// Encode a `WifiState` payload for `system/net/+/wifi/state`.
 pub fn encode_system_net_wifi_state(value: &WifiState) -> Result<Vec<u8>, Error> {
     encode_wifi_state(value)
@@ -729,8 +734,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_NET_WIFI_STATE, &[ifname], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_net_wifi_state(ifname).map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_NET_WIFI_STATE_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_net_wifi_state))
 }
@@ -747,6 +751,11 @@ pub const TOPIC_SYSTEM_NET_WIFI_SCAN_RETAINED: bool = false;
 /// Build the concrete `system/net/+/wifi/scan` name; each wildcard takes one literal segment.
 pub fn name_system_net_wifi_scan(ifname: &str) -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SYSTEM_NET_WIFI_SCAN, &[ifname], topics::Mode::Publish)
+}
+
+/// Build a `system/net/+/wifi/scan` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_net_wifi_scan(ifname: &str) -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_NET_WIFI_SCAN, &[ifname], topics::Mode::Subscribe)
 }
 
 /// Encode a `ScanEvent` payload for `system/net/+/wifi/scan`.
@@ -777,8 +786,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_NET_WIFI_SCAN, &[ifname], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_net_wifi_scan(ifname).map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_NET_WIFI_SCAN_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_net_wifi_scan))
 }

@@ -86,6 +86,11 @@ pub fn name_session_selection(session: &str) -> Result<String, topics::TopicErro
     topics::build(TOPIC_SESSION_SELECTION, &[session], topics::Mode::Publish)
 }
 
+/// Build a `session/+/selection` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_session_selection(session: &str) -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SESSION_SELECTION, &[session], topics::Mode::Subscribe)
+}
+
 /// Encode a `Selection` payload for `session/+/selection`.
 pub fn encode_session_selection(value: &Selection) -> Result<Vec<u8>, Error> {
     encode_selection(value)
@@ -114,8 +119,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SESSION_SELECTION, &[session], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_session_selection(session).map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SESSION_SELECTION_QOS)?;
     Ok(topics::Subscription::new(handle, decode_session_selection))
 }

@@ -707,6 +707,11 @@ pub fn name_session_clipboard_changed(session: &str) -> Result<String, topics::T
     topics::build(TOPIC_SESSION_CLIPBOARD_CHANGED, &[session], topics::Mode::Publish)
 }
 
+/// Build a `session/+/clipboard/changed` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_session_clipboard_changed(session: &str) -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SESSION_CLIPBOARD_CHANGED, &[session], topics::Mode::Subscribe)
+}
+
 /// Encode a `OfferMeta` payload for `session/+/clipboard/changed`.
 pub fn encode_session_clipboard_changed(value: &OfferMeta) -> Result<Vec<u8>, Error> {
     encode_offer_meta(value)
@@ -735,8 +740,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SESSION_CLIPBOARD_CHANGED, &[session], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_session_clipboard_changed(session).map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SESSION_CLIPBOARD_CHANGED_QOS)?;
     Ok(topics::Subscription::new(handle, decode_session_clipboard_changed))
 }
@@ -752,6 +756,11 @@ pub const TOPIC_SYSTEM_EVENTS_CLIPBOARD_PASTE_RETAINED: bool = false;
 /// Build the concrete `system/events/clipboard/paste` name; each wildcard takes one literal segment.
 pub fn name_system_events_clipboard_paste() -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SYSTEM_EVENTS_CLIPBOARD_PASTE, &[], topics::Mode::Publish)
+}
+
+/// Build a `system/events/clipboard/paste` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_events_clipboard_paste() -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_EVENTS_CLIPBOARD_PASTE, &[], topics::Mode::Subscribe)
 }
 
 /// Encode a `PasteEvent` payload for `system/events/clipboard/paste`.
@@ -782,8 +791,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_EVENTS_CLIPBOARD_PASTE, &[], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_events_clipboard_paste().map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_CLIPBOARD_PASTE_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_events_clipboard_paste))
 }
@@ -799,6 +807,11 @@ pub const TOPIC_SYSTEM_EVENTS_SECURITY_CLIPBOARD_RETAINED: bool = false;
 /// Build the concrete `system/events/security/clipboard` name; each wildcard takes one literal segment.
 pub fn name_system_events_security_clipboard() -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SYSTEM_EVENTS_SECURITY_CLIPBOARD, &[], topics::Mode::Publish)
+}
+
+/// Build a `system/events/security/clipboard` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_events_security_clipboard() -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_EVENTS_SECURITY_CLIPBOARD, &[], topics::Mode::Subscribe)
 }
 
 /// Encode a `ClipboardDenial` payload for `system/events/security/clipboard`.
@@ -829,8 +842,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_EVENTS_SECURITY_CLIPBOARD, &[], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_events_security_clipboard().map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_SECURITY_CLIPBOARD_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_events_security_clipboard))
 }

@@ -170,6 +170,30 @@ pub fn decode_stats(body: &[u8]) -> Result<Stats, Error> {
     Ok(out)
 }
 
+/// What the broker's own probes publish: only the topic name matters, the
+/// payload is whatever the test sends.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Probe {
+    pub note: alloc::string::String,
+}
+
+pub fn encode_probe(value: &Probe) -> Result<Vec<u8>, Error> {
+    let mut target = Encoder::new();
+    target.string(1, &value.note)?;
+    Ok(target.finish())
+}
+
+pub fn decode_probe(body: &[u8]) -> Result<Probe, Error> {
+    let mut out = Probe::default();
+    let mut decoder = Decoder::new(body);
+    while let Some(field) = decoder.next()? {
+        if field.id == 1 {
+            out.note = field.as_str()?.into();
+        }
+    }
+    Ok(out)
+}
+
 /// `Publish` method id.
 pub const METHOD_PUBLISH: u32 = 1818372520;
 /// How long a client waits for `Publish`'s reply, in milliseconds.
@@ -545,6 +569,161 @@ pub const BELL_OBJECTS: &[objects::Kind] = &[objects::Kind::Channel];
 pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
     (METHOD_BELL, BELL_OBJECTS),
 ];
+
+/// `async_echo`'s wait-any check publishes here to ring a doorbell.
+/// The declared `demo/waitany` topic (`Probe`, `latest`).
+pub const TOPIC_DEMO_WAITANY: &str = "demo/waitany";
+/// The `demo/waitany` delivery policy.
+pub const TOPIC_DEMO_WAITANY_QOS: u32 = topics::QOS_LATEST;
+/// Whether `demo/waitany` publishes are retained.
+pub const TOPIC_DEMO_WAITANY_RETAINED: bool = false;
+
+/// Build the concrete `demo/waitany` name; each wildcard takes one literal segment.
+pub fn name_demo_waitany() -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_DEMO_WAITANY, &[], topics::Mode::Publish)
+}
+
+/// Build a `demo/waitany` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_demo_waitany() -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_DEMO_WAITANY, &[], topics::Mode::Subscribe)
+}
+
+/// Encode a `Probe` payload for `demo/waitany`.
+pub fn encode_demo_waitany(value: &Probe) -> Result<Vec<u8>, Error> {
+    encode_probe(value)
+}
+
+/// Decode a `demo/waitany` payload; malformed bytes are an error.
+pub fn decode_demo_waitany(body: &[u8]) -> Result<Probe, Error> {
+    decode_probe(body)
+}
+
+/// Publish a typed `Probe` on `demo/waitany`.
+pub fn publish_demo_waitany<P>(publisher: &mut P, value: &Probe) -> Result<u64, P::Error>
+where
+    P: topics::Publish,
+    P::Error: From<topics::TopicError>,
+{
+    let topic = name_demo_waitany().map_err(P::Error::from)?;
+    let payload = encode_demo_waitany(value)
+        .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+    publisher.publish_topic(&topic, &payload, TOPIC_DEMO_WAITANY_RETAINED)
+}
+
+/// Subscribe to `demo/waitany` with its declared QoS; the stream's `next` decodes `Probe`.
+pub fn subscribe_demo_waitany<S>(subscriber: &mut S) -> Result<topics::Subscription<S::Subscription, Probe>, S::Error>
+where
+    S: topics::Subscribe,
+    S::Error: From<topics::TopicError>,
+{
+    let filter = filter_demo_waitany().map_err(S::Error::from)?;
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_DEMO_WAITANY_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_demo_waitany))
+}
+
+/// `messengerctl`'s hostile-depth test fills a `Buffered` queue past its
+/// clamp with this topic.
+/// The declared `topics/depth` topic (`Probe`, `buffered`).
+pub const TOPIC_TOPICS_DEPTH: &str = "topics/depth";
+/// The `topics/depth` delivery policy.
+pub const TOPIC_TOPICS_DEPTH_QOS: u32 = topics::QOS_BUFFERED;
+/// Whether `topics/depth` publishes are retained.
+pub const TOPIC_TOPICS_DEPTH_RETAINED: bool = false;
+
+/// Build the concrete `topics/depth` name; each wildcard takes one literal segment.
+pub fn name_topics_depth() -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_TOPICS_DEPTH, &[], topics::Mode::Publish)
+}
+
+/// Build a `topics/depth` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_topics_depth() -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_TOPICS_DEPTH, &[], topics::Mode::Subscribe)
+}
+
+/// Encode a `Probe` payload for `topics/depth`.
+pub fn encode_topics_depth(value: &Probe) -> Result<Vec<u8>, Error> {
+    encode_probe(value)
+}
+
+/// Decode a `topics/depth` payload; malformed bytes are an error.
+pub fn decode_topics_depth(body: &[u8]) -> Result<Probe, Error> {
+    decode_probe(body)
+}
+
+/// Publish a typed `Probe` on `topics/depth`.
+pub fn publish_topics_depth<P>(publisher: &mut P, value: &Probe) -> Result<u64, P::Error>
+where
+    P: topics::Publish,
+    P::Error: From<topics::TopicError>,
+{
+    let topic = name_topics_depth().map_err(P::Error::from)?;
+    let payload = encode_topics_depth(value)
+        .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+    publisher.publish_topic(&topic, &payload, TOPIC_TOPICS_DEPTH_RETAINED)
+}
+
+/// Subscribe to `topics/depth` with its declared QoS; the stream's `next` decodes `Probe`.
+pub fn subscribe_topics_depth<S>(subscriber: &mut S) -> Result<topics::Subscription<S::Subscription, Probe>, S::Error>
+where
+    S: topics::Subscribe,
+    S::Error: From<topics::TopicError>,
+{
+    let filter = filter_topics_depth().map_err(S::Error::from)?;
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_TOPICS_DEPTH_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_topics_depth))
+}
+
+/// `messengerctl`'s security self-test publishes here as a non-root task
+/// and expects the broker to refuse it (`system/` is reserved).
+/// The declared `system/events/selftest/forbidden` topic (`Probe`, `latest`).
+pub const TOPIC_SYSTEM_EVENTS_SELFTEST_FORBIDDEN: &str = "system/events/selftest/forbidden";
+/// The `system/events/selftest/forbidden` delivery policy.
+pub const TOPIC_SYSTEM_EVENTS_SELFTEST_FORBIDDEN_QOS: u32 = topics::QOS_LATEST;
+/// Whether `system/events/selftest/forbidden` publishes are retained.
+pub const TOPIC_SYSTEM_EVENTS_SELFTEST_FORBIDDEN_RETAINED: bool = false;
+
+/// Build the concrete `system/events/selftest/forbidden` name; each wildcard takes one literal segment.
+pub fn name_system_events_selftest_forbidden() -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_EVENTS_SELFTEST_FORBIDDEN, &[], topics::Mode::Publish)
+}
+
+/// Build a `system/events/selftest/forbidden` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_events_selftest_forbidden() -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_EVENTS_SELFTEST_FORBIDDEN, &[], topics::Mode::Subscribe)
+}
+
+/// Encode a `Probe` payload for `system/events/selftest/forbidden`.
+pub fn encode_system_events_selftest_forbidden(value: &Probe) -> Result<Vec<u8>, Error> {
+    encode_probe(value)
+}
+
+/// Decode a `system/events/selftest/forbidden` payload; malformed bytes are an error.
+pub fn decode_system_events_selftest_forbidden(body: &[u8]) -> Result<Probe, Error> {
+    decode_probe(body)
+}
+
+/// Publish a typed `Probe` on `system/events/selftest/forbidden`.
+pub fn publish_system_events_selftest_forbidden<P>(publisher: &mut P, value: &Probe) -> Result<u64, P::Error>
+where
+    P: topics::Publish,
+    P::Error: From<topics::TopicError>,
+{
+    let topic = name_system_events_selftest_forbidden().map_err(P::Error::from)?;
+    let payload = encode_system_events_selftest_forbidden(value)
+        .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+    publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_EVENTS_SELFTEST_FORBIDDEN_RETAINED)
+}
+
+/// Subscribe to `system/events/selftest/forbidden` with its declared QoS; the stream's `next` decodes `Probe`.
+pub fn subscribe_system_events_selftest_forbidden<S>(subscriber: &mut S) -> Result<topics::Subscription<S::Subscription, Probe>, S::Error>
+where
+    S: topics::Subscribe,
+    S::Error: From<topics::TopicError>,
+{
+    let filter = filter_system_events_selftest_forbidden().map_err(S::Error::from)?;
+    let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_SELFTEST_FORBIDDEN_QOS)?;
+    Ok(topics::Subscription::new(handle, decode_system_events_selftest_forbidden))
+}
 
 #[cfg(feature = "messenger_topics_v1_client")]
 /// What a call of the generated [`Client`] returns on failure: a transport or remote

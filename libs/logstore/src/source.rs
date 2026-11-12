@@ -9,8 +9,12 @@
 pub const SYSTEM: &str = "system";
 /// The journal for the fabric's denial samples.
 pub const KERNEL: &str = "kernel";
-/// The topic `logd` appends its fabric denial samples on.
+/// The journal key `logd` appends its fabric denial samples under (a record
+/// key, not a topic anything publishes: `logd` writes both itself).
 pub const DENIAL_TOPIC: &str = "system/events/security/denial";
+/// The journal key `logd` appends a queue-overrun record under (a record key,
+/// not a topic anything publishes: `logd` writes both itself).
+pub const OVERFLOW_TOPIC: &str = "system/events/audit/overflow";
 /// Longest source name.
 pub const MAX_SOURCE: usize = 32;
 /// Sources whose journal another service owns: `pkgd` writes and caps

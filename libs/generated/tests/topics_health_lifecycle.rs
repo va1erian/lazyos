@@ -141,7 +141,7 @@ fn health_subscribe_accepts_the_all_services_wildcard() {
     let mut subscriber = MockSubscriber::default();
     healthd::subscribe_system_health(&mut subscriber, "+").unwrap();
     assert_eq!(subscriber.filter, "system/health/+");
-    assert_eq!(subscriber.qos, topics::QOS_LATEST);
+    assert_eq!(subscriber.qos, topics::QOS_BUFFERED);
 
     healthd::subscribe_system_health(&mut subscriber, "keyd").unwrap();
     assert_eq!(subscriber.filter, "system/health/keyd");

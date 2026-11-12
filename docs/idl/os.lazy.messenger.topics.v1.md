@@ -49,6 +49,14 @@ object list (the index each field must hold).
 |---|---|---|---|
 | Bell | `bell` | `Channel<os.lazy.messenger.topics.bell.v1>` | `objects[0]`, a channel the receiver sends `os.lazy.messenger.topics.bell.v1` on |
 
+## Topics
+
+| Topic | Payload | QoS | Retained | Permissions |
+|---|---|---|---|---|
+| `demo/waitany` | `Probe` | latest | no | `publish:demo/waitany`, `subscribe:demo/waitany` |
+| `topics/depth` | `Probe` | buffered | no | `publish:topics/depth`, `subscribe:topics/depth` |
+| `system/events/selftest/forbidden` | `Probe` | latest | no | `publish:system/events/selftest/forbidden`, `subscribe:system/events/selftest/forbidden` |
+
 ## struct `Event`
 
 - `topic: String`
@@ -71,6 +79,10 @@ object list (the index each field must hold).
 - `delivered: U64`
 - `matched: U64`
 - `drops: U64`
+
+## struct `Probe`
+
+- `note: String`
 
 ## enum `Qos`
 

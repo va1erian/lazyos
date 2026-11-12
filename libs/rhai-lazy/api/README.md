@@ -899,10 +899,17 @@ The Messenger publish/subscribe broker (issue #92, `docs/messenger.md`
 | `new_event()` | struct `Event` | a `Event` at its zero value |
 | `new_topic_info()` | struct `TopicInfo` | a `TopicInfo` at its zero value |
 | `new_stats()` | struct `Stats` | a `Stats` at its zero value |
+| `new_probe()` | struct `Probe` | a `Probe` at its zero value |
 
 Not callable from a script (the request carries a kernel object): `Bell`.
 
 - `QOS` = the `Qos` variants; `QOS_LATEST`, `QOS_BUFFERED`, `QOS_CONFLATE`, `QOS_RELIABLE`
+
+| Topic | Payload | Helpers |
+|---|---|---|
+| `demo/waitany` | `Probe` | `on_demo_waitany(handler)`, `subscribe_demo_waitany()`, `publish_demo_waitany(payload)` |
+| `topics/depth` | `Probe` | `on_depth(handler)`, `subscribe_depth()`, `publish_depth(payload)` |
+| `system/events/selftest/forbidden` | `Probe` | `on_selftest_forbidden(handler)`, `subscribe_selftest_forbidden()`, `publish_selftest_forbidden(payload)` |
 
 ## `sys::messenger_topics_bell`
 

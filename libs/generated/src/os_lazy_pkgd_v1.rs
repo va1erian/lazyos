@@ -1096,6 +1096,11 @@ pub fn name_system_events_pkg(op: &str) -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SYSTEM_EVENTS_PKG, &[op], topics::Mode::Publish)
 }
 
+/// Build a `system/events/pkg/+` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_events_pkg(op: &str) -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_EVENTS_PKG, &[op], topics::Mode::Subscribe)
+}
+
 /// Encode a `PkgEvent` payload for `system/events/pkg/+`.
 pub fn encode_system_events_pkg(value: &PkgEvent) -> Result<Vec<u8>, Error> {
     encode_pkg_event(value)
@@ -1124,8 +1129,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_EVENTS_PKG, &[op], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_events_pkg(op).map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_PKG_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_events_pkg))
 }

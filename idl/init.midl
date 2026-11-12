@@ -257,7 +257,7 @@ interface os.lazy.init.v1 {
     /// on `system/events/service/<name>` for every supervision transition, so
     /// `healthd` (which derives its rows from it) and `logd` observe the state
     /// without polling.
-    topic "system/events/service/{name}" : ServiceEvent retained qos=latest;
+    topic "system/events/service/{name}" : ServiceEvent retained qos=buffered;
 
     /// A launched app stopped and `init` will not start it again (issue
     /// #549): it failed while starting, kept crashing, or failed with no

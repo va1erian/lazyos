@@ -216,11 +216,22 @@ pub const SOCKET_CLIENT_RULES: &[RuleSpec] = &[
 /// `idl/net.midl`. Nothing
 /// else under `system/` is the stack's (a NIC's link is its driver's).
 pub fn is_stack_topic(topic: &str) -> bool {
-    let addr = topic
-        .strip_prefix("system/net/")
-        .and_then(|rest| rest.strip_suffix("/addr"))
-        .is_some_and(|name| !name.is_empty() && !name.contains('/'));
-    addr || topic == "system/net/interfaces" || topic == "system/events/network/up"
+    use messenger_generated::os_lazy_net_stack_v1::{
+        TOPIC_SYSTEM_EVENTS_NETWORK_UP, TOPIC_SYSTEM_NET_ADDR, TOPIC_SYSTEM_NET_INTERFACES,
+    };
+    [
+        TOPIC_SYSTEM_NET_ADDR,
+        TOPIC_SYSTEM_NET_INTERFACES,
+        TOPIC_SYSTEM_EVENTS_NETWORK_UP,
+    ]
+    .iter()
+    .any(|declared| declared_topic(declared, topic))
+}
+
+/// Whether the concrete `topic` is an instance of the declared `pattern`: the
+/// broker's own filter match, and no empty segment (the broker refuses one).
+fn declared_topic(pattern: &str, topic: &str) -> bool {
+    messenger_generated::topics::matches(pattern, topic) && topic.split('/').all(|s| !s.is_empty())
 }
 
 #[cfg(test)]

@@ -232,6 +232,11 @@ pub fn name_system_stats_memory() -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SYSTEM_STATS_MEMORY, &[], topics::Mode::Publish)
 }
 
+/// Build a `system/stats/memory` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_stats_memory() -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_STATS_MEMORY, &[], topics::Mode::Subscribe)
+}
+
 /// Encode a `MemoryStats` payload for `system/stats/memory`.
 pub fn encode_system_stats_memory(value: &MemoryStats) -> Result<Vec<u8>, Error> {
     encode_memory_stats(value)
@@ -260,8 +265,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_STATS_MEMORY, &[], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_stats_memory().map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_STATS_MEMORY_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_stats_memory))
 }
@@ -278,6 +282,11 @@ pub const TOPIC_SYSTEM_STATS_TASKS_RETAINED: bool = true;
 /// Build the concrete `system/stats/tasks` name; each wildcard takes one literal segment.
 pub fn name_system_stats_tasks() -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SYSTEM_STATS_TASKS, &[], topics::Mode::Publish)
+}
+
+/// Build a `system/stats/tasks` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_stats_tasks() -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_STATS_TASKS, &[], topics::Mode::Subscribe)
 }
 
 /// Encode a `TasksStats` payload for `system/stats/tasks`.
@@ -308,8 +317,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_STATS_TASKS, &[], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_stats_tasks().map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_STATS_TASKS_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_stats_tasks))
 }

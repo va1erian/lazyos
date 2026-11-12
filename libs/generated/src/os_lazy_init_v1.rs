@@ -1233,6 +1233,11 @@ pub fn name_system_power_state() -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SYSTEM_POWER_STATE, &[], topics::Mode::Publish)
 }
 
+/// Build a `system/power/state` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_power_state() -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_POWER_STATE, &[], topics::Mode::Subscribe)
+}
+
 /// Encode a `PowerState` payload for `system/power/state`.
 pub fn encode_system_power_state(value: &PowerState) -> Result<Vec<u8>, Error> {
     encode_power_state(value)
@@ -1261,8 +1266,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_POWER_STATE, &[], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_power_state().map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_POWER_STATE_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_power_state))
 }
@@ -1277,16 +1281,21 @@ where
 /// on `system/events/service/<name>` for every supervision transition, so
 /// `healthd` (which derives its rows from it) and `logd` observe the state
 /// without polling.
-/// The declared `system/events/service/+` topic (`ServiceEvent`, `latest`, retained).
+/// The declared `system/events/service/+` topic (`ServiceEvent`, `buffered`, retained).
 pub const TOPIC_SYSTEM_EVENTS_SERVICE: &str = "system/events/service/+";
 /// The `system/events/service/+` delivery policy.
-pub const TOPIC_SYSTEM_EVENTS_SERVICE_QOS: u32 = topics::QOS_LATEST;
+pub const TOPIC_SYSTEM_EVENTS_SERVICE_QOS: u32 = topics::QOS_BUFFERED;
 /// Whether `system/events/service/+` publishes are retained.
 pub const TOPIC_SYSTEM_EVENTS_SERVICE_RETAINED: bool = true;
 
 /// Build the concrete `system/events/service/+` name; each wildcard takes one literal segment.
 pub fn name_system_events_service(name: &str) -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SYSTEM_EVENTS_SERVICE, &[name], topics::Mode::Publish)
+}
+
+/// Build a `system/events/service/+` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_events_service(name: &str) -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_EVENTS_SERVICE, &[name], topics::Mode::Subscribe)
 }
 
 /// Encode a `ServiceEvent` payload for `system/events/service/+`.
@@ -1317,8 +1326,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_EVENTS_SERVICE, &[name], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_events_service(name).map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_SERVICE_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_events_service))
 }
@@ -1349,6 +1357,11 @@ pub fn name_system_events_app(app: &str) -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SYSTEM_EVENTS_APP, &[app], topics::Mode::Publish)
 }
 
+/// Build a `system/events/app/+` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_events_app(app: &str) -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_EVENTS_APP, &[app], topics::Mode::Subscribe)
+}
+
 /// Encode a `AppFailure` payload for `system/events/app/+`.
 pub fn encode_system_events_app(value: &AppFailure) -> Result<Vec<u8>, Error> {
     encode_app_failure(value)
@@ -1377,8 +1390,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_EVENTS_APP, &[app], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_events_app(app).map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_APP_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_events_app))
 }
@@ -1397,6 +1409,11 @@ pub const TOPIC_SESSION_APPS_RESIDENT_RETAINED: bool = true;
 /// Build the concrete `session/+/apps/resident` name; each wildcard takes one literal segment.
 pub fn name_session_apps_resident(session: &str) -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SESSION_APPS_RESIDENT, &[session], topics::Mode::Publish)
+}
+
+/// Build a `session/+/apps/resident` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_session_apps_resident(session: &str) -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SESSION_APPS_RESIDENT, &[session], topics::Mode::Subscribe)
 }
 
 /// Encode a `ResidentApps` payload for `session/+/apps/resident`.
@@ -1427,8 +1444,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SESSION_APPS_RESIDENT, &[session], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_session_apps_resident(session).map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SESSION_APPS_RESIDENT_QOS)?;
     Ok(topics::Subscription::new(handle, decode_session_apps_resident))
 }

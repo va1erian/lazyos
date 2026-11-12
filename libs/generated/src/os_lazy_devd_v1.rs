@@ -167,6 +167,11 @@ pub fn name_system_devices(id: &str) -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SYSTEM_DEVICES, &[id], topics::Mode::Publish)
 }
 
+/// Build a `system/devices/+` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_devices(id: &str) -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_DEVICES, &[id], topics::Mode::Subscribe)
+}
+
 /// Encode a `DeviceState` payload for `system/devices/+`.
 pub fn encode_system_devices(value: &DeviceState) -> Result<Vec<u8>, Error> {
     encode_device_state(value)
@@ -195,8 +200,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_DEVICES, &[id], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_devices(id).map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_DEVICES_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_devices))
 }

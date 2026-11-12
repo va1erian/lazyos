@@ -554,6 +554,11 @@ pub fn name_system_net_link(ifname: &str) -> Result<String, topics::TopicError> 
     topics::build(TOPIC_SYSTEM_NET_LINK, &[ifname], topics::Mode::Publish)
 }
 
+/// Build a `system/net/+/link` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_net_link(ifname: &str) -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_NET_LINK, &[ifname], topics::Mode::Subscribe)
+}
+
 /// Encode a `LinkEvent` payload for `system/net/+/link`.
 pub fn encode_system_net_link(value: &LinkEvent) -> Result<Vec<u8>, Error> {
     encode_link_event(value)
@@ -582,8 +587,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_NET_LINK, &[ifname], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_net_link(ifname).map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_NET_LINK_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_net_link))
 }

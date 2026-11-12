@@ -206,6 +206,11 @@ pub fn name_system_events_elevd_request() -> Result<String, topics::TopicError> 
     topics::build(TOPIC_SYSTEM_EVENTS_ELEVD_REQUEST, &[], topics::Mode::Publish)
 }
 
+/// Build a `system/events/elevd/request` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_events_elevd_request() -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_EVENTS_ELEVD_REQUEST, &[], topics::Mode::Subscribe)
+}
+
 /// Encode a `Record` payload for `system/events/elevd/request`.
 pub fn encode_system_events_elevd_request(value: &Record) -> Result<Vec<u8>, Error> {
     encode_record(value)
@@ -234,8 +239,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_EVENTS_ELEVD_REQUEST, &[], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_events_elevd_request().map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_ELEVD_REQUEST_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_events_elevd_request))
 }

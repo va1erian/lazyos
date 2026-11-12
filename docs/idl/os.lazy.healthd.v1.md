@@ -32,7 +32,7 @@ error field (errno-style code, friendly text), not as a typed reply.
 | Topic | Payload | QoS | Retained | Permissions |
 |---|---|---|---|---|
 | `system/health/summary` | `HealthRecord` | latest | yes | `publish:system/health/summary`, `subscribe:system/health/summary` |
-| `system/health/+` | `HealthRecord` | latest | yes | `publish:system/health/+`, `subscribe:system/health/+` |
+| `system/health/+` | `HealthRecord` | buffered | yes | `publish:system/health/+`, `subscribe:system/health/+` |
 
 ## struct `HealthRecord`
 

@@ -211,6 +211,19 @@ Per-subscription delivery counters.
 let value = sys::messenger_topics::new_stats();
 ```
 
+### `Probe`
+
+What the broker's own probes publish: only the topic name matters, the
+payload is whatever the test sends.
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `note` | `String` | string |
+
+```rhai
+let value = sys::messenger_topics::new_probe();
+```
+
 ### `Qos`
 
 A string; the constants of this module are:
@@ -221,6 +234,46 @@ A string; the constants of this module are:
 - `QOS_RELIABLE` = `"Reliable"`
 
 `QOS` is the array of all of them.
+
+## Topics
+
+### `demo/waitany`
+
+`async_echo`'s wait-any check publishes here to ring a doorbell.
+
+Payload `Probe`, QoS `latest`.
+
+Helpers: `DEMO_WAITANY_PATTERN`, `on_demo_waitany(handler)`, `subscribe_demo_waitany()`, `publish_demo_waitany(payload)`.
+
+```rhai
+sys::messenger_topics::on_demo_waitany(|event| print(event.payload));
+```
+
+### `topics/depth`
+
+`messengerctl`'s hostile-depth test fills a `Buffered` queue past its
+clamp with this topic.
+
+Payload `Probe`, QoS `buffered`.
+
+Helpers: `DEPTH_PATTERN`, `on_depth(handler)`, `subscribe_depth()`, `publish_depth(payload)`.
+
+```rhai
+sys::messenger_topics::on_depth(|event| print(event.payload));
+```
+
+### `system/events/selftest/forbidden`
+
+`messengerctl`'s security self-test publishes here as a non-root task
+and expects the broker to refuse it (`system/` is reserved).
+
+Payload `Probe`, QoS `latest`.
+
+Helpers: `SELFTEST_FORBIDDEN_PATTERN`, `on_selftest_forbidden(handler)`, `subscribe_selftest_forbidden()`, `publish_selftest_forbidden(payload)`.
+
+```rhai
+sys::messenger_topics::on_selftest_forbidden(|event| print(event.payload));
+```
 
 ## See also
 

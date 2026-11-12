@@ -114,7 +114,7 @@ fn health_topic_patterns_and_qos_are_declared() {
     assert_eq!(TOPIC_SYSTEM_HEALTH_SUMMARY, "system/health/summary");
     assert_eq!(
         TOPIC_SYSTEM_HEALTH_QOS,
-        messenger_generated::topics::QOS_LATEST
+        messenger_generated::topics::QOS_BUFFERED
     );
     assert_eq!(
         TOPIC_SYSTEM_HEALTH_SUMMARY_QOS,

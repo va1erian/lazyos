@@ -10,6 +10,7 @@
 use alloc::rc::Rc;
 use alloc::vec::Vec;
 
+use messenger_generated::os_lazy_net_stack_v1 as netstack_wire;
 use user::central::{Bus, Subscription};
 use user::messenger::{self};
 use user::messenger::{netsock, netstack, Endpoint, EXPIRED_DEADLINE};
@@ -17,7 +18,9 @@ use user::sys;
 
 /// Every interface's address, retained, so a late start sees the present
 /// state and a lost lease arrives as an all-zero address.
-const ADDR_FILTER: &str = "system/net/+/addr";
+fn addr_filter() -> Option<alloc::string::String> {
+    netstack_wire::filter_system_net_addr("+").ok()
+}
 
 /// Ticks (100 Hz) between attempts to subscribe while that keeps failing:
 /// every attempt builds a broker connection with a buffer the heap keeps.
@@ -60,7 +63,10 @@ impl NetWatch {
         let Ok(mut bus) = Bus::connect() else {
             return;
         };
-        let Ok(mut subscription) = bus.subscribe(ADDR_FILTER) else {
+        let Some(filter) = addr_filter() else {
+            return;
+        };
+        let Ok(mut subscription) = bus.subscribe(&filter) else {
             return;
         };
         match subscription.bell() {

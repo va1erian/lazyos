@@ -501,6 +501,11 @@ pub fn name_system_confd_changed(path: &str) -> Result<String, topics::TopicErro
     topics::build(TOPIC_SYSTEM_CONFD_CHANGED, &[path], topics::Mode::Publish)
 }
 
+/// Build a `system/confd/changed/#` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_confd_changed(path: &str) -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_CONFD_CHANGED, &[path], topics::Mode::Subscribe)
+}
+
 /// Encode a `Change` payload for `system/confd/changed/#`.
 pub fn encode_system_confd_changed(value: &Change) -> Result<Vec<u8>, Error> {
     encode_change(value)
@@ -529,8 +534,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_CONFD_CHANGED, &[path], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_confd_changed(path).map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_CONFD_CHANGED_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_confd_changed))
 }
@@ -549,6 +553,11 @@ pub const TOPIC_USER_CONFD_CHANGED_RETAINED: bool = false;
 /// Build the concrete `user/+/confd/changed/#` name; each wildcard takes one literal segment.
 pub fn name_user_confd_changed(uid: &str, path: &str) -> Result<String, topics::TopicError> {
     topics::build(TOPIC_USER_CONFD_CHANGED, &[uid, path], topics::Mode::Publish)
+}
+
+/// Build a `user/+/confd/changed/#` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_user_confd_changed(uid: &str, path: &str) -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_USER_CONFD_CHANGED, &[uid, path], topics::Mode::Subscribe)
 }
 
 /// Encode a `Change` payload for `user/+/confd/changed/#`.
@@ -579,8 +588,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_USER_CONFD_CHANGED, &[uid, path], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_user_confd_changed(uid, path).map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_USER_CONFD_CHANGED_QOS)?;
     Ok(topics::Subscription::new(handle, decode_user_confd_changed))
 }

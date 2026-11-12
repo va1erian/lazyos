@@ -95,11 +95,11 @@ interface os.lazy.logind.v1 {
 
     /// One retained event per session id, so a late subscriber sees the
     /// newest state of each live session.
-    topic "system/events/login/session/{id}" : LoginSession retained qos=latest;
+    topic "system/events/login/session/{id}" : LoginSession retained qos=buffered;
 
     /// The most recent refusal (retained, as published today).
     topic "system/events/login/denied" : LoginDenied retained qos=latest;
 
     /// The most recent logout (retained, as published today).
-    topic "system/events/login/end" : LoginEnd retained qos=latest;
+    topic "system/events/login/end" : LoginEnd retained qos=buffered;
 }

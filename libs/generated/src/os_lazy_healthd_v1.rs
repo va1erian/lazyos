@@ -212,6 +212,11 @@ pub fn name_system_health_summary() -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SYSTEM_HEALTH_SUMMARY, &[], topics::Mode::Publish)
 }
 
+/// Build a `system/health/summary` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_health_summary() -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_HEALTH_SUMMARY, &[], topics::Mode::Subscribe)
+}
+
 /// Encode a `HealthRecord` payload for `system/health/summary`.
 pub fn encode_system_health_summary(value: &HealthRecord) -> Result<Vec<u8>, Error> {
     encode_health_record(value)
@@ -240,8 +245,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_HEALTH_SUMMARY, &[], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_health_summary().map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_HEALTH_SUMMARY_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_health_summary))
 }
@@ -249,16 +253,21 @@ where
 /// The retained per-service health row (issue #307): `healthd` publishes
 /// one on `system/health/<name>`, and a late subscriber is handed the live
 /// row instead of polling `Status`.
-/// The declared `system/health/+` topic (`HealthRecord`, `latest`, retained).
+/// The declared `system/health/+` topic (`HealthRecord`, `buffered`, retained).
 pub const TOPIC_SYSTEM_HEALTH: &str = "system/health/+";
 /// The `system/health/+` delivery policy.
-pub const TOPIC_SYSTEM_HEALTH_QOS: u32 = topics::QOS_LATEST;
+pub const TOPIC_SYSTEM_HEALTH_QOS: u32 = topics::QOS_BUFFERED;
 /// Whether `system/health/+` publishes are retained.
 pub const TOPIC_SYSTEM_HEALTH_RETAINED: bool = true;
 
 /// Build the concrete `system/health/+` name; each wildcard takes one literal segment.
 pub fn name_system_health(name: &str) -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SYSTEM_HEALTH, &[name], topics::Mode::Publish)
+}
+
+/// Build a `system/health/+` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_health(name: &str) -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_HEALTH, &[name], topics::Mode::Subscribe)
 }
 
 /// Encode a `HealthRecord` payload for `system/health/+`.
@@ -289,8 +298,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_HEALTH, &[name], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_health(name).map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_HEALTH_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_health))
 }

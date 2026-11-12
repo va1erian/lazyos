@@ -189,7 +189,7 @@ sys::logind::on_start(|event| print(event.payload));
 One retained event per session id, so a late subscriber sees the
 newest state of each live session.
 
-Payload `LoginSession`, QoS `latest`, retained.
+Payload `LoginSession`, QoS `buffered`, retained.
 
 Helpers: `SESSION_PATTERN`, `session_topic(id)`, `on_session(id, handler)`, `subscribe_session(id)`, `publish_session(id, payload)`.
 
@@ -213,7 +213,7 @@ sys::logind::on_denied(|event| print(event.payload));
 
 The most recent logout (retained, as published today).
 
-Payload `LoginEnd`, QoS `latest`, retained.
+Payload `LoginEnd`, QoS `buffered`, retained.
 
 Helpers: `END_PATTERN`, `on_end(handler)`, `subscribe_end()`, `publish_end(payload)`.
 

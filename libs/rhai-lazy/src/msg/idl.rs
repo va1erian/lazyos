@@ -1272,7 +1272,7 @@ pub static INTERFACES: &[Interface] = &[
             Topic {
                 pattern: "system/health/+",
                 payload: "HealthRecord",
-                qos: 0,
+                qos: 1,
                 retained: true,
                 doc: "The retained per-service health row (issue #307): `healthd` publishes\none on `system/health/<name>`, and a late subscriber is handed the live\nrow instead of polling `Status`.",
             },
@@ -1467,7 +1467,7 @@ pub static INTERFACES: &[Interface] = &[
             Topic {
                 pattern: "system/events/service/+",
                 payload: "ServiceEvent",
-                qos: 0,
+                qos: 1,
                 retained: true,
                 doc: "Supervision phase (`pending`/`running`/`restarting`/`stopped`/`failed`).\nTask slot of the running child, or 0.\nRestart count.\nExit status of the last run (0 while running).\nThe service's retained health topic (`system/health/<name>`).\nHuman-readable detail, empty when there is none.\nThe retained service lifecycle topic (issue #307): `init` publishes one\non `system/events/service/<name>` for every supervision transition, so\n`healthd` (which derives its rows from it) and `logd` observe the state\nwithout polling.",
             },
@@ -2303,7 +2303,7 @@ pub static INTERFACES: &[Interface] = &[
             Topic {
                 pattern: "system/events/login/session/+",
                 payload: "LoginSession",
-                qos: 0,
+                qos: 1,
                 retained: true,
                 doc: "One retained event per session id, so a late subscriber sees the\nnewest state of each live session.",
             },
@@ -2317,7 +2317,7 @@ pub static INTERFACES: &[Interface] = &[
             Topic {
                 pattern: "system/events/login/end",
                 payload: "LoginEnd",
-                qos: 0,
+                qos: 1,
                 retained: true,
                 doc: "The most recent logout (retained, as published today).",
             },
@@ -3655,11 +3655,38 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "Per-subscription delivery counters.",
                 fields: &[Field { name: "qos", id: 1, ty: Ty::U32 }, Field { name: "depth", id: 2, ty: Ty::U32 }, Field { name: "queued", id: 3, ty: Ty::U64 }, Field { name: "delivered", id: 4, ty: Ty::U64 }, Field { name: "matched", id: 5, ty: Ty::U64 }, Field { name: "drops", id: 6, ty: Ty::U64 }],
             },
+            Struct {
+                name: "Probe",
+                doc: "What the broker's own probes publish: only the topic name matters, the\npayload is whatever the test sends.",
+                fields: &[Field { name: "note", id: 1, ty: Ty::String }],
+            },
         ],
         enums: &[
             Enum { name: "Qos", variants: &["Latest", "Buffered", "Conflate", "Reliable"] },
         ],
-        topics: &[],
+        topics: &[
+            Topic {
+                pattern: "demo/waitany",
+                payload: "Probe",
+                qos: 0,
+                retained: false,
+                doc: "`async_echo`'s wait-any check publishes here to ring a doorbell.",
+            },
+            Topic {
+                pattern: "topics/depth",
+                payload: "Probe",
+                qos: 1,
+                retained: false,
+                doc: "`messengerctl`'s hostile-depth test fills a `Buffered` queue past its\nclamp with this topic.",
+            },
+            Topic {
+                pattern: "system/events/selftest/forbidden",
+                payload: "Probe",
+                qos: 0,
+                retained: false,
+                doc: "`messengerctl`'s security self-test publishes here as a non-root task\nand expects the broker to refuse it (`system/` is reserved).",
+            },
+        ],
     },
     Interface {
         name: "os.lazy.messenger.topics.bell.v1",

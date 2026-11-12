@@ -423,6 +423,11 @@ pub fn name_system_events_login_start() -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_START, &[], topics::Mode::Publish)
 }
 
+/// Build a `system/events/login/start` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_events_login_start() -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_START, &[], topics::Mode::Subscribe)
+}
+
 /// Encode a `LoginStart` payload for `system/events/login/start`.
 pub fn encode_system_events_login_start(value: &LoginStart) -> Result<Vec<u8>, Error> {
     encode_login_start(value)
@@ -451,24 +456,28 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_START, &[], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_events_login_start().map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_LOGIN_START_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_events_login_start))
 }
 
 /// One retained event per session id, so a late subscriber sees the
 /// newest state of each live session.
-/// The declared `system/events/login/session/+` topic (`LoginSession`, `latest`, retained).
+/// The declared `system/events/login/session/+` topic (`LoginSession`, `buffered`, retained).
 pub const TOPIC_SYSTEM_EVENTS_LOGIN_SESSION: &str = "system/events/login/session/+";
 /// The `system/events/login/session/+` delivery policy.
-pub const TOPIC_SYSTEM_EVENTS_LOGIN_SESSION_QOS: u32 = topics::QOS_LATEST;
+pub const TOPIC_SYSTEM_EVENTS_LOGIN_SESSION_QOS: u32 = topics::QOS_BUFFERED;
 /// Whether `system/events/login/session/+` publishes are retained.
 pub const TOPIC_SYSTEM_EVENTS_LOGIN_SESSION_RETAINED: bool = true;
 
 /// Build the concrete `system/events/login/session/+` name; each wildcard takes one literal segment.
 pub fn name_system_events_login_session(id: &str) -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_SESSION, &[id], topics::Mode::Publish)
+}
+
+/// Build a `system/events/login/session/+` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_events_login_session(id: &str) -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_SESSION, &[id], topics::Mode::Subscribe)
 }
 
 /// Encode a `LoginSession` payload for `system/events/login/session/+`.
@@ -499,8 +508,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_SESSION, &[id], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_events_login_session(id).map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_LOGIN_SESSION_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_events_login_session))
 }
@@ -516,6 +524,11 @@ pub const TOPIC_SYSTEM_EVENTS_LOGIN_DENIED_RETAINED: bool = true;
 /// Build the concrete `system/events/login/denied` name; each wildcard takes one literal segment.
 pub fn name_system_events_login_denied() -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_DENIED, &[], topics::Mode::Publish)
+}
+
+/// Build a `system/events/login/denied` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_events_login_denied() -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_DENIED, &[], topics::Mode::Subscribe)
 }
 
 /// Encode a `LoginDenied` payload for `system/events/login/denied`.
@@ -546,23 +559,27 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_DENIED, &[], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_events_login_denied().map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_LOGIN_DENIED_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_events_login_denied))
 }
 
 /// The most recent logout (retained, as published today).
-/// The declared `system/events/login/end` topic (`LoginEnd`, `latest`, retained).
+/// The declared `system/events/login/end` topic (`LoginEnd`, `buffered`, retained).
 pub const TOPIC_SYSTEM_EVENTS_LOGIN_END: &str = "system/events/login/end";
 /// The `system/events/login/end` delivery policy.
-pub const TOPIC_SYSTEM_EVENTS_LOGIN_END_QOS: u32 = topics::QOS_LATEST;
+pub const TOPIC_SYSTEM_EVENTS_LOGIN_END_QOS: u32 = topics::QOS_BUFFERED;
 /// Whether `system/events/login/end` publishes are retained.
 pub const TOPIC_SYSTEM_EVENTS_LOGIN_END_RETAINED: bool = true;
 
 /// Build the concrete `system/events/login/end` name; each wildcard takes one literal segment.
 pub fn name_system_events_login_end() -> Result<String, topics::TopicError> {
     topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_END, &[], topics::Mode::Publish)
+}
+
+/// Build a `system/events/login/end` subscription filter; a wildcard may also be given as `+`, or (last) `#`.
+pub fn filter_system_events_login_end() -> Result<String, topics::TopicError> {
+    topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_END, &[], topics::Mode::Subscribe)
 }
 
 /// Encode a `LoginEnd` payload for `system/events/login/end`.
@@ -593,8 +610,7 @@ where
     S: topics::Subscribe,
     S::Error: From<topics::TopicError>,
 {
-    let filter = topics::build(TOPIC_SYSTEM_EVENTS_LOGIN_END, &[], topics::Mode::Subscribe)
-        .map_err(S::Error::from)?;
+    let filter = filter_system_events_login_end().map_err(S::Error::from)?;
     let handle = subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_EVENTS_LOGIN_END_QOS)?;
     Ok(topics::Subscription::new(handle, decode_system_events_login_end))
 }

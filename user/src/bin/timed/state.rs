@@ -9,6 +9,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use libmessenger::client::{CallError, Errno};
+use messenger_generated::os_lazy_confd_v1 as confd_wire;
 use timezone::{Local, Zone, DEFAULT_ZONE, ZONE_KEY};
 use user::central::{Bus, Subscription};
 use user::messenger::confd::{
@@ -21,7 +22,9 @@ use user::sys;
 const RETRY_TICKS: u64 = 100;
 
 /// Every `sys/time/*` change: the zone and the network time settings.
-const WATCH_FILTER: &str = "system/confd/changed/sys/time/#";
+fn watch_filter() -> Option<String> {
+    confd_wire::filter_system_confd_changed("sys/time/#").ok()
+}
 
 pub(super) struct State {
     pub(super) zone: &'static Zone,
@@ -85,7 +88,7 @@ impl State {
             Ok(zone) => {
                 self.drop_watch();
                 let watched = self.confd.as_ref().and_then(|_| {
-                    let mut watch = watch_confd(WATCH_FILTER).ok()?;
+                    let mut watch = watch_confd(&watch_filter()?).ok()?;
                     // The doorbell is what wakes this service for a change.
                     match watch.bell() {
                         Ok(bell) => Some((watch, bell)),

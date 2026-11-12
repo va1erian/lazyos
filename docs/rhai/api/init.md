@@ -580,7 +580,7 @@ on `system/events/service/<name>` for every supervision transition, so
 `healthd` (which derives its rows from it) and `logd` observe the state
 without polling.
 
-Payload `ServiceEvent`, QoS `latest`, retained.
+Payload `ServiceEvent`, QoS `buffered`, retained.
 
 Helpers: `SERVICE_PATTERN`, `service_topic(name)`, `on_service(name, handler)`, `subscribe_service(name)`, `publish_service(name, payload)`.
 

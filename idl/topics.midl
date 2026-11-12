@@ -75,6 +75,23 @@ interface os.lazy.messenger.topics.v1 {
         matched: U64 = 5,
         drops: U64 = 6
     }
+
+    /// What the broker's own probes publish: only the topic name matters, the
+    /// payload is whatever the test sends.
+    struct Probe {
+        note: String = 1
+    }
+
+    /// `async_echo`'s wait-any check publishes here to ring a doorbell.
+    topic "demo/waitany" : Probe qos=latest;
+
+    /// `messengerctl`'s hostile-depth test fills a `Buffered` queue past its
+    /// clamp with this topic.
+    topic "topics/depth" : Probe qos=buffered;
+
+    /// `messengerctl`'s security self-test publishes here as a non-root task
+    /// and expects the broker to refuse it (`system/` is reserved).
+    topic "system/events/selftest/forbidden" : Probe qos=latest;
 }
 
 /// The subscription doorbell (`os.lazy.messenger.topics.v1` `Bell`): what

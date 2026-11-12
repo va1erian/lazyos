@@ -73,42 +73,42 @@ fn publish_summary(payload) {
     msg::publish("system/health/summary", payload)
 }
 
-// Filter for every event of the topic `system/health/{name}` (payload `HealthRecord`, qos latest, retained).
+// Filter for every event of the topic `system/health/{name}` (payload `HealthRecord`, qos buffered, retained).
 // The retained per-service health row (issue #307): `healthd` publishes
 // one on `system/health/<name>`, and a late subscriber is handed the live
 // row instead of polling `Status`.
 export const HEALTH_PATTERN = "system/health/+";
 
-/// The topic name of `system/health/{name}` (payload `HealthRecord`, qos latest, retained) for these placeholder values.
+/// The topic name of `system/health/{name}` (payload `HealthRecord`, qos buffered, retained) for these placeholder values.
 fn health_topic(name) {
     `system/health/${name}`
 }
 
-/// Run `handler(event)` for each event of `system/health/{name}` (payload `HealthRecord`, qos latest, retained); `event.payload` is
+/// Run `handler(event)` for each event of `system/health/{name}` (payload `HealthRecord`, qos buffered, retained); `event.payload` is
 /// the decoded `HealthRecord`. Returns the `Subscription`.
 fn on_health(handler) {
     msg::on("system/health/+", handler)
 }
 
-/// Subscribe to `system/health/{name}` (payload `HealthRecord`, qos latest, retained) to pull events with `sub.next()`.
+/// Subscribe to `system/health/{name}` (payload `HealthRecord`, qos buffered, retained) to pull events with `sub.next()`.
 fn subscribe_health() {
     msg::subscribe("system/health/+")
 }
 
-/// Run `handler(event)` for each event of `system/health/{name}` (payload `HealthRecord`, qos latest, retained); `event.payload` is
+/// Run `handler(event)` for each event of `system/health/{name}` (payload `HealthRecord`, qos buffered, retained); `event.payload` is
 /// the decoded `HealthRecord`. Returns the `Subscription`.
 /// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
 fn on_health(name, handler) {
     msg::on(`system/health/${name}`, handler)
 }
 
-/// Subscribe to `system/health/{name}` (payload `HealthRecord`, qos latest, retained) to pull events with `sub.next()`.
+/// Subscribe to `system/health/{name}` (payload `HealthRecord`, qos buffered, retained) to pull events with `sub.next()`.
 /// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
 fn subscribe_health(name) {
     msg::subscribe(`system/health/${name}`)
 }
 
-/// Publish `payload` (a `HealthRecord`) on `system/health/{name}` (payload `HealthRecord`, qos latest, retained).
+/// Publish `payload` (a `HealthRecord`) on `system/health/{name}` (payload `HealthRecord`, qos buffered, retained).
 fn publish_health(name, payload) {
     msg::publish(`system/health/${name}`, payload)
 }
