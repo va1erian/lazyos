@@ -70,3 +70,14 @@ pub fn threadsig_deferred_frame_is_delivered_on_resume() -> Result<(), String> {
     check!(!signal::frame_deferred(a), "the mark outlived the delivery");
     teardown(&g)
 }
+
+pub(crate) const WAITFOR_CASES: &[(&str, Test)] = &[
+    (
+        "compat_threadsig_stale_deferred_mark_is_cleared",
+        threadsig_stale_deferred_mark_is_cleared,
+    ),
+    (
+        "compat_threadsig_deferred_frame_is_delivered_on_resume",
+        threadsig_deferred_frame_is_delivered_on_resume,
+    ),
+];

@@ -30,7 +30,7 @@ mod schedattr_target;
 mod scmrights;
 mod select;
 mod termios;
-mod threadsig;
+pub(crate) mod threadsig;
 mod wait;
 
 use ctty::*;
@@ -365,14 +365,6 @@ pub(super) const CASES: &[(&str, Test)] = &[
         terminal_signal_stays_in_session,
     ),
     ("compat_terminal_signal_soak", terminal_signal_soak),
-    (
-        "compat_threadsig_stale_deferred_mark_is_cleared",
-        threadsig_stale_deferred_mark_is_cleared,
-    ),
-    (
-        "compat_threadsig_deferred_frame_is_delivered_on_resume",
-        threadsig_deferred_frame_is_delivered_on_resume,
-    ),
     (
         "compat_threadsig_masks_belong_to_threads",
         threadsig_masks_belong_to_threads,

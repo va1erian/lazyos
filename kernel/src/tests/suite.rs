@@ -63,6 +63,7 @@ pub const SUITE: &[&[(&str, Test)]] = &[
     input_bus_suite::CASES,
     registry_suite::CASES,
     registry_suite::WAIT_CASES,
+    linux_compat_suite::threadsig::WAITFOR_CASES,
     connect_suite::CASES,
     confd_suite::CASES,
     block_suite::CASES,
