@@ -403,6 +403,18 @@ As built (C5):
   waits: the shell follows its generation topic from its start, and the item
   `Set` of a `TrayIcon` goes ahead with the generation it knows (a newer one
   re-registers it).
+* **What booting it found.** `messengerd` kept 64 retained values and 64
+  subscriptions; with `init` and `healthd` on the broker the retained service
+  and health rows alone filled the first, and a later retained value (the
+  session's resident apps) was dropped silently: 1024 and 256 now. A labelled
+  app could not attach a doorbell (`Bell` was not among the methods a
+  `subscribe:` permission compiles to): `pkgstore::rules` allows it. The broker
+  rings a bell after it answers the publisher, so a `Launch` sent right after
+  a login record can beat the ring: `init` asks the broker itself (bounded,
+  `Feed::drain_waiting`) before it refuses a `Launch` into a session whose
+  owner it does not know yet. Not verified on a boot: the Terminal following a
+  theme change (the image had no BusyBox, so the Terminal could not start a
+  shell and `confctl` could not run).
 * **Declared or named.** `demo/waitany`, `topics/depth` and
   `system/events/selftest/forbidden` are probe topics declared in
   `idl/topics.midl`. `system/events/security/denial` and
