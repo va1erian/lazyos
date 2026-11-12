@@ -6,9 +6,8 @@
 //! prompt holds go.
 //!
 //! The feed is read before each request is decided, so an approval is never
-//! looked at with a record still unread: it reads the feed to its end (the
-//! broker rings its bell after it answers the publisher, so the bell alone can be late). The records are
-//! retained: a (re)subscription replays every session's last state.
+//! looked at with a record still unread: it reads what the doorbell says is
+//! queued, without waiting. The records are retained: a (re)subscription replays every session's last state.
 //!
 //! Serial: `ELEVD:SESSION:END session=<id>`.
 
@@ -18,10 +17,6 @@ use user::trace;
 use elevpolicy::sessions::Sessions;
 use user::central::Feed;
 use user::messenger::logind;
-
-/// Ticks the last pull of a look may wait for a record (the broker may still
-/// be handling the publish a request was sent after).
-const CATCH_UP_TICKS: u64 = 2;
 
 /// Follows `system/events/login/session/+`.
 pub(crate) struct SessionFeed {
@@ -43,7 +38,7 @@ impl SessionFeed {
         let mut ended = Vec::new();
         self.feed.ensure();
         let sessions = &mut self.sessions;
-        self.feed.drain_waiting(CATCH_UP_TICKS, |event| {
+        self.feed.drain_rung(|event| {
             // `system/events/login/session/<id>`: the id is the last segment.
             let Some(id) = event
                 .topic

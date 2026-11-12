@@ -326,7 +326,8 @@ impl wire::Server for Netd {
         Ok(())
     }
 
-    fn stats(&mut self, _: &Caller) -> Reply<wire::SocketStats> {
+    fn stats(&mut self, cx: &Caller) -> Reply<wire::SocketStats> {
+        self.owner(cx)?;
         Ok(self.socket_stats())
     }
 }

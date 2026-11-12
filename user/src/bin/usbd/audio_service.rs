@@ -149,7 +149,14 @@ impl wire::Server for Handler<'_> {
     }
 
     fn attach(&mut self, cx: &Caller, staging: Buffer) -> Result<(), Fault> {
-        let (hc, device, audio) = self.target(cx)?;
+        // The dispatch already claimed the buffer; every refusal releases it.
+        let (hc, device, audio) = match self.target(cx) {
+            Ok(target) => target,
+            Err(fault) => {
+                let _ = sys::buffer_close(staging.handle);
+                return Err(fault);
+            }
+        };
         let Some(staging_map) = Staging::map(staging.handle, staging.offset, staging.len) else {
             let _ = sys::buffer_close(staging.handle);
             return Err(err(errno::EINVAL).into());
