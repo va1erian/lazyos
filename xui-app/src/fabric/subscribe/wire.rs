@@ -7,6 +7,7 @@ use messenger_generated::errors::ERROR_FIELD;
 use messenger_generated::os_lazy_messenger_topics_bell_v1 as bell;
 use messenger_generated::os_lazy_messenger_topics_v1 as wire;
 
+use super::super::error::EPROTO;
 use super::{Errno, Qos, RawEvent, SubId, SubStats, EINVAL};
 
 /// Encode a request parcel; a parcel the codec refuses is `-EINVAL`.
@@ -58,6 +59,16 @@ pub(super) fn by_id_request(method: u32, id: SubId) -> Result<Parcel, Errno> {
     Ok(request(method, body, Vec::new()))
 }
 
+/// A `NextEvent` that will be sent with `Deadline::Poll`: stamped with
+/// `POLL_HINT_NS` so the broker answers an empty queue at once instead of
+/// parking a transaction the kernel is about to end (the generated client
+/// stamps the same hint for its polls).
+pub(super) fn poll_request(method: u32, id: SubId) -> Result<Parcel, Errno> {
+    let mut request = by_id_request(method, id)?;
+    request.header.deadline_ns = libmessenger::client::POLL_HINT_NS;
+    Ok(request)
+}
+
 /// `Ack`: retire every event up to `sequence`.
 pub(super) fn ack_request(id: SubId, sequence: u64) -> Result<Parcel, Errno> {
     let args = wire::AckArgs {
@@ -80,14 +91,15 @@ pub(super) fn bell_request(id: SubId, handle: u64) -> Result<Parcel, Errno> {
 }
 
 /// The negative errno of a structured error field in a reply, if it has one.
-/// A code of zero is still a failure, reported as `-EINVAL`.
+/// A code of zero is still a failure, reported as `-EPROTO` (a malformed
+/// answer, not a refusal).
 fn reply_error(parcel: &Parcel) -> Option<Errno> {
     let mut decoder = libmessenger::Decoder::new(&parcel.body);
     while let Ok(Some(field)) = decoder.next() {
         if field.kind == libmessenger::Kind::Error && field.id == ERROR_FIELD {
             return Some(match field.error_parts() {
                 Ok((code, _)) if code != 0 => -i64::from(code),
-                _ => -EINVAL,
+                _ => -EPROTO,
             });
         }
     }
@@ -96,7 +108,7 @@ fn reply_error(parcel: &Parcel) -> Option<Errno> {
 
 /// Decode reply bytes and turn a broker error field into `Err`.
 pub(super) fn parse_reply(bytes: &[u8]) -> Result<Parcel, Errno> {
-    let parcel = Parcel::decode(bytes).map_err(|_| -EINVAL)?;
+    let parcel = Parcel::decode(bytes).map_err(|_| -EPROTO)?;
     match reply_error(&parcel) {
         Some(code) => Err(code),
         None => Ok(parcel),
@@ -106,9 +118,9 @@ pub(super) fn parse_reply(bytes: &[u8]) -> Result<Parcel, Errno> {
 /// The new subscription id of a `Subscribe` reply. Ids start at 1, so zero
 /// is the absent-field default of a malformed reply.
 pub(super) fn decode_subscription(parcel: &Parcel) -> Result<SubId, Errno> {
-    let reply = wire::decode_subscribe_reply(&parcel.body).map_err(|_| -EINVAL)?;
+    let reply = wire::decode_subscribe_reply(&parcel.body).map_err(|_| -EPROTO)?;
     match reply.subscription {
-        0 => Err(-EINVAL),
+        0 => Err(-EPROTO),
         id => Ok(SubId(id)),
     }
 }
@@ -120,10 +132,10 @@ pub(super) fn decode_event(parcel: &Parcel) -> Result<Option<RawEvent>, Errno> {
         return Ok(None);
     }
     let event = wire::decode_next_event_reply(&parcel.body)
-        .map_err(|_| -EINVAL)?
+        .map_err(|_| -EPROTO)?
         .event;
     if event.topic.is_empty() {
-        return Err(-EINVAL);
+        return Err(-EPROTO);
     }
     Ok(Some(RawEvent {
         topic: event.topic,
@@ -137,7 +149,7 @@ pub(super) fn decode_event(parcel: &Parcel) -> Result<Option<RawEvent>, Errno> {
 /// A `Stats` reply.
 pub(super) fn decode_stats(parcel: &Parcel) -> Result<SubStats, Errno> {
     let stats = wire::decode_stats_reply(&parcel.body)
-        .map_err(|_| -EINVAL)?
+        .map_err(|_| -EPROTO)?
         .stats;
     Ok(SubStats {
         qos: stats.qos,

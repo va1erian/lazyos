@@ -218,7 +218,7 @@ fn a_repeated_id_from_the_broker_is_refused() {
     let mut c = client();
     let id = subscribed(&mut c, Qos::Latest);
     c.transport.next_id_for_test(id.0);
-    assert_eq!(c.subscribe("b", Qos::Latest, 1), Err(-22));
+    assert_eq!(c.subscribe("b", Qos::Latest, 1), Err(-71));
     assert_eq!(c.ids(), vec![id]);
 }
 

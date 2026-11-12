@@ -223,6 +223,35 @@ fn a_permanent_refusal_is_not_asked_again() {
 }
 
 #[test]
+fn a_refusal_is_permanent_but_a_reply_that_did_not_parse_is_not() {
+    let mut core = core();
+    add(&mut core, 1, "a/#");
+    add(&mut core, 2, "b/#");
+    core.subscriber.transport.garbage = Some(vec![0xff; 40]);
+    core.connect(0);
+    assert!(
+        core.retry_at().is_some(),
+        "a malformed answer is asked about again"
+    );
+    core.subscriber.transport.garbage = None;
+    core.connect(1_000_000);
+    assert!(core.bell_of(1).is_some() && core.bell_of(2).is_some());
+
+    let mut core = self::core();
+    add(&mut core, 1, "a/#");
+    core.subscriber
+        .transport
+        .transport_fail
+        .push_back((topics::METHOD_SUBSCRIBE, -22));
+    core.connect(0);
+    assert_eq!(
+        core.retry_at(),
+        None,
+        "the broker said invalid: never again"
+    );
+}
+
+#[test]
 fn a_lost_feed_is_dropped_from_the_subscriber_whatever_the_broker_says() {
     let mut core = core();
     add(&mut core, 1, "a/#");

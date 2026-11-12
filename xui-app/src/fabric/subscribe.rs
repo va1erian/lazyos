@@ -80,7 +80,7 @@ pub use transport::{SysTransport, Transport};
 use libmessenger::client::Deadline;
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 
-use super::error::{EINVAL, ENOENT};
+use super::error::{EINVAL, ENOENT, EPROTO};
 pub(super) use lazyos_sys::errno::ETIMEDOUT;
 
 /// A negative errno (the module's error currency).
@@ -244,7 +244,7 @@ impl<T: Transport> Subscriber<T> {
         let id = wire::decode_subscription(&reply)?;
         if self.holds(id) {
             // A broker handing out a live id again has lost track of us.
-            return Err(-EINVAL);
+            return Err(-EPROTO);
         }
         self.subs.push(Sub {
             id,
@@ -303,7 +303,7 @@ impl<T: Transport> Subscriber<T> {
                 return out;
             }
         };
-        let poll = match wire::by_id_request(topics::METHOD_NEXTEVENT, id)
+        let poll = match wire::poll_request(topics::METHOD_NEXTEVENT, id)
             .and_then(|request| wire::encode(&request))
         {
             Ok(bytes) => bytes,
@@ -337,9 +337,9 @@ impl<T: Transport> Subscriber<T> {
 
     /// Drop a subscription without waiting on the broker: the record and the
     /// doorbell go now and the broker is asked once, with a poll. A broker
-    /// that misses the request reaps the subscription itself when it finds
-    /// the bell's other end closed, so there is nothing to retry and no
-    /// record to keep. The hub's way out for a removed or lost feed.
+    /// that misses the request reaps the subscription itself (`messengerd`
+    /// does, on the `EPIPE` of its next ring of the closed bell), so there is
+    /// nothing to retry and no record to keep. The hub's way out for a removed or lost feed.
     pub fn forget(&mut self, id: SubId) {
         if let Ok(index) = self.index(id) {
             let sub = self.subs.remove(index);
@@ -389,7 +389,7 @@ impl<T: Transport> Subscriber<T> {
             Err(code) if code == -ETIMEDOUT => return Ok(None),
             Err(code) => return Err(code),
         };
-        let bytes = self.reply.get(..length).ok_or(-EINVAL)?;
+        let bytes = self.reply.get(..length).ok_or(-EPROTO)?;
         wire::decode_event(&wire::parse_reply(bytes)?)
     }
 
@@ -402,7 +402,7 @@ impl<T: Transport> Subscriber<T> {
     ) -> Result<libmessenger::Parcel, Errno> {
         let encoded = wire::encode(request)?;
         let length = self.transport.call(&encoded, &mut self.reply, until)?;
-        let bytes = self.reply.get(..length).ok_or(-EINVAL)?;
+        let bytes = self.reply.get(..length).ok_or(-EPROTO)?;
         wire::parse_reply(bytes)
     }
 }
