@@ -38,10 +38,10 @@ use crate::{doorbell, exports, memory, selftest};
 
 /// The name the light interface is registered under (`docs/webd-plan.md` section 3.1: a labelled app
 /// registers `app.<id>.<name>` for an interface of its own domain `<id>.<name>.v<N>`).
-pub const NAME: &str = "app.os.lazy.webd.light";
+pub const NAME: &str = wire::SERVICE_NAME;
 /// The name the full interface and its two scopes are registered under (one endpoint: the scope of a
 /// `CreateView` is the interface id of its parcel, which the kernel checked).
-pub const FULL_NAME: &str = "app.os.lazy.webd.view";
+pub const FULL_NAME: &str = view_wire::SERVICE_NAME;
 
 /// How long the service thread parks at most, in milliseconds.
 const IDLE_MS: u64 = 1000;

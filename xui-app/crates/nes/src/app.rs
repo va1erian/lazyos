@@ -12,13 +12,14 @@ use std::rc::Rc;
 
 use xui_core::app::{App, Ui};
 use xui_core::arrange::{build, Handle, Mounted};
-use xui_core::backend::{Result, WidgetId};
+use xui_core::backend::Result;
 use xui_core::message::{Key, Modifiers};
 use xui_core::units::Dip;
-use xui_core::widget::{Dialog, FileDialog, Panel, StatusBar, StdFileSystem};
+use xui_core::widget::{Dialog, FileDialog};
+use xui_host::dialogs::open_dialog;
+use xui_host::SharedHost;
 
 use crate::host::{Host, Report};
-use crate::paths;
 use crate::screen::Screen;
 use crate::session::Session;
 use crate::settings::Settings;
@@ -65,13 +66,13 @@ pub struct NesApp {
 }
 
 impl NesApp {
-    /// Builds the window, plays `rom` when one is named, and shows the
-    /// welcome screen otherwise.
+    /// Builds the window and shows the welcome screen; a cartridge arrives as
+    /// [`Msg::RomChosen`] (a file on the command line, a drop, the dialog).
     pub fn build(
         ui: &mut Ui<Msg>,
         host: Rc<RefCell<dyn Host>>,
+        files: SharedHost,
         session: Session,
-        rom: Option<PathBuf>,
     ) -> Result<NesApp> {
         let widgets = ui::Widgets::default();
         let screen: Handle<Screen> = Handle::new();
@@ -80,14 +81,14 @@ impl NesApp {
             build(move |ui: &Ui<Msg>| Ok(Screen::new(ui, host, session))).bind(&screen)
         };
         let mounted = ui.mount(ui::window(&widgets, screen_entry))?;
-        let open = FileDialog::open_file(ui, "Open ROM")?
-            .file_system(Rc::new(StdFileSystem))
-            .initial_dir(host.borrow().default_dir())
-            .filter("NES ROMs (.nes)", &["nes"])
-            .filter("All files", &[])
-            .require_existing(true)
-            .on_accept(|path| Some(Msg::RomChosen(path)))
-            .on_cancel(|| Some(Msg::RomCancelled));
+        let open = open_dialog(
+            ui,
+            &*files,
+            "Open ROM",
+            &[("NES ROMs (.nes)", &["nes"])],
+            || Some(Msg::RomCancelled),
+        )?
+        .on_accept(|path| Some(Msg::RomChosen(path)));
         let controls = Dialog::message(ui, "Controls", ui::CONTROLS)?.on_action(|_| None);
         let about = Dialog::message(ui, "About NES", ui::ABOUT)?.on_action(|_| None);
         let app = NesApp {
@@ -104,9 +105,6 @@ impl NesApp {
         ui.on_close(|| Some(Msg::Command(Command::Quit)));
         ui.every(1000, Msg::Tick);
         app.show_welcome(ui);
-        if let Some(rom) = rom {
-            app.open_rom(ui, &rom);
-        }
         Ok(app)
     }
 
@@ -159,7 +157,11 @@ impl NesApp {
     /// Shows the welcome screen and hides the picture.
     fn show_welcome(&self, ui: &mut Ui<Msg>) {
         let host = self.host.borrow();
-        let recent = paths::read_recent(&host.app_dir());
+        let recent: Vec<PathBuf> = host
+            .recent()
+            .into_iter()
+            .filter(|path| path.is_file())
+            .collect();
         let sample = host.sample_rom();
         drop(host);
         let layout = ui::welcome_layout(&recent, sample.as_deref());
@@ -429,11 +431,6 @@ impl NesApp {
             }
         }
     }
-
-    /// The picture's node, so a test can check it is the visible one.
-    pub fn screen_id(&self) -> WidgetId {
-        self.screen.get().control().id()
-    }
 }
 
 /// The keyboard shortcuts the window owns. A key with no shortcut is left to
@@ -485,13 +482,6 @@ impl App for NesApp {
         }
     }
 }
-
-/// The panel type the welcome screen is mounted in, re-exported so the binary
-/// and the tests can name it.
-pub type WelcomePanel = Panel<Msg>;
-
-/// The status bar's type, likewise.
-pub type NesStatusBar = StatusBar<Msg>;
 
 /// A `Dip` conversion the layout constants use.
 pub const fn dip(value: i32) -> Dip {

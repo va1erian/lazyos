@@ -68,16 +68,19 @@ use elevpolicy::approvals::{Approvals, Caller, LabelKind, LabelKinds};
 use elevpolicy::backoff::{Backoff, Hold};
 use elevpolicy::queue::Queue;
 use elevpolicy::{Class, Operation};
-use libmessenger::{Encoder, Parcel};
-use messenger_generated::errors::ERROR_FIELD;
+use libmessenger::client::{CallError, Deadline};
+use libmessenger::server::{Caller as Stamped, Fault, Incoming};
+use libmessenger::Parcel;
 use messenger_generated::os_lazy_elevd_v1 as wire;
-use user::messenger::{self, accounts, errno, pkgd, registry, services, Endpoint, Error, Message};
+use user::messenger::accounts::Directory;
+use user::messenger::client::Native;
+use user::messenger::{self, accounts, errno, pkgd, registry, services, Endpoint, Message};
 use user::sys;
 
 use approve::Verdict;
 
 /// The service's registered name.
-pub(crate) const NAME: &str = "os.lazy.elevd";
+pub(crate) const NAME: &str = wire::SERVICE_NAME;
 
 /// What `elevd` keeps between requests.
 pub(crate) struct State {
@@ -96,7 +99,7 @@ pub(crate) struct State {
     /// The caller of the request being answered.
     pub(crate) active: Option<Caller>,
     /// `logind`'s session records.
-    pub(crate) sessions: sessions::Feed,
+    pub(crate) sessions: sessions::SessionFeed,
     pub(crate) audit: audit::Audit,
     /// The receive buffer `intake.rs` reads into.
     pub(crate) intake_buffer: Vec<u8>,
@@ -110,10 +113,10 @@ impl Refusal {
         Refusal(code, text.to_string())
     }
 
-    /// A service's refusal, as it reported it.
-    pub(crate) fn of(error: Error) -> Refusal {
-        let code = error.errno().map(|code| -code).unwrap_or(errno::EIO);
-        Refusal(code, error.message().to_string())
+    /// The refusal of a generated client's call: the service's own code and
+    /// sentence, or the transport's errno.
+    pub(crate) fn of_call(error: CallError) -> Refusal {
+        Refusal(-error.code(), error.message().to_string())
     }
 }
 
@@ -142,7 +145,7 @@ fn run() -> messenger::Result<()> {
         backoff: Backoff::new(),
         queue: Queue::new(),
         active: None,
-        sessions: sessions::Feed::new(),
+        sessions: sessions::SessionFeed::new(),
         audit: audit::Audit::new(),
         intake_buffer: alloc::vec![0u8; messenger::DEFAULT_BUFFER],
     };
@@ -164,56 +167,72 @@ fn run() -> messenger::Result<()> {
 
 /// The kernel-stamped caller of `message`.
 pub(crate) fn caller_of(message: &Message) -> Caller {
-    let cred = message.caller();
+    caller_from(&Incoming::caller(message))
+}
+
+/// The approvals' view of the kernel-stamped sender of a request.
+fn caller_from(cx: &Stamped) -> Caller {
     Caller {
-        uid: cred.uid,
-        label: cred.label_id,
-        session: cred.session,
+        uid: cx.uid,
+        label: cx.label_id,
+        session: cx.session,
     }
 }
 
 /// Answer `message`: its reply, or its refusal as the error reply.
 pub(crate) fn answer_now(state: &mut State, message: &Message) -> Parcel {
-    match answer(state, message) {
-        Ok(reply) => reply,
-        Err(Refusal(code, text)) => error_reply(message.method(), code, &text),
+    wire::dispatch(state, message)
+}
+
+impl wire::Server for State {
+    fn request(
+        &mut self,
+        cx: &Stamped,
+        operation: String,
+        args: Vec<String>,
+    ) -> Result<wire::RequestReply, Fault> {
+        let caller = caller_from(cx);
+        self.active = Some(caller);
+        let result = request(self, caller, &operation, &args);
+        self.active = None;
+        let (detail, values) = result?;
+        Ok(wire::RequestReply { detail, values })
+    }
+
+    fn release(&mut self, cx: &Stamped) -> Result<(), Fault> {
+        let caller = caller_from(cx);
+        self.approvals.release(caller);
+        sys::write_str(&alloc::format!(
+            "ELEVD:RELEASE uid={} label={} session={}\n",
+            caller.uid,
+            caller.label,
+            caller.session
+        ));
+        Ok(())
     }
 }
 
-fn answer(state: &mut State, message: &Message) -> Result<Parcel, Refusal> {
-    if message.interface_id() != wire::INTERFACE_ID {
-        return Err(Refusal::new(errno::EINVAL, "not an elevd request"));
-    }
-    let caller = caller_of(message);
-    match message.method() {
-        wire::METHOD_REQUEST => {
-            let args = wire::decode_request_args(&message.parcel.body)
-                .map_err(|_| Refusal::new(errno::EINVAL, "malformed request"))?;
-            state.active = Some(caller);
-            let result = request(state, caller, &args.operation, &args.args);
-            state.active = None;
-            let (detail, values) = result?;
-            let body = wire::encode_request_reply(&wire::RequestReply { detail, values })
-                .map_err(|_| Refusal::new(errno::EIO, "the reply could not be encoded"))?;
-            Ok(parcel(wire::METHOD_REQUEST, body))
-        }
-        wire::METHOD_RELEASE => {
-            state.approvals.release(caller);
-            sys::write_str(&alloc::format!(
-                "ELEVD:RELEASE uid={} label={} session={}\n",
-                caller.uid,
-                caller.label,
-                caller.session
-            ));
-            Ok(parcel(wire::METHOD_RELEASE, Vec::new()))
-        }
-        _ => Err(Refusal::new(errno::EINVAL, "unknown method")),
+impl From<Refusal> for Fault {
+    fn from(Refusal(code, text): Refusal) -> Fault {
+        Fault::new(code as u32, &text)
     }
 }
 
 /// Read `logind`'s records and end what the sessions that are over held.
 fn follow_sessions(state: &mut State) {
-    for session in state.sessions.ended() {
+    let ended = state.sessions.ended();
+    end_sessions(state, ended);
+}
+
+/// [`follow_sessions`] for a decision a standing approval is about to make:
+/// the last pull waits a tick for a record the broker has not rung yet.
+fn follow_sessions_waiting(state: &mut State) {
+    let ended = state.sessions.ended_waiting(1);
+    end_sessions(state, ended);
+}
+
+fn end_sessions(state: &mut State, ended: Vec<u64>) {
+    for session in ended {
         state.approvals.end_session(session);
         state.backoff.end_session(session);
     }
@@ -252,10 +271,11 @@ fn label_kind(state: &mut State, caller: Caller, class: Class) -> LabelKind {
     if let Some(kind) = state.label_kinds.get(caller.label) {
         return kind;
     }
-    let deadline = sys::clock().saturating_add(LABEL_NAME_TICKS);
-    let name = pkgd::Client::connect()
-        .ok()
-        .and_then(|client| client.label_name_until(caller.label, Some(deadline)).ok());
+    let name = pkgd::Client::try_connect(Native).ok().and_then(|client| {
+        client
+            .label_name_within(caller.label, Deadline::ticks(LABEL_NAME_TICKS))
+            .ok()
+    });
     let kind = LabelKind::of(caller.label, name.as_deref());
     state.label_kinds.put(caller.label, kind);
     kind
@@ -286,9 +306,9 @@ fn request(
             "only a program of a login session may ask for an administrator",
         ));
     }
-    let asker = accounts_endpoint()
+    let asker = accounts_client()
         .ok()
-        .and_then(|endpoint| accounts::lookup_uid(&endpoint, caller.uid).ok().flatten());
+        .and_then(|client| client.lookup_uid(caller.uid).ok().flatten());
     record.user = asker.as_ref().map_or_else(
         || alloc::format!("uid {}", caller.uid),
         |user| user.name.clone(),
@@ -319,10 +339,18 @@ fn request(
     // The label's kind is looked up only when a standing approval exists to be
     // judged against it: a request that must prompt anyway asks `pkgd` nothing
     // (the kind is needed again only to record a granted approval below).
-    let standing = op.class() == Class::View && state.approvals.holds(caller, now) && {
-        let kind = label_kind(state, caller, op.class());
-        state.approvals.covers(caller, kind, op.class(), now)
-    };
+    let standing = op.class() == Class::View
+        && state.approvals.holds(caller, now)
+        && {
+            // The approval decides without a prompt, so no ended session's record
+            // may still be in flight (a request that prompts pays nothing).
+            follow_sessions_waiting(state);
+            state.approvals.holds(caller, now)
+        }
+        && {
+            let kind = label_kind(state, caller, op.class());
+            state.approvals.covers(caller, kind, op.class(), now)
+        };
     if standing {
         record.admin = String::from("(standing approval)");
     } else {
@@ -372,26 +400,9 @@ fn request(
     }
 }
 
-/// `accountsd`'s endpoint.
-pub(crate) fn accounts_endpoint() -> messenger::Result<messenger::Endpoint> {
-    registry::resolve(accounts::NAME)
-}
-
-/// A reply of `method` carrying `body`.
-fn parcel(method: u32, body: Vec<u8>) -> Parcel {
-    Parcel {
-        header: services::header(wire::INTERFACE_ID, method),
-        body,
-        ..Parcel::default()
-    }
-}
-
-/// The standard error reply: `code` and the friendly `text`.
-pub(crate) fn error_reply(method: u32, code: i64, text: &str) -> Parcel {
-    let mut body = Encoder::new();
-    // A structured error field cannot overflow a fresh encoder.
-    let _ = body.error(ERROR_FIELD, code as u32, text);
-    parcel(method, body.finish())
+/// A client of `accountsd` (one attempt: it may not be up).
+pub(crate) fn accounts_client() -> Result<accounts::Client, CallError> {
+    accounts::Client::try_connect(Native)
 }
 
 #[panic_handler]

@@ -1,3 +1,5 @@
+service "os.lazy.keyd" implements os.lazy.keyd.v1;
+
 /// The secrets and crypto service (issue #102).
 ///
 /// `keyd` owns every long-term secret; no method returns key material. Keys
@@ -10,11 +12,12 @@
 /// Key material stays in `keyd`'s own memory: no method carries a `Buffer`
 /// or a `Channel`, so no client ever maps a page that holds a key.
 interface os.lazy.keyd.v1 {
+    default deadline=5s;
     /// Check a username/password pair against the stored Argon2id verifier.
     /// Accepted only from the accounts service (the `_accounts` system uid,
     /// unlabelled), which slows password guessing (`Authenticate`); anyone
     /// else gets `EPERM`. The plaintext `secret` crosses the channel.
-    method Verify(user: String = 1, secret: String = 2) -> (ok: Bool = 1);
+    method Verify(user: String = 1, secret: String = 2) -> (ok: Bool = 1) deadline=never;
     /// HMAC-SHA256 `digest` under the caller's stored key `key`; returns the tag.
     method Sign(key: U64 = 1, digest: Bytes = 2) -> (tag: Bytes = 1);
     /// Seal `plaintext` under the caller's stored key `key`; returns an
@@ -28,9 +31,9 @@ interface os.lazy.keyd.v1 {
     /// its opaque id.
     method Generate(kind: String = 1) -> (id: U64 = 1);
     /// The caller's key ids, types and use counters; never material.
-    method List() -> (keys: Array<KeyInfo> = 1);
+    method List() -> (keys: Array<KeyInfo> = 1) retry=safe;
     /// Round-trip probe.
-    method Ping() -> ();
+    method Ping() -> () retry=safe;
     /// Install or replace an account's password verifier (docs/accounts-plan.md
     /// U1). Accepted only from the accounts service (the `_accounts` system
     /// uid, unlabelled): whoever may plant a verifier may become that user.
@@ -38,7 +41,7 @@ interface os.lazy.keyd.v1 {
     /// answering `Verify` with it, and returns it as the account database
     /// stores it (`argon2id:<m_kib>:<t>:<p>:<salt>:<hash>`), so the account
     /// survives a reboot; the secret does not outlive the call.
-    method Provision(user: String = 1, secret: String = 2) -> (verifier: String = 1);
+    method Provision(user: String = 1, secret: String = 2) -> (verifier: String = 1) deadline=never;
     /// Drop an account's verifier: it can no longer log in. Accepted only
     /// from the accounts service, like `Provision`.
     method Forget(user: String = 1) -> ();
@@ -67,7 +70,7 @@ interface os.lazy.keyd.v1 {
     /// The names of the caller's `user` secrets, or of the `system` ones
     /// (any caller may list those: they name the machine's networks). Names
     /// only, never material.
-    method ListSecrets(scope: String = 1) -> (names: Array<String> = 1);
+    method ListSecrets(scope: String = 1) -> (names: Array<String> = 1) retry=safe;
     /// The WPA2 pairwise master key of the passphrase `name` of `scope` for
     /// `ssid` (PBKDF2-HMAC-SHA1, 4096 rounds, IEEE 802.11 Annex J.4; a
     /// 64-hex-digit secret is a raw PSK and is its own PMK). Computed once
@@ -81,7 +84,7 @@ interface os.lazy.keyd.v1 {
     /// `ENOENT` for no such secret, `EINVAL` for a secret that is not a
     /// passphrase (8 to 63 octets of UTF-8 without control characters) or
     /// raw PSK, or an SSID outside 1..=32 octets.
-    method WifiPmk(scope: String = 1, name: String = 2, ssid: Bytes = 3, owner: U32 = 4) -> (pmk: Bytes = 1);
+    method WifiPmk(scope: String = 1, name: String = 2, ssid: Bytes = 3, owner: U32 = 4) -> (pmk: Bytes = 1) deadline=never;
     /// Keep `secret` under `name` for the user `owner` (scope `user`).
     /// Answered only to `wlanmd` (the `_wlan` system uid, unlabelled, outside
     /// any session), which takes a passphrase in `os.lazy.net.wifi.v1`

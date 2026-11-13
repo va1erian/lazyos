@@ -21,8 +21,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 
-use user::messenger::services::{self, INIT_NAME, POWER_MODE_POWER_OFF, POWER_MODE_REBOOT};
-use user::messenger::Error;
+use libmessenger::client::{CallError, Deadline, Errno};
+use user::messenger::client::Native;
+use user::messenger::services::init::Client as InitClient;
+use user::messenger::services::{POWER_MODE_POWER_OFF, POWER_MODE_REBOOT};
 use user::sys;
 
 /// How long to wait for `init`'s answer (100 Hz): it replies before stopping
@@ -66,19 +68,25 @@ fn run(text: &str) -> Result<(), String> {
     } else {
         reason.join(" ")
     };
-    let init = services::resolve_service(INIT_NAME).map_err(|error| failure(&error))?;
-    let deadline = Some(sys::clock() + REPLY_TICKS);
-    let phase = services::shutdown(&init, mode, &reason, force, deadline)
+    let init = InitClient::connect(Native).map_err(|error| failure(&error))?;
+    let reply = init
+        .shutdown_within(mode, &reason, force, Deadline::ticks(REPLY_TICKS))
         .map_err(|error| failure(&error))?;
-    sys::write_str(&format!("powerctl: {name} accepted (phase {phase})\n"));
+    if !reply.accepted {
+        return Err(failure(&CallError::Transport(Errno::AGAIN)));
+    }
+    sys::write_str(&format!(
+        "powerctl: {name} accepted (phase {})\n",
+        reply.phase
+    ));
     Ok(())
 }
 
 /// The message for a refused or failed request.
-fn failure(error: &Error) -> String {
-    let detail = match error.errno() {
-        Some(code) if code == -user::messenger::errno::EPERM => "not permitted",
-        Some(code) if code == -user::messenger::errno::EINVAL => "invalid request",
+fn failure(error: &CallError) -> String {
+    let detail = match error.code() {
+        code if code == -user::messenger::errno::EPERM => "not permitted",
+        code if code == -user::messenger::errno::EINVAL => "invalid request",
         _ => error.message(),
     };
     format!("powerctl: {detail}\n")

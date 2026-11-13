@@ -1,3 +1,5 @@
+service "os.lazy.gpu" implements os.lazy.gpu.v1;
+
 /// The Intel GPU service (`gpud`, docs/kabylake-gpu-plan.md, stage G1:
 /// "Adopt + observe").
 ///
@@ -20,6 +22,7 @@
 /// mode and where its framebuffer is, nothing a program could not see by
 /// asking the compositor. Method ordinals are append-only.
 interface os.lazy.gpu.v1 {
+    default deadline=5s;
     /// What the adopted pipe's link does. Ordinals are append-only.
     /// `None`: no running pipe. `Hdmi`: HDMI mode (infoframes, audio need no
     /// mode set). `Dvi`: a DVI-mode link (audio would need a mode set).
@@ -135,9 +138,9 @@ interface os.lazy.gpu.v1 {
     }
 
     /// The state `gpud` adopted when it started.
-    method GetState() -> (state: State = 1);
+    method GetState() -> (state: State = 1) retry=safe;
 
     /// The adopted pipe's beam, read now. `ENODEV` when no pipe was
     /// adopted.
-    method GetBeam() -> (beam: Beam = 1);
+    method GetBeam() -> (beam: Beam = 1) retry=safe;
 }

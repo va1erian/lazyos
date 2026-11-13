@@ -22,21 +22,24 @@
 /// structured error field (see `services::error_field`): an unknown stream is
 /// `ENOENT`, an out-of-range gain `EINVAL`.
 interface os.lazy.audio.mixer.v1 {
+    /// The panel is read and set from an app's UI thread: a mixer that does not
+    /// answer in two seconds costs the call, not the window.
+    default deadline=2s;
     /// Every open stream, in opening order.
-    method ListStreams() -> (streams: Array<StreamStatus> = 1);
+    method ListStreams() -> (streams: Array<StreamStatus> = 1) retry=safe;
     /// Set one stream's gain and mute flag, whoever owns it.
-    method SetStreamVolume(stream: U32 = 1, gain_q16: U32 = 2, mute: Bool = 3) -> ();
+    method SetStreamVolume(stream: U32 = 1, gain_q16: U32 = 2, mute: Bool = 3) -> () retry=never;
     /// The master gain, the mute flag and what the card runs at.
-    method GetMaster() -> (master: Master = 1);
+    method GetMaster() -> (master: Master = 1) retry=safe;
     /// Set the master gain and mute flag, applied after mixing.
-    method SetMaster(gain_q16: U32 = 1, mute: Bool = 2) -> ();
+    method SetMaster(gain_q16: U32 = 1, mute: Bool = 2) -> () retry=safe;
     /// Every sound output a driver serves now (a built-in codec, a USB
     /// headset, an HDMI display), the one playing first.
-    method ListOutputs() -> (outputs: Array<Output> = 1);
+    method ListOutputs() -> (outputs: Array<Output> = 1) retry=safe;
     /// Play through output `id` from now on, and prefer it whenever it is
     /// present. Streams keep playing across the switch. `ENOENT` for an
     /// output that is not present.
-    method SelectOutput(id: String = 1) -> ();
+    method SelectOutput(id: String = 1) -> () retry=safe;
 
     /// What one open stream is doing.
     struct StreamStatus {

@@ -16,12 +16,8 @@ impl LazySkyApp {
         // Layout results: a staged page's rows complete it; the rest
         // re-prepare rows already in a feed.
         let mut refreshed: [Vec<crate::layouts::Done>; 2] = std::mem::take(&mut self.carried);
-        let mut taken = 0;
-        while taken < REFRESH_PER_TICK {
-            let Some(done) = self.layouts.try_next() else {
-                break;
-            };
-            taken += 1;
+        let results = self.laid.take(REFRESH_PER_TICK);
+        for done in results {
             let pane = usize::from(done.pane.min(1));
             if let Some(staging) = self.panes[pane].staging.as_mut() {
                 if done.urgent && staging.seq == done.tag {
@@ -130,7 +126,7 @@ impl LazySkyApp {
             || self.panes.iter().any(|p| p.staging.is_some())
             || !self.image_inbox.is_empty()
             || active.is_some_and(|p| self.view(p).autoscrolling())
-            || taken == REFRESH_PER_TICK;
+            || !self.laid.is_empty();
         let more = drained.cut_short || busy;
         let now = Instant::now();
         {

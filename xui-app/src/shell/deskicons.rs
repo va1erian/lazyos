@@ -9,6 +9,7 @@
 //! `text/uri-list` (onto a Files window, say), and one dropped on the
 //! desktop goes into the folder ([`Ctx::drop_on_desktop`]).
 
+use crate::trace::{self, Channel};
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
@@ -153,11 +154,11 @@ pub fn activate(ctx: &Ctx, slot: usize, grid: Grid, origin: Option<ShellRect>) {
             Some(dir) => {
                 let _ = ctx.launch_with(FILES_APP, dir, origin);
             }
-            None => println!("SHELL:OPEN:FAIL not UTF-8"),
+            None => trace::line!(Channel::Shell, "OPEN:FAIL not UTF-8"),
         },
         Some(Open::File(file)) => match LazyLauncher::new().open(&file) {
-            Ok(()) => println!("SHELL:OPEN:PASS {}", file.display()),
-            Err(error) => println!("SHELL:OPEN:FAIL {}: {error}", file.display()),
+            Ok(()) => trace::line!(Channel::Shell, "OPEN:PASS {}", file.display()),
+            Err(error) => trace::line!(Channel::Shell, "OPEN:FAIL {}: {error}", file.display()),
         },
         None => {}
     }
@@ -181,7 +182,7 @@ pub fn wire_drag(ctx: &Rc<Ctx>, desktop: WindowId, source: Rc<RefCell<DragSource
         if source.view != Some(widget) || source.paths.is_empty() {
             return None;
         }
-        println!("SHELL:DESKTOP:DRAG:{}", source.paths.len());
+        trace::line!(Channel::Shell, "DESKTOP:DRAG:{}", source.paths.len());
         Some(DragOffer {
             mime: urilist::MIME.to_owned(),
             bytes: urilist::encode(&source.paths).into_bytes(),
@@ -206,7 +207,7 @@ pub fn wire_drag(ctx: &Rc<Ctx>, desktop: WindowId, source: Rc<RefCell<DragSource
         }
         match data {
             Ok(bytes) => ctx.drop_on_desktop(&urilist::decode(bytes), *modifiers),
-            Err(code) => println!("SHELL:DESKTOP:DROP:FAIL paste err={code}"),
+            Err(code) => trace::line!(Channel::Shell, "DESKTOP:DROP:FAIL paste err={code}"),
         }
     });
 }

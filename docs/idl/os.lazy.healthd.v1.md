@@ -17,12 +17,23 @@ error field (errno-style code, friendly text), not as a typed reply.
 | Report | 1182923275 | sync | `(name: String, status: String, detail: String) -> (summary: HealthRecord, records: Array<HealthRecord>)` |
 | Status | 6222351 | sync | `() -> (summary: HealthRecord, records: Array<HealthRecord>)` |
 
+## Service
+
+- Served under the registry name `os.lazy.healthd`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Report | this interface | - | 5000 ms | never |
+| Status | this interface | - | 500 ms | safe |
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |
 |---|---|---|---|---|
 | `system/health/summary` | `HealthRecord` | latest | yes | `publish:system/health/summary`, `subscribe:system/health/summary` |
-| `system/health/+` | `HealthRecord` | latest | yes | `publish:system/health/+`, `subscribe:system/health/+` |
+| `system/health/+` | `HealthRecord` | buffered | yes | `publish:system/health/+`, `subscribe:system/health/+` |
 
 ## struct `HealthRecord`
 

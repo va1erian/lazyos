@@ -16,14 +16,13 @@
 //! `NES:QUIT:PASS` on quit; `NES:FAIL:<what>` for anything refused.
 
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use xui_app::backend::DropEvent;
-use xui_app::launch;
-use xui_app::platform::audio::{Audio, Params, PlaybackStream};
-use xui_app::platform::urilist;
+use xui_app::platform::audio::{self, Params, PlaybackStream};
+use xui_app::platform::dirs;
 use xui_app::trace::{self, Channel};
+use xui_host::recent::Recent;
 use xui_nes::host::{Host, Report};
 use xui_nes::{Msg, NesApp, Session, WINDOW};
 
@@ -34,6 +33,8 @@ const PERIOD_BYTES: u32 = 2048;
 const RATE_HZ: u32 = 48_000;
 /// Where a headless run leaves its result, for a harness that reads files.
 const RESULT_FILE: &str = "nes-result.txt";
+/// The app's id: its data folder is `<home>/.apps/<SYSTEM_NAME>`.
+const SYSTEM_NAME: &str = "os.lazy.nes";
 
 /// The LazyOS side of the app.
 struct Platform {
@@ -42,11 +43,13 @@ struct Platform {
     /// The app's directory (`$HOME/.apps/os.lazy.nes`).
     dir: PathBuf,
     muted: bool,
+    /// The ROMs opened last, kept in the app's settings (`confd`).
+    recent: Option<Rc<Recent>>,
 }
 
 /// An open mixer stream, converted to whatever the mixer granted.
 struct Stream {
-    stream: PlaybackStream<Audio>,
+    stream: PlaybackStream,
     channels: u32,
     rate: u32,
     /// The mono-to-stereo scratch when the mixer granted two channels.
@@ -61,13 +64,14 @@ impl Platform {
             stream: None,
             dir,
             muted: false,
+            recent: None,
         };
-        let Some(audio) = Audio::try_connect() else {
+        let Some(audio) = audio::try_connect() else {
             trace::fail!(Channel::Nes, "SOUND", "no mixer");
             return platform;
         };
         let params = Params::new(RATE_HZ, 1).period_bytes(PERIOD_BYTES);
-        match PlaybackStream::open(audio, params) {
+        match audio::open(audio, params) {
             Ok(stream) => {
                 let rate = stream.rate();
                 let channels = stream.channels();
@@ -177,8 +181,14 @@ impl Host for Platform {
         self.dir.clone()
     }
 
-    fn default_dir(&self) -> PathBuf {
-        xui_app::platform::dirs::default_dir()
+    fn recent(&self) -> Vec<PathBuf> {
+        self.recent.as_ref().map(|r| r.list()).unwrap_or_default()
+    }
+
+    fn remember(&self, rom: &Path) {
+        if let Some(recent) = &self.recent {
+            recent.push(rom);
+        }
     }
 
     fn sample_rom(&self) -> Option<PathBuf> {
@@ -187,13 +197,11 @@ impl Host for Platform {
     }
 }
 
-/// `$HOME/.apps/os.lazy.nes`, or `/transient`'s when there is no home.
+/// The app's data folder (`fhs::app_data_dir` of the home, or `/transient`'s
+/// when there is no home).
 fn app_dir() -> PathBuf {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .filter(|home| home.is_absolute() && home.is_dir());
-    let base = home.unwrap_or_else(|| PathBuf::from(fhs::mount::TRANSIENT));
-    base.join(".apps").join("os.lazy.nes")
+    let home = dirs::default_dir();
+    PathBuf::from(fhs::app_data_dir(&home.to_string_lossy(), SYSTEM_NAME))
 }
 
 fn main() {
@@ -201,37 +209,31 @@ fn main() {
     if args.iter().any(|arg| arg == "--headless") {
         std::process::exit(headless(&args));
     }
-    let rom = xui_app::platform::argv::file_arg(std::env::args_os());
     let platform = Platform::connect(app_dir());
     let rate = platform.rate();
-    launch::run(Channel::Nes, "NES", WINDOW, |ui, backend| {
-        backend.on_first_frame(|| trace::pass!(Channel::Nes, "UP"));
+    // A cartridge named on the command line or dropped on the window (a
+    // `text/uri-list` from the Files app, `clipboardd`'s token;
+    // docs/xui-archiver.md) opens.
+    xui_app::app(Channel::Nes, "NES")
+        .size(WINDOW.0, WINDOW.1)
         // The picture keeps its aspect; the window may be any size.
-        backend.set_size_hints(320, 260, 0, 0);
-        let host: Rc<RefCell<dyn Host>> = Rc::new(RefCell::new(platform));
-        let session = Session::new(host.borrow().app_dir(), rate);
-        let app = NesApp::build(ui, host, session, rom).inspect_err(|error| {
-            trace::fail!(Channel::Nes, "BUILD", "{error}");
-        })?;
-        // A cartridge dropped on the window opens (a `text/uri-list` from the
-        // Files app, `clipboardd`'s token; docs/xui-archiver.md).
-        let outbox = ui.proxy();
-        backend.on_drag_event(move |_, event| {
-            if let DropEvent::Drop {
-                mime,
-                data: Ok(bytes),
-                ..
-            } = event
-            {
-                if mime == urilist::MIME {
-                    if let Some(path) = urilist::decode(bytes).into_iter().next() {
-                        let _ = outbox.send(Msg::RomChosen(path));
-                    }
-                }
-            }
-        });
-        Ok(app)
-    });
+        .min_size(320, 260)
+        .opens(Msg::RomChosen)
+        .drops(rom_dropped)
+        .run(|ui, cx| {
+            let mut platform = platform;
+            platform.recent = Some(cx.recent());
+            let host: Rc<RefCell<dyn Host>> = Rc::new(RefCell::new(platform));
+            let session = Session::new(host.borrow().app_dir(), rate);
+            NesApp::build(ui, host, cx.host(), session).inspect_err(|error| {
+                trace::fail!(Channel::Nes, "BUILD", "{error}");
+            })
+        })
+}
+
+/// The first of the dropped files is the cartridge (a drop is never empty).
+fn rom_dropped(paths: Vec<PathBuf>) -> Msg {
+    Msg::RomChosen(paths.into_iter().next().unwrap_or_default())
 }
 
 /// `--headless <rom> [--frames N]`: run the console with no window and print

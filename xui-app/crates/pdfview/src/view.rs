@@ -1,13 +1,13 @@
 //! The page view: a custom-painted node that draws the [`Viewer`]'s pages
 //! (preview first, then tiles over it), its own scroll bars, and maps the
-//! wheel and the bars to scrolling. It owns the timer that drains the render
-//! threads while they work.
+//! wheel and the bars to scrolling. Finished tiles arrive as `Msg::Tile`
+//! messages from the render threads (`worker.rs`); nothing polls.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use xui_core::app::Ui;
-use xui_core::backend::{Canvas, Event, NodeKind, NodeSpec, Result, TextStyle, TimerId, WidgetId};
+use xui_core::backend::{Canvas, Event, NodeKind, NodeSpec, Result, TextStyle, WidgetId};
 use xui_core::geometry::{Rect, Size};
 use xui_core::layout::Constraints;
 use xui_core::message::MouseButton;
@@ -18,9 +18,8 @@ use crate::app::Msg;
 use crate::cache::Key;
 use crate::layout::PxRect;
 use crate::viewer::Viewer;
+use crate::worker::Done;
 
-/// How often the timer drains finished tiles while the threads work.
-const TICK_MS: u32 = 30;
 /// One wheel notch, in pixels at 96 dpi.
 const WHEEL_96: i32 = 48;
 /// The scroll bars' thickness at 96 dpi.
@@ -36,7 +35,6 @@ enum Grab {
 pub struct PageView {
     control: Control<Msg>,
     pub viewer: Rc<RefCell<Viewer>>,
-    timer: Cell<Option<TimerId>>,
 }
 
 impl PageView {
@@ -59,48 +57,24 @@ impl PageView {
             let id = control.id();
             control.on_events(move |event| handle(&ui, id, &viewer, &grab, event));
         }
-        Ok(PageView {
-            control,
-            viewer,
-            timer: Cell::new(None),
-        })
+        Ok(PageView { control, viewer })
     }
 
     pub fn id(&self) -> WidgetId {
         self.control.id()
     }
 
-    /// After the viewer changed: ask for the tiles it now needs, start
-    /// draining, and repaint.
+    /// After the viewer changed: ask for the tiles it now needs, and repaint.
     pub fn refresh(&self) {
         self.viewer.borrow_mut().schedule();
-        if self.viewer.borrow().busy() && self.timer.get().is_none() {
-            self.timer
-                .set(self.control.set_timer(TICK_MS, || Some(Msg::Tick)));
-        }
         self.control.invalidate();
     }
 
-    /// A timer tick: take finished tiles; stop the timer once all are in.
-    pub fn tick(&self) {
-        let arrived = self.viewer.borrow_mut().drain();
-        if arrived {
+    /// A render thread's finished tile: cache it and repaint if it shows.
+    pub fn accept(&self, done: Done) {
+        if self.viewer.borrow_mut().accept(done) {
             self.control.invalidate();
         }
-        if !self.viewer.borrow().busy() {
-            // A tile can land between the drain and the busy check.
-            if self.viewer.borrow_mut().drain() {
-                self.control.invalidate();
-            }
-            if let Some(timer) = self.timer.take() {
-                self.control.kill_timer(timer);
-            }
-        }
-    }
-
-    /// Whether the timer is draining (tests pump it by hand).
-    pub fn draining(&self) -> bool {
-        self.timer.get().is_some() || self.viewer.borrow().busy()
     }
 }
 

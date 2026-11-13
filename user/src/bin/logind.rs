@@ -45,7 +45,11 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
-use user::messenger::{self, accounts, logind, registry, router, services, wait, Endpoint, Parcel};
+use libmessenger::server::{Caller, Fault};
+use user::central;
+use user::messenger::accounts::{self, Directory};
+use user::messenger::client::Native;
+use user::messenger::{self, logind, registry, wait, Endpoint};
 use user::sys::{self, Cred};
 use user::trace;
 
@@ -102,8 +106,8 @@ fn run() -> messenger::Result<()> {
         graphical::run(&server, &mut buffer)?;
     }
     sys::write_str("logind: waiting for the accounts service\n");
-    let mut accountsd: Option<Endpoint> = None;
-    let mut bus: Option<router::Bus> = None;
+    let mut accountsd: Option<accounts::Client> = None;
+    let mut bus: Option<central::Publisher> = None;
     let mut sessions: Vec<logind::SessionRecord> = Vec::new();
     let mut active: Option<ActiveSession> = None;
     let mut next_session = 0u64;
@@ -113,14 +117,14 @@ fn run() -> messenger::Result<()> {
         // Answer `Sessions` queries even while a shell runs.
         serve_queries(&server, &sessions, &mut buffer)?;
         if accountsd.is_none() {
-            accountsd = registry::resolve(accounts::NAME).ok();
+            accountsd = accounts::Client::try_connect(Native).ok();
             if accountsd.is_some() {
                 sys::write_str("logind: accounts service ready; login enabled\n");
                 sys::write_str(LOGIN_HELP);
             }
         }
         if bus.is_none() {
-            bus = router::Bus::connect(services::INIT_NAME).ok();
+            bus = Some(central::Publisher::new());
         }
 
         if let Some(current) = active.as_ref() {
@@ -158,10 +162,10 @@ fn run() -> messenger::Result<()> {
 
 /// Run the identify/authenticate/spawn pipeline for one console attempt.
 fn prompt_login(
-    endpoint: &Endpoint,
+    accounts: &accounts::Client,
     sessions: &mut Vec<logind::SessionRecord>,
     next_session: &mut u64,
-    bus: &mut Option<router::Bus>,
+    bus: &mut Option<central::Publisher>,
     keys: &mut console::ConsoleKeys,
 ) -> Option<ActiveSession> {
     keys.begin();
@@ -176,7 +180,7 @@ fn prompt_login(
     // The keyboard goes back to the terminal before any shell can start.
     keys.end();
 
-    let user = match accounts::lookup_name(endpoint, &name) {
+    let user = match accounts.lookup_name(&name) {
         Ok(Some(user)) => user,
         Ok(None) => {
             deny(bus, &name, "unknown-user");
@@ -194,7 +198,7 @@ fn prompt_login(
             return None;
         }
     };
-    let matched = accounts::authenticate(endpoint, &name, &secret).unwrap_or(false);
+    let matched = accounts.authenticate(&name, &secret).unwrap_or(false);
     if !matched {
         deny(bus, &name, "bad-secret");
         return None;
@@ -271,7 +275,7 @@ const LOGIN_SCRIPT: &str =
 
 /// Record a refused attempt, print its serial marker, and rate-limit the next
 /// prompt.
-fn deny(bus: &mut Option<router::Bus>, name: &str, reason: &str) {
+fn deny(bus: &mut Option<central::Publisher>, name: &str, reason: &str) {
     trace::line!(
         trace::Channel::Login,
         "DENIED:PASS user={name} reason={reason}"
@@ -292,7 +296,7 @@ fn end_session(
     sessions: &mut [logind::SessionRecord],
     active: &ActiveSession,
     status: u64,
-    bus: &mut Option<router::Bus>,
+    bus: &mut Option<central::Publisher>,
 ) {
     sessions[active.index].state = String::from("exited");
     let record = &sessions[active.index];
@@ -318,22 +322,40 @@ fn serve_queries(
     buffer: &mut [u8],
 ) -> messenger::Result<()> {
     while let Some(message) = server.poll_recv_with(buffer)? {
-        let reply = if message.interface_id() == logind::INTERFACE
-            && message.method() == logind::wire::METHOD_SESSIONS
-        {
-            let active = sessions
-                .iter()
-                .filter(|session| session.state == "active")
-                .count() as u64;
-            logind::sessions_reply(sessions, active).unwrap_or_default()
-        } else {
-            Parcel::default()
-        };
+        let reply = logind::wire::dispatch(&mut Console { sessions }, &message);
         if let Some(txn) = message.txn {
             server.reply_or_drop(txn, &reply)?;
         }
     }
     Ok(())
+}
+
+/// The console login answers `Sessions`; a login or logout is the graphical
+/// session's.
+struct Console<'a> {
+    sessions: &'a [logind::SessionRecord],
+}
+
+impl logind::wire::Server for Console<'_> {
+    fn sessions(&mut self, _: &Caller) -> Result<logind::wire::SessionsReply, Fault> {
+        let active = self
+            .sessions
+            .iter()
+            .filter(|session| session.state == "active")
+            .count() as u64;
+        Ok(logind::wire::SessionsReply {
+            active,
+            sessions: self.sessions.to_vec(),
+        })
+    }
+
+    fn login(&mut self, _: &Caller, _: String, _: String) -> Result<u64, Fault> {
+        Err(Fault::unserved())
+    }
+
+    fn logout(&mut self, _: &Caller) -> Result<u64, Fault> {
+        Err(Fault::unserved())
+    }
 }
 
 /// Read one line from the terminal. `echo` prints the characters back (the

@@ -8,19 +8,20 @@ use std::path::{Path, PathBuf};
 
 use lazyrad_packager::lzp::{build_package, PackageRequest};
 use messenger_generated::os_lazy_init_v1 as init_wire;
-use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 use messenger_generated::os_lazy_mimed_v1 as mimed;
 
 use super::*;
-use crate::transport::Wait;
+use crate::transport::{PkgEvents, Wait};
 
 type Answer = Result<Vec<u8>, Failure>;
 
-/// One scripted answer per call, in order (then `when_empty`); records what was
-/// asked. The clock advances one tick per call and by the pause on a sleep.
+/// One scripted answer per call, in order (then `when_empty`), and the package
+/// events the follow delivers; records what was asked. The clock advances one
+/// tick per call, and a wait for an event that never comes ends at its deadline.
 struct Mock {
     answers: RefCell<VecDeque<Answer>>,
     when_empty: Option<Failure>,
+    events: RefCell<VecDeque<pkgd::PkgEvent>>,
     asked: RefCell<Vec<(&'static str, u32, Vec<u8>)>>,
     now: Cell<u64>,
 }
@@ -30,6 +31,7 @@ impl Mock {
         Mock {
             answers: RefCell::new(answers.into()),
             when_empty: None,
+            events: RefCell::new(VecDeque::new()),
             asked: RefCell::new(Vec::new()),
             now: Cell::new(0),
         }
@@ -62,12 +64,33 @@ impl Transport for &Mock {
         }
     }
 
+    fn follow_pkg_events(&self) -> Box<dyn PkgEvents + '_> {
+        self.asked.borrow_mut().push((EVENTS, 0, Vec::new()));
+        Box::new(MockEvents(self))
+    }
+
     fn ticks(&self) -> u64 {
         self.now.get()
     }
 
     fn pause(&self, millis: u64) {
         self.now.set(self.now.get() + millis.div_ceil(10));
+    }
+}
+
+/// What the trail records for the moment the package events were followed.
+const EVENTS: &str = "events";
+
+/// The scripted events: each `next` takes one, or waits out its deadline.
+struct MockEvents<'a>(&'a Mock);
+
+impl PkgEvents for MockEvents<'_> {
+    fn next(&mut self, until: u64) -> Option<pkgd::PkgEvent> {
+        let taken = self.0.events.borrow_mut().pop_front();
+        if taken.is_none() {
+            self.0.now.set(self.0.now.get().max(until));
+        }
+        taken
     }
 }
 
@@ -116,12 +139,6 @@ fn ok(body: Result<Vec<u8>, libmessenger::Error>) -> Answer {
     Ok(body.unwrap())
 }
 
-fn subscribed() -> Answer {
-    ok(topics::encode_subscribe_reply(&topics::SubscribeReply {
-        subscription: 7,
-    }))
-}
-
 fn opened(launched: bool) -> Answer {
     ok(mimed::encode_open_reply(&mimed::OpenReply {
         app: "installer".into(),
@@ -131,16 +148,15 @@ fn opened(launched: bool) -> Answer {
     }))
 }
 
-fn nothing_yet() -> Answer {
-    Err(Failure {
-        code: -110,
-        text: "timed out".into(),
-    })
-}
-
-fn event(op: &str, package: &BuiltPackage, digest: &str, ok_: bool, detail: &str) -> Answer {
-    // As the broker carries it: inside `central`'s wrapper parcel.
-    let inner = pkgd::encode_pkg_event(&pkgd::PkgEvent {
+/// One package event, as the typed stream hands it over.
+fn event(
+    op: &str,
+    package: &BuiltPackage,
+    digest: &str,
+    ok_: bool,
+    detail: &str,
+) -> pkgd::PkgEvent {
+    pkgd::PkgEvent {
         op: op.into(),
         system_name: package.system_name.clone(),
         version: package.version.clone(),
@@ -149,20 +165,7 @@ fn event(op: &str, package: &BuiltPackage, digest: &str, ok_: bool, detail: &str
         ok: ok_,
         detail: detail.into(),
         ..Default::default()
-    })
-    .unwrap();
-    let payload = rhai_lazy::msg::topics::wrap(&inner).unwrap();
-    ok(topics::encode_next_event_reply(&topics::NextEventReply {
-        event: topics::Event {
-            topic: format!("system/events/pkg/{op}"),
-            payload,
-            ..Default::default()
-        },
-    }))
-}
-
-fn unsubscribed() -> Answer {
-    Ok(Vec::new())
+    }
 }
 
 fn refusal(error: InstallError) -> String {
@@ -194,15 +197,14 @@ fn install_hands_the_package_to_the_installer_and_follows_its_event() {
     let dir = scratch("install");
     let built = package(&dir);
     let digest = digest_of(&built);
-    let mock = Mock::new(vec![
-        subscribed(),
-        opened(true),
-        nothing_yet(),
-        // Someone else's record, then ours.
-        event("install", &built, "not-this-package", true, ""),
-        event("install", &built, &digest, true, ""),
-        unsubscribed(),
-    ]);
+    let mock = Mock::new(vec![opened(true)]);
+    // Someone else's record, then ours.
+    mock.events
+        .borrow_mut()
+        .push_back(event("install", &built, "not-this-package", true, ""));
+    mock.events
+        .borrow_mut()
+        .push_back(event("install", &built, &digest, true, ""));
     let app = HandoffInstaller::new(&mock, dir.clone(), 1000)
         .install(&built)
         .unwrap();
@@ -212,17 +214,12 @@ fn install_hands_the_package_to_the_installer_and_follows_its_event() {
         app.location.unwrap(),
         PathBuf::from(fhs::state::APPS_ROOT).join(format!("{}/1.0.0-abcd1234", built.system_name))
     );
-    // Subscribed before the Installer was started, polled, then released.
-    let broker = |method: u32| format!("{BROKER_NAME}#{method}");
+    // The events were followed before the Installer was started.
     assert_eq!(
         mock.trail(),
         [
-            broker(topics::METHOD_SUBSCRIBE),
+            format!("{EVENTS}#0"),
             format!("{MIMED_NAME}#{}", mimed::METHOD_OPEN),
-            broker(topics::METHOD_NEXTEVENT),
-            broker(topics::METHOD_NEXTEVENT),
-            broker(topics::METHOD_NEXTEVENT),
-            broker(topics::METHOD_UNSUBSCRIBE),
         ]
     );
     let asked = mock.asked.borrow();
@@ -236,8 +233,6 @@ fn install_hands_the_package_to_the_installer_and_follows_its_event() {
         .path
         .ends_with(&format!("lazyrad-{}-1.0.0.lzp", built.system_name)));
     assert_eq!(open.verb, INSTALL_VERB);
-    let subscribe = topics::decode_subscribe_args(&asked[0].2).unwrap();
-    assert_eq!(subscribe.filter, "system/events/pkg/+");
     // The staged file is gone afterwards.
     assert!(!Path::new(&open.path).exists());
 }
@@ -247,18 +242,14 @@ fn a_denied_install_is_the_installers_sentence() {
     let dir = scratch("denied");
     let built = package(&dir);
     let digest = digest_of(&built);
-    let mock = Mock::new(vec![
-        subscribed(),
-        opened(true),
-        event(
-            "denied",
-            &built,
-            &digest,
-            false,
-            "that application is already installed",
-        ),
-        unsubscribed(),
-    ]);
+    let mock = Mock::new(vec![opened(true)]);
+    mock.events.borrow_mut().push_back(event(
+        "denied",
+        &built,
+        &digest,
+        false,
+        "that application is already installed",
+    ));
     let error = HandoffInstaller::new(&mock, dir, 1000)
         .install(&built)
         .unwrap_err();
@@ -273,18 +264,14 @@ fn a_failed_install_event_is_a_refusal_with_its_detail() {
     let dir = scratch("failed");
     let built = package(&dir);
     let digest = digest_of(&built);
-    let mock = Mock::new(vec![
-        subscribed(),
-        opened(true),
-        event(
-            "install",
-            &built,
-            &digest,
-            false,
-            "the system volume is not writable",
-        ),
-        unsubscribed(),
-    ]);
+    let mock = Mock::new(vec![opened(true)]);
+    mock.events.borrow_mut().push_back(event(
+        "install",
+        &built,
+        &digest,
+        false,
+        "the system volume is not writable",
+    ));
     let error = HandoffInstaller::new(&mock, dir, 1000)
         .install(&built)
         .unwrap_err();
@@ -295,11 +282,7 @@ fn a_failed_install_event_is_a_refusal_with_its_detail() {
 fn an_installer_that_never_answers_ends_the_wait_with_a_refusal() {
     let dir = scratch("silent");
     let built = package(&dir);
-    let mut mock = Mock::new(vec![subscribed(), opened(true)]);
-    mock.when_empty = Some(Failure {
-        code: -110,
-        text: "timed out".into(),
-    });
+    let mock = Mock::new(vec![opened(true)]);
     let error = HandoffInstaller::new(&mock, dir.clone(), 50)
         .install(&built)
         .unwrap_err();
@@ -308,11 +291,6 @@ fn an_installer_that_never_answers_ends_the_wait_with_a_refusal() {
     assert!(text.contains("cancelled"), "{text}");
     // The wait was bounded by the clock, not by a call count.
     assert!(mock.now.get() >= 50, "{}", mock.now.get());
-    assert!(mock
-        .trail()
-        .last()
-        .unwrap()
-        .ends_with(&format!("#{}", topics::METHOD_UNSUBSCRIBE)));
     assert_eq!(
         fs::read_dir(&dir)
             .unwrap()
@@ -333,7 +311,7 @@ fn an_installer_that_never_answers_ends_the_wait_with_a_refusal() {
 fn an_installer_that_did_not_start_is_reported() {
     let dir = scratch("nostart");
     let built = package(&dir);
-    let mock = Mock::new(vec![subscribed(), opened(false), unsubscribed()]);
+    let mock = Mock::new(vec![opened(false)]);
     let error = HandoffInstaller::new(&mock, dir, 1000)
         .install(&built)
         .unwrap_err();

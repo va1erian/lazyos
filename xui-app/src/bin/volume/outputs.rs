@@ -4,6 +4,7 @@
 
 use audioclient::{control_wire as control, MixerControl, Transport};
 use trayclient::{menu_row, wire};
+use xui_app::context::user_key;
 use xui_app::platform::confd_store::ConfdStore;
 use xui_app::trace::{self, Channel};
 use xui_settings::store::{ConfigStore, Value};
@@ -24,7 +25,7 @@ pub(super) struct Outputs {
 impl Outputs {
     /// Read the list again; whether it changed.
     pub(super) fn refresh<T: Transport>(&mut self, mixer: &MixerControl<T>) -> bool {
-        let Ok(mut list) = mixer.outputs() else {
+        let Ok(mut list) = mixer.list_outputs() else {
             return false;
         };
         // The mixer lists the playing output first; the menu keeps its rows
@@ -60,7 +61,11 @@ impl Outputs {
             heading,
         ];
         for (index, output) in self.list.iter().enumerate() {
-            let mut row = menu_row(FIRST_ROW + index as u32, &output.name, wire::MENU_KIND_RADIO);
+            let mut row = menu_row(
+                FIRST_ROW + index as u32,
+                &output.name,
+                wire::MENU_KIND_RADIO,
+            );
             row.checked = output.active;
             rows.push(row);
         }
@@ -89,7 +94,7 @@ impl Outputs {
 
 fn key() -> Option<String> {
     let uid = ConfdStore::new().uid()?;
-    Some(format!("user/{uid}/audio/output"))
+    Some(user_key(uid, "audio", "output"))
 }
 
 /// The output this user picked last.

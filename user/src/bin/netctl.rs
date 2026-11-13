@@ -43,7 +43,7 @@ mod sockprobe;
 #[path = "netctl/socksoak.rs"]
 mod socksoak;
 
-use common::{connect, fail, ip_text, mac_text, wait_for_address};
+use common::{connect, fail, ip_text, mac_text, wait_for_address, PATIENT};
 
 enum Mode {
     Show,
@@ -96,7 +96,10 @@ fn parse_args() -> Result<Mode, String> {
 }
 
 fn show_interfaces(client: &Client) -> Result<(), String> {
-    for i in client.interfaces().map_err(fail("interfaces"))? {
+    for i in client
+        .interfaces_within(PATIENT)
+        .map_err(fail("interfaces"))?
+    {
         let mode = if i.mode == wire::CONFIG_MODE_STATIC {
             "static"
         } else {
@@ -126,7 +129,9 @@ fn show_interfaces(client: &Client) -> Result<(), String> {
 }
 
 fn show_addresses(client: &Client) -> Result<(), String> {
-    let list = client.addresses().map_err(fail("addresses"))?;
+    let list = client
+        .addresses_within(PATIENT)
+        .map_err(fail("addresses"))?;
     if list.is_empty() {
         sys::write_str("no address\n");
     }
@@ -148,7 +153,7 @@ fn show_addresses(client: &Client) -> Result<(), String> {
 }
 
 fn show_routes(client: &Client) -> Result<(), String> {
-    for r in client.routes().map_err(fail("routes"))? {
+    for r in client.routes_within(PATIENT).map_err(fail("routes"))? {
         let gateway = r.gateway.iter().any(|b| *b != 0);
         let dest = if r.prefix_len == 0 {
             String::from("default")
@@ -170,7 +175,7 @@ fn show_routes(client: &Client) -> Result<(), String> {
 }
 
 fn show_stats(client: &Client) -> Result<(), String> {
-    let s = client.stats().map_err(fail("stats"))?;
+    let s = client.stats_within(PATIENT).map_err(fail("stats"))?;
     sys::write_str(&format!(
         "rx       {} frames, {} bytes, {} bad lengths\ntx       {} frames, {} bytes, {} dropped\n",
         s.rx_frames, s.rx_bytes, s.rx_bad_length, s.tx_frames, s.tx_bytes, s.tx_dropped
@@ -235,7 +240,7 @@ fn run(mode: Mode) -> Result<(), String> {
         Mode::Route => show_routes(&client),
         Mode::Stats => show_stats(&client),
         Mode::Renew => {
-            client.renew().map_err(fail("renew"))?;
+            client.renew_within(PATIENT).map_err(fail("renew"))?;
             wait_for_address(&client)?;
             show_addresses(&client)
         }
@@ -245,8 +250,10 @@ fn run(mode: Mode) -> Result<(), String> {
             show_addresses(&client)?;
             show_routes(&client)?;
             show_stats(&client)?;
-            let addresses = client.addresses().map_err(fail("addresses"))?;
-            let routes = client.routes().map_err(fail("routes"))?;
+            let addresses = client
+                .addresses_within(PATIENT)
+                .map_err(fail("addresses"))?;
+            let routes = client.routes_within(PATIENT).map_err(fail("routes"))?;
             let address = addresses
                 .first()
                 .map(|a| format!("{}/{}", ip_text(&a.addr), a.prefix_len))

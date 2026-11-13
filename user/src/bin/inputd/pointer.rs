@@ -11,8 +11,9 @@ use alloc::vec::Vec;
 
 use inputmap::pointer::MAX_SIDE;
 use inputmap::{Pointer, PointerOut};
+use libmessenger::client::Errno;
+use libmessenger::server::Fault;
 use user::messenger::input::shell_wire;
-use user::messenger::{errno, Error, Result};
 use user::sys;
 
 use super::hub::Hub;
@@ -39,35 +40,30 @@ impl Cursor {
 }
 
 impl Hub {
-    /// `SetBounds` and `GetPointer`, from the attached compositor (the caller
-    /// checked the sender). Only a call that succeeds subscribes it.
-    pub(super) fn pointer_call(&mut self, method: u32, body: &[u8]) -> Result<Vec<u8>> {
-        match method {
-            shell_wire::METHOD_SETBOUNDS => {
-                let args = shell_wire::decode_set_bounds_args(body).map_err(Error::Parcel)?;
-                let valid = 1..=MAX_SIDE;
-                if !valid.contains(&args.width) || !valid.contains(&args.height) {
-                    return Err(Error::Errno(-errno::EINVAL));
-                }
-                self.pointer.subscribed = true;
-                if self.pointer.engine.set_bounds(args.width, args.height) {
-                    let mut outputs = Vec::new();
-                    self.pointer.engine.flush(&mut outputs);
-                    self.deliver_pointer(&outputs);
-                }
-                Ok(Vec::new())
-            }
-            shell_wire::METHOD_GETPOINTER => {
-                self.pointer.subscribed = true;
-                let (x, y) = self.pointer.engine.position();
-                shell_wire::encode_get_pointer_reply(&shell_wire::GetPointerReply {
-                    x,
-                    y,
-                    buttons: self.pointer.engine.buttons(),
-                })
-                .map_err(Error::Parcel)
-            }
-            _ => Err(Error::Errno(-errno::EINVAL)),
+    /// `SetBounds`, from the attached compositor (the caller checked the
+    /// sender). Only a call that succeeds subscribes it.
+    pub(super) fn set_pointer_bounds(&mut self, width: u32, height: u32) -> Result<(), Fault> {
+        let valid = 1..=MAX_SIDE;
+        if !valid.contains(&width) || !valid.contains(&height) {
+            return Err(Fault::errno(Errno::INVAL));
+        }
+        self.pointer.subscribed = true;
+        if self.pointer.engine.set_bounds(width, height) {
+            let mut outputs = Vec::new();
+            self.pointer.engine.flush(&mut outputs);
+            self.deliver_pointer(&outputs);
+        }
+        Ok(())
+    }
+
+    /// `GetPointer`, the same.
+    pub(super) fn pointer_state(&mut self) -> shell_wire::GetPointerReply {
+        self.pointer.subscribed = true;
+        let (x, y) = self.pointer.engine.position();
+        shell_wire::GetPointerReply {
+            x,
+            y,
+            buttons: self.pointer.engine.buttons(),
         }
     }
 

@@ -1,7 +1,12 @@
 //! Service entry point: the serve loop, credential lookup and request
 //! dispatch.
 
-use user::messenger::{self, clipboard as wire, errno, registry, wait, Error, Message, Parcel};
+use alloc::string::String;
+use alloc::vec::Vec;
+use libmessenger::server::{Caller, Fault};
+use libmessenger::Buffer;
+use user::messenger::clipboard::wire as proto;
+use user::messenger::{self, clipboard as wire, errno, registry, wait, Error};
 use user::sys;
 use user::trace;
 
@@ -48,12 +53,7 @@ pub(super) fn run() -> messenger::Result<()> {
         }
         match server.recv_with(&mut buffer, Some(messenger::EXPIRED_DEADLINE)) {
             Ok(message) => {
-                let interface = message.interface_id();
-                let method = message.method();
-                let reply = match dispatch(&mut clipboard, &message) {
-                    Ok(reply) => reply,
-                    Err(error) => wire::error_reply(interface, method, error),
-                };
+                let reply = proto::dispatch(&mut Handler(&mut clipboard), &message);
                 if let Some(txn) = message.txn {
                     // A caller whose deadline passed is a normal scheduling
                     // race: the kernel expired the transaction and the reply
@@ -75,63 +75,103 @@ pub(super) fn run() -> messenger::Result<()> {
     }
 }
 
-/// The kernel-stamped actor for a message: the credentials its sender had
-/// when it was queued (issue #446).
-fn actor(message: &Message) -> messenger::Result<sys::Cred> {
-    Ok(message.caller())
+/// The service state, answering `os.lazy.clipboard.v1` (the generated server).
+/// The kernel-stamped actor is the caller: its session scopes every offer, and
+/// its slot names its endpoint in the owner cache (issue #446).
+struct Handler<'a>(&'a mut Clipboard);
+
+fn actor(cx: &Caller) -> sys::Cred {
+    sys::Cred::new(cx.uid, cx.gid, cx.caps, cx.label_id, cx.session)
 }
 
-/// Route one inbound message.
-fn dispatch(clipboard: &mut Clipboard, message: &Message) -> messenger::Result<Parcel> {
-    match (message.interface_id(), message.method()) {
-        (wire::WRITE_INTERFACE, wire::method::OFFER) => {
-            let request = wire::decode_offer(&message.parcel)?;
-            let cred = actor(message)?;
-            let token = clipboard.offer(request, cred.session, message.sender, sys::clock())?;
-            wire::token_reply(token)
-        }
-        (wire::READ_INTERFACE, wire::method::REQUEST) => {
-            let (token, mime) = wire::decode_request(&message.parcel)?;
-            let cred = actor(message)?;
-            let handle = clipboard.request(token, &mime, cred.session);
-            match &handle {
-                Ok(handle) => clipboard.log_paste(&cred, message.sender, handle),
-                Err(Error::Errno(code)) if *code == -errno::EACCES => {
-                    clipboard.log_denial(&cred, message.sender, &mime, token);
-                }
-                Err(_) => {}
-            }
-            wire::request_reply(&handle?)
-        }
+impl proto::Server for Handler<'_> {
+    fn offer(
+        &mut self,
+        cx: &Caller,
+        owner: String,
+        sink: Option<String>,
+        mimes: Vec<String>,
+        data: Vec<proto::Payload>,
+    ) -> Result<u64, Fault> {
+        let request = wire::OfferRequest {
+            owner,
+            sink,
+            mimes,
+            data: data
+                .into_iter()
+                .map(|payload| (payload.mime, payload.bytes))
+                .collect(),
+        };
+        Ok(self.0.offer(request, cx.session, cx.sender, sys::clock())?)
+    }
+
+    fn offer_buffer(
+        &mut self,
+        cx: &Caller,
+        owner: String,
+        mime: String,
+        data: Buffer,
+    ) -> Result<u64, Fault> {
         // The buffer-carrying methods travel on the interface's own id: the
         // kernel's declared-object gate keys on the header's interface (an
         // app's manifest allows it along with the two scopes).
-        (wire::INTERFACE, wire::method::OFFER_BUFFER) => {
-            let request = message.decode(wire::wire::decode_offer_buffer_args)?;
-            let cred = actor(message)?;
-            let token =
-                clipboard.offer_buffer(request, cred.session, message.sender, sys::clock())?;
-            wire::token_reply(token)
-        }
-        (wire::INTERFACE, wire::method::FETCH) => {
-            let request = message.decode(wire::wire::decode_fetch_args)?;
-            let cred = actor(message)?;
-            let (token, mime) = (request.token, request.mime.clone());
-            let written = clipboard.fetch(request, cred.session);
-            if let Err(Error::Errno(code)) = &written {
-                if *code == -errno::EACCES {
-                    clipboard.log_denial(&cred, message.sender, &mime, token);
-                }
+        let request = proto::OfferBufferArgs { owner, mime, data };
+        Ok(self
+            .0
+            .offer_buffer(request, cx.session, cx.sender, sys::clock())?)
+    }
+
+    fn request(
+        &mut self,
+        cx: &Caller,
+        token: u64,
+        mime: String,
+    ) -> Result<proto::RequestReply, Fault> {
+        let cred = actor(cx);
+        let handle = self.0.request(token, &mime, cred.session);
+        match &handle {
+            Ok(handle) => self.0.log_paste(&cred, cx.sender, handle),
+            Err(Error::Errno(code)) if *code == -errno::EACCES => {
+                self.0.log_denial(&cred, cx.sender, &mime, token);
             }
-            wire::fetch_reply(written?)
+            Err(_) => {}
         }
-        (wire::INTERFACE, wire::method::CURRENT) => {
-            let cred = actor(message)?;
-            wire::current_reply(clipboard.current(cred.session).as_ref())
+        let handle = handle?;
+        Ok(proto::RequestReply {
+            token: handle.token,
+            mime: handle.mime,
+            lazy: handle.lazy,
+            bytes: handle.bytes,
+            size: handle.size,
+        })
+    }
+
+    fn fetch(&mut self, cx: &Caller, token: u64, mime: String, into: Buffer) -> Result<u64, Fault> {
+        let cred = actor(cx);
+        let request = proto::FetchArgs {
+            token,
+            mime: mime.clone(),
+            into,
+        };
+        let written = self.0.fetch(request, cred.session);
+        if let Err(Error::Errno(code)) = &written {
+            if *code == -errno::EACCES {
+                self.0.log_denial(&cred, cx.sender, &mime, token);
+            }
         }
-        (wire::INTERFACE, wire::method::PING) => {
-            Ok(wire::ok_reply(wire::INTERFACE, wire::method::PING))
-        }
-        _ => Err(Error::Errno(-errno::EINVAL)),
+        Ok(written?)
+    }
+
+    fn current(&mut self, cx: &Caller) -> Result<Option<proto::OfferMeta>, Fault> {
+        Ok(self.0.current(cx.session).as_ref().map(wire::to_wire_meta))
+    }
+
+    fn ping(&mut self, _: &Caller) -> Result<(), Fault> {
+        Ok(())
+    }
+
+    /// The service asks an offer's owner for a lazy MIME; it is never asked.
+    fn serialize(&mut self, _: &Caller, _: u64, _: String) -> Result<Vec<u8>, Fault> {
+        Err(Fault::unserved())
     }
 }

@@ -46,7 +46,7 @@ use lazyrad_packager::lzp::{
 use messenger_generated::os_lazy_pkgd_v1 as pkgd;
 use pkgstore::inspect::assess;
 
-pub use client::{Client, BROKER_NAME, INIT_NAME, MIMED_NAME};
+pub use client::{Client, INIT_NAME, MIMED_NAME};
 
 use crate::transport::{Failure, MessengerTransport, Transport};
 
@@ -58,8 +58,6 @@ pub const MAX_PACKAGE_BYTES: usize = 8 * 1024 * 1024;
 pub const STAGING_DIR: &str = fhs::mount::TRANSIENT;
 /// How long to wait for the Installer's outcome: 5 minutes at 100 Hz.
 pub const OUTCOME_TICKS: u64 = 5 * 60 * 100;
-/// The pause between two polls of the event queue.
-const POLL_MILLIS: u64 = 25;
 
 /// The friendly sentence for a failure.
 pub fn friendly(failure: &Failure) -> String {
@@ -133,10 +131,11 @@ impl<T: Transport> HandoffInstaller<T> {
         Ok(Staged(path))
     }
 
-    /// Polls for the `install`/`denied` event of this package.
+    /// Waits for the `install`/`denied` event of this package: the stream
+    /// parks on its doorbell, up to the deadline.
     fn await_outcome(
         &self,
-        subscription: u64,
+        events: &mut dyn PkgEvents,
         info: &pkgd::PackageInfo,
     ) -> Result<pkgd::PkgEvent, InstallError> {
         let deadline = self
@@ -144,21 +143,13 @@ impl<T: Transport> HandoffInstaller<T> {
             .transport
             .ticks()
             .saturating_add(self.outcome_ticks);
-        loop {
-            match self
-                .client
-                .next_pkg_event(subscription)
-                .map_err(|f| refused(&f))?
-            {
-                Some(event) if is_outcome(&event, info) => return Ok(event),
-                // Another package's record: look at the next one at once.
-                Some(_) => {}
-                None if self.client.transport.ticks() >= deadline => {
-                    return Err(not_answered(info))
-                }
-                None => self.client.transport.pause(POLL_MILLIS),
+        // Another package's record is looked past at once.
+        while let Some(event) = events.next(deadline) {
+            if is_outcome(&event, info) {
+                return Ok(event);
             }
         }
+        Err(not_answered(info))
     }
 }
 
@@ -196,18 +187,6 @@ impl Drop for Staged {
     }
 }
 
-/// A broker subscription, dropped when the install is over.
-struct Subscribed<'a, T: Transport> {
-    client: &'a Client<T>,
-    id: u64,
-}
-
-impl<T: Transport> Drop for Subscribed<'_, T> {
-    fn drop(&mut self) {
-        self.client.unsubscribe(self.id);
-    }
-}
-
 impl<T: Transport> Installer for HandoffInstaller<T> {
     fn review(&self, package: &BuiltPackage) -> Result<Option<PackageReview>, InstallError> {
         let info = Self::assess(package);
@@ -236,15 +215,9 @@ impl<T: Transport> Installer for HandoffInstaller<T> {
             return Err(InstallError::Refused(info.problems));
         }
         let staged = self.stage(package)?;
-        // Before the Installer starts, so its event cannot be missed.
-        let id = self
-            .client
-            .subscribe_pkg_events()
-            .map_err(|f| refused(&f))?;
-        let _subscription = Subscribed {
-            client: &self.client,
-            id,
-        };
+        // Before the Installer starts, so its event cannot be missed; the
+        // follow ends when this install does.
+        let mut events = self.client.follow_pkg_events();
         let opened = self
             .client
             .open(staged.path(), INSTALL_VERB)
@@ -259,7 +232,7 @@ impl<T: Transport> Installer for HandoffInstaller<T> {
                 }
             )]));
         }
-        let event = self.await_outcome(id, &info)?;
+        let event = self.await_outcome(events.as_mut(), &info)?;
         if event.op != "install" || !event.ok {
             return Err(InstallError::Refused(vec![friendly(&Failure {
                 code: 1,

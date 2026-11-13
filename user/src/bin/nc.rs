@@ -33,14 +33,13 @@ use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use user::trace;
 
-use user::messenger::netsock::{Addr, Client};
-use user::messenger::netstack::Client as Stack;
+use libmessenger::client::CallError;
+use user::messenger::client::Native;
+use user::messenger::netsock::{describe, Addr, Client};
+use user::messenger::netstack::{self, Client as Stack};
 use user::messenger::netstd::{is_timeout, TcpListener, TcpStream, UdpSocket};
-use user::messenger::Error as MsgError;
 use user::sys;
 
-/// Ticks to wait for `netd` to register at boot.
-const CONNECT_TICKS: u64 = 500;
 /// Ticks to wait for an address after boot.
 const ADDRESS_TICKS: u64 = 1500;
 /// Milliseconds a connection attempt may take.
@@ -122,37 +121,14 @@ fn parse() -> Result<Options, String> {
     Ok(opts)
 }
 
-fn describe(error: &MsgError) -> String {
-    use user::messenger::netsock::errno as e;
-    match error {
-        MsgError::Errno(code) if *code == -e::ECONNREFUSED => String::from("connection refused"),
-        MsgError::Errno(code) if *code == -e::ENETUNREACH => String::from("network is unreachable"),
-        MsgError::Errno(code) if *code == -e::ECONNRESET => String::from("connection reset"),
-        MsgError::Errno(code) if *code == -user::messenger::errno::ETIMEDOUT => {
-            String::from("timed out")
-        }
-        other => String::from(other.message()),
-    }
-}
-
-fn fail(what: &'static str) -> impl Fn(MsgError) -> String {
+fn fail(what: &'static str) -> impl Fn(CallError) -> String {
     move |error| format!("{what}: {}", describe(&error))
 }
 
 /// `netd`, once it has registered and has an address.
 fn connect() -> Result<(Rc<Client>, Stack), String> {
-    let deadline = sys::clock() + CONNECT_TICKS;
-    let stack = loop {
-        match Stack::connect() {
-            Ok(stack) => break stack,
-            Err(error) if sys::clock() >= deadline => {
-                return Err(format!("no network stack: {}", error.message()))
-            }
-            Err(_) => {
-                sys::nap();
-            }
-        }
-    };
+    let stack =
+        Stack::connect(Native).map_err(|error| format!("no network stack: {}", error.message()))?;
     let deadline = sys::clock() + ADDRESS_TICKS;
     while sys::clock() < deadline && !stack.addresses().is_ok_and(|a| !a.is_empty()) {
         sys::nap();
@@ -283,8 +259,7 @@ fn check_echo(chunk: &[u8], at: usize, sent: &[u8], opts: &Options, expect: &mut
 }
 
 fn run_client(opts: &Options, sockets: &Rc<Client>, stack: &Stack) -> Result<Tally, String> {
-    let ip = stack
-        .lookup_host(&opts.host, 5000)
+    let ip = netstack::lookup_host(stack, &opts.host, 5000)
         .map_err(|e| format!("{}: cannot resolve ({})", opts.host, describe(&e)))?;
     let to = Addr::new(ip, opts.port);
     let data = payload(opts);

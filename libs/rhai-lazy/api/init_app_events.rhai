@@ -14,28 +14,3 @@ export const INTERFACE = "os.lazy.init.app.events.v1";
 fn connect() {
     msg::connect("os.lazy.init.app.events.v1")
 }
-
-/// `Reopen(args: String) -> () oneway`
-///
-/// The app was launched again in this session (the start menu, a
-/// desktop icon, `mimed`, the tray's Open row) while this instance runs:
-/// show yourself and open `args` (empty, or `Launch`'s one path). The
-/// first launch of a resident app by the session's autostart carries
-/// `--background` in its argv instead (no window until this arrives).
-///
-/// One-way: returns `()` once the message is queued.
-fn reopen(args) {
-    msg::connect("os.lazy.init.app.events.v1").invoke("Reopen", [args])
-}
-
-/// `Quit(grace_ms: U32) -> () oneway`
-///
-/// The user, a logout or the package manager asked the app to quit:
-/// save and exit within `grace_ms`, after which `init` kills it. The
-/// grace is a fixed 3 s counted from the `Stop`, so `grace_ms` is what
-/// is left of it.
-///
-/// One-way: returns `()` once the message is queued.
-fn quit(grace_ms) {
-    msg::connect("os.lazy.init.app.events.v1").invoke("Quit", [grace_ms])
-}

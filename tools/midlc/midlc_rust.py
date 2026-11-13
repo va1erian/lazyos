@@ -10,6 +10,7 @@ from __future__ import annotations
 from midlc_model import Interface, Param, SCALARS, Topic, Type, snake_case
 from midlc_topics import qos_rust_expr
 from midlc_rings import emit_method_rings, emit_ring_decls
+from midlc_rust_decls import emit_errors, emit_method_attrs, emit_service_consts
 from midlc_objects import emit_declared_objects, emit_method_objects, object_kind
 
 # Topic codegen lives here; the shared Rust runtime (`TOPIC_SUPPORT`) is in
@@ -285,6 +286,7 @@ def emit_topic(interface: Interface, topic: Topic) -> list[str]:
     name_args = ", ".join(param_names)
     value_param = "value: u32" if kind == "enum" else f"value: &{topic.payload}"
     retained = str(topic.retained).lower()
+    value_type = topic.payload if kind == "struct" else "u32"
 
     lines: list[str] = []
     lines += emit_doc_lines(topic.doc, indent="    ")
@@ -299,6 +301,11 @@ def emit_topic(interface: Interface, topic: Topic) -> list[str]:
     lines.append(f"    /// Build the concrete `{topic.name}` name; each wildcard takes one literal segment.")
     lines.append(f"    pub fn name_{suffix}({name_sig}) -> Result<String, topics::TopicError> {{")
     lines.append(f"        topics::build(TOPIC_{upper}, &[{name_args}], topics::Mode::Publish)")
+    lines.append("    }")
+    lines.append("")
+    lines.append(f"    /// Build a `{topic.name}` subscription filter; a wildcard may also be given as `+`, or (last) `#`.")
+    lines.append(f"    pub fn filter_{suffix}({name_sig}) -> Result<String, topics::TopicError> {{")
+    lines.append(f"        topics::build(TOPIC_{upper}, &[{name_args}], topics::Mode::Subscribe)")
     lines.append("    }")
     lines.append("")
     if kind == "struct":
@@ -345,15 +352,18 @@ def emit_topic(interface: Interface, topic: Topic) -> list[str]:
     lines.append("    }")
     lines.append("")
     subscribe_params = ", ".join(["subscriber: &mut S"] + [f"{name}: &str" for name in param_names])
-    lines.append(f"    /// Subscribe to `{topic.name}` with its declared QoS.")
-    lines.append(f"    pub fn subscribe_{suffix}<S>({subscribe_params}) -> Result<S::Subscription, S::Error>")
+    lines.append(f"    /// Subscribe to `{topic.name}` with its declared QoS; the stream's `next` decodes `{value_type}`.")
+    lines.append(
+        f"    pub fn subscribe_{suffix}<S>({subscribe_params}) -> "
+        f"Result<topics::Subscription<S::Subscription, {value_type}>, S::Error>"
+    )
     lines.append("    where")
     lines.append("        S: topics::Subscribe,")
     lines.append("        S::Error: From<topics::TopicError>,")
     lines.append("    {")
-    lines.append(f"        let filter = topics::build(TOPIC_{upper}, &[{name_args}], topics::Mode::Subscribe)")
-    lines.append("            .map_err(S::Error::from)?;")
-    lines.append(f"        subscriber.subscribe_topic(&filter, TOPIC_{upper}_QOS)")
+    lines.append(f"        let filter = filter_{suffix}({name_args}).map_err(S::Error::from)?;")
+    lines.append(f"        let handle = subscriber.subscribe_topic(&filter, TOPIC_{upper}_QOS)?;")
+    lines.append(f"        Ok(topics::Subscription::new(handle, decode_{suffix}))")
     lines.append("    }")
     return lines
 
@@ -387,7 +397,13 @@ def emit_topic_table(interfaces: list[Interface]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def emit_rust(interface: Interface) -> str:
+def emit_rust(interface: Interface, client: bool = True) -> str:
+    """The interface's module. `client=False` leaves out the typed `Client`
+    (it sits behind a cargo feature of the generated crate, which the
+    conformance corpus's inline copies do not have)."""
+    # Imported here: the client emitter builds on this module's helpers.
+    from midlc_rust_client import has_client
+
     lines = [
         f"/// `{interface.name}` (interface id `{interface.id:#x}`).",
         "#[rustfmt::skip]",
@@ -415,6 +431,7 @@ def emit_rust(interface: Interface) -> str:
         f"    pub const INTERFACE_NAME: &str = \"{interface.name}\";",
         "",
     ]
+    lines += emit_service_consts(interface)
     # Enums travel as `U32` on the wire; the variant indices are emitted as
     # constants so callers never hand-type a discriminant.
     for enum in interface.enums:
@@ -428,7 +445,9 @@ def emit_rust(interface: Interface) -> str:
     for method in interface.methods:
         lines.append(f"    /// `{method.name}` method id.")
         lines.append(f"    pub const METHOD_{method.name.upper()}: u32 = {method.method_id};")
+        lines += emit_method_attrs(method, has_client(interface))
     lines.append("")
+    lines += emit_errors(interface)
     for method in interface.methods:
         # A method with neither arguments nor results emits no item, so its
         # doc comment must not be left dangling onto the next method's item.
@@ -454,5 +473,16 @@ def emit_rust(interface: Interface) -> str:
         lines.append("")
     if lines[-1] == "":
         lines.pop()
+    if client:
+        from midlc_rust_client import emit_client
+
+        tail = emit_client(interface)
+        if tail:
+            lines += [""] + tail
+        from midlc_rust_server import emit_server
+
+        tail = emit_server(interface)
+        if tail:
+            lines += [""] + tail
     lines.append("}")
     return "\n".join(lines)

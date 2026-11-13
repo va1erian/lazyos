@@ -11,7 +11,7 @@
 //! length, and only `http(s)` addresses are taken.
 
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::Path;
 
 use crate::address;
@@ -262,19 +262,7 @@ pub fn load(profile: &Path) -> Option<Session> {
 
 /// Writes `session` through a temporary file, so a crash while writing leaves the old one.
 pub fn save(profile: &Path, session: &Session) -> io::Result<()> {
-    let tmp = profile.join("session.json.tmp");
-    // Synced before the rename: otherwise a power cut can leave the new name on empty data.
-    let mut file = fs::File::create(&tmp)?;
-    file.write_all(session.to_json().as_bytes())?;
-    file.sync_all()?;
-    drop(file);
-    fs::rename(&tmp, profile.join(FILE))?;
-    // So that the rename itself survives; best effort (a directory cannot be opened everywhere).
-    #[cfg(unix)]
-    if let Ok(dir) = fs::File::open(profile) {
-        let _ = dir.sync_all();
-    }
-    Ok(())
+    atomicfile::write(&profile.join(FILE), session.to_json().as_bytes())
 }
 
 /// Decides when a state is written: at once the first time, then at most once a second, the

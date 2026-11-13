@@ -36,9 +36,11 @@ use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use user::trace;
 
+use libmessenger::client::{CallError, Deadline};
 use user::central::Bus;
-use user::messenger::wifi::{api, Client};
-use user::messenger::Error;
+use user::messenger::client::Native;
+use user::messenger::errno;
+use user::messenger::wifi::{self, api, Client};
 use user::sys;
 use wlansta::{ConnState, FailReason, Security};
 
@@ -75,8 +77,8 @@ fn run(args: &[&str]) -> core::result::Result<(), String> {
         sys::write_str(USAGE);
         return Ok(());
     }
-    let client =
-        Client::connect().map_err(|e| format!("wlanmd is not running ({})", e.message()))?;
+    let client = Client::try_connect(Native)
+        .map_err(|e| format!("wlanmd is not running ({})", e.message()))?;
     let pick = |at: usize| interface(&client, rest.get(at).copied());
     match command {
         "status" => status(&client, rest.first().copied()),
@@ -103,7 +105,7 @@ fn run(args: &[&str]) -> core::result::Result<(), String> {
     }
 }
 
-fn text(error: Error) -> String {
+fn text(error: CallError) -> String {
     String::from(error.message())
 }
 
@@ -175,25 +177,21 @@ fn wait_scan(
     ifname: &str,
     ssids: Vec<String>,
 ) -> core::result::Result<(), String> {
-    let mut bus = Bus::connect().ok();
+    let mut bus = Bus::connect_waiting().ok();
     let subscription = bus.as_mut().and_then(|bus| {
         let filter = api::name_system_net_wifi_scan(ifname).ok()?;
         bus.subscribe(&filter).ok()
     });
-    match client.scan(ifname, ssids) {
+    match client.scan(ifname, &ssids) {
         Ok(()) => {}
         // One already runs (auto-connect's, say), or this user just asked:
         // wait for that one.
-        Err(Error::Errno(code))
-            if code == -user::messenger::errno::EBUSY
-                || code == -user::messenger::errno::EAGAIN => {}
+        Err(error) if error.code() == -errno::EBUSY || error.code() == -errno::EAGAIN => {}
         Err(error) => return Err(text(error)),
     }
-    let deadline = sys::clock() + SCAN_WAIT_TICKS;
     match subscription {
         Some(sub) => {
-            let mut buf = alloc::vec![0u8; 1024];
-            let _ = sub.recv_with(&mut buf, Some(deadline));
+            let _ = sub.recv(Deadline::ticks(SCAN_WAIT_TICKS));
             let _ = sub.unsubscribe();
         }
         // No broker: give the scan a few seconds.
@@ -268,7 +266,7 @@ fn connect(client: &Client, ifname: &str, how: Target<'_>) -> core::result::Resu
         Target::Named(ssid) => named(client, ifname, ssid)?,
         Target::Hidden { ssid, open } => hidden(client, ifname, ssid, open)?,
     };
-    client.connect_network(ifname, &id).map_err(text)?;
+    client.connect_call(ifname, &id).map_err(text)?;
     let deadline = sys::clock() + CONNECT_WAIT_TICKS;
     loop {
         let state = client.status(ifname).map_err(text)?;
@@ -368,14 +366,14 @@ fn add(
         scope: api::SCOPE_USER,
     };
     // `add_network` wipes its copies of the passphrase.
-    let result = client.add_network(profile, passphrase);
-    result.map_err(|error| match error {
-        Error::Errno(code) if code == -user::messenger::errno::EINVAL => String::from(
+    let result = wifi::add_network(client, profile, passphrase);
+    result.map_err(|error| match -error.code() {
+        errno::EINVAL => String::from(
             "refused: a passphrase is 8 to 63 octets of text or 64 hex digits, \
              and the name must match one network",
         ),
-        Error::Errno(code) if code == -user::messenger::errno::EEXIST => String::from(EXISTS),
-        other => text(other),
+        errno::EEXIST => String::from(EXISTS),
+        _ => text(error),
     })
 }
 

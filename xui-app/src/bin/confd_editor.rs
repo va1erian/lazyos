@@ -13,22 +13,23 @@
 
 use std::rc::Rc;
 
-use xui_app::launch;
 use xui_app::platform::confd_store::ConfdStore;
 use xui_app::platform::elevd::ConfElevation;
+use xui_app::trace::{self, Channel};
 use xui_confd_editor::app::{ConfdEditorApp, WINDOW};
 use xui_confd_editor::store::Scope;
 use xui_settings::store::ConfigStore;
 
 fn main() {
-    launch::run(xui_app::trace::Channel::Confded, "Config", WINDOW, |ui, backend| {
-        backend.on_first_frame(|| println!("CONFDED:UP:PASS"));
-        // The user's own keys until Elevate (docs/accounts-plan.md U2).
-        let scope = match ConfigStore::uid(&ConfdStore::new()) {
-            Some(uid) => Scope::own(uid, Rc::new(ConfElevation)),
-            None => Scope::everything(),
-        };
-        ConfdEditorApp::build(ui, Rc::new(ConfdStore::new()), scope)
-            .inspect_err(|error| println!("CONFDED:BUILD:FAIL:{error}"))
-    })
+    xui_app::app(Channel::Confded, "Config")
+        .size(WINDOW.0, WINDOW.1)
+        .run(|ui, _| {
+            // The user's own keys until Elevate (docs/accounts-plan.md U2).
+            let scope = match ConfigStore::uid(&ConfdStore::new()) {
+                Some(uid) => Scope::own(uid, Rc::new(ConfElevation)),
+                None => Scope::everything(),
+            };
+            ConfdEditorApp::build(ui, Rc::new(ConfdStore::new()), scope)
+                .inspect_err(|error| trace::fail!(Channel::Confded, "BUILD", "{error}"))
+        })
 }

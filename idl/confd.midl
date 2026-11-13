@@ -1,3 +1,5 @@
+service "os.lazy.confd" implements os.lazy.confd.v1;
+
 /// The hierarchical configuration registry (issue #260).
 ///
 /// The store is a tree of one typed value per path; reachable only through
@@ -5,25 +7,46 @@
 /// Change notifications are best-effort: a subscriber observes
 /// `(path, deleted)` and must re-read the value.
 interface os.lazy.confd.v1 {
+    default deadline=2s;
+    /// Store failures, carried in the reply's error field. They sit outside
+    /// the errno range so a client can tell a store rejection from a
+    /// transport failure.
+    errors {
+        /// No value is stored at the path.
+        NotFound = 1001,
+        /// The path is not a valid confd path.
+        BadPath = 1002,
+        /// The value or the store exceeds a confd size limit.
+        TooLarge = 1003,
+        /// The caller may not access that path.
+        Denied = 1004,
+        /// The store could not be read or written; safe to retry.
+        Io = 1005,
+        /// The value is malformed (a `kind` whose payload is missing).
+        BadValue = 1006
+    }
+
+    /// Which payload field of a `Value` is set.
+    enum Kind { Bool, I64, U64, Str, Bytes }
+
     /// Read the value at `path`. An absent path has an empty `value`.
-    /// A path the caller may not read fails with `CONFD_DENIED`.
-    method Get(path: String = 1) -> (value: Option<Value> = 1);
+    /// A path the caller may not read fails with `Denied`.
+    method Get(path: String = 1) -> (value: Option<Value> = 1) deadline=2s retry=safe;
     /// Create or overwrite `path`; the change is persisted before the reply.
-    method Set(path: String = 1, value: Value = 2) -> ();
+    method Set(path: String = 1, value: Value = 2) -> () deadline=2s retry=safe;
     /// Remove `path`; deleting an absent path succeeds.
-    method Delete(path: String = 1) -> ();
+    method Delete(path: String = 1) -> () deadline=2s retry=never;
     /// Every path the caller may read under `prefix`, in sorted order.
-    method List(prefix: String = 1) -> (paths: Array<String> = 1);
+    method List(prefix: String = 1) -> (paths: Array<String> = 1) deadline=2s retry=safe;
     /// Where the store lives: the directory confd chose and whether it
     /// survives a reboot (`/conf`; `false` when it fell back to the ramfs
     /// `/transient/conf`).
     /// Not restricted by path, so any caller may ask.
-    method Info() -> (store_dir: String = 1, persistent: Bool = 2);
+    method Info() -> (store_dir: String = 1, persistent: Bool = 2) deadline=2s retry=safe;
 
-    /// One typed value. `kind` selects which optional payload field is set:
-    /// `0` bool, `1` i64, `2` u64, `3` string, `4` bytes.
+    /// One typed value. `kind` selects which optional payload field is set.
     struct Value {
-        kind: U32 = 1,
+        kind: Kind = 1,
         bool_value: Option<Bool> = 2,
         i64_value: Option<I64> = 3,
         u64_value: Option<U64> = 4,

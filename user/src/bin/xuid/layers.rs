@@ -13,6 +13,14 @@ use user::messenger::display::wire;
 use super::compositor::Compositor;
 use super::window::{contains, forward, relative};
 
+/// What a layer is sent: a move, or a press or release of a button.
+#[derive(Clone, Copy)]
+enum LayerEvent {
+    Move,
+    Down(u32),
+    Up(u32),
+}
+
 /// Where the leave move lands: outside every surface's coordinates.
 const LEFT_AT: (i32, i32) = (-1, -1);
 
@@ -40,18 +48,23 @@ impl Compositor {
             .map(|surface| surface.id)
     }
 
-    /// Send layer `id` a pointer event of `method` at the screen `point`
-    /// (or at [`LEFT_AT`] when `None`), with `button` for a press or release.
-    fn send_layer(&mut self, id: u64, method: u32, point: Option<(i32, i32)>, button: u32) {
+    /// Send layer `id` a pointer event at the screen `point` (or at
+    /// [`LEFT_AT`] when `None`).
+    fn send_layer(&mut self, id: u64, event: LayerEvent, point: Option<(i32, i32)>) {
         let (x, y) = point.map_or(LEFT_AT, |point| relative(&self.surfaces, id, point));
-        let body = match method {
-            wire::METHOD_POINTERDOWN => {
-                wire::encode_pointer_down_args(&wire::PointerDownArgs { x, y, button })
-            }
-            wire::METHOD_POINTERUP => {
-                wire::encode_pointer_up_args(&wire::PointerUpArgs { x, y, button })
-            }
-            _ => wire::encode_pointer_move_args(&wire::PointerMoveArgs { x, y }),
+        let (method, body) = match event {
+            LayerEvent::Down(button) => (
+                wire::METHOD_POINTERDOWN,
+                wire::encode_pointer_down_args(&wire::PointerDownArgs { x, y, button }),
+            ),
+            LayerEvent::Up(button) => (
+                wire::METHOD_POINTERUP,
+                wire::encode_pointer_up_args(&wire::PointerUpArgs { x, y, button }),
+            ),
+            LayerEvent::Move => (
+                wire::METHOD_POINTERMOVE,
+                wire::encode_pointer_move_args(&wire::PointerMoveArgs { x, y }),
+            ),
         };
         forward(&self.surfaces, &mut self.scratch, Some(id), method, body);
     }
@@ -60,18 +73,18 @@ impl Compositor {
     /// owns the pointer, so the focused window must not see the move.
     pub(super) fn layer_move(&mut self, point: (i32, i32)) -> bool {
         if let Some((id, _)) = self.grab {
-            self.send_layer(id, wire::METHOD_POINTERMOVE, Some(point), 0);
+            self.send_layer(id, LayerEvent::Move, Some(point));
             return true;
         }
         let target = self.panel_at(point).or_else(|| self.desktop_at(point));
         if self.hover != target {
             if let Some(left) = self.hover {
-                self.send_layer(left, wire::METHOD_POINTERMOVE, None, 0);
+                self.send_layer(left, LayerEvent::Move, None);
             }
             self.hover = target;
         }
         if let Some(id) = target {
-            self.send_layer(id, wire::METHOD_POINTERMOVE, Some(point), 0);
+            self.send_layer(id, LayerEvent::Move, Some(point));
         }
         false
     }
@@ -103,7 +116,7 @@ impl Compositor {
         self.grab = Some((id, held | 1 << (button & 31)));
         self.hover = Some(id);
         let point = self.pointer;
-        self.send_layer(id, wire::METHOD_POINTERDOWN, Some(point), button);
+        self.send_layer(id, LayerEvent::Down(button), Some(point));
     }
 
     /// A release while a layer holds the grab: deliver it, and end the grab
@@ -115,7 +128,7 @@ impl Compositor {
         let held = held & !(1 << (button & 31));
         self.grab = (held != 0).then_some((id, held));
         let point = self.pointer;
-        self.send_layer(id, wire::METHOD_POINTERUP, Some(point), button);
+        self.send_layer(id, LayerEvent::Up(button), Some(point));
         true
     }
 

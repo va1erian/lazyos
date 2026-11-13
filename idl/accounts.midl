@@ -1,3 +1,5 @@
+service "os.lazy.accountsd" implements os.lazy.accounts.v1;
+
 /// The account database service (issues #101, #624; docs/accounts-plan.md
 /// U1). `accountsd` runs as the `_accounts` system uid and owns
 /// `/accounts/db`; `/system/etc/passwd` and `/system/etc/group` are views
@@ -11,19 +13,20 @@
 /// the first-boot setup. Failures are a structured error field (errno-style
 /// code, friendly text).
 interface os.lazy.accounts.v1 {
+    default deadline=5s;
     /// Find a user by `name` or, when `name` is absent, by `uid`.
     /// `found` is false (and `user` empty) when no account matches.
-    method Lookup(name: Option<String> = 1, uid: Option<U32> = 2) -> (found: Bool = 1, user: Option<User> = 2);
+    method Lookup(name: Option<String> = 1, uid: Option<U32> = 2) -> (found: Bool = 1, user: Option<User> = 2) retry=safe;
     /// Verify `secret` against the stored verifier of `name`. After three
     /// failures in a row for a name or from a caller, further attempts are
     /// refused with `EAGAIN` for a delay that doubles from 1 s to 60 s.
-    method Authenticate(name: String = 1, secret: String = 2) -> (ok: Bool = 1);
+    method Authenticate(name: String = 1, secret: String = 2) -> (ok: Bool = 1) deadline=never;
     /// Create the account `name` with the password `secret` (an
     /// administrator when `admin`): the next free uid, a 0700 home made from
     /// the skeleton. From `elevd`, or from the login screen while the machine
     /// has no account (the owner, who must be an admin). `EEXIST` for a taken
     /// name, `EINVAL` for a bad one, `EPERM` for any other caller.
-    method Create(name: String = 1, secret: String = 2, admin: Bool = 3) -> (user: User = 1);
+    method Create(name: String = 1, secret: String = 2, admin: Bool = 3) -> (user: User = 1) deadline=60s;
     /// Delete the account `name` (from `elevd` only). `home` says what
     /// happens to its home: `keep`, `archive` (moved aside, root-only) or
     /// `remove`. The last administrator cannot be deleted (`EBUSY`).
@@ -31,13 +34,13 @@ interface os.lazy.accounts.v1 {
     /// Set `name`'s password to `secret`. A user may change their own with
     /// the current one in `old` (checked and slowed like `Authenticate`,
     /// `EACCES` when wrong); `elevd` may set anyone's without it.
-    method SetPassword(name: String = 1, old: Option<String> = 2, secret: String = 3) -> ();
+    method SetPassword(name: String = 1, old: Option<String> = 2, secret: String = 3) -> () deadline=60s;
     /// Make `name` an administrator or not (from `elevd` only). Taking it
     /// from the last administrator is `EBUSY`.
     method SetAdmin(name: String = 1, admin: Bool = 2) -> ();
     /// Every account, in database order. `setup` is true while the machine
     /// has no account (the login screen then asks for its owner).
-    method ListUsers() -> (users: Array<User> = 1, setup: Bool = 2);
+    method ListUsers() -> (users: Array<User> = 1, setup: Bool = 2) deadline=3s retry=safe;
 
     /// One account record as a lookup returns it (never the secret).
     struct User {

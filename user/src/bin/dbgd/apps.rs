@@ -10,8 +10,9 @@ use alloc::string::String;
 use dbgwire::control::{self, Upload, PACKAGE};
 use dbgwire::json::{Object, Value};
 use dbgwire::rpc::code;
-use user::messenger::services;
-use user::sys;
+use libmessenger::client::Deadline;
+use user::messenger::client::Native;
+use user::messenger::services::init::Client as InitClient;
 
 use super::handlers::Failure;
 
@@ -42,13 +43,13 @@ pub(crate) fn install(params: &Value, current: &mut Option<Upload>) -> Result<St
         .total;
     let relaunch = !matches!(params.get("relaunch"), Some(Value::Bool(false)));
     let path = control::staged_package_path();
-    let installed = user::messenger::pkgd::Client::connect()
+    let installed = user::messenger::pkgd::Client::connect(user::messenger::client::Native)
         .map_err(|e| (code::UNAVAILABLE, format!("pkgd: {}", e.message())))
         .and_then(|pkgd| {
             pkgd.install_debug(&path, sha256).map_err(|f| {
                 (
                     code::DENIED,
-                    format!("pkgd refused the package: {}", f.text),
+                    format!("pkgd refused the package: {}", f.message()),
                 )
             })
         });
@@ -69,14 +70,16 @@ pub(crate) fn install(params: &Value, current: &mut Option<Upload>) -> Result<St
 }
 
 fn relaunch_app(app: &str) -> Result<(u64, u64), Failure> {
-    let init = services::resolve_service(services::INIT_NAME)
+    let init = InitClient::try_connect(Native)
         .map_err(|e| (code::UNAVAILABLE, format!("init: {}", e.message())))?;
-    services::init::relaunch_app(&init, app, Some(sys::clock() + INIT_TICKS)).map_err(|e| {
-        (
-            code::DENIED,
-            format!("init refused to relaunch {app}: {}", e.message()),
-        )
-    })
+    init.relaunch_app_within(app, Deadline::ticks(INIT_TICKS))
+        .map(|reply| (reply.stopped, reply.started))
+        .map_err(|e| {
+            (
+                code::DENIED,
+                format!("init refused to relaunch {app}: {}", e.message()),
+            )
+        })
 }
 
 /// `app.relaunch`.

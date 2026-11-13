@@ -1,21 +1,24 @@
+service "os.lazy.logind" implements os.lazy.logind.v1;
+
 /// The console login service (issue #101): owns the session table and
 /// answers the query `messengerctl sessions` renders.
 interface os.lazy.logind.v1 {
+    default deadline=30s;
     /// Snapshot the session table, oldest session first.
-    method Sessions() -> (active: U64 = 1, sessions: Array<Session> = 2);
+    method Sessions() -> (active: U64 = 1, sessions: Array<Session> = 2) deadline=1s retry=safe;
 
     /// Log in from the graphical login screen (issue #623): authenticate
     /// `user` with `secret` and open their desktop session, the same path a
     /// built-in autologin takes. Only the login screen's own identity (the
     /// `_greeter` system uid, unlabelled) may call it; a refused password is
     /// `EACCES` after the failed-login delay, a session already open `EBUSY`.
-    method Login(user: String = 1, secret: String = 2) -> (session: U64 = 1);
+    method Login(user: String = 1, secret: String = 2) -> (session: U64 = 1) deadline=30s;
 
     /// End the caller's graphical session (issue #623): `init` stops every
     /// task stamped with that session, and the login screen comes back. Only
     /// a task of the active graphical session may call it (`EPERM`
     /// otherwise).
-    method Logout() -> (session: U64 = 1);
+    method Logout() -> (session: U64 = 1) deadline=3s;
 
     /// One login session.
     struct Session {
@@ -93,11 +96,11 @@ interface os.lazy.logind.v1 {
 
     /// One retained event per session id, so a late subscriber sees the
     /// newest state of each live session.
-    topic "system/events/login/session/{id}" : LoginSession retained qos=latest;
+    topic "system/events/login/session/{id}" : LoginSession retained qos=buffered;
 
     /// The most recent refusal (retained, as published today).
     topic "system/events/login/denied" : LoginDenied retained qos=latest;
 
     /// The most recent logout (retained, as published today).
-    topic "system/events/login/end" : LoginEnd retained qos=latest;
+    topic "system/events/login/end" : LoginEnd retained qos=buffered;
 }

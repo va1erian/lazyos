@@ -655,7 +655,7 @@ monotonic nanosecond clock (`WAIT_DEADLINE_NS`), so a 16 ms timer fires every
 16 ms, not at the tick after it, and keeps its cadence without bursting after
 a stall. `LazyOSBackend::watch_fd` adds one Linux descriptor to the park
 (`WAIT_FD`); the shell's `os.lazy.shell` endpoint, its compositor link and topic
-doorbells (`platform::topic_feed`) are followed through the app's own event
+doorbells (`fabric::Follow::bell`) are followed through the app's own event
 endpoints, and the primary window hears a wake as a `Timer` event with id `FD_TIMER`
 (`backend/event_loop.rs`). A message posted to a window (`Backend::wake`) runs one
 more pass before the loop parks. With nothing due the park lasts up to 10 s,

@@ -8,18 +8,19 @@
 //! to its manifest by the kernel before the request gets here. A refused call
 //! prints `SHELL:TRAY:DENY` and closes any channel it carried.
 
+use crate::trace::{self, Channel};
 use std::rc::Rc;
 
 use lazyshell::tray::item::{Item, Patch};
-use lazyshell::tray::policy::{self, Caller, Deny, Shell};
+use lazyshell::tray::policy::{self, Caller as Pol, Deny, Shell};
 use lazyshell::tray::{Change, Refused};
-use libmessenger::Parcel;
+use libmessenger::server::{Caller, Fault};
 use messenger_generated::os_lazy_shell_tray_v1 as wire;
 
 use super::super::ctx::Ctx;
 use super::super::services;
 use super::liveness;
-use crate::server::{error_parcel, reply_parcel, Request, Server};
+use crate::server::Server;
 use crate::sys::{self, errno};
 
 /// Most requests answered per heartbeat.
@@ -27,8 +28,6 @@ const REQUESTS_PER_TICK: usize = 8;
 /// Receive buffer for one request: an item with two 64x64 images and a full
 /// menu fits well within it.
 const REQUEST_BYTES: usize = 128 * 1024;
-/// `ENOTSUP`, for a method this version does not have.
-const ENOTSUP: i64 = 95;
 /// `ENOSPC`: the tray is full.
 const ENOSPC: i64 = 28;
 /// `ESRCH`: the caller is not an app `init` launched.
@@ -82,8 +81,13 @@ impl TrayService {
                     break;
                 }
             };
-            let (reply, did) = answer(ctx, &request, &mut rows);
-            changed |= did;
+            let mut handler = Handler {
+                ctx,
+                rows: &mut rows,
+                changed: false,
+            };
+            let reply = wire::dispatch(&mut handler, &request);
+            changed |= handler.changed;
             if let Some(txn) = request.txn {
                 let _ = server.reply(txn, &reply);
             }
@@ -107,7 +111,7 @@ impl TrayService {
         ) {
             Ok(server) => {
                 self.server = Some(server);
-                println!("SHELL:TRAY:SERVICE:PASS");
+                trace::line!(Channel::Shell, "TRAY:SERVICE:PASS");
                 // Now that `Set` is answered, tell clients to set again.
                 ctx.tray.generation.borrow_mut().serving(ctx);
                 true
@@ -124,42 +128,106 @@ impl TrayService {
     }
 }
 
-/// The reply to one request, and whether the tray changed. The channel a
-/// `Set` carries is kept only by a successful one; a refused request's
-/// closes with the request.
-fn answer(ctx: &Rc<Ctx>, request: &Request, rows: &mut Rows) -> (Parcel, bool) {
-    let method = request.parcel.header.method;
-    // An item dropped on the way (a dead app's leftover) is a change too.
-    let mut dropped = false;
-    let result = if request.parcel.header.interface_id != wire::INTERFACE_ID {
-        Err((ENOTSUP, "not os.lazy.shell.tray.v1"))
-    } else {
-        identify(ctx, request, rows)
-            .and_then(|app| {
-                dropped = same_app(ctx, &app, request)?;
-                Ok(app)
-            })
-            .and_then(|app| {
-                let label = request.origin.label_id;
-                dispatch(ctx, &app, label, method, request)
-            })
-    };
-    match result {
-        Ok(changed) => (
-            reply_parcel(wire::INTERFACE_ID, method, Vec::new()),
-            changed || dropped,
-        ),
-        Err((code, text)) => (
-            error_parcel(wire::INTERFACE_ID, method, code, text),
-            dropped,
-        ),
+/// The shell's tray state, answering `os.lazy.shell.tray.v1` (the generated
+/// server); `changed` records whether any request changed the tray. The
+/// channel a `Set` carries is kept only by a successful one: a refused
+/// request closes it.
+struct Handler<'a> {
+    ctx: &'a Rc<Ctx>,
+    rows: &'a mut Rows,
+    changed: bool,
+}
+
+fn fault((code, text): Failure) -> Fault {
+    Fault::new(code as u32, text)
+}
+
+impl Handler<'_> {
+    /// The app the call comes from; an item dropped on the way (a dead app's
+    /// leftover) is a change too.
+    fn app(&mut self, cx: &Caller) -> Result<String, Failure> {
+        let app = identify(self.ctx, cx, self.rows)?;
+        self.changed |= same_app(self.ctx, &app, cx)?;
+        Ok(app)
+    }
+}
+
+impl wire::Server for Handler<'_> {
+    fn set(&mut self, cx: &Caller, item: wire::Item, events: u64) -> Result<(), Fault> {
+        // Decoded, so the event channel is ours: kept by a successful set,
+        // closed on any refusal.
+        let app = match self.app(cx) {
+            Ok(app) => app,
+            Err(failure) => {
+                let _ = sys::msg_close(events);
+                return Err(fault(failure));
+            }
+        };
+        let tray = &self.ctx.tray;
+        let set = Item::from_wire(item)
+            .map_err(|why| invalid(&app, why.as_str()))
+            .and_then(|item| {
+                tray.model
+                    .borrow_mut()
+                    .set(&app, item)
+                    .map_err(|why| refused(&app, why))
+            });
+        if let Err(failure) = set {
+            let _ = sys::msg_close(events);
+            return Err(fault(failure));
+        }
+        tray.keep_channel(&app, events, cx.label_id);
+        let count = tray.model.borrow().len();
+        trace::line!(Channel::Shell, "TRAY:SET app={app} n={count}");
+        tray.generation.borrow().restored(tray);
+        self.changed = true;
+        Ok(())
+    }
+
+    fn update(
+        &mut self,
+        cx: &Caller,
+        icon: Option<wire::Icon>,
+        tooltip: Option<String>,
+        status: Option<u32>,
+        badge: Option<String>,
+        menu: Option<wire::Menu>,
+    ) -> Result<(), Fault> {
+        let app = self.app(cx).map_err(fault)?;
+        let args = wire::UpdateArgs {
+            icon,
+            tooltip,
+            status,
+            badge,
+            menu,
+        };
+        let patch = Patch::from_wire(args).map_err(|why| fault(invalid(&app, why.as_str())))?;
+        self.ctx
+            .tray
+            .model
+            .borrow_mut()
+            .update(&app, patch)
+            .map_err(|why| fault(refused(&app, why)))?;
+        trace::line!(Channel::Shell, "TRAY:UPDATE app={app}");
+        self.changed = true;
+        Ok(())
+    }
+
+    fn clear(&mut self, cx: &Caller) -> Result<(), Fault> {
+        let app = self.app(cx).map_err(fault)?;
+        let tray = &self.ctx.tray;
+        let change = tray.model.borrow_mut().clear(&app);
+        tray.drop_channel(&app);
+        trace::line!(Channel::Shell, "TRAY:CLEAR app={app} why=clear");
+        self.changed |= change != Change::Unchanged;
+        Ok(())
     }
 }
 
 /// The app the request comes from, after the session and uid checks.
-fn identify(ctx: &Ctx, request: &Request, rows: &mut Rows) -> Result<String, Failure> {
-    let origin = request.origin;
-    let caller = Caller {
+fn identify(ctx: &Ctx, request: &Caller, rows: &mut Rows) -> Result<String, Failure> {
+    let origin = request;
+    let caller = Pol {
         uid: origin.uid,
         session: origin.session,
     };
@@ -168,8 +236,9 @@ fn identify(ctx: &Ctx, request: &Request, rows: &mut Rows) -> Result<String, Fai
         session: ctx.tray.generation.borrow().session(),
     };
     let deny = |why: Deny| {
-        println!(
-            "SHELL:TRAY:DENY uid={} label={} why={}",
+        trace::line!(
+            Channel::Shell,
+            "TRAY:DENY uid={} label={} why={}",
             origin.uid,
             origin.label_id,
             why.as_str()
@@ -203,14 +272,15 @@ fn identify(ctx: &Ctx, request: &Request, rows: &mut Rows) -> Result<String, Fai
 /// item whose channel is dead is the old app's leftover: it goes, and the
 /// request proceeds (`Ok(true)`: the tray changed). (Unlabelled built-ins
 /// all carry label 0: they are the image's own programs, not packages.)
-fn same_app(ctx: &Ctx, app: &str, request: &Request) -> Result<bool, Failure> {
-    let label = request.origin.label_id;
+fn same_app(ctx: &Ctx, app: &str, request: &Caller) -> Result<bool, Failure> {
+    let label = request.label_id;
     match ctx.tray.pinned_label(app) {
         Some(pinned) if pinned != label => {
             if liveness::alive(ctx, app) {
-                println!(
-                    "SHELL:TRAY:DENY uid={} label={label} why=label",
-                    request.origin.uid
+                trace::line!(
+                    Channel::Shell,
+                    "TRAY:DENY uid={} label={label} why=label",
+                    request.uid
                 );
                 return Err((errno::EACCES, "not the app that set the item"));
             }
@@ -221,62 +291,8 @@ fn same_app(ctx: &Ctx, app: &str, request: &Request) -> Result<bool, Failure> {
     }
 }
 
-fn dispatch(
-    ctx: &Ctx,
-    app: &str,
-    label: u32,
-    method: u32,
-    request: &Request,
-) -> Result<bool, Failure> {
-    let bad = (errno::EINVAL, "malformed request");
-    let tray = &ctx.tray;
-    let body = &request.parcel.body;
-    match method {
-        wire::METHOD_SET => {
-            // Decoded, so the event channel is ours: kept by a successful
-            // set, closed on any refusal below.
-            let args = request.decode(wire::decode_set_args).map_err(|_| bad)?;
-            let channel = args.events;
-            let set = Item::from_wire(args.item)
-                .map_err(|why| invalid(app, why.as_str()))
-                .and_then(|item| {
-                    tray.model
-                        .borrow_mut()
-                        .set(app, item)
-                        .map_err(|why| refused(app, why))
-                });
-            if let Err(failure) = set {
-                let _ = sys::msg_close(channel);
-                return Err(failure);
-            }
-            tray.keep_channel(app, channel, label);
-            let count = tray.model.borrow().len();
-            println!("SHELL:TRAY:SET app={app} n={count}");
-            tray.generation.borrow().restored(tray);
-            Ok(true)
-        }
-        wire::METHOD_UPDATE => {
-            let args = wire::decode_update_args(body).map_err(|_| bad)?;
-            let patch = Patch::from_wire(args).map_err(|why| invalid(app, why.as_str()))?;
-            tray.model
-                .borrow_mut()
-                .update(app, patch)
-                .map_err(|why| refused(app, why))?;
-            println!("SHELL:TRAY:UPDATE app={app}");
-            Ok(true)
-        }
-        wire::METHOD_CLEAR => {
-            let change = tray.model.borrow_mut().clear(app);
-            tray.drop_channel(app);
-            println!("SHELL:TRAY:CLEAR app={app} why=clear");
-            Ok(change != Change::Unchanged)
-        }
-        _ => Err((ENOTSUP, "unknown method")),
-    }
-}
-
 fn invalid(app: &str, what: &str) -> Failure {
-    println!("SHELL:TRAY:INVALID app={app} field={what}");
+    trace::line!(Channel::Shell, "TRAY:INVALID app={app} field={what}");
     (errno::EINVAL, "invalid tray item")
 }
 

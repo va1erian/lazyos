@@ -9,6 +9,7 @@
 //! printed once per change (`SHELL:TRAY:ICON app=<id> source=<...>`), the
 //! evidence that a bad icon fell back.
 
+use crate::trace::{self, Channel};
 use std::rc::Rc;
 
 use lazyshell::tray::icon::{chain, Picture, FALLBACK_LUCIDE};
@@ -92,7 +93,7 @@ impl Pictures {
         } else {
             self.shown.push((app.to_owned(), source.clone()));
         }
-        println!("SHELL:TRAY:ICON app={app} source={source}");
+        trace::line!(Channel::Shell, "TRAY:ICON app={app} source={source}");
     }
 }
 

@@ -29,6 +29,10 @@ text = ["dep:cosmic-text"]
 tiny-skia = { version = "0.11", default-features = false, features = ["std"] }
 cosmic-text = { version = "0.19", optional = true, default-features = false, features = ["std", "swash"] }
 xui-core = { git = "https://github.com/va1erian/xui", rev = "832c61f29419bf31a0518a47e050b15c97b316e3" }
+# Raw DEFLATE and CRC-32 for the OpenRaster zip reader: the same crates `lazyarc`
+# uses, so the app links one copy of each.
+flate2 = "1"
+crc32fast = "1"
 
 [dev-dependencies]
 # Offscreen rendering for the crate's snapshot tests.

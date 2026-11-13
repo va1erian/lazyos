@@ -1,3 +1,5 @@
+service "os.lazy.init.app" implements os.lazy.init.app.v1;
+
 /// A launched app's own line to `init` (docs/tray-plan.md section 5), served
 /// by `init` under the name `os.lazy.init.app`. It is a separate interface
 /// from `os.lazy.init.v1` so an app can be granted it without `Launch`,
@@ -8,11 +10,12 @@
 /// `ESRCH`. Failures reply with the standard error field (id 15,
 /// `docs/midl.md`).
 interface os.lazy.init.app.v1 {
+    default deadline=1s;
     /// Ask for this instance's lifecycle events; replaces an earlier channel.
     /// `Reopen`s queued before the first `Watch` (at most 16, the oldest
     /// dropped first) are sent on it at once, in order; a `Stop` pending at
     /// that moment sends `Quit` with the grace remaining.
-    method Watch(events: Channel<os.lazy.init.app.events.v1> = 1) -> () = 1;
+    method Watch(events: Channel<os.lazy.init.app.events.v1> = 1) -> () = 1 deadline=1s;
 }
 
 /// What `init` sends an app on the channel it transferred with `Watch`.
@@ -22,10 +25,10 @@ interface os.lazy.init.app.events.v1 {
     /// show yourself and open `args` (empty, or `Launch`'s one path). The
     /// first launch of a resident app by the session's autostart carries
     /// `--background` in its argv instead (no window until this arrives).
-    method Reopen(args: String = 1) -> () = 1 oneway;
+    method Reopen(args: String = 1) -> () = 1 event;
     /// The user, a logout or the package manager asked the app to quit:
     /// save and exit within `grace_ms`, after which `init` kills it. The
     /// grace is a fixed 3 s counted from the `Stop`, so `grace_ms` is what
     /// is left of it.
-    method Quit(grace_ms: U32 = 1) -> () = 2 oneway;
+    method Quit(grace_ms: U32 = 1) -> () = 2 event;
 }

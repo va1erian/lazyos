@@ -21,19 +21,19 @@
 //! [`types`] and [`endpoint`]; both are re-exported here so the split is
 //! invisible to callers. Everything else is one `pub mod` per service
 //! protocol, unchanged from before the split: [`registry`] (issue #89),
-//! [`topics_client`] (issue #92), [`router`] (issue #93's interim broker),
+//! [`topics_client`] (issue #92; subscriptions go through [`crate::central`]),
 //! [`services`] (`init`/`healthd`/`logd`), [`keyd`] (issue #102),
 //! [`accounts`], [`logind`] (issue #101), [`display`] (issue #113),
 //! [`mime`] and [`clipboard`] (issue #115).
 
+pub mod client;
 mod endpoint;
 mod message;
 mod types;
 pub mod wait;
 
 pub use endpoint::{
-    bootstrap, create_pair, dropped_messages, fabric_stats, fabric_stats_with, global_stats,
-    global_totals, Endpoint, Server,
+    bootstrap, create_pair, dropped_messages, fabric_stats, fabric_stats_with, Endpoint, Server,
 };
 pub use message::Message;
 pub use types::{
@@ -135,37 +135,6 @@ pub mod policy;
 /// the single policy choke point; the broker only maps `-EACCES` to its
 /// friendly denial reply.
 pub mod topics_client;
-
-// ---------------------------------------------------------------------------
-// Topics: the userspace event router (issue #93)
-// ---------------------------------------------------------------------------
-
-/// The userspace topic router the S2 services share (issue #93).
-///
-/// `docs/messenger.md` section 7 puts topics in `messengerd`, moved by the
-/// kernel; that broker is still being built in `kernel/src/ipc` and the native
-/// receive op does not yet surface transferred handles. Until it lands, the
-/// supervisor services run this **interim router** over what the fabric does
-/// support today:
-///
-/// * a service embeds a [`TopicBroker`] on its endpoint and registers the
-///   endpoint's interface id in the kernel name registry;
-/// * a subscriber calls [`Bus::subscribe`]; the broker hands it a unique sink
-///   name (a counter with its prefix), the subscriber registers one end of its
-///   own channel pair under that name with [`crate::messenger::registry`], and
-///   the broker resolves the name (the kernel opens the endpoint straight into
-///   the broker's table) and pushes [`Event`] parcels to it;
-/// * topics are hierarchical with the spec's wildcards: `+` matches one
-///   segment, `#` zero or more trailing segments;
-/// * a broker retains the latest message per topic ([`TopicBroker::publish`]'s
-///   `retained` flag) and replays matching retained values to a new subscriber,
-///   which is what lets `logd` see service events that predate its start.
-///
-/// Service events use `system/events/<...>` (`system/events/service/<name>`
-/// carries a service's state) and health state uses `system/health/<service>`,
-/// as the platform plan names them. Only the transport changes when the
-/// kernel/`messengerd` topic path lands; the topic names and payloads stay.
-pub mod router;
 
 // ---------------------------------------------------------------------------
 // System service interfaces: init, healthd, logd (issue #93)
@@ -319,8 +288,8 @@ pub mod mime;
 /// # Policy
 ///
 /// `Offer` and `Request` parcels put the *pseudo-interface* ids
-/// [`WRITE_INTERFACE`] (`os.lazy.clipboard.write.v1`) and [`READ_INTERFACE`]
-/// (`os.lazy.clipboard.read.v1`) in their parcel header. The kernel's
+/// `wire::METHOD_OFFER_SCOPE` (`os.lazy.clipboard.write.v1`) and
+/// `wire::METHOD_REQUEST_SCOPE` (`os.lazy.clipboard.read.v1`) in their parcel header. The kernel's
 /// `ipc::authorize` hook derives `(interface_id, method)` from that header on
 /// every outbound call, so an ACL rule keyed on `clipboard.write` /
 /// `clipboard.read` gates offering and pasting, and a denial is recorded in the

@@ -13,7 +13,7 @@
 //! The callbacks are app-supplied and must be cheap: they run between the
 //! input and update stages of a tick, so a long one makes exactly the
 //! difference the bounded calls measure. Work that can outlive a couple of
-//! frames does not belong here (see `Service::call_unbounded` and the
+//! frames does not belong here (see `Deadline::Never` on a worker and the
 //! worker threads).
 
 use std::cell::RefCell;

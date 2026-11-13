@@ -2,30 +2,35 @@
 
 use alloc::format;
 use alloc::string::String;
-use user::messenger::{self, keyd, topics_client};
+use messenger_generated::os_lazy_messenger_topics_v1 as topics_wire;
+use user::central::Bus;
+use user::messenger::client::Native;
+use user::messenger::{self, keyd};
 use user::sys;
 use user::trace;
 
 use super::topic_tests::{
     selftest_drop, selftest_fanout, selftest_qos, selftest_retained, selftest_unsubscribe,
-    selftest_wildcard, test_parcel,
+    selftest_wildcard, test_payload,
 };
 
 /// The boot-time topic conformance markers (issue #92). Silent when no broker
-/// is reachable, so the plain `LAZYOS_MESSENGERCTL=1` demo is unchanged.
+/// registers within the connect bound, so the plain `LAZYOS_MESSENGERCTL=1`
+/// demo is unchanged (it waits that bound once for a broker that is not
+/// there).
 pub(crate) fn topic_selftest() {
-    let client = match topics_client::Client::connect() {
-        Ok(client) => client,
-        Err(_) => return,
+    let Ok(mut bus) = Bus::connect_waiting() else {
+        return;
     };
     sys::write_str("messengerctl: topics broker detected; running selftest\n");
-    marker("TOPIC:FANOUT", selftest_fanout(&client));
-    marker("TOPIC:WILDCARD", selftest_wildcard(&client));
-    marker("TOPIC:RETAINED", selftest_retained(&client));
-    marker("TOPIC:DROP", selftest_drop(&client));
-    marker("TOPIC:QOS", selftest_qos(&client));
-    marker("TOPIC:UNSUB", selftest_unsubscribe(&client));
-    marker("TOPIC:DEPTH", super::depth_test::selftest_depth(&client));
+    marker("TOPIC:FANOUT", selftest_fanout(&mut bus));
+    marker("TOPIC:WILDCARD", selftest_wildcard(&mut bus));
+    marker("TOPIC:RETAINED", selftest_retained(&mut bus));
+    marker("TOPIC:DROP", selftest_drop(&mut bus));
+    marker("TOPIC:QOS", selftest_qos(&mut bus));
+    marker("TOPIC:UNSUB", selftest_unsubscribe(&mut bus));
+    marker("TOPIC:DEPTH", super::depth_test::selftest_depth(&mut bus));
+    marker("TOPIC:QUOTA", super::quota_test::selftest_quota(&mut bus));
     marker("TOPIC:SECURITY", selftest_security());
 }
 
@@ -81,15 +86,12 @@ fn selftest_security() -> Result<(), String> {
 /// prevented running the check at all, which must not be mistaken for a
 /// pass). Never returns.
 pub(crate) fn run_forbidden_publish_probe() -> ! {
-    let denied = match topics_client::Client::connect() {
-        Ok(client) => match test_parcel("forbidden") {
-            Ok(payload) => matches!(
-                client.publish("system/events/selftest/forbidden", &payload),
-                Err(error) if error.errno() == Some(-messenger::errno::EACCES)
-            ),
-            Err(_) => false,
-        },
-        Err(_) => false,
+    let denied = match (Bus::connect_waiting(), test_payload("forbidden")) {
+        (Ok(mut bus), Ok(payload)) => matches!(
+            bus.publish(topics_wire::TOPIC_SYSTEM_EVENTS_SELFTEST_FORBIDDEN, &payload, false),
+            Err(error) if error.errno() == Some(-messenger::errno::EACCES)
+        ),
+        _ => false,
     };
     sys::exit(if denied { 0 } else { 1 })
 }
@@ -112,9 +114,9 @@ pub(crate) fn keyd_selftest() {
     // the service itself is the authoritative marker, this one is a bonus.
     const ATTEMPTS: usize = 64;
     for _ in 0..ATTEMPTS {
-        match keyd::Client::connect() {
+        match keyd::Client::try_connect(Native) {
             Ok(client) => {
-                match client.keys() {
+                match client.list() {
                     Ok(keys) => trace::print!(trace::Channel::Keyd, "KEYS:PASS {}", keys.len()),
                     Err(error) => {
                         trace::print!(trace::Channel::Keyd, "KEYS:FAIL:{}", error.message())

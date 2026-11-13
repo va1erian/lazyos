@@ -21,7 +21,9 @@ extern crate alloc;
 use alloc::format;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use libmessenger::client::Deadline;
 use user::central;
+use user::messenger::clipboard::{Clipboard, Nested};
 use user::messenger::{self, clipboard, errno, registry, Endpoint, Error};
 use user::sys;
 use user::trace;
@@ -30,8 +32,6 @@ use user::trace;
 const SINK: &str = "os.lazy.clipboard.owner.clipcopy";
 /// The one MIME type the demo offers.
 const DEMO_MIME: &str = "text/plain";
-/// PIT ticks `connect` retries while the supervisor's spawn settles.
-const CONNECT_ATTEMPTS: usize = 64;
 /// PIT ticks to wait for a paste's serialize request.
 const SERVE_TICKS: u64 = 1000;
 
@@ -56,14 +56,16 @@ fn run() -> messenger::Result<()> {
     registry::register(SINK, &published, &[clipboard::OWNER_INTERFACE], 0)?;
     // The changed topic lives on `messengerd`'s central broker (issue #169);
     // the broker replays the retained offer to a late subscriber.
-    let mut changes_bus = central::Bus::connect_retry(64)?;
-    let session_text = format!("{}", client.session());
-    let changes = clipboard::subscribe_session_clipboard_changed(&mut changes_bus, &session_text)?;
-    let token = client.offer_lazy("clipcopy", SINK, &[DEMO_MIME])?;
+    let mut changes_bus = central::Bus::connect_waiting()?;
+    let session_text = format!("{}", clipboard::session().map_err(lower)?);
+    let changes = clipboard::subscribe_session_clipboard_changed(&mut changes_bus, &session_text)?
+        .into_handle();
+    let token = client
+        .offer_lazy("clipcopy", SINK, &[DEMO_MIME])
+        .map_err(lower)?;
     trace::line!(trace::Channel::Clip, "COPY:PASS token={token}");
     // Drain the changed event: the owner watches its own session too.
-    let mut changed_buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
-    let _ = changes.recv_with(&mut changed_buffer, Some(sys::clock().saturating_add(50)));
+    let _ = changes.recv(Deadline::ticks(50));
     // Release the broker-side subscription slot now that the notification is
     // drained: this demo client is about to exit, but a leaked subscription
     // would still fill the broker's bounded table on repeated runs.
@@ -113,23 +115,13 @@ fn payload(mime: &str) -> Vec<u8> {
 }
 
 /// Resolve `clipboardd`, retrying while its registration lands.
-fn connect() -> messenger::Result<clipboard::Client> {
-    let mut last = Error::Errno(-errno::ENOENT);
-    for _ in 0..CONNECT_ATTEMPTS {
-        match clipboard::Client::connect() {
-            Ok(client) => return Ok(client),
-            Err(error) => last = error,
-        }
-        park_tick();
-    }
-    Err(last)
+/// A clipboard failure as this program's error type.
+fn lower(error: clipboard::ClientError) -> Error {
+    Error::Errno(error.code())
 }
 
-/// Nap one PIT tick's worth between retries ([`user::sys::nap`], a real sleep;
-/// this used to park on a throwaway channel pair, since userspace had no
-/// sleep call).
-fn park_tick() {
-    user::sys::nap();
+fn connect() -> messenger::Result<clipboard::Client> {
+    clipboard::Client::connect(Nested).map_err(lower)
 }
 
 #[panic_handler]

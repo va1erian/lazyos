@@ -13,6 +13,7 @@ readme = "README.md"
 publish = false
 
 [dependencies]
+atomicfile = { path = "../atomicfile" }
 regex = "1"
 ropey = "1"
 xui-core = { git = "https://github.com/va1erian/xui", rev = "832c61f29419bf31a0518a47e050b15c97b316e3" }

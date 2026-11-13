@@ -10,7 +10,7 @@
 use libmessenger::Buffer;
 use surfbuf::{clip_damage, Area};
 use user::messenger::display::{self, wire, Rect};
-use user::messenger::{self, Endpoint, Message};
+use user::messenger::{self, Endpoint};
 use user::sys;
 
 use super::compositor::Compositor;
@@ -67,13 +67,13 @@ impl Surface {
 /// refusal the buffer is closed, so a bad request cannot leak the
 /// compositor's handles.
 pub(super) fn attach(
-    message: &Message,
+    sender: u64,
     surfaces: &mut [Surface],
     id: u64,
     slot: Option<u32>,
     pixels: &Buffer,
 ) -> Result<(), i64> {
-    let result = try_attach(message, surfaces, id, slot, pixels);
+    let result = try_attach(sender, surfaces, id, slot, pixels);
     if result.is_err() {
         let _ = sys::buffer_close(pixels.handle);
     }
@@ -82,7 +82,7 @@ pub(super) fn attach(
 
 /// [`attach`] without the cleanup; errors are positive errno values.
 fn try_attach(
-    message: &Message,
+    sender: u64,
     surfaces: &mut [Surface],
     id: u64,
     slot: Option<u32>,
@@ -94,7 +94,7 @@ fn try_attach(
     let Some(surface) = surfaces.iter_mut().find(|surface| surface.id == id) else {
         return Err(messenger::errno::ENOENT);
     };
-    if surface.owner != message.sender {
+    if surface.owner != sender {
         // Only the surface's own client may attach its pixels (issue #176:
         // any caller that guessed the id could spoof another app's window).
         return Err(messenger::errno::EACCES);
@@ -152,10 +152,7 @@ impl Compositor {
     /// of range) changes nothing but is handed straight back with a
     /// `BufferRelease` (the compositor never read it) before its `FrameDone`,
     /// so a client pacing on either cannot stall.
-    pub(super) fn present(&mut self, message: &Message) {
-        let Ok(args) = wire::decode_present_args(&message.parcel.body) else {
-            return;
-        };
+    pub(super) fn present(&mut self, sender: u64, args: wire::PresentArgs) {
         let Some(surface) = self
             .surfaces
             .iter_mut()
@@ -163,7 +160,7 @@ impl Compositor {
         else {
             return;
         };
-        if surface.owner != message.sender {
+        if surface.owner != sender {
             return;
         }
         let events = Endpoint::from_raw(surface.events);

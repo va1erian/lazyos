@@ -4,66 +4,33 @@
 //! The scope is authorized twice. The kernel's label rules decide whether an
 //! app may send the interface at all (before this code runs); here the
 //! compositor checks what the kernel cannot: the surface exists, the sender
-//! owns it, and the shape is one it can draw. Any other method of the
-//! interface is refused.
+//! owns it, and the shape is one it can draw.
 
 use cursorgfx::Shape;
-use libmessenger::Parcel;
-use messenger_generated::os_lazy_display_cursor_v1 as wire;
-use user::messenger::{self, Message};
+use user::messenger;
 
-use super::compositor::Compositor;
-use super::protocol::{empty_reply, error_reply};
 use super::surface::Surface;
-
-/// Whether `message` is for the cursor scope rather than the display
-/// interface proper.
-pub(super) fn is_cursor_scope(message: &Message) -> bool {
-    message.interface_id() == wire::INTERFACE_ID
-}
 
 /// Apply `SetCursor { surface, shape }` from `sender`: the errno to refuse
 /// with, or whether the surface's shape changed.
 pub(super) fn apply_set_cursor(
     surfaces: &mut [Surface],
     sender: u64,
-    args: &wire::SetCursorArgs,
+    id: u64,
+    shape: u32,
 ) -> Result<bool, i64> {
-    let Some(surface) = surfaces.iter_mut().find(|s| s.id == args.surface) else {
+    let Some(surface) = surfaces.iter_mut().find(|s| s.id == id) else {
         return Err(messenger::errno::ENOENT);
     };
     if surface.owner != sender {
         return Err(messenger::errno::EACCES);
     }
-    let Some(shape) = Shape::from_wire(args.shape) else {
+    let Some(shape) = Shape::from_wire(shape) else {
         return Err(messenger::errno::EINVAL);
     };
     let changed = surface.cursor != shape;
     surface.cursor = shape;
     Ok(changed)
-}
-
-impl Compositor {
-    /// Handle one request on the cursor scope.
-    pub(super) fn cursor_request(&mut self, message: &Message) -> Parcel {
-        let method = message.method();
-        if method != wire::METHOD_SETCURSOR {
-            return error_reply(method, messenger::errno::EINVAL);
-        }
-        let Ok(args) = wire::decode_set_cursor_args(&message.parcel.body) else {
-            return error_reply(method, messenger::errno::EINVAL);
-        };
-        match apply_set_cursor(&mut self.surfaces, message.sender, &args) {
-            Ok(changed) => {
-                if changed {
-                    // The pointer may be over this surface right now.
-                    self.move_cursor();
-                }
-                empty_reply(method)
-            }
-            Err(code) => error_reply(method, code),
-        }
-    }
 }
 
 /// Boot check of the `SetCursor` rules: `XUID:CURSORREQ:PASS` or
@@ -72,7 +39,7 @@ pub(super) fn selftest_cursor_request() -> &'static str {
     let mut surfaces = alloc::vec![super::window::test_surface(7, false, false)];
     surfaces[0].owner = 5;
     let call = |surfaces: &mut [Surface], sender, surface, shape| {
-        apply_set_cursor(surfaces, sender, &wire::SetCursorArgs { surface, shape })
+        apply_set_cursor(surfaces, sender, surface, shape)
     };
     if call(&mut surfaces, 5, 99, 3) != Err(messenger::errno::ENOENT) {
         return "XUID:CURSORREQ:FAIL unknown surface\n";

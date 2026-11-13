@@ -148,6 +148,9 @@ struct Haystack {
     fields: Vec<String>,
     types: Vec<String>,
     doc: String,
+    /// The interface a method, struct, enum or topic belongs to, so
+    /// "confd get" finds confd's `Get` whatever its doc says.
+    owner: String,
 }
 
 /// The tree, its index and its search index.
@@ -192,11 +195,12 @@ impl Catalog {
         catalog
     }
 
-    fn push(&mut self, node: Node, hay: Haystack) -> usize {
+    fn push(&mut self, node: Node, mut hay: Haystack) -> usize {
         let index = self.nodes.len();
         self.by_id.insert(node.id.clone(), index);
         if let Some(parent) = node.parent {
             self.nodes[parent].children.push(index);
+            hay.owner = self.hay[parent].name.clone();
         }
         self.nodes.push(node);
         self.hay.push(hay);
@@ -480,6 +484,11 @@ fn score_term(hay: &Haystack, term: &str) -> Option<(u32, Matched)> {
     }
     if hay.doc.contains(term) {
         offer(20, Matched::Doc);
+    }
+    // The weakest match: the owning interface's name, so an interface
+    // still outranks its own methods on a name term.
+    if hay.owner.split(['.', '_']).any(|w| w.starts_with(term)) {
+        offer(10, Matched::Name);
     }
     best
 }

@@ -14,6 +14,7 @@
 //! it does not fit (`lazyshell::menu::Menu::scroll_by`), with a thin bar on
 //! its right edge.
 
+use crate::trace::{self, Channel};
 use std::rc::Rc;
 
 use lazyshell::keynav::{self, NavKey, RowKind, Step};
@@ -117,7 +118,7 @@ pub fn open<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>) {
         Ok(handle) => {
             *ctx.menu_window.borrow_mut() = Some(handle);
             super::probe::menu(ctx);
-            println!("SHELL:MENU:OPEN");
+            trace::line!(Channel::Shell, "MENU:OPEN");
             ctx.repaint_bar();
             super::keys::sync(ctx);
         }
@@ -133,7 +134,7 @@ pub fn close(ctx: &Ctx) {
     };
     handle.close();
     ctx.menu_hover.set(None);
-    println!("SHELL:MENU:CLOSE");
+    trace::line!(Channel::Shell, "MENU:CLOSE");
     ctx.repaint_bar();
     super::keys::sync(ctx);
 }
@@ -206,7 +207,7 @@ impl MenuApp {
                 self.ctx.menu_hover.set(Some(index));
                 submenu::close(&self.ctx);
                 let label = self.ctx.menu.borrow().rows()[index].label.clone();
-                println!("SHELL:MENU:KEY:SELECT row={label}");
+                trace::line!(Channel::Shell, "MENU:KEY:SELECT row={label}");
                 true
             }
             Step::OpenChild(index) => {
@@ -217,7 +218,7 @@ impl MenuApp {
             }
             Step::Activate(index) => self.choose(index, false, ui),
             Step::Close => {
-                println!("SHELL:MENU:KEY:CLOSE");
+                trace::line!(Channel::Shell, "MENU:KEY:CLOSE");
                 close(&self.ctx);
                 false
             }

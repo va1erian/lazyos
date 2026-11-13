@@ -4,8 +4,10 @@
 //! everything. The kernel spawned `xuid`, not `init`, so it stays up until the
 //! machine stops and the overlay is the last frame on screen.
 //!
-//! The feed subscribes on `init`'s own topic broker (not `messengerd`'s, which
-//! `init` stops before the end), retrying quietly while `init` is not there.
+//! The feed follows the topic on the central broker through a doorbell it
+//! asks locally (never the broker), retrying quietly while `messengerd` is
+//! not there. `init` stops `messengerd` before the end, but publishes its
+//! first phase before it stops anything, which is all the overlay needs.
 //! The overlay state is two atomics, so [`draw`] needs no compositor state.
 //! Nothing raises it but the topic: the power rows live in LazyShell's start
 //! menu (`xui-app/src/shell/power.rs`), which asks `init` for the shutdown,
@@ -14,17 +16,15 @@
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use user::trace;
 
-use alloc::vec::Vec;
+use user::central::Feed;
 use user::messenger::display::{Canvas, Face, Rect};
-use user::messenger::{router, services, DEFAULT_BUFFER, EXPIRED_DEADLINE};
+use user::messenger::services;
 use user::sys;
 
 use super::theme::{overlay_bg, overlay_border, overlay_text, px};
 
-/// Ticks (100 Hz) between looks at the topic.
+/// Ticks (100 Hz) between looks at the doorbell.
 const POLL_TICKS: u64 = 10;
-/// Ticks between attempts to subscribe while `init` is unreachable.
-const RETRY_TICKS: u64 = 300;
 /// The overlay's message box.
 const BOX_W: i32 = 320;
 const BOX_H: i32 = 72;
@@ -48,21 +48,17 @@ fn show(mode: u32) -> bool {
     raised
 }
 
-/// Follows `system/power/state` on `init`'s broker.
+/// Follows `system/power/state`.
 pub(super) struct PowerFeed {
-    sub: Option<router::Subscriber>,
+    feed: Feed<services::PowerState>,
     next_poll: u64,
-    next_connect: u64,
-    buffer: Vec<u8>,
 }
 
 impl PowerFeed {
     pub(super) fn new() -> PowerFeed {
         PowerFeed {
-            sub: None,
+            feed: Feed::new(services::init::wire::subscribe_system_power_state),
             next_poll: 0,
-            next_connect: 0,
-            buffer: alloc::vec![0u8; DEFAULT_BUFFER],
         }
     }
 
@@ -74,31 +70,10 @@ impl PowerFeed {
             return false;
         }
         self.next_poll = now + POLL_TICKS;
-        if self.sub.is_none() {
-            if now < self.next_connect {
-                return false;
-            }
-            self.next_connect = now + RETRY_TICKS;
-            self.sub = router::Bus::connect(services::INIT_NAME)
-                .and_then(|mut bus| services::init::wire::subscribe_system_power_state(&mut bus))
-                .ok();
-        }
+        self.feed.ensure();
         let mut raised = false;
-        while let Some(sub) = &self.sub {
-            match sub.recv_with(&mut self.buffer, Some(EXPIRED_DEADLINE)) {
-                Ok(Some(event)) => {
-                    if let Ok(state) =
-                        services::init::wire::decode_system_power_state(&event.payload)
-                    {
-                        raised |= show(state.mode);
-                    }
-                }
-                Ok(None) => break,
-                // The broker went away (it is `init`; only a crash does
-                // that): subscribe again later.
-                Err(_) => self.sub = None,
-            }
-        }
+        self.feed
+            .drain_rung(|event| raised |= show(event.value.mode));
         raised
     }
 }

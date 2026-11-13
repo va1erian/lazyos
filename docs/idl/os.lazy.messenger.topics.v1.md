@@ -29,6 +29,24 @@ id.
 | Ping | 2142761129 | sync | `() -> ()` |
 | Bell | 1766698328 | sync | `(subscription: U64, bell: Channel<os.lazy.messenger.topics.bell.v1>) -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.messenger.topics`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Publish | this interface | - | 500 ms | never |
+| Subscribe | this interface | - | 500 ms | never |
+| Unsubscribe | this interface | - | 5000 ms | never |
+| NextEvent | this interface | - | 5000 ms | safe |
+| Ack | this interface | - | 5000 ms | never |
+| ListTopics | this interface | - | 5000 ms | safe |
+| Stats | this interface | - | 5000 ms | safe |
+| Ping | this interface | - | 5000 ms | safe |
+| Bell | this interface | - | 5000 ms | never |
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's
@@ -37,6 +55,14 @@ object list (the index each field must hold).
 | Method | Field | Type | Object |
 |---|---|---|---|
 | Bell | `bell` | `Channel<os.lazy.messenger.topics.bell.v1>` | `objects[0]`, a channel the receiver sends `os.lazy.messenger.topics.bell.v1` on |
+
+## Topics
+
+| Topic | Payload | QoS | Retained | Permissions |
+|---|---|---|---|---|
+| `demo/waitany` | `Probe` | latest | no | `publish:demo/waitany`, `subscribe:demo/waitany` |
+| `topics/depth` | `Probe` | buffered | no | `publish:topics/depth`, `subscribe:topics/depth` |
+| `system/events/selftest/forbidden` | `Probe` | latest | no | `publish:system/events/selftest/forbidden`, `subscribe:system/events/selftest/forbidden` |
 
 ## struct `Event`
 
@@ -60,6 +86,10 @@ object list (the index each field must hold).
 - `delivered: U64`
 - `matched: U64`
 - `drops: U64`
+
+## struct `Probe`
+
+- `note: String`
 
 ## enum `Qos`
 

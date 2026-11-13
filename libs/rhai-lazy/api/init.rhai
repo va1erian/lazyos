@@ -15,6 +15,9 @@
 // The interface every function of this module calls.
 export const INTERFACE = "os.lazy.init.v1";
 
+// The registry name the interface is served under (`service` in the `.midl`).
+export const SERVICE = "os.lazy.init";
+
 /// The connected service: `invoke`, `invoke_oneway` and method sugar
 /// (`docs/rhai/msg.md`). Resolved once per process.
 fn connect() {
@@ -342,7 +345,7 @@ fn publish_power_state(payload) {
     msg::publish("system/power/state", payload)
 }
 
-// Filter for every event of the topic `system/events/service/{name}` (payload `ServiceEvent`, qos latest, retained).
+// Filter for every event of the topic `system/events/service/{name}` (payload `ServiceEvent`, qos buffered, retained).
 // Supervision phase (`pending`/`running`/`restarting`/`stopped`/`failed`).
 // Task slot of the running child, or 0.
 // Restart count.
@@ -355,36 +358,36 @@ fn publish_power_state(payload) {
 // without polling.
 export const SERVICE_PATTERN = "system/events/service/+";
 
-/// The topic name of `system/events/service/{name}` (payload `ServiceEvent`, qos latest, retained) for these placeholder values.
+/// The topic name of `system/events/service/{name}` (payload `ServiceEvent`, qos buffered, retained) for these placeholder values.
 fn service_topic(name) {
     `system/events/service/${name}`
 }
 
-/// Run `handler(event)` for each event of `system/events/service/{name}` (payload `ServiceEvent`, qos latest, retained); `event.payload` is
+/// Run `handler(event)` for each event of `system/events/service/{name}` (payload `ServiceEvent`, qos buffered, retained); `event.payload` is
 /// the decoded `ServiceEvent`. Returns the `Subscription`.
 fn on_service(handler) {
     msg::on("system/events/service/+", handler)
 }
 
-/// Subscribe to `system/events/service/{name}` (payload `ServiceEvent`, qos latest, retained) to pull events with `sub.next()`.
+/// Subscribe to `system/events/service/{name}` (payload `ServiceEvent`, qos buffered, retained) to pull events with `sub.next()`.
 fn subscribe_service() {
     msg::subscribe("system/events/service/+")
 }
 
-/// Run `handler(event)` for each event of `system/events/service/{name}` (payload `ServiceEvent`, qos latest, retained); `event.payload` is
+/// Run `handler(event)` for each event of `system/events/service/{name}` (payload `ServiceEvent`, qos buffered, retained); `event.payload` is
 /// the decoded `ServiceEvent`. Returns the `Subscription`.
 /// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
 fn on_service(name, handler) {
     msg::on(`system/events/service/${name}`, handler)
 }
 
-/// Subscribe to `system/events/service/{name}` (payload `ServiceEvent`, qos latest, retained) to pull events with `sub.next()`.
+/// Subscribe to `system/events/service/{name}` (payload `ServiceEvent`, qos buffered, retained) to pull events with `sub.next()`.
 /// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
 fn subscribe_service(name) {
     msg::subscribe(`system/events/service/${name}`)
 }
 
-/// Publish `payload` (a `ServiceEvent`) on `system/events/service/{name}` (payload `ServiceEvent`, qos latest, retained).
+/// Publish `payload` (a `ServiceEvent`) on `system/events/service/{name}` (payload `ServiceEvent`, qos buffered, retained).
 fn publish_service(name, payload) {
     msg::publish(`system/events/service/${name}`, payload)
 }

@@ -1,3 +1,5 @@
+service "os.lazy.usb.audio" implements os.lazy.usb.audio.v1;
+
 /// A USB audio playback function, as `usbd` drives it
 /// (docs/usb-audio-plan.md).
 ///
@@ -21,6 +23,7 @@
 /// (`Submit` before `Configure`, a range outside the staging buffer) is
 /// `EINVAL`. Failures are returned as the shared structured error field.
 interface os.lazy.usb.audio.v1 {
+    default deadline=5s;
     /// How the device paces itself (the data endpoint's sync type).
     /// Ordinals are append-only.
     enum Sync { None, Async, Adaptive, Synchronous }
@@ -58,7 +61,7 @@ interface os.lazy.usb.audio.v1 {
         missed: U32 = 3
     }
 
-    method Describe() -> (device: Device = 1);
+    method Describe() -> (device: Device = 1) retry=safe;
     /// Share the staging buffer periods are submitted from. Replaces an
     /// earlier one (a restarted `sndd`), stopping any stream.
     method Attach(staging: Buffer = 1) -> ();

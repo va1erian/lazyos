@@ -12,10 +12,10 @@
 //! generation it sees to [`Tray::generation`], which calls `Set` again when it
 //! changed, so the item comes back by itself (StatusNotifier's rule).
 //!
-//! It is `no_std` + `alloc` and knows nothing about syscalls: a [`Transport`]
-//! makes channel pairs and delivers calls. `xui_app::tray` implements it for
-//! xui apps; a native `user` program implements it over its own Messenger
-//! bindings; the host tests implement it in memory.
+//! It is `no_std` + `alloc` and knows nothing about syscalls: the calls are the
+//! generated `os.lazy.shell.tray.v1` client over a `libmessenger` transport
+//! (`xui_app::tray` uses the xui one), and [`Channels`] makes channel pairs.
+//! The host tests run it over `libmessenger::client::Mock`.
 
 #![no_std]
 
@@ -35,17 +35,15 @@ pub use libmessenger::Object;
 pub use messenger_generated::os_lazy_shell_tray_events_v1 as events_wire;
 pub use messenger_generated::os_lazy_shell_tray_v1 as wire;
 
-use alloc::vec::Vec;
+use libmessenger::client::{CallError, Errno, Transport};
 
 /// LazyShell's registered name for the tray.
-pub const NAME: &str = "os.lazy.shell.tray";
+pub const NAME: &str = wire::SERVICE_NAME;
 
-/// A failed call: the transport's or the shell's negative errno.
-pub type Error = i64;
+/// A failed call: the transport's failure or the shell's refusal.
+pub type Error = CallError;
 pub type Result<T> = core::result::Result<T, Error>;
 
-/// `EINVAL`, for a request that cannot be encoded.
-const EINVAL: i64 = 22;
 /// The errors a later `Set` may not get: the shell was not reached
 /// (`ENOENT`: no service registered, `EPIPE`: it died, `ETIMEDOUT`: it did
 /// not answer), or it did not find this task in `init`'s table yet (`ESRCH`:
@@ -54,22 +52,21 @@ const EINVAL: i64 = 22;
 /// against). Anything else is the shell's refusal.
 const TRANSIENT: [i64; 4] = [2, 3, 32, 110];
 
-/// How requests reach the shell.
-pub trait Transport {
+/// Where an app's event channels come from: the one thing the runtime
+/// provides besides the shell's connection (a [`Transport`], which the
+/// generated [`wire::Client`] frames its calls over).
+pub trait Channels {
     /// A fresh channel pair: `(sent, kept)`. `sent` is transferred to the
     /// shell with `Set`; the app receives its events on `kept`.
-    fn create_pair(&mut self) -> Result<(u64, u64)>;
-    /// One call to the tray service carrying `objects` (`Set`'s event
-    /// channel, moved to the shell); the reply body, or the negative errno
-    /// of a refusal.
-    fn call(&mut self, method: u32, body: Vec<u8>, objects: Vec<Object>) -> Result<Vec<u8>>;
+    fn create_pair(&mut self) -> core::result::Result<(u64, u64), Errno>;
     /// Close a handle this task holds.
     fn close(&mut self, handle: u64);
 }
 
 /// One app's tray item.
-pub struct Tray<T> {
-    transport: T,
+pub struct Tray<T: Transport, C: Channels> {
+    client: wire::Client<T>,
+    channels: C,
     /// The last item set, kept so it can be set again after a shell restart.
     item: Option<wire::Item>,
     /// Where the shell's events arrive.
@@ -82,10 +79,13 @@ pub struct Tray<T> {
     refused: bool,
 }
 
-impl<T: Transport> Tray<T> {
-    pub fn new(transport: T) -> Tray<T> {
+impl<T: Transport, C: Channels> Tray<T, C> {
+    /// An app's tray over `client` (`wire::Client::from_connection`; the shell
+    /// is reached when a call first needs it, with one attempt).
+    pub fn new(client: wire::Client<T>, channels: C) -> Tray<T, C> {
         Tray {
-            transport,
+            client,
+            channels,
             item: None,
             events: None,
             registered: None,
@@ -94,8 +94,25 @@ impl<T: Transport> Tray<T> {
         }
     }
 
-    pub fn transport_mut(&mut self) -> &mut T {
-        &mut self.transport
+    /// The generated client.
+    pub fn client(&self) -> &wire::Client<T> {
+        &self.client
+    }
+
+    /// The channel source.
+    pub fn channels_mut(&mut self) -> &mut C {
+        &mut self.channels
+    }
+
+    /// Resolve the shell with one attempt when no handle is held: a tray
+    /// call must not wait for a shell that is not there (an app's UI thread
+    /// makes it), and the next generation sets the item again.
+    fn reach(&self) -> Result<()> {
+        let conn = self.client.connection();
+        if !conn.is_connected() {
+            conn.try_connect().map_err(CallError::Transport)?;
+        }
+        Ok(())
     }
 
     /// The channel the shell's events arrive on, once an item is set.
@@ -116,10 +133,14 @@ impl<T: Transport> Tray<T> {
         if let Some(item) = self.item.as_mut() {
             apply(item, &patch);
         }
-        let body = wire::encode_update_args(&patch).map_err(|_| -EINVAL)?;
-        self.transport
-            .call(wire::METHOD_UPDATE, body, Vec::new())
-            .map(drop)
+        self.reach()?;
+        self.client.update(
+            patch.icon.as_ref(),
+            patch.tooltip.as_deref(),
+            patch.status,
+            patch.badge.as_deref(),
+            patch.menu.as_ref(),
+        )
     }
 
     /// `Clear()`: remove the item and stop re-registering it.
@@ -127,9 +148,8 @@ impl<T: Transport> Tray<T> {
         self.item = None;
         self.registered = None;
         self.drop_events();
-        self.transport
-            .call(wire::METHOD_CLEAR, Vec::new(), Vec::new())
-            .map(drop)
+        self.reach()?;
+        self.client.clear()
     }
 
     /// The shell published tray generation `generation`: set the item again
@@ -169,30 +189,29 @@ impl<T: Transport> Tray<T> {
         let Some(item) = self.item.clone() else {
             return Ok(());
         };
-        let (sent, kept) = self.transport.create_pair()?;
-        let (body, objects) =
-            wire::encode_set_args(&wire::SetArgs { item, events: sent }).map_err(|_| -EINVAL)?;
-        match self.transport.call(wire::METHOD_SET, body, objects) {
-            Ok(_) => {
+        self.reach()?;
+        let (sent, kept) = self.channels.create_pair().map_err(CallError::Transport)?;
+        match self.client.set(&item, sent) {
+            Ok(()) => {
                 self.drop_events();
                 self.events = Some(kept);
                 self.registered = self.seen.or(Some(0));
                 Ok(())
             }
-            Err(code) => {
+            Err(error) => {
                 // A refused call may not have moved `sent`; closing it here
                 // is harmless if it did (the handle is no longer ours).
-                self.transport.close(sent);
-                self.transport.close(kept);
-                self.refused = !TRANSIENT.contains(&-code);
-                Err(code)
+                self.channels.close(sent);
+                self.channels.close(kept);
+                self.refused = !TRANSIENT.contains(&-error.code());
+                Err(error)
             }
         }
     }
 
     fn drop_events(&mut self) {
         if let Some(events) = self.events.take() {
-            self.transport.close(events);
+            self.channels.close(events);
         }
     }
 }

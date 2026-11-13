@@ -25,12 +25,14 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use xui_app::trace::{self, Channel};
 
+use xui_app::font;
 use xui_app::platform::argv;
 use xui_app::platform::clipboard as system_clipboard;
+use xui_app::platform::dirs;
 use xui_app::platform::storage::{PngStorage, EDITOR_MAX_LOAD_BYTES};
 use xui_app::probe;
-use xui_app::{font, launch};
 use xui_core::widget::StdFileSystem;
 use xui_paint::model::text::{CosmicRasterizer, TextRasterizer};
 use xui_paint::storage::Storage;
@@ -83,7 +85,7 @@ fn text_rasterizer() -> Rc<dyn TextRasterizer> {
         // an unknown name) does not depend on the directory's.
         files.sort();
         // Evidence that the text tool has the system fonts, not only Droid.
-        println!("PAINT:FONTS:{}", files.len());
+        trace::line!(Channel::Paint, "FONTS:{}", files.len());
         for path in files {
             if let Ok(bytes) = std::fs::read(&path) {
                 rasterizer.register_font(bytes);
@@ -98,10 +100,7 @@ fn text_rasterizer() -> Rc<dyn TextRasterizer> {
 
 /// The default save file when no path is given.
 fn default_path() -> PathBuf {
-    match std::env::var_os("HOME") {
-        Some(home) if !home.is_empty() => PathBuf::from(home).join("xpaint.png"),
-        _ => PathBuf::from(fhs::mount::TMP).join("xpaint.png"),
-    }
+    dirs::default_dir().join("xpaint.png")
 }
 
 /// A storage wrapper that reports save/load outcomes on the serial log.
@@ -115,7 +114,7 @@ impl Storage for ReportingStorage {
             // The app reports a success, with the format it wrote.
             Ok(()) => Ok(()),
             Err(error) => {
-                println!("PAINT:SAVE:FAIL:{}", self.inner.path().display());
+                trace::fail!(Channel::Paint, "SAVE", "{}", self.inner.path().display());
                 Err(error)
             }
         }
@@ -132,7 +131,7 @@ impl Storage for ReportingStorage {
     fn save_to(&self, path: &Path, bytes: &[u8]) -> Result<(), String> {
         let result = self.inner.save_to(path, bytes);
         if result.is_err() {
-            println!("PAINT:SAVE:FAIL:{}", path.display());
+            trace::fail!(Channel::Paint, "SAVE", "{}", path.display());
         }
         result
     }
@@ -156,8 +155,10 @@ fn announce(report: &Report, default: &Path) {
     match report {
         Report::Opened { path, size, layers } => {
             let path = path.as_deref().unwrap_or(default);
-            println!(
-                "PAINT:OPEN:PASS:{}:{}x{}:{layers}",
+            trace::pass!(
+                Channel::Paint,
+                "OPEN",
+                "{}:{}x{}:{layers}",
                 path.display(),
                 size.0,
                 size.1
@@ -165,23 +166,24 @@ fn announce(report: &Report, default: &Path) {
         }
         Report::Saved { path, format } => {
             let path = path.as_deref().unwrap_or(default);
-            println!("PAINT:SAVE:PASS:{}:{}", path.display(), format.extension());
+            trace::pass!(
+                Channel::Paint,
+                "SAVE",
+                "{}:{}",
+                path.display(),
+                format.extension()
+            );
         }
     }
 }
 
-/// Where the file dialogs start: the file's directory, else `$HOME`, else `/`.
+/// Where the file dialogs start: the file's directory, else the home folder.
 fn start_dir(requested: Option<&Path>) -> PathBuf {
     requested
         .and_then(Path::parent)
         .filter(|dir| !dir.as_os_str().is_empty())
         .map(Path::to_path_buf)
-        .or_else(|| {
-            std::env::var_os("HOME")
-                .filter(|home| !home.is_empty())
-                .map(PathBuf::from)
-        })
-        .unwrap_or_else(|| PathBuf::from("/"))
+        .unwrap_or_else(dirs::default_dir)
 }
 
 fn main() {
@@ -192,63 +194,64 @@ fn main() {
         inner: PngStorage::new(path).with_max_load(EDITOR_MAX_LOAD_BYTES),
     });
 
-    launch::run(xui_app::trace::Channel::Paint, "Paint", WINDOW, move |ui, backend| {
-        // Paint's document is fixed; only the viewport follows the window, so
-        // it can be resized down to a workable drawing area.
-        backend.set_size_hints(MIN_WINDOW.0, MIN_WINDOW.1, 0, 0);
-        backend.on_first_frame(|| println!("PAINT:UP:PASS"));
-        let setup = Setup::new(storage)
-            .with_files(Rc::new(StdFileSystem))
-            .with_text(text_rasterizer());
-        let mut app = PaintApp::build_with(ui, setup)?;
-        app.set_start_dir(start_dir(requested.as_deref()));
-        app.set_system_clipboard(Rc::new(PngClipboard));
-        let default = default_file.clone();
-        app.set_reporter(move |report| announce(report, &default));
-        let startup = requested.is_some();
-        let probing = probe::enabled();
-        if probing {
-            // Only a changed rectangle is printed, so the probe can keep
-            // ticking for the whole session without flooding the serial log.
-            let seen: RefCell<HashMap<String, (i32, i32, i32, i32)>> = RefCell::default();
-            app.set_probe(move |window, name, rect| {
-                let at = (rect.left, rect.top, rect.width(), rect.height());
-                let key = format!(
-                    "{window}
+    xui_app::app(Channel::Paint, "Paint")
+        .size(WINDOW.0, WINDOW.1)
+        .min_size(MIN_WINDOW.0, MIN_WINDOW.1)
+        .run(move |ui, _| {
+            // Paint's document is fixed; only the viewport follows the window, so
+            // it can be resized down to a workable drawing area.
+            let setup = Setup::new(storage)
+                .with_files(Rc::new(StdFileSystem))
+                .with_text(text_rasterizer());
+            let mut app = PaintApp::build_with(ui, setup)?;
+            app.set_start_dir(start_dir(requested.as_deref()));
+            app.set_system_clipboard(Rc::new(PngClipboard));
+            let default = default_file.clone();
+            app.set_reporter(move |report| announce(report, &default));
+            let startup = requested.is_some();
+            let probing = probe::enabled();
+            if probing {
+                // Only a changed rectangle is printed, so the probe can keep
+                // ticking for the whole session without flooding the serial log.
+                let seen: RefCell<HashMap<String, (i32, i32, i32, i32)>> = RefCell::default();
+                app.set_probe(move |window, name, rect| {
+                    let at = (rect.left, rect.top, rect.width(), rect.height());
+                    let key = format!(
+                        "{window}
 {name}"
-                );
-                if seen.borrow().get(&key) != Some(&at) {
-                    seen.borrow_mut().insert(key, at);
-                    probe::widget(window, name, at.0, at.1, at.2, at.3);
-                }
-            });
-        }
-        if startup || probing {
-            // A one-shot Open loads the file named on the command line, then
-            // (with the probe on) a few slower ticks report the control
-            // rectangles. The timer kills itself when done, so an idle Paint
-            // costs no wakeups.
-            let ticks = Rc::new(Cell::new(0u32));
-            let ui_for_timer = ui.clone();
-            ui.set_timer(if startup { 1 } else { 500 });
-            ui.on_timer(move |id| {
-                let tick = ticks.replace(ticks.get() + 1);
-                if tick == 0 && startup {
-                    ui_for_timer.kill_timer(id);
-                    if probing {
-                        ui_for_timer.set_timer(500);
+                    );
+                    if seen.borrow().get(&key) != Some(&at) {
+                        seen.borrow_mut().insert(key, at);
+                        probe::widget(window, name, at.0, at.1, at.2, at.3);
                     }
-                    return Some(Msg::OpenStartup);
-                }
-                if probing {
-                    // The probe reports only what changed, so it keeps
-                    // ticking: dialogs and the colour editor open later.
-                    return Some(Msg::Probe);
-                }
-                ui_for_timer.kill_timer(id);
-                None
-            });
-        }
-        Ok(app)
-    })
+                });
+            }
+            if startup || probing {
+                // A one-shot Open loads the file named on the command line, then
+                // (with the probe on) a few slower ticks report the control
+                // rectangles. The timer kills itself when done, so an idle Paint
+                // costs no wakeups.
+                let ticks = Rc::new(Cell::new(0u32));
+                let ui_for_timer = ui.clone();
+                ui.set_timer(if startup { 1 } else { 500 });
+                ui.on_timer(move |id| {
+                    let tick = ticks.replace(ticks.get() + 1);
+                    if tick == 0 && startup {
+                        ui_for_timer.kill_timer(id);
+                        if probing {
+                            ui_for_timer.set_timer(500);
+                        }
+                        return Some(Msg::OpenStartup);
+                    }
+                    if probing {
+                        // The probe reports only what changed, so it keeps
+                        // ticking: dialogs and the colour editor open later.
+                        return Some(Msg::Probe);
+                    }
+                    ui_for_timer.kill_timer(id);
+                    None
+                });
+            }
+            Ok(app)
+        })
 }

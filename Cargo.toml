@@ -11,6 +11,9 @@ members = [
     "font-atlas",
     "user",
     "libs/messenger",
+    # messengerd's topics tables (filters, QoS queues, retained values, the
+    # per-owner byte budget), host-tested and stress-tested.
+    "libs/topicsbroker",
     # The Terminal's terminfo entry: source parser and legacy-format writer used
     # by the image build (docs/terminal-plan.md T5), host-tested.
     "libs/terminfo",

@@ -22,9 +22,10 @@ use user::trace;
 
 use lazyos_crypto::hex;
 use pkgstore::provision::{self, Action, Current, Shipped, Tally};
+use user::central::Bus;
 use user::files;
+use user::messenger;
 use user::messenger::pkgd::{wire, Failure, PkgEvent};
-use user::messenger::{self, router, services};
 use user::sys;
 
 use super::handlers::{fail, read_failure, Pkgd, EINVAL, ENOENT};
@@ -33,15 +34,15 @@ use super::install::{event, one_line, problem_text, Installer, Subject};
 use super::store;
 
 /// Tell `init` how far provisioning is (`ready`, then `done`): its autostart
-/// waits for it (`user/src/bin/init/provisioning.rs`). The event goes through
-/// `init`'s own topic broker, which `init` reads as it serves it, so it never
-/// has to call `pkgd` (which answers only between two packages). Best effort:
-/// on failure `init` opens the apps after its bounded wait.
+/// waits for it (`user/src/bin/init/provisioning.rs`). The event goes out on
+/// the central broker, which `init` follows, so it never has to call `pkgd`
+/// (which answers only between two packages). Best effort: on failure `init`
+/// opens the apps after its bounded wait.
 fn announce(event: &PkgEvent) {
     for _ in 0..ANNOUNCE_ATTEMPTS {
-        if let Ok(mut bus) = router::Bus::connect(services::INIT_NAME) {
+        // One lookup, not a wait: the broker may be restarting.
+        if let Ok(mut bus) = Bus::connect() {
             let sent = wire::publish_system_events_pkg(&mut bus, &event.op, event).is_ok();
-            let _ = bus.endpoint().release();
             if sent {
                 return;
             }
@@ -50,7 +51,7 @@ fn announce(event: &PkgEvent) {
     }
 }
 
-/// Attempts at reaching `init`'s broker.
+/// Attempts at reaching the broker.
 const ANNOUNCE_ATTEMPTS: usize = 8;
 
 /// The steps of this start's pass that are still to run.

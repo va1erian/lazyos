@@ -153,13 +153,16 @@ fn a_named_service_is_connected_by_its_registered_name() {
         },
     )
     .unwrap();
+    // `os.lazy.accountsd` is the service the IDL declares for the
+    // interface, so the plain connect already reaches it...
     assert!(call
         .text
-        .starts_with("let svc = msg::connect(\"os.lazy.accounts.v1\", \"os.lazy.accountsd\");"));
-    let default = snippet::connect(accounts, "os.lazy.accounts");
-    assert!(default
-        .text
         .starts_with("let svc = msg::connect(\"os.lazy.accounts.v1\");"));
+    // ...and any other registered name is spelled out.
+    let other = snippet::connect(accounts, "os.lazy.accounts");
+    assert!(other
+        .text
+        .starts_with("let svc = msg::connect(\"os.lazy.accounts.v1\", \"os.lazy.accounts\");"));
     let named = snippet::connect(accounts, "demo.mine");
     assert!(named.text.contains("\"demo.mine\""));
 }

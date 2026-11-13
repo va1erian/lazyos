@@ -37,6 +37,7 @@ use secrecy::SecretString;
 use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
 use xui_app::table::SortedTable;
+use xui_app::trace::{self, Channel};
 use xui_core::widget::{HasText, Label, ListView, Panel};
 
 use account::AccountPage;
@@ -169,7 +170,7 @@ impl Mail {
                 .map(|account| account.display_name.clone()),
         );
         self.refresh_folders();
-        println!("MAIL:CORE:ACCOUNTS={}", self.config.accounts.len());
+        trace::line!(Channel::Mail, "CORE:ACCOUNTS={}", self.config.accounts.len());
         if self.config.accounts.is_empty() {
             self.reader.show_notice("No mail account is set up yet.");
             self.account_page.start_new(ui);
@@ -230,7 +231,7 @@ impl Mail {
     }
 
     fn error(&self, text: &str) {
-        println!("MAIL:ERROR:{text}");
+        trace::line!(Channel::Mail, "ERROR:{text}");
         self.set_status(&format!("Error: {text}"));
     }
 
@@ -260,7 +261,7 @@ impl Mail {
         let auth = Auth::Password(SecretString::from(form.password));
         match account_setup::save_account(&self.config, account, &auth) {
             Ok(config) => {
-                println!("MAIL:ACCOUNT:SAVED");
+                trace::line!(Channel::Mail, "ACCOUNT:SAVED");
                 self.config = config;
                 self.account_page.set_shown(ui, false);
                 self.cover(ui, false);
@@ -271,7 +272,7 @@ impl Mail {
                 }
             }
             Err(error) => {
-                println!("MAIL:ACCOUNT:FAIL");
+                trace::line!(Channel::Mail, "ACCOUNT:FAIL");
                 self.account_page.show_error(None, &error);
             }
         }
@@ -306,7 +307,7 @@ impl Mail {
         }
         match xui_app::platform::launcher::open_url(href) {
             Ok(()) => {
-                println!("MAIL:LINK:OPEN");
+                trace::line!(Channel::Mail, "LINK:OPEN");
                 self.set_status(&format!("Opened {href}"));
             }
             Err(e) => self.set_status(&format!("Cannot open {href}: {e}")),
@@ -369,7 +370,7 @@ impl Mail {
                 self.set_status("Sending...");
             }
             Err(error) => {
-                println!("MAIL:SEND:FAIL");
+                trace::line!(Channel::Mail, "SEND:FAIL");
                 self.set_status(&error);
             }
         }
@@ -384,7 +385,7 @@ impl App for Mail {
             Msg::Wake => self.drain(ui),
             Msg::Painted => {
                 if self.reader.first_paint() {
-                    println!("MAIL:RENDER:PASS");
+                    trace::pass!(Channel::Mail, "RENDER");
                 }
             }
             Msg::Link(href) => self.follow_link(ui, &href),

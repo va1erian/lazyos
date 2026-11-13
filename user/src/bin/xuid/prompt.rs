@@ -30,10 +30,11 @@ use alloc::format;
 use alloc::string::String;
 use user::trace;
 
+use libmessenger::server::{Caller, Fault};
 use libmessenger::Parcel;
 use messenger_generated::os_lazy_display_prompt_v1 as wire;
 use user::messenger::display::key;
-use user::messenger::{errno, services, Message};
+use user::messenger::{errno, services};
 use user::sys;
 
 use super::compositor::Compositor;
@@ -74,15 +75,9 @@ pub(super) struct Prompt {
     keys: u32,
 }
 
-/// The standard error reply for a prompt request refused at once.
-fn refusal(code: i64, text: &str) -> Parcel {
-    let mut body = libmessenger::Encoder::new();
-    let _ = body.error(messenger_generated::errors::ERROR_FIELD, code as u32, text);
-    Parcel {
-        header: services::header(wire::INTERFACE_ID, wire::METHOD_PROMPT),
-        body: body.finish(),
-        ..Parcel::default()
-    }
+/// A prompt request refused at once, with the sentence `elevd` shows.
+fn refusal(code: i64, text: &str) -> Fault {
+    Fault::refuse(libmessenger::client::Errno::from_syscall(code), text)
 }
 
 /// The asker, as the prompt names it: the app's kernel label (or that it
@@ -113,35 +108,28 @@ fn asker(label_id: u32, user: &str, uid: u32) -> String {
 }
 
 impl Compositor {
-    /// Whether `message` is a prompt request.
-    pub(super) fn is_prompt_request(message: &Message) -> bool {
-        message.interface_id() == wire::INTERFACE_ID && message.method() == wire::METHOD_PROMPT
-    }
-
-    /// Open the prompt for `message`. `None`: the reply is deferred until the
-    /// person answers; `Some`: the refusal to send now.
-    pub(super) fn open_prompt(&mut self, message: &Message) -> Option<Parcel> {
-        let caller = message.caller();
-        if !elevpolicy::is_elevd(caller.uid, caller.label_id, caller.session) {
-            trace::line!(
-                trace::Channel::Xuid,
-                "PROMPT:DENIED caller_uid={}",
-                caller.uid
-            );
-            return Some(refusal(
+    /// Open the prompt for the request `args` of `cx`, whose transaction is
+    /// `txn`. `Ok`: the prompt is up and the reply is deferred until the
+    /// person answers (the caller holds it); `Err`: the refusal to send now.
+    pub(super) fn open_prompt(
+        &mut self,
+        cx: &Caller,
+        txn: Option<u64>,
+        args: wire::PromptArgs,
+    ) -> Result<(), Fault> {
+        if !elevpolicy::is_elevd(cx.uid, cx.label_id, cx.session) {
+            trace::line!(trace::Channel::Xuid, "PROMPT:DENIED caller_uid={}", cx.uid);
+            return Err(refusal(
                 errno::EPERM,
                 "only elevd may ask for an administrator",
             ));
         }
-        let Some(txn) = message.txn else {
-            return Some(refusal(errno::EINVAL, "a prompt needs a reply"));
+        let Some(txn) = txn else {
+            return Err(refusal(errno::EINVAL, "a prompt needs a reply"));
         };
         if self.prompt.is_some() {
-            return Some(refusal(errno::EBUSY, "another prompt is open"));
+            return Err(refusal(errno::EBUSY, "another prompt is open"));
         }
-        let Ok(args) = wire::decode_prompt_args(&message.parcel.body) else {
-            return Some(refusal(errno::EINVAL, "malformed prompt"));
-        };
         // A field typed or named here is cut at `max`; the summary and the
         // error are bounded by `elevd` and wrapped with a visible `...`
         // when they do not fit (`prompt_draw.rs`). A control character never
@@ -157,7 +145,7 @@ impl Compositor {
         // it. Otherwise the request is refused and `elevd` refuses it too.
         if let Err(why) = self.take_prompt_keys() {
             trace::line!(trace::Channel::Xuid, "PROMPT:REFUSED reason={why}");
-            return Some(refusal(
+            return Err(refusal(
                 errno::EAGAIN,
                 "the keyboard could not be taken from the apps for the prompt",
             ));
@@ -197,7 +185,7 @@ impl Compositor {
         );
         self.sync_input_now();
         self.repaint_full();
-        None
+        Ok(())
     }
 
     /// The reply of a prompt that was answered, for the main loop to send.

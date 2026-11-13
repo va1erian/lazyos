@@ -99,7 +99,7 @@ The retained per-service health row (issue #307): `healthd` publishes
 one on `system/health/<name>`, and a late subscriber is handed the live
 row instead of polling `Status`.
 
-Payload `HealthRecord`, QoS `latest`, retained.
+Payload `HealthRecord`, QoS `buffered`, retained.
 
 Helpers: `HEALTH_PATTERN`, `health_topic(name)`, `on_health(name, handler)`, `subscribe_health(name)`, `publish_health(name, payload)`.
 

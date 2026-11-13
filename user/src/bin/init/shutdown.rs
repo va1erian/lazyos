@@ -26,11 +26,12 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
+use user::central;
 use user::trace;
 
 use svcpolicy::StopMode;
 use user::files;
-use user::messenger::{self, confd, mount, pkgd, registry, router, services};
+use user::messenger::{self, confd, mount, pkgd, registry, services};
 use user::sys::{self, Cred as SysCred};
 
 use super::service::{Phase, Service};
@@ -114,7 +115,7 @@ pub(super) struct Shutdown {
 pub(super) fn request(
     current: &mut Option<Shutdown>,
     services: &mut [Service],
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     args: &services::init::wire::ShutdownArgs,
     caller: &SysCred,
 ) -> messenger::Result<String> {
@@ -156,7 +157,7 @@ fn valid_reason(reason: &str) -> bool {
 /// Phase 1, the freeze.
 fn begin(
     services: &mut [Service],
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     args: &services::init::wire::ShutdownArgs,
     caller: &SysCred,
 ) -> Shutdown {
@@ -201,7 +202,7 @@ impl Shutdown {
     /// exits were reaped. A stage that completes enters the next one at once
     /// (the loop parks until an exit or [`Shutdown::next_deadline`] in
     /// between). Only returns once `power` is refused.
-    pub(super) fn step(&mut self, services: &mut [Service], broker: &mut router::TopicBroker) {
+    pub(super) fn step(&mut self, services: &mut [Service], broker: &mut central::Publisher) {
         loop {
             let (stage, entered) = (self.stage, self.entered);
             self.step_once(services, broker);
@@ -226,7 +227,7 @@ impl Shutdown {
             .min()
     }
 
-    fn step_once(&mut self, services: &mut [Service], broker: &mut router::TopicBroker) {
+    fn step_once(&mut self, services: &mut [Service], broker: &mut central::Publisher) {
         let now = sys::clock();
         if (self.force || now >= self.deadline)
             && matches!(self.stage, Stage::Apps | Stage::Services)
@@ -251,7 +252,7 @@ impl Shutdown {
 
     /// Phase 2: stop every launched app by the one rule (`Quit` or
     /// `SIGTERM`, killed after the 3 s grace), then wait for all to go.
-    fn step_apps(&mut self, services: &mut [Service], broker: &mut router::TopicBroker, now: u64) {
+    fn step_apps(&mut self, services: &mut [Service], broker: &mut central::Publisher, now: u64) {
         if !self.entered {
             self.entered = true;
             self.publish(broker, "apps");
@@ -284,7 +285,7 @@ impl Shutdown {
     fn step_services(
         &mut self,
         services: &mut [Service],
-        broker: &mut router::TopicBroker,
+        broker: &mut central::Publisher,
         now: u64,
     ) {
         if !self.entered {
@@ -318,7 +319,7 @@ impl Shutdown {
     }
 
     /// Ask one service to stop: its lifecycle message, or `SIGTERM`.
-    fn stop_service(&self, row: &mut Service, broker: &mut router::TopicBroker, now: u64) {
+    fn stop_service(&self, row: &mut Service, broker: &mut central::Publisher, now: u64) {
         let graceful = GRACEFUL
             .iter()
             .find(|(name, _)| *name == row.name)
@@ -336,7 +337,7 @@ impl Shutdown {
     }
 
     /// Phase 5 and 6: everything is reaped; hand over to the kernel.
-    fn power_off(&mut self, broker: &mut router::TopicBroker, now: u64) {
+    fn power_off(&mut self, broker: &mut central::Publisher, now: u64) {
         sys::write_str(&format!(
             "init: userspace quiesced (killed={})\nINIT:SHUTDOWN:QUIESCED killed={} ticks={}\n",
             self.killed,
@@ -357,7 +358,7 @@ impl Shutdown {
     }
 
     /// `SIGKILL` every row still holding a task and write the rows off.
-    fn kill_all(&mut self, services: &mut [Service], broker: &mut router::TopicBroker, now: u64) {
+    fn kill_all(&mut self, services: &mut [Service], broker: &mut central::Publisher, now: u64) {
         for row in services
             .iter_mut()
             .filter(|row| is_live(row) && !outlives(row))
@@ -373,7 +374,7 @@ impl Shutdown {
     }
 
     /// Publish the phase on `system/power/state` and log it.
-    fn publish(&self, broker: &mut router::TopicBroker, phase: &str) {
+    fn publish(&self, broker: &mut central::Publisher, phase: &str) {
         let state = services::PowerState {
             phase: String::from(phase),
             mode: self.mode,
@@ -387,7 +388,7 @@ impl Shutdown {
 
 /// Kill every `Stopping` row past its deadline; write off a killed one that
 /// was never reaped.
-fn expire(services: &mut [Service], broker: &mut router::TopicBroker, now: u64, killed: &mut u64) {
+fn expire(services: &mut [Service], broker: &mut central::Publisher, now: u64, killed: &mut u64) {
     for row in services.iter_mut() {
         if row.phase != Phase::Stopping || now < row.stop_deadline {
             continue;
@@ -406,7 +407,7 @@ fn expire(services: &mut [Service], broker: &mut router::TopicBroker, now: u64, 
 }
 
 /// Send `signal` and mark the row `Stopping` until `deadline`.
-fn ask_to_stop(row: &mut Service, broker: &mut router::TopicBroker, signal: u64, deadline: u64) {
+fn ask_to_stop(row: &mut Service, broker: &mut central::Publisher, signal: u64, deadline: u64) {
     match sys::kill(row.pid, signal) {
         // Already gone: its exit is queued for the supervision loop.
         Ok(()) | Err(-3) => {}
@@ -418,7 +419,7 @@ fn ask_to_stop(row: &mut Service, broker: &mut router::TopicBroker, signal: u64,
     mark_stopping(row, broker, deadline);
 }
 
-fn mark_stopping(row: &mut Service, broker: &mut router::TopicBroker, deadline: u64) {
+fn mark_stopping(row: &mut Service, broker: &mut central::Publisher, deadline: u64) {
     row.phase = Phase::Stopping;
     row.stop_deadline = deadline;
     publish_state(
@@ -433,7 +434,7 @@ fn mark_stopping(row: &mut Service, broker: &mut router::TopicBroker, deadline: 
 }
 
 /// A row whose task is gone (or given up on): `Stopped`, never restarted.
-fn retire(row: &mut Service, broker: &mut router::TopicBroker, detail: &str) {
+fn retire(row: &mut Service, broker: &mut central::Publisher, detail: &str) {
     row.phase = Phase::Stopped;
     row.pid = 0;
     publish_state(broker, row, "stopped", 0, row.restarts, 0, detail);

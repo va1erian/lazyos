@@ -12,15 +12,13 @@
 //! or broker only leaves the machine default in effect.
 
 use alloc::format;
-use alloc::vec::Vec;
 use user::trace;
 
 use inputmap::session_layout::{user_layout_key, USER_FILTER_PATH};
 use inputmap::Layout;
 use messenger_generated::topics;
 use user::central::Subscription;
-use user::messenger::confd::{wire, Client};
-use user::messenger::DEFAULT_BUFFER;
+use user::messenger::confd::{wire, Client, ValueClient};
 use user::sys;
 
 use super::themefeed::{drain, subscribe};
@@ -40,7 +38,6 @@ pub(super) struct LayoutFeed {
     wanted: Option<Layout>,
     next_poll: u64,
     next_retry: u64,
-    buffer: Vec<u8>,
 }
 
 impl LayoutFeed {
@@ -52,7 +49,6 @@ impl LayoutFeed {
             wanted: None,
             next_poll: 0,
             next_retry: 0,
-            buffer: alloc::vec![0u8; DEFAULT_BUFFER],
         }
     }
 
@@ -92,7 +88,7 @@ impl LayoutFeed {
             return;
         }
         self.next_poll = now + POLL_TICKS;
-        if drain(&mut self.watch, &mut self.buffer) {
+        if drain(&mut self.watch) {
             self.stale = true;
         }
         self.refresh(confd);
@@ -113,7 +109,7 @@ impl LayoutFeed {
         if self.stale {
             let read = confd
                 .zip(user_layout_key(uid))
-                .map(|(client, key)| client.get(&key));
+                .map(|(client, key)| client.get_value(&key));
             // A failing `confd` keeps the layout already in effect.
             if let Some(Ok(value)) = read {
                 self.stale = false;
@@ -147,5 +143,5 @@ fn subscribe_user(uid: u32) -> Option<Subscription> {
         topics::Mode::Subscribe,
     )
     .ok()?;
-    subscribe(filter, sys::clock())
+    subscribe(filter)
 }

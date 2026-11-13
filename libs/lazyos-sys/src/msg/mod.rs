@@ -192,8 +192,20 @@ pub fn recv_from(handle: u64, buf: &mut [u8], deadline: u64) -> Result<(MsgResul
 /// encoded registry parcel `request`, on behalf of `target`
 /// ([`REGISTRY_TARGET_SELF`] for this task).
 pub fn registry(op: u64, target: u64, request: &[u8]) -> Result<MsgResult, i64> {
+    registry_until(op, target, request, 0)
+}
+
+/// [`registry`] for an op that may park ([`op::WAIT_FOR`]): `deadline` is the
+/// absolute PIT tick it ends at, `0` for ever.
+pub fn registry_until(
+    op: u64,
+    target: u64,
+    request: &[u8],
+    deadline: u64,
+) -> Result<MsgResult, i64> {
     let args = MsgArgs {
         txn_id: target,
+        deadline,
         ..with_buffers(request, &mut [])
     };
     transfer(op, args, 0)
@@ -304,6 +316,19 @@ pub fn call_begin(handle: u64, request: &[u8], deadline: u64) -> Result<u64, i64
     };
     let result = transfer(op::CALL_BEGIN, args, 0)?;
     Ok(result.value)
+}
+
+/// Wait for the [`call_begin`] transaction `txn` and copy its reply into
+/// `buf` ([`op::CALL_AWAIT`]); the reply's length. With [`call_begin`] this
+/// is [`call`] in two halves, so a failure of the first (the request was
+/// never queued) can be told from one of the second (the peer had it).
+pub fn call_await(txn: u64, buf: &mut [u8]) -> Result<usize, i64> {
+    let len = buf.len();
+    let args = MsgArgs {
+        txn_id: txn,
+        ..with_buffers(&[], buf)
+    };
+    Ok(transfer(op::CALL_AWAIT, args, len)?.bytes as usize)
 }
 
 /// A terminal transaction's reply or failure **now**, without the park

@@ -187,9 +187,7 @@ fn write(file: Option<PathBuf>, sites: &[Site]) -> io::Result<()> {
         .iter()
         .map(|site| format!("{}\t{}\t{}\n", site.origin, site.decision.word(), site.time))
         .collect();
-    let tmp = file.with_extension("tmp");
-    fs::write(&tmp, text)?;
-    fs::rename(&tmp, &file)
+    atomicfile::write(&file, text.as_bytes())
 }
 
 fn parse(line: &str) -> Option<Site> {

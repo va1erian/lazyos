@@ -16,7 +16,10 @@ extern crate alloc;
 
 use alloc::format;
 use core::panic::PanicInfo;
-use user::messenger::{self, services, Error};
+use libmessenger::client::Deadline;
+use user::messenger::client::Native;
+use user::messenger::services::health::Client as HealthClient;
+use user::messenger::{self, Error};
 use user::sys;
 
 /// PIT ticks the first attempt stays up before crashing (100 Hz).
@@ -61,15 +64,15 @@ fn parse_attempt(args: &str) -> u64 {
 
 /// Publish `health/flaky` to `healthd`, retrying while it is still coming up.
 fn report_healthy(attempt: u64) {
-    let Ok(endpoint) = services::resolve_service(services::HEALTHD_NAME) else {
+    let Ok(healthd) = HealthClient::try_connect(Native) else {
         return;
     };
     let detail = format!("crash test recovered after attempt {attempt}");
-    let Ok(request) = services::health_report_request("flaky", "ok", &detail) else {
-        return;
-    };
     for _ in 0..5u32 {
-        if endpoint.call(&request, Some(sys::clock() + 10)).is_ok() {
+        if healthd
+            .report_within("flaky", "ok", &detail, Deadline::ticks(10))
+            .is_ok()
+        {
             sys::write_str("flaky: reported healthy to healthd\n");
             return;
         }

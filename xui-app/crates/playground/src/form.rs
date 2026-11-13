@@ -12,7 +12,7 @@ use rhai_lazy::msg::schema::{Field, Interface, Method, Topic, Ty};
 
 use crate::form_parse::{format_hex, int_literal, int_range, parse_float, parse_hex, parse_int};
 use crate::show;
-use crate::util::{rhai_str, ty_label, Iface};
+use crate::util::{rhai_str, Iface};
 
 /// Structs nest at most this deep in a form before a field is disabled.
 const MAX_DEPTH: u8 = 8;
@@ -75,10 +75,6 @@ pub struct FormField {
 }
 
 impl FormField {
-    /// The type as the IDL spells it, for the label.
-    pub fn type_label(&self) -> String {
-        ty_label(self.ty)
-    }
 }
 
 /// A form value that cannot be sent, and where.

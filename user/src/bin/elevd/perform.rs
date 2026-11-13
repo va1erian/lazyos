@@ -10,16 +10,22 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use elevpolicy::{value_args, Operation, Value, WifiChange, NET_PREFIX, POWER_PREFIX};
-use user::messenger::{accounts, confd, errno, keyd, pkgd, services, timed};
-use user::sys;
+use libmessenger::client::{CallError, Deadline};
+use user::messenger::client::Native;
+use user::messenger::confd::ValueClient;
+use user::messenger::services::init::Client as InitClient;
+use user::messenger::{confd, errno, keyd, pkgd, timed};
 
 use super::package::Approved;
-use super::{accounts_endpoint, Refusal};
+use super::{accounts_client, Refusal};
 
 /// How long a configuration call may take (PIT ticks).
 const CONFD_TICKS: u64 = 300;
+/// [`CONFD_TICKS`] as a call bound.
+const CONFD_BOUND: Deadline = Deadline::ticks(CONFD_TICKS);
 /// How long an account change may take: Argon2id and a home under TCG.
 const ACCOUNT_TICKS: u64 = 9000;
+const ACCOUNT_BOUND: Deadline = Deadline::ticks(ACCOUNT_TICKS);
 /// Most keys `conf.list` returns.
 const MAX_KEYS: usize = 512;
 
@@ -45,29 +51,35 @@ pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done
             // `pkg.install-devtool` led with the developer-tool warning, and
             // `pkgd` installs a tool from no other.
             let devtool = matches!(op, Operation::PkgInstallDevtool { .. });
-            let client = pkgd::Client::connect().map_err(Refusal::of)?;
+            let client = pkgd::Client::connect(Native).map_err(Refusal::of_call)?;
             let app = client
                 .install_approved(&approved.path, &approved.digest, approved.core, devtool)
-                .map_err(|failure| Refusal(failure.code, failure.text))?;
+                .map_err(Refusal::of_call)?;
             done(format!("Installed {} {}", app.system_name, app.version))
         }
         Operation::PkgRemove { system_name } => {
-            let client = pkgd::Client::connect().map_err(Refusal::of)?;
+            let client = pkgd::Client::connect(Native).map_err(Refusal::of_call)?;
             client
-                .remove(system_name)
-                .map_err(|failure| Refusal(failure.code, failure.text))?;
+                .remove_within(system_name, Deadline::Never)
+                .map_err(Refusal::of_call)?;
             done(format!("Removed {system_name}"))
         }
         Operation::ConfSet { path, value } => {
-            conf()?.set(path, value).map_err(Refusal::of)?;
+            conf()?
+                .set_value_within(path, value, CONFD_BOUND)
+                .map_err(confd_refusal)?;
             done(format!("Set {path}"))
         }
         Operation::ConfDelete { path } => {
-            conf()?.delete(path).map_err(Refusal::of)?;
+            conf()?
+                .delete_within(path, CONFD_BOUND)
+                .map_err(confd_refusal)?;
             done(format!("Deleted {path}"))
         }
         Operation::ConfGet { path } => {
-            let value = conf()?.get(path).map_err(Refusal::of)?;
+            let value = conf()?
+                .get_value_within(path, CONFD_BOUND)
+                .map_err(confd_refusal)?;
             let values = match value {
                 Some(value) => {
                     let (kind, text) = value_args(&value);
@@ -78,14 +90,16 @@ pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done
             Ok((format!("Read {path}"), values))
         }
         Operation::ConfList { prefix } => {
-            let mut paths = conf()?.list(prefix).map_err(Refusal::of)?;
+            let mut paths = conf()?
+                .list_within(prefix, CONFD_BOUND)
+                .map_err(confd_refusal)?;
             paths.truncate(MAX_KEYS);
             Ok((format!("{} keys", paths.len()), paths))
         }
         Operation::ConfElevate => done(String::from("Settings elevated")),
         Operation::TimeSet { unix } => {
-            let client = timed::Client::connect().map_err(Refusal::of)?;
-            client.set_time(*unix).map_err(Refusal::of)?;
+            let client = timed::Client::connect(Native).map_err(Refusal::of_call)?;
+            client.set_time(*unix).map_err(Refusal::of_call)?;
             done(String::from("Clock set"))
         }
         Operation::AccountCreate {
@@ -93,32 +107,38 @@ pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done
             secret,
             admin,
         } => {
-            let endpoint = accounts_endpoint().map_err(Refusal::of)?;
-            let user = accounts::create(&endpoint, name, secret, *admin, deadline())
-                .map_err(Refusal::of)?;
+            let user = accounts_client()
+                .map_err(Refusal::of_call)?
+                .create_within(name, secret, *admin, ACCOUNT_BOUND)
+                .map_err(Refusal::of_call)?;
             done(format!("Created {} (uid {})", user.name, user.uid))
         }
         Operation::AccountDelete { name, home } => {
-            let endpoint = accounts_endpoint().map_err(Refusal::of)?;
-            accounts::delete(&endpoint, name, home.word(), deadline()).map_err(Refusal::of)?;
+            accounts_client()
+                .map_err(Refusal::of_call)?
+                .delete_within(name, home.word(), ACCOUNT_BOUND)
+                .map_err(Refusal::of_call)?;
             done(format!("Deleted {name}"))
         }
         Operation::AccountAdmin { name, admin } => {
-            let endpoint = accounts_endpoint().map_err(Refusal::of)?;
-            accounts::set_admin(&endpoint, name, *admin, deadline()).map_err(Refusal::of)?;
+            accounts_client()
+                .map_err(Refusal::of_call)?
+                .set_admin_within(name, *admin, ACCOUNT_BOUND)
+                .map_err(Refusal::of_call)?;
             done(format!("Changed {name}"))
         }
         Operation::AccountPassword { name, secret } => {
-            let endpoint = accounts_endpoint().map_err(Refusal::of)?;
-            accounts::set_password(&endpoint, name, None, secret, deadline())
-                .map_err(Refusal::of)?;
+            accounts_client()
+                .map_err(Refusal::of_call)?
+                .set_password_within(name, None, secret, ACCOUNT_BOUND)
+                .map_err(Refusal::of_call)?;
             done(format!("Password of {name} set"))
         }
         Operation::PowerPolicy { key, value } => {
             let path = format!("{POWER_PREFIX}{key}");
             conf()?
-                .set(&path, &Value::Str(value.clone()))
-                .map_err(Refusal::of)?;
+                .set_value_within(&path, &Value::Str(value.clone()), CONFD_BOUND)
+                .map_err(confd_refusal)?;
             done(format!("Set {path}"))
         }
         Operation::NetConfig {
@@ -131,27 +151,28 @@ pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done
             done(format!("Configured {card}"))
         }
         Operation::ServiceRestart { name } => {
-            let init = services::resolve_service(services::INIT_NAME).map_err(Refusal::of)?;
-            let pid =
-                services::init::restart_service(&init, name, Some(sys::clock() + CONFD_TICKS))
-                    .map_err(Refusal::of)?;
+            let pid = InitClient::try_connect(Native)
+                .and_then(|init| init.restart_service_within(name, CONFD_BOUND))
+                .map_err(Refusal::of_call)?;
             done(format!("Restarted {name} (was pid {pid})"))
         }
         Operation::WifiSystem(change) => {
             // `keyd` takes a `system` secret from `elevd`'s identity alone,
             // so this call is what the approval bought. The detail names the
             // secret, never what it holds.
-            let client = keyd::Client::connect()
+            let client = keyd::Client::try_connect(Native)
                 .map_err(|_| Refusal::new(errno::ENOENT, "the key service is not running"))?;
             match change {
                 WifiChange::Store { name, passphrase } => {
                     client
                         .store_secret("system", name, passphrase.as_bytes())
-                        .map_err(Refusal::of)?;
+                        .map_err(Refusal::of_call)?;
                     done(format!("Saved the Wi-Fi password {name}"))
                 }
                 WifiChange::Delete { name } => {
-                    client.delete_secret("system", name).map_err(Refusal::of)?;
+                    client
+                        .delete_secret("system", name)
+                        .map_err(Refusal::of_call)?;
                     done(format!("Deleted the Wi-Fi password {name}"))
                 }
             }
@@ -167,8 +188,8 @@ fn net_config(card: &str, address: &str, gateway: &str, dns: &str) -> Result<(),
     let key = |name: &str| format!("{NET_PREFIX}{card}/{name}");
     let set = |name: &str, value: &str| {
         client
-            .set(&key(name), &Value::Str(value.to_string()))
-            .map_err(Refusal::of)
+            .set_value_within(&key(name), &Value::Str(value.to_string()), CONFD_BOUND)
+            .map_err(confd_refusal)
     };
     if address.is_empty() {
         return set("mode", "dhcp");
@@ -177,10 +198,10 @@ fn net_config(card: &str, address: &str, gateway: &str, dns: &str) -> Result<(),
     for (name, value) in [("gateway", gateway), ("dns", dns)] {
         if !value.is_empty() {
             set(name, value)?;
-        } else if let Err(error) = client.delete(&key(name)) {
+        } else if let Err(error) = client.delete_within(&key(name), CONFD_BOUND) {
             // Clearing a value that was never set is fine.
-            if error.errno() != Some(-errno::ENOENT) {
-                return Err(Refusal::of(error));
+            if error != CallError::Service(confd::StoreError::NotFound) {
+                return Err(confd_refusal(error));
             }
         }
     }
@@ -191,13 +212,12 @@ fn done(detail: String) -> Result<Done, Refusal> {
     Ok((detail, Vec::new()))
 }
 
-fn deadline() -> Option<u64> {
-    Some(sys::clock() + ACCOUNT_TICKS)
+/// A `confd` client; each call is bounded by [`CONFD_BOUND`].
+fn conf() -> Result<confd::Client, Refusal> {
+    confd::connect().map_err(|_| Refusal::new(errno::ENOENT, "the settings service is not running"))
 }
 
-/// A bounded `confd` client.
-fn conf() -> Result<confd::Client, Refusal> {
-    confd::Client::connect()
-        .map(|client| client.with_timeout(CONFD_TICKS))
-        .map_err(|_| Refusal::new(errno::ENOENT, "the settings service is not running"))
+/// A store failure as the refusal the asker gets.
+fn confd_refusal(error: confd::ClientError) -> Refusal {
+    Refusal::of_call(confd::flatten(error))
 }

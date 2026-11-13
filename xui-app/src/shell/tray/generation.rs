@@ -8,33 +8,34 @@
 //! restart, and each item set in the next [`RESTORE_TICKS`] is reported as
 //! `SHELL:TRAY:RESTORED n=<items>`.
 
-use messenger_generated::os_lazy_messenger_topics_v1 as topics;
+use crate::trace::{self, Channel};
 use messenger_generated::os_lazy_shell_tray_v1 as wire;
 
 use super::super::ctx::Ctx;
 use super::TrayState;
-use crate::platform::topic_feed::TopicFeed;
+use crate::fabric::{pull, Feed, Watch};
 use crate::platform::topics::Broker;
 use crate::sys;
 
-/// How long the shell waits for the previous generation's retained value.
-const READ_TICKS: u64 = 50;
 /// How long after a restart a `Set` counts as an item coming back (30 s).
 const RESTORE_TICKS: u64 = 3000;
 
 /// This shell's generation.
 pub struct Generation {
     session: Option<u64>,
-    feed: Option<TopicFeed>,
+    /// Follows the session's tray topic from the shell's start, so the value a
+    /// previous shell left is queued (the hub drains it) by the
+    /// time the service serves; nothing here waits for it.
+    feed: Option<Feed<wire::Generation>>,
     /// When restored items are still being reported (a PIT tick).
     restore_until: Option<u64>,
 }
 
 impl Generation {
     pub fn new(session: Option<u64>) -> Generation {
-        let feed = session
-            .and_then(|session| wire::name_session_shell_tray(&session.to_string()).ok())
-            .map(|topic| TopicFeed::new(topic, topics::QOS_LATEST, 1, u64::MAX));
+        let feed = session.and_then(|session| {
+            wire::subscribe_session_shell_tray(&mut Watch, &session.to_string()).ok()
+        });
         Generation {
             session,
             feed,
@@ -54,14 +55,11 @@ impl Generation {
         let Some(session) = self.session else {
             return;
         };
-        let previous = self
-            .feed
-            .as_mut()
-            .map(|feed| feed.poll_waiting(READ_TICKS))
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|event| wire::decode_session_shell_tray(&event.payload).ok())
-            .next_back();
+        // Only the newest value matters: the topic is a state, not a log.
+        let mut previous = None;
+        if let Some(stream) = self.feed.as_mut() {
+            pull(stream, |event| previous = Some(event.value));
+        }
         let now = sys::clock_ticks();
         let generation = previous
             .as_ref()
@@ -71,8 +69,9 @@ impl Generation {
         }
         let value = wire::Generation { generation };
         match wire::publish_session_shell_tray(&mut Broker::new(), &session.to_string(), &value) {
-            Ok(_) => println!(
-                "SHELL:TRAY:GENERATION n={generation} restart={}",
+            Ok(_) => trace::line!(
+                Channel::Shell,
+                "TRAY:GENERATION n={generation} restart={}",
                 previous.is_some()
             ),
             Err(error) => ctx.note("tray-generation", || {
@@ -94,7 +93,7 @@ impl Generation {
                 .iter()
                 .filter(|entry| entry.custom.is_some())
                 .count();
-            println!("SHELL:TRAY:RESTORED n={count}");
+            trace::line!(Channel::Shell, "TRAY:RESTORED n={count}");
         }
     }
 }

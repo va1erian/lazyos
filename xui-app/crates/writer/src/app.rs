@@ -21,9 +21,11 @@ use xui_rich_text::edit::Command;
 use xui_rich_text::model::{Align, ListKind, StyleSummary};
 
 use crate::commands::{self, files};
-use crate::host::Host;
+use crate::services::Services;
 use crate::ui::Tools;
 use crate::ui::print_bar::PrintBar;
+use xui_host::SharedHost;
+use xui_host::error::ErrorDialog;
 
 /// A character attribute the B / I / U / S buttons toggle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -127,7 +129,7 @@ pub struct Dialogs {
     /// The link address prompt.
     pub link: Dialog<Msg>,
     /// An error message.
-    pub message: Dialog<Msg>,
+    pub message: ErrorDialog<Msg>,
     /// The Page setup menu: paper, orientation, margins.
     pub page: Menu<Msg>,
     /// The Table menu: insert a table, edit rows and columns, switches.
@@ -143,7 +145,8 @@ pub struct Writer {
     pub print_bar: PrintBar,
     /// The job being printed, if any.
     pub printing: Option<commands::print::Session>,
-    pub host: Host,
+    pub host: SharedHost,
+    pub services: Services,
     /// The file the document was opened from or saved to, if any.
     pub path: Option<PathBuf>,
     /// Whether the document changed since it was opened, saved or created.
@@ -159,11 +162,6 @@ pub struct Writer {
 }
 
 impl Writer {
-    /// Whether the document has unsaved changes.
-    pub fn is_modified(&self) -> bool {
-        self.dirty
-    }
-
     /// The file the document belongs to.
     pub fn path(&self) -> Option<&std::path::Path> {
         self.path.as_deref()

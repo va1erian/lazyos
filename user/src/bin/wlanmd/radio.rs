@@ -8,8 +8,10 @@ use alloc::vec;
 use alloc::vec::Vec;
 use user::trace;
 
+use libmessenger::client::{CallError, Errno};
 use user::central::Bus;
-use user::messenger::wifi::{api, hw, Radio};
+use user::messenger::client::call_error;
+use user::messenger::wifi::{self, api, hw, Radio};
 use user::messenger::{self, errno, Endpoint, Error, Message};
 use user::sys;
 use wlansta::profile::WORLD;
@@ -17,9 +19,7 @@ use wlansta::{Action, Event, FrameKind, HwOp, ScanEntry, Station, Status, Viewer
 
 use crate::store::Store;
 
-/// Ticks one radio call may take before the driver is considered wedged.
-const CALL_TICKS: u64 = 300;
-/// Room for one `ScanResults` page.
+/// Room for the events read off the channel.
 const SCAN_BUFFER: usize = 64 * 1024;
 /// Events read from one radio per wake, so one chatty radio cannot starve
 /// the service.
@@ -54,26 +54,18 @@ impl Slot {
     /// Resolve the radio `ifname`, read its address, attach with a fresh
     /// event channel and set the regulatory domain (the world domain when
     /// the radio refuses `country`; no attach when it refuses that too).
-    pub fn attach(ifname: &str, country: &str, nonce: fn() -> [u8; 32]) -> messenger::Result<Slot> {
-        let radio = Radio::connect(ifname, CALL_TICKS)?;
-        let mac: [u8; 6] = match radio.info() {
-            Ok(info) => match info.mac.as_slice().try_into() {
-                Ok(mac) => mac,
-                Err(_) => {
-                    radio.release();
-                    return Err(Error::Errno(-errno::EINVAL));
-                }
-            },
-            Err(error) => {
-                radio.release();
-                return Err(error);
-            }
-        };
-        let (mine, theirs) = messenger::create_pair()?;
-        if let Err(error) = radio.attach(theirs) {
+    pub fn attach(ifname: &str, country: &str, nonce: fn() -> [u8; 32]) -> Result<Slot, CallError> {
+        let radio = wifi::connect_radio(ifname)?;
+        let mac: [u8; 6] = radio
+            .info()?
+            .mac
+            .as_slice()
+            .try_into()
+            .map_err(|_| CallError::Transport(Errno::INVAL))?;
+        let (mine, theirs) = messenger::create_pair().map_err(call_error)?;
+        if let Err(error) = radio.attach(theirs.handle()) {
             let _ = mine.close();
             let _ = theirs.close();
-            radio.release();
             return Err(error);
         }
         let country = match set_country(&radio, ifname, country) {
@@ -81,7 +73,6 @@ impl Slot {
             Err(error) => {
                 let _ = radio.detach();
                 let _ = mine.close();
-                radio.release();
                 return Err(error);
             }
         };
@@ -103,7 +94,7 @@ impl Slot {
 
     /// Give the radio a new regulatory domain (the world domain if it
     /// refuses that one). `Err` when it takes neither: the caller drops it.
-    pub fn apply_country(&mut self, country: &str) -> messenger::Result<()> {
+    pub fn apply_country(&mut self, country: &str) -> Result<(), CallError> {
         self.country = set_country(&self.radio, &self.ifname, country)?;
         Ok(())
     }
@@ -113,7 +104,6 @@ impl Slot {
         let _ = self.radio.leave(u32::from(wlansta::reason::LEAVING));
         let _ = self.radio.detach();
         let _ = self.events.close();
-        self.radio.release();
     }
 
     /// Run `actions` in order; a radio call that fails stops the batch and is
@@ -143,10 +133,10 @@ impl Slot {
     }
 
     fn run(&mut self, store: &mut Store, action: Action) -> Result<Feedback, (HwOp, i64)> {
-        let fail = |op: HwOp| move |error: Error| (op, error.errno().unwrap_or(-errno::EIO));
+        let fail = |op: HwOp| move |error: CallError| (op, error.code());
         match action {
             Action::Scan { ssids } => {
-                let scan_id = self.radio.scan(ssids).map_err(fail(HwOp::Scan))?;
+                let scan_id = wifi::scan_all(&self.radio, ssids).map_err(fail(HwOp::Scan))?;
                 Ok(Feedback::Event(Event::ScanStarted { scan_id }))
             }
             Action::AbortScan { scan_id } => {
@@ -160,14 +150,12 @@ impl Slot {
                 channel,
                 band,
             } => {
-                self.radio
-                    .join(bssid, channel, band as u32)
-                    .map_err(fail(HwOp::Join))?;
+                wifi::join(&self.radio, bssid, channel, band as u32).map_err(fail(HwOp::Join))?;
                 Ok(Feedback::None)
             }
             Action::Tx { kind, frame } => {
                 self.radio
-                    .tx_mgmt(kind as u32, frame)
+                    .tx_mgmt(kind as u32, &frame)
                     .map_err(fail(HwOp::Tx))?;
                 Ok(Feedback::None)
             }
@@ -184,9 +172,15 @@ impl Slot {
                 rsc,
                 addr,
             } => {
-                self.radio
-                    .set_key(kind as u32, u32::from(index), key.expose(), &rsc, &addr)
-                    .map_err(fail(HwOp::SetKey))?;
+                wifi::set_key(
+                    &self.radio,
+                    kind as u32,
+                    u32::from(index),
+                    key.expose(),
+                    &rsc,
+                    &addr,
+                )
+                .map_err(fail(HwOp::SetKey))?;
                 Ok(Feedback::None)
             }
             Action::Leave { reason } => {
@@ -214,7 +208,7 @@ impl Slot {
         for _ in 0..EVENTS_PER_WAKE {
             match self.events.poll_recv_with(&mut buffer) {
                 Ok(Some(message)) => {
-                    if let Some(event) = self.event_of(&message, &mut buffer) {
+                    if let Some(event) = self.event_of(&message) {
                         let actions = self.station.input(crate::now_ms(), event);
                         self.buffer = core::mem::take(&mut buffer);
                         self.execute(store, actions);
@@ -234,7 +228,7 @@ impl Slot {
     }
 
     /// Decode one driver event; anything else on the channel is ignored.
-    fn event_of(&mut self, message: &Message, buffer: &mut [u8]) -> Option<Event> {
+    fn event_of(&mut self, message: &Message) -> Option<Event> {
         let cred = message.caller();
         let driver = netpolicy::may_register_wifi_hw_name(cred.uid, cred.label_id, cred.session);
         if !driver || message.interface_id() != hw::INTERFACE_ID {
@@ -244,7 +238,7 @@ impl Slot {
         match message.method() {
             hw::METHOD_SCANDONE => {
                 let args = hw::decode_scan_done_args(body).ok()?;
-                let entries = match self.radio.scan_results(args.scan_id, buffer) {
+                let entries = match wifi::scan_results(&self.radio, args.scan_id) {
                     Ok(entries) => entries.into_iter().map(entry).collect(),
                     Err(_) => Vec::new(),
                 };
@@ -335,7 +329,7 @@ fn entry(e: hw::ScanEntry) -> ScanEntry {
 }
 
 /// Set `country` on `radio`, else the world domain; the code it took.
-fn set_country(radio: &Radio, ifname: &str, country: &str) -> messenger::Result<String> {
+fn set_country(radio: &Radio, ifname: &str, country: &str) -> Result<String, CallError> {
     match radio.set_country(country) {
         Ok(()) => return Ok(String::from(country)),
         Err(error) => trace::line!(

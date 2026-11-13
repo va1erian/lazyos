@@ -91,6 +91,12 @@ members = [
     # LazyWeb's ad blocker core (docs/lazyweb.md, issue #845): filter lists to
     # WebKit content-rule lists; portable and host-tested.
     "crates/adblock",
+    # Worker threads that answer a window with messages (docs/client-api-plan.md 4.3).
+    "crates/work",
+    # `xui-host`: the platform seam of the portable app crates (docs/client-api-plan.md 4.2).
+    "crates/host",
+    # `atomicfile`: the one atomic write (temp file, sync, rename, directory sync) the apps share.
+    "crates/atomicfile",
 ]
 
 [dependencies]
@@ -117,7 +123,7 @@ libmessenger = { path = "../libs/messenger" }
 messenger-generated = { path = "../libs/generated" }
 # Every native syscall (`int 0x80`): numbers, ABI blocks, typed wrappers and
 # the parcel-level Messenger helpers, shared with the native runtime (#666).
-lazyos-sys = { path = "../libs/lazyos-sys", features = ["std", "parcel", "devinspect"] }
+lazyos-sys = { path = "../libs/lazyos-sys", features = ["std", "parcel", "client", "devinspect"] }
 # The audio API (`os.lazy.audio.v1` calls and `PlaybackStream`); the
 # platform layer supplies its musl transport (`platform::audio`).
 audioclient = { path = "../libs/audioclient" }
@@ -175,6 +181,11 @@ printd = { path = "crates/printd" }
 xui-explorer = { path = "crates/explorer", features = ["village-icons"] }
 # The Archiver (docs/archiver-plan.md): its app core and format library.
 xui-archiver = { path = "crates/archiver" }
+xui-work = { path = "crates/work" }
+# The platform seam of the portable app crates, implemented by `AppContext`.
+xui-host = { path = "crates/host" }
+serde = "1"
+atomicfile = { path = "crates/atomicfile" }
 # The PDF Viewer (docs/pdf-reader-plan.md): its window over `lazypdf`.
 xui-pdfview = { path = "crates/pdfview" }
 # The Video Player (docs/video-player-plan.md): its window over `lazyvideo`.

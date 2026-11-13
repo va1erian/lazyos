@@ -466,8 +466,8 @@ The client side of the light interface and its proof; the program, package and `
   and loads the last page again (the client keeps its `LoadHtml` bytes, section 8). Host tests run it against
   `xui-webd`'s `MemFabric` and `RecordingEngine` (`tests/view.rs`, `failures.rs`, `demo.rs`).
 * **Binding.** `xui_app::platform::webd::WebdTransport` implements `Transport` over Messenger exactly as
-  `xui_app::tray` does for `trayclient`: `Service::try_connect("app.os.lazy.webd.light")` (never waits: an app that
-  starts before webd retries), bounded `call_moving_within` (200 ticks), a new `Service::send_oneway`, the event
+  `xui_app::tray` does for `trayclient`: a `Connection` named `app.os.lazy.webd.light`, resolved with `try_connect`
+  (never waits: an app that starts before webd retries), bounded `Connection::call` (200 ticks), `Connection::send`, the event
   channel read with the channel counters first, slots and HTML in `buffer_create` pages.
 * **`webddemo`** (`os.lazy.webddemo`): the demo client. Its logic is `xui_webd_client::demo::Demo` (host-tested);
   the bin only paints the picture, forwards input and prints the markers: `WEBDDEMO:UP:PASS`, `VIEW:PASS id=<n>`,

@@ -232,7 +232,7 @@ pub static MODULES: &[ApiModule] = &[
         alias: "messenger_topics",
         interface: "os.lazy.messenger.topics.v1",
         source: include_str!("messenger_topics.rhai"),
-        topics: &[],
+        topics: &[ApiTopic { helper: "demo_waitany", pattern: "demo/waitany" }, ApiTopic { helper: "depth", pattern: "topics/depth" }, ApiTopic { helper: "selftest_forbidden", pattern: "system/events/selftest/forbidden" }],
     },
     ApiModule {
         alias: "messenger_topics_bell",

@@ -31,6 +31,26 @@ typed reply; a package that fails validation reports every problem in
 | InstallApproved | 1599511615 | sync | `(path: String, digest: String, core: Bool, devtool: Bool) -> (app: Installed)` |
 | InstallDebug | 1850060999 | sync | `(path: String, digest: String) -> (app: Installed)` |
 
+## Service
+
+- Served under the registry name `os.lazy.pkgd`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Inspect | this interface | - | 12000 ms | safe |
+| Install | this interface | - | 120000 ms | never |
+| Remove | this interface | - | 12000 ms | never |
+| List | this interface | - | 12000 ms | safe |
+| Installed | this interface | - | 12000 ms | safe |
+| LabelName | this interface | - | 5000 ms | safe |
+| Provisioned | this interface | - | 5000 ms | safe |
+| Develop | this interface | - | 12000 ms | never |
+| DevelopDeclined | this interface | - | 12000 ms | never |
+| InstallApproved | this interface | - | never | never |
+| InstallDebug | this interface | - | never | never |
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

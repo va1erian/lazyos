@@ -5,20 +5,20 @@
 use alloc::format;
 use alloc::string::String;
 
-use audioclient::{Error, Params, PlaybackStream};
-use user::audio::{self, Native};
+use core::fmt::Display;
+
+use audioclient::Params;
+use user::audio::{self, PlaybackStream};
 
 const RATE_HZ: u32 = 48000;
 const CHANNELS: u32 = 2;
 const PERIOD_BYTES: u32 = 8192;
-/// Ticks (100 Hz) to wait for the mixer to register.
-const CONNECT_TICKS: u64 = 500;
 
 pub struct Sink {
-    stream: PlaybackStream<Native>,
+    stream: PlaybackStream,
 }
 
-fn fail(what: &str) -> impl Fn(Error) -> String + '_ {
+fn fail<E: Display>(what: &str) -> impl Fn(E) -> String + '_ {
     move |error| format!("{what}: {error}")
 }
 
@@ -27,10 +27,10 @@ impl Sink {
     /// stream. The mixer snaps parameters it cannot do; this fails unless it
     /// grants stereo.
     pub fn open() -> Result<Sink, String> {
-        let native = audio::connect_wait(audio::NAME, CONNECT_TICKS)
+        let native = audio::connect_wait(audio::NAME)
             .map_err(|error| format!("no audio service: {error}"))?;
         let params = Params::new(RATE_HZ, CHANNELS).period_bytes(PERIOD_BYTES);
-        let stream = PlaybackStream::open(native, params).map_err(fail("open"))?;
+        let stream = audio::open(native, params).map_err(fail("open"))?;
         if stream.channels() != CHANNELS {
             return Err(String::from("mixer did not grant stereo"));
         }

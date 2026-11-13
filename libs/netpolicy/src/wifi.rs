@@ -17,9 +17,10 @@
 use crate::{WIFISIM_UID, WIFI_UID, WLAN_UID};
 
 /// The registry namespace of the radios: `os.lazy.net.wifi.hw/<ifname>`.
-pub const WIFI_HW_NAME_PREFIX: &str = "os.lazy.net.wifi.hw";
+pub const WIFI_HW_NAME_PREFIX: &str =
+    crate::namespace(messenger_generated::os_lazy_net_wifi_hw_v1::SERVICE_INSTANCE_PREFIX);
 /// The station manager's registry name.
-pub const WIFI_SERVICE_NAME: &str = "os.lazy.net.wifi";
+pub const WIFI_SERVICE_NAME: &str = messenger_generated::os_lazy_net_wifi_v1::SERVICE_NAME;
 
 /// `name` is `prefix` or lies under `prefix/`.
 fn in_namespace(name: &str, prefix: &str) -> bool {
@@ -74,13 +75,11 @@ pub fn may_attach_wifi_hw(uid: u32, label_id: u32, session: u64) -> bool {
 /// Whether `topic` is one `wlanmd` publishes: an interface's retained
 /// `system/net/<if>/wifi/state` or its `system/net/<if>/wifi/scan`.
 pub fn is_wifi_topic(topic: &str) -> bool {
-    let Some(rest) = topic.strip_prefix("system/net/") else {
-        return false;
+    use messenger_generated::os_lazy_net_wifi_v1::{
+        TOPIC_SYSTEM_NET_WIFI_SCAN, TOPIC_SYSTEM_NET_WIFI_STATE,
     };
-    let ifname = rest
-        .strip_suffix("/wifi/state")
-        .or_else(|| rest.strip_suffix("/wifi/scan"));
-    ifname.is_some_and(|name| !name.is_empty() && !name.contains('/'))
+    crate::declared_topic(TOPIC_SYSTEM_NET_WIFI_STATE, topic)
+        || crate::declared_topic(TOPIC_SYSTEM_NET_WIFI_SCAN, topic)
 }
 
 #[cfg(test)]

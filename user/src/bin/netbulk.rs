@@ -69,7 +69,7 @@ fn mismatch(got: &[u8], at: u64, seed: u64) -> Option<u64> {
     None
 }
 
-fn err(what: &str) -> impl Fn(user::messenger::Error) -> String + '_ {
+fn err(what: &str) -> impl Fn(libmessenger::client::CallError) -> String + '_ {
     move |e| format!("{what}: {}", e.message())
 }
 

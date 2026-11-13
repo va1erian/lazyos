@@ -4,15 +4,13 @@
 //! them. Parsing and validation are `lazyterm::settings` (host-tested).
 
 use lazyterm::settings::{Settings, Value, KEYS};
+use messenger_generated::os_lazy_confd_v1 as confd_wire;
+use xui_app::context::user_key;
+use xui_app::fabric::{pull, Feed, Watch};
 use xui_app::platform::confd_store::ConfdStore;
-use xui_app::platform::messenger::Service;
-use xui_app::platform::topic_feed::TopicFeed;
-use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 use xui_app::sys;
 use xui_settings::store::{ConfigStore, Value as StoreValue};
 
-/// Ticks (100 Hz) between looks at the change topic.
-const LOOK_TICKS: u64 = 50;
 /// Ticks between re-reads of the desktop's motion setting (it has no topic
 /// of its own here): ten seconds.
 const MOTION_TICKS: u64 = 1000;
@@ -25,15 +23,13 @@ pub struct Conf {
     pub motion_none: bool,
 }
 
-/// `confd`'s registered name: a store call blocks (up to ten seconds) while it
-/// is not registered, so nothing is read unless it already is.
-const CONFD: &str = "os.lazy.confd";
-
+/// A store call blocks (up to ten seconds) while `confd` is not registered, so
+/// nothing is read unless it already is.
 pub struct Follower {
     store: ConfdStore,
     available: bool,
     uid: Option<u32>,
-    changes: Option<TopicFeed>,
+    changes: Option<Feed<confd_wire::Change>>,
     next_motion: u64,
     current: Conf,
 }
@@ -51,15 +47,11 @@ fn convert(value: StoreValue) -> Option<Value> {
 impl Follower {
     pub fn new() -> Follower {
         let store = ConfdStore::new();
-        let available = Service::try_connect(CONFD).is_some();
+        let available = store.registered();
         let uid = if available { store.uid() } else { None };
-        let changes = uid.map(|uid| {
-            TopicFeed::new(
-                format!("user/{uid}/confd/changed/#"),
-                topics::QOS_LATEST,
-                8,
-                LOOK_TICKS,
-            )
+        // Every key of the user's store; the hub drains the topic when its doorbell rang.
+        let changes = uid.and_then(|uid| {
+            confd_wire::subscribe_user_confd_changed(&mut Watch, &uid.to_string(), "#").ok()
         });
         Follower {
             store,
@@ -76,13 +68,17 @@ impl Follower {
         let mut settings = Settings::default();
         if let Some(uid) = self.uid {
             for key in KEYS {
-                let path = format!("user/{uid}/term/{key}");
+                let path = user_key(uid, "term", key);
                 if let Some(value) = self.store.get(&path).and_then(convert) {
                     settings.apply(key, &value);
                 }
             }
         }
-        let motion = if self.available { self.motion() } else { String::new() };
+        let motion = if self.available {
+            self.motion()
+        } else {
+            String::new()
+        };
         self.next_motion = sys::clock_ticks().saturating_add(MOTION_TICKS);
         self.current = Conf {
             settings,
@@ -114,8 +110,10 @@ impl Follower {
         if self.current.settings.last_size == Some((cols, rows)) {
             return;
         }
-        let path = format!("user/{uid}/term/window/last_size");
-        let _ = self.store.set(&path, StoreValue::Str(format!("{cols}x{rows}")));
+        let path = user_key(uid, "term", "window/last_size");
+        let _ = self
+            .store
+            .set(&path, StoreValue::Str(format!("{cols}x{rows}")));
     }
 
     /// Write one of the Terminal's keys under `user/<uid>/term/` (the
@@ -131,15 +129,15 @@ impl Follower {
             Value::Int(n) => StoreValue::I64(*n),
             Value::Text(t) => StoreValue::Str(t.clone()),
         };
-        let _ = self.store.set(&format!("user/{uid}/term/{key}"), stored);
+        let _ = self.store.set(&user_key(uid, "term", key), stored);
     }
 
     /// Look for changes; the new configuration when something differs.
     pub fn poll(&mut self) -> Option<Conf> {
-        let changed = self
-            .changes
-            .as_mut()
-            .is_some_and(|feed| !feed.poll().is_empty());
+        let mut changed = false;
+        if let Some(feed) = self.changes.as_mut() {
+            pull(feed, |_| changed = true);
+        }
         let motion_due = sys::clock_ticks() >= self.next_motion;
         if !changed && !motion_due {
             return None;

@@ -1,3 +1,5 @@
+service "os.lazy.messenger.topics" implements os.lazy.messenger.topics.v1;
+
 /// The Messenger publish/subscribe broker (issue #92, `docs/messenger.md`
 /// section 7.2), served by `messengerd` as `os.lazy.messenger.topics`.
 ///
@@ -11,27 +13,39 @@
 /// friendly text) instead of the declared reply fields, which never use that
 /// id.
 interface os.lazy.messenger.topics.v1 {
+    default deadline=5s;
     /// Publish `payload` under the literal `topic`; `retained` also remembers
     /// it as the topic's retained value. Returns how many subscriptions the
-    /// event reached.
-    method Publish(topic: String = 1, payload: Bytes = 2, retained: Bool = 3) -> (matched: U64 = 1);
+    /// event reached. Never resent, and the broker cannot undo a publish whose
+    /// reply was lost: a timeout means "maybe published". The broker's byte
+    /// budget is charged per task: a retained value to its publisher, a
+    /// subscription's queue to its owner. A retained value over its
+    /// publisher's allowance (or its count of 64 for an app; retained values
+    /// cannot be removed) refuses with `ENOMEM`; a full subscriber queue never
+    /// refuses a publish, it drops its oldest events (counted in `Stats`).
+    method Publish(topic: String = 1, payload: Bytes = 2, retained: Bool = 3) -> (matched: U64 = 1) deadline=500ms;
     /// Create a subscription for `filter`. `qos` is a `Qos` value; `depth` is
     /// the queue depth for `Buffered` (clamped to 1..=64) and ignored by the
     /// other policies, which use fixed depths. Retained values are replayed.
-    method Subscribe(filter: String = 1, qos: U32 = 2, depth: U32 = 3) -> (subscription: U64 = 1);
+    /// One task holds at most 64 subscriptions (`EAGAIN` beyond); a subscribe
+    /// whose reply cannot be delivered is rolled back, so a timeout leaks
+    /// nothing.
+    method Subscribe(filter: String = 1, qos: U32 = 2, depth: U32 = 3) -> (subscription: U64 = 1) deadline=500ms;
     /// Drop a subscription; later publishes stop matching it.
     method Unsubscribe(subscription: U64 = 1) -> ();
     /// Wait for (or, with an expired deadline, poll) the next event of a
     /// subscription. A `Reliable` subscription redelivers its head until acked.
-    method NextEvent(subscription: U64 = 1) -> (event: Event = 1);
+    /// Safe to resend: the broker pops an event only once its reply reached the
+    /// caller, so a resent poll is served the same head again.
+    method NextEvent(subscription: U64 = 1) -> (event: Event = 1) retry=safe;
     /// Retire every event up to `sequence` on a `Reliable` subscription.
     method Ack(subscription: U64 = 1, sequence: U64 = 2) -> ();
     /// Topics the broker has seen, with live subscriber counts.
-    method ListTopics() -> (topics: Array<TopicInfo> = 1);
+    method ListTopics() -> (topics: Array<TopicInfo> = 1) retry=safe;
     /// Queue and drop counters of one subscription.
-    method Stats(subscription: U64 = 1) -> (stats: Stats = 1);
+    method Stats(subscription: U64 = 1) -> (stats: Stats = 1) retry=safe;
     /// Round-trip probe used to detect a live broker.
-    method Ping() -> ();
+    method Ping() -> () retry=safe;
     /// Give a subscription a doorbell (docs/performance-plan.md P7.2): the
     /// broker sends one `os.lazy.messenger.topics.bell.v1` `Ready` on `bell`
     /// when the subscription has an event nobody is pulling, and no more
@@ -73,6 +87,23 @@ interface os.lazy.messenger.topics.v1 {
         matched: U64 = 5,
         drops: U64 = 6
     }
+
+    /// What the broker's own probes publish: only the topic name matters, the
+    /// payload is whatever the test sends.
+    struct Probe {
+        note: String = 1
+    }
+
+    /// `async_echo`'s wait-any check publishes here to ring a doorbell.
+    topic "demo/waitany" : Probe qos=latest;
+
+    /// `messengerctl`'s hostile-depth test fills a `Buffered` queue past its
+    /// clamp with this topic.
+    topic "topics/depth" : Probe qos=buffered;
+
+    /// `messengerctl`'s security self-test publishes here as a non-root task
+    /// and expects the broker to refuse it (`system/` is reserved).
+    topic "system/events/selftest/forbidden" : Probe qos=latest;
 }
 
 /// The subscription doorbell (`os.lazy.messenger.topics.v1` `Bell`): what

@@ -205,7 +205,7 @@ fn service_event_topic_pattern_and_qos_are_declared() {
     assert_eq!(TOPIC_SYSTEM_EVENTS_SERVICE, "system/events/service/+");
     assert_eq!(
         TOPIC_SYSTEM_EVENTS_SERVICE_QOS,
-        messenger_generated::topics::QOS_LATEST
+        messenger_generated::topics::QOS_BUFFERED
     );
 }
 

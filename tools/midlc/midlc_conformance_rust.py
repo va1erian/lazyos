@@ -156,7 +156,7 @@ def emit_conformance_rust(corpus: Path, expected: dict[Path, str]) -> str:
         interfaces, _ = parse_case(midl.read_text(encoding="utf-8"))
         lines.append(f"mod case_{case} {{")
         lines.append("use messenger_generated::{objects, rings, topics};")
-        lines += [emit_rust(i) for i in interfaces]
+        lines += [emit_rust(i, client=False) for i in interfaces]
         lines.append("}")
         lines.append("")
         data = json.loads(expected[midl.with_suffix(".expected.json")])

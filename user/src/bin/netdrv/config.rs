@@ -12,13 +12,11 @@ use alloc::format;
 use alloc::string::String;
 
 use confd::Value;
-use user::messenger::confd::Client;
+use user::messenger::confd::{connect, Client, ValueClient};
 use virtio_net::settings::{Raw, Settings};
 
 use super::device::Kind;
 
-/// Resolve attempts at start (about a second of ticks).
-const START_ATTEMPTS: usize = 20;
 /// Ticks between re-reads of the keys while the driver runs.
 pub(super) const REFRESH_TICKS: u64 = 500;
 
@@ -39,7 +37,7 @@ pub(super) struct Config {
 impl Config {
     /// Connect to `confd` if it is up and read the settings under `prefix`.
     pub(super) fn load(prefix: &'static str) -> (Config, Settings) {
-        let client = Client::connect_retry(START_ATTEMPTS).ok();
+        let client = connect().ok();
         let settings = client
             .as_ref()
             .map_or(Settings::DEFAULT, |client| read(client, prefix));
@@ -51,7 +49,7 @@ impl Config {
     /// `confd` that started late, or restarted, is picked up.
     pub(super) fn refresh(&mut self) -> Option<Settings> {
         if self.client.is_none() {
-            self.client = Client::connect().ok();
+            self.client = connect().ok();
         }
         let client = self.client.as_ref()?;
         // A cheap probe: if the registry answers nothing at all, treat it as
@@ -65,7 +63,7 @@ impl Config {
 }
 
 fn get(client: &Client, prefix: &str, key: &str) -> Option<Value> {
-    client.get(&format!("{prefix}/{key}")).ok().flatten()
+    client.get_value(&format!("{prefix}/{key}")).ok().flatten()
 }
 
 fn number(client: &Client, prefix: &str, key: &str) -> Option<u64> {

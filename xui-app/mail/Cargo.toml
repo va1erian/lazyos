@@ -28,10 +28,9 @@ xui-webd-client = { path = "../crates/webd-client" }
 # no OpenSSL, ring or D-Bus, and the crypto provider is the one installed below.
 esmail = { git = "https://github.com/va1erian/esmail", rev = "a065da5133006969c6cc5cfe734fae71b6e6656a", default-features = false, features = ["rustls"] }
 esmail-glue = { git = "https://github.com/va1erian/esmail", rev = "a065da5133006969c6cc5cfe734fae71b6e6656a", default-features = false, features = ["rustls"] }
-# The GPLv2-compatible RustCrypto provider the HTTPS clients use
-# (docs/tls-plan.md §3.2), installed as rustls's process default.
-nettls-crypto = { path = "../../nettls/crypto" }
-rustls = { version = "=0.23.45", default-features = false, features = ["std", "tls12"] }
+# The GPLv2-compatible RustCrypto provider (docs/tls-plan.md §3.2) the HTTPS
+# clients use, installed as rustls's process default by `lazyhttps`.
+lazyhttps = { path = "../crates/https" }
 # esMail's sanitiser (a transitive dependency) panics under ammonia 4.2, whose `Builder::clean` refuses a
 # builder that allows `<style>` and filters style properties: the Mail process died on the first HTML
 # message. esMail's own lock file has 4.1.4; hold it here until esMail moves.

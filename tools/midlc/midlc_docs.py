@@ -19,9 +19,12 @@ def emit_markdown(interface: Interface) -> str:
         args = ", ".join(f"{p.name}: {p.ty}" for p in m.params)
         rets = ", ".join(f"{p.name}: {p.ty}" for p in m.returns)
         lines.append(
-            f"| {m.name} | {m.method_id} | {'oneway' if m.oneway else 'sync'} "
+            f"| {m.name} | {m.method_id} | {'event' if m.event else 'oneway' if m.oneway else 'sync'} "
             f"| `({args}) -> ({rets})` |"
         )
+    lines += markdown_services(interface)
+    lines += markdown_method_attrs(interface)
+    lines += markdown_errors(interface)
     carrying = [m for m in interface.methods if m.objects]
     if carrying:
         lines += ["", "## Objects", "", "Kernel objects a request carries, in the order of the parcel's",
@@ -47,6 +50,55 @@ def emit_markdown(interface: Interface) -> str:
     return "\n".join(lines) + "\n"
 
 
+def markdown_services(interface: Interface) -> list[str]:
+    if not interface.services:
+        return []
+    lines = ["", "## Service", ""]
+    for service in interface.services:
+        others = [n for n in service.interfaces if n != interface.name]
+        also = f" (together with {', '.join(f'`{n}`' for n in others)})" if others else ""
+        kind = "a family, one name per instance" if service.instanced else "registered once"
+        lines.append(f"- Served under the registry name `{service.name}`{also}; {kind}.")
+    return lines
+
+
+def deadline_text(policy) -> str:
+    if policy.never:
+        return "never"
+    return f"{policy.deadline_ms} ms" if policy.deadline_ms is not None else "-"
+
+
+def markdown_method_attrs(interface: Interface) -> list[str]:
+    """Methods that declare a scope, a deadline or a retry policy."""
+    declared = [m for m in interface.methods if m.scope is not None or m.policy.stated]
+    if not declared:
+        return []
+    lines = [
+        "",
+        "## Scopes, deadlines and retries",
+        "",
+        "| Method | Scope interface | Scope id | Deadline | Retry |",
+        "|---|---|---|---|---|",
+    ]
+    for m in declared:
+        scope = f"`{m.scope}`" if m.scope is not None else "this interface"
+        scope_id = f"`{m.scope_id:#x}`" if m.scope is not None else "-"
+        retry = m.policy.retry or ("never" if not m.oneway else "-")
+        lines.append(f"| {m.name} | {scope} | {scope_id} | {deadline_text(m.policy)} | {retry} |")
+    return lines
+
+
+def markdown_errors(interface: Interface) -> list[str]:
+    if not interface.errors:
+        return []
+    lines = ["", "## Errors", "", "Carried in the reply's standard error field (id 15).", "",
+             "| Code | Name | Meaning |", "|---|---|---|"]
+    for error in interface.errors:
+        meaning = " ".join(error.doc.split()) if error.doc else ""
+        lines.append(f"| {error.code} | {error.name} | {meaning} |")
+    return lines
+
+
 def emit_manifest(interface: Interface) -> dict:
     manifest = {
         "interface": interface.name,
@@ -69,12 +121,30 @@ def emit_manifest(interface: Interface) -> dict:
     }
     if interface.rings:
         manifest["rings"] = manifest_rings(interface)
+    # The registry names that serve the interface, its error codes and (on a
+    # method) its scope id and deadline: only when declared, so an interface
+    # that states none keeps its entry.
+    if interface.services:
+        manifest["services"] = [s.name for s in interface.services]
+    if interface.errors:
+        manifest["errors"] = [{"name": e.name, "code": e.code} for e in interface.errors]
     return manifest
 
 
 def method_entry(method) -> dict:
     """A manifest method row; `objects` only when the request carries some."""
     entry = {"name": method.name, "id": method.method_id, "oneway": method.oneway}
+    if method.event:
+        entry["event"] = True
+    if method.scope is not None:
+        entry["scope"] = method.scope
+        entry["scope_id"] = f"{method.scope_id:#x}"
+    if method.policy.never:
+        entry["deadline"] = "never"
+    elif method.policy.deadline_ms is not None:
+        entry["deadline_ms"] = method.policy.deadline_ms
+    if method.policy.retry is not None:
+        entry["retry"] = method.policy.retry
     if method.objects:
         entry["objects"] = [object_entry(o) for o in method.objects]
     return entry

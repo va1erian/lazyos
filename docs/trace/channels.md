@@ -15,7 +15,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 |---|---|---|---|---|---|
 | `ABI` | `Abi` | `abi` | kernel, kernel suite, other | tools/abi | programs |
 | `ABOUT` | `About` | `about` | xui-app | sessions | programs |
-| `ACCOUNTS` | `Accounts` | `accounts` | user | sessions, tools/devtool, tools/services | programs |
+| `ACCOUNTS` | `Accounts` | `accounts` | user, xui-app | sessions, tools/devtool, tools/services | programs |
 | `APP` | `App` | `app` | user | sessions, tools/crash, tools/shutdown, tools/tray | programs |
 | `ARCHIVER` | `Archiver` | `archiver` | xui-app | sessions | programs |
 | `ASYNC` | `Async` | `async` | user | sessions | programs |
@@ -56,7 +56,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `LABEL` | `Label` | `label` | kernel, kernel suite, other | sessions, tools/devtool, tools/docs, tools/fuse, tools/input, tools/lazysky, tools/lazyweb, tools/mail, tools/nes, tools/playground, tools/storage, tools/webd, tools/webkit, tools/wifi | programs |
 | `LOCK` | `Lock` | `lock` | kernel, kernel suite | tools/lazyweb | programs |
 | `LOGD` | `Logd` | `logd` | user | tools/services, tools/shutdown | programs |
-| `LOGIN` | `Login` | `login` | user | sessions, tools/accounts, tools/boot, tools/lazysky, tools/ntp, tools/storage, tools/tray, tools/wifi | programs |
+| `LOGIN` | `Login` | `login` | user, xui-app | sessions, tools/accounts, tools/boot, tools/lazysky, tools/ntp, tools/storage, tools/tray, tools/wifi | programs |
 | `LRIDE` | `Lride` | `lride` | lazyrad-os, xui-app | sessions | programs |
 | `LRPLAY` | `Lrplay` | `lrplay` | lazyrad-os, xui-app | sessions, tools/lazyrad, tools/rhai | programs |
 | `MAIL` | `Mail` | `mail` | xui-app | sessions, tools/mail | programs |
@@ -85,8 +85,8 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `NSLOOKUP` | `Nslookup` | `nslookup` | user | tools/net | programs |
 | `PAINT` | `Paint` | `paint` | xui-app | sessions, tools/lazyweb | programs |
 | `PDF` | `Pdf` | `pdf` | xui-app | sessions | programs |
-| `PERF` | `Perf` | `perf` | kernel, kernel suite, user | tools/lazyweb | programs |
-| `PING` | `Ping` | `ping` | user | sessions, tools/net, tools/wifi | programs |
+| `PERF` | `Perf` | `perf` | kernel, kernel suite, user, xui-app | tools/lazyweb | programs |
+| `PING` | `Ping` | `ping` | user, xui-app | sessions, tools/net, tools/wifi | programs |
 | `PKGCTL` | `Pkgctl` | `pkgctl` | user | sessions, tools/emusic | programs |
 | `PKGD` | `Pkgd` | `pkgd` | kernel suite, other, user | sessions, tools/accounts, tools/boot, tools/dbg, tools/devtool, tools/emusic, tools/fuse, tools/install, tools/lazyrad, tools/lazysky, tools/lazyweb, tools/playground, tools/screenshot, tools/services, tools/shutdown, tools/webd, tools/wifi | programs |
 | `PLAYGROUND` | `Playground` | `playground` | xui-app | sessions, tools/devtool, tools/playground | programs |
@@ -112,10 +112,10 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `SYSMOND` | `Sysmond` | `sysmond` | user | - | programs |
 | `TERM` | `Term` | `term` | lazyrad-os, xui-app | sessions, tools/abi, tools/accounts, tools/bench, tools/emusic, tools/fuse, tools/install, tools/keyd, tools/lazygui, tools/lazysky, tools/lazyweb, tools/nes, tools/rhai, tools/run_demo.py, tools/screenshot, tools/shutdown, tools/storage, tools/tray, tools/webd | programs |
 | `TEST` | `Test` | `test` | kernel, kernel suite, other, xui-app | sessions, tools/test | programs |
-| `THEME` | `Theme` | `theme` | user | sessions, tools/emusic | programs |
+| `THEME` | `Theme` | `theme` | user, xui-app | sessions, tools/emusic | programs |
 | `TIMECTL` | `Timectl` | `timectl` | user | tools/services | programs |
 | `TIMED` | `Timed` | `timed` | user | tools/ntp, tools/services | programs |
-| `TLS` | `Tls` | `tls` | other, xui-app | tools/net, tools/nettls | programs |
+| `TLS` | `Tls` | `tls` | other | tools/net, tools/nettls | programs |
 | `TRAY` | `Tray` | `tray` | xui-app | sessions, tools/storage, tools/tray | programs |
 | `TRAYDEMO` | `Traydemo` | `traydemo` | xui-app | sessions, tools/tray | programs |
 | `UI` | `Ui` | `ui` | user, xui-app | sessions, tools/accounts, tools/lazyweb, tools/playground, tools/screenshot, tools/tray, tools/webd, tools/webkit, tools/wifi | programs |
@@ -130,7 +130,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `LAZYWEB` | `LazyWeb` | `lazyweb` | xui-app | sessions, tools/lazyweb | programs |
 | `WIDGET` | `Widget` | `widget` | xui-app | sessions | programs |
 | `WIFID` | `Wifid` | `wifid` | user | - | programs |
-| `WIFI` | `Wifi` | `wifi` | user | tools/wifi | programs |
+| `WIFI` | `Wifi` | `wifi` | user, xui-app | tools/wifi | programs |
 | `WIFICTL` | `Wifictl` | `wifictl` | user | sessions, tools/wifi | programs |
 | `WIFIPROBE` | `Wifiprobe` | `wifiprobe` | user | tools/wifi | programs |
 | `WIFISIM` | `Wifisim` | `wifisim` | user | tools/wifi | programs |

@@ -7,7 +7,6 @@
 
 use xui_app::fabric;
 use xui_app::probe;
-use xui_app::trace::{self, Channel};
 use xui_core::app::Ui;
 use xui_core::geometry::Rect;
 use xui_core::widget::scrollbar::THICKNESS;
@@ -215,12 +214,11 @@ impl Playground {
     }
 
     /// Close: kill every run, close the Topic monitor (which ends every
-    /// subscription), say so, quit.
+    /// subscription), quit.
     pub fn quit(&mut self, ui: &mut Ui<Msg>) {
         self.runs.stop_all();
         self.save_panes();
         self.topics.close();
-        trace::pass!(Channel::Playground, "QUIT");
         ui.quit();
     }
 }

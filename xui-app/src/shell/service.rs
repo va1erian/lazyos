@@ -8,26 +8,25 @@
 //! capability to identify callers. When its own uid is unknown it refuses
 //! every call with `EACCES` (fail closed).
 
+use crate::trace::{self, Channel};
 use std::rc::Rc;
 
-use libmessenger::Parcel;
+use libmessenger::server::{Caller, Fault};
 use messenger_generated::os_lazy_shell_v1 as wire;
 use xui_core::app::Ui;
 
 use super::ctx::Ctx;
 use super::heartbeat::Heartbeat;
 use super::menu;
-use crate::server::{error_parcel, reply_parcel, Request, Server};
+use crate::server::Server;
 use crate::sys::errno;
 
 /// The registered service name.
-pub const NAME: &str = "os.lazy.shell";
+pub const NAME: &str = wire::SERVICE_NAME;
 /// Most requests answered per heartbeat.
 const REQUESTS_PER_TICK: usize = 8;
 /// Receive buffer for one request (the largest is a short app id).
 const REQUEST_BYTES: usize = 4096;
-/// `ENOTSUP`, for a method this version does not have.
-const ENOTSUP: i64 = 95;
 
 /// The service endpoint, once registered.
 #[derive(Default)]
@@ -43,7 +42,7 @@ impl ShellService {
             match Server::register(NAME, &[wire::INTERFACE_ID], &[wire::INTERFACE_NAME]) {
                 Ok(server) => {
                     self.server = Some(server);
-                    println!("SHELL:SERVICE:PASS");
+                    trace::pass!(Channel::Shell, "SERVICE");
                 }
                 Err(code) => ctx.note("register", || format!("SHELL:SERVICE:RETRY err={}", -code)),
             }
@@ -61,7 +60,7 @@ impl ShellService {
                     return;
                 }
             };
-            let reply = answer(ctx, ui, &request);
+            let reply = wire::dispatch(&mut Handler { ctx, ui }, &request);
             if let Some(txn) = request.txn {
                 let _ = server.reply(txn, &reply);
             }
@@ -69,85 +68,83 @@ impl ShellService {
     }
 }
 
-/// The reply to one request: authorize, then dispatch.
-fn answer<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>, request: &Request) -> Parcel {
-    let method = request.parcel.header.method;
-    if request.parcel.header.interface_id != wire::INTERFACE_ID {
-        return error_parcel(wire::INTERFACE_ID, method, ENOTSUP, "not os.lazy.shell.v1");
-    }
-    let caller = request.origin.uid;
-    if !lazyshell::policy::caller_allowed(Some(caller), ctx.uid) {
-        ctx.note("deny", || format!("SHELL:SERVICE:DENY uid={caller}"));
-        return error_parcel(
-            wire::INTERFACE_ID,
-            method,
-            errno::EACCES,
-            "caller not allowed",
-        );
-    }
-    match dispatch(ctx, ui, method, &request.parcel.body) {
-        Ok(body) => reply_parcel(wire::INTERFACE_ID, method, body),
-        Err((code, text)) => error_parcel(wire::INTERFACE_ID, method, code, text),
-    }
+/// The shell's state, answering `os.lazy.shell.v1` (the generated server).
+struct Handler<'a, M: 'static> {
+    ctx: &'a Rc<Ctx>,
+    ui: &'a Ui<M>,
 }
 
 /// A failed call: positive errno and friendly text.
 type Failure = (i64, &'static str);
 
-fn dispatch<M: 'static>(
-    ctx: &Rc<Ctx>,
-    ui: &Ui<M>,
-    method: u32,
-    body: &[u8],
-) -> Result<Vec<u8>, Failure> {
-    let bad = (errno::EINVAL, "malformed request");
-    match method {
-        wire::METHOD_STATUS => encode(wire::encode_status_reply(&status(ctx))),
-        wire::METHOD_SHOWSTARTMENU => {
-            let args = wire::decode_show_start_menu_args(body).map_err(|_| bad)?;
-            if args.open {
-                menu::open(ctx, ui);
-            } else {
-                menu::close(ctx);
-            }
-            Ok(Vec::new())
+fn fault((code, text): Failure) -> Fault {
+    Fault::new(code as u32, text)
+}
+
+impl<M: 'static> Handler<'_, M> {
+    /// Refuse a caller that is neither uid 0 nor the shell's own user (the
+    /// kernel-stamped uid); fail closed when the shell's own uid is unknown.
+    fn allow(&self, cx: &Caller) -> Result<(), Fault> {
+        let caller = cx.uid;
+        if lazyshell::policy::caller_allowed(Some(caller), self.ctx.uid) {
+            return Ok(());
         }
-        wire::METHOD_LAUNCH => {
-            let args = wire::decode_launch_args(body).map_err(|_| bad)?;
-            if !deskmenu::valid_app_id(&args.app) {
-                return Err((errno::EINVAL, "not an app id"));
-            }
-            let pid = ctx
-                .launch(&args.app, launch_origin(ctx, &args.app))
-                .map_err(|code| (code.abs(), "launch failed"))?;
-            encode(wire::encode_launch_reply(&wire::LaunchReply { pid }))
-        }
-        wire::METHOD_REFRESH => {
-            ctx.reload_menu();
-            ctx.reload_desktop(true);
-            ctx.repaint_menu();
-            let reply = wire::RefreshReply {
-                menu: ctx.menu.borrow().rows().len() as u32,
-                desktop: ctx.icons.borrow().len() as u32,
-            };
-            encode(wire::encode_refresh_reply(&reply))
-        }
-        wire::METHOD_ACTIVATE => {
-            let args = wire::decode_activate_args(body).map_err(|_| bad)?;
-            if !ctx.taskbar.borrow().contains(args.surface) {
-                return Err((errno::ENOENT, "no such taskbar entry"));
-            }
-            ctx.client
-                .activate_surface(args.surface)
-                .map_err(|code| (code.abs(), "activate failed"))?;
-            Ok(Vec::new())
-        }
-        _ => Err((ENOTSUP, "unknown method")),
+        self.ctx
+            .note("deny", || format!("SHELL:SERVICE:DENY uid={caller}"));
+        Err(fault((errno::EACCES, "caller not allowed")))
     }
 }
 
-fn encode<E>(body: Result<Vec<u8>, E>) -> Result<Vec<u8>, Failure> {
-    body.map_err(|_| (errno::E2BIG, "reply too large"))
+impl<M: 'static> wire::Server for Handler<'_, M> {
+    fn status(&mut self, cx: &Caller) -> Result<wire::StatusReply, Fault> {
+        self.allow(cx)?;
+        Ok(status(self.ctx))
+    }
+
+    fn show_start_menu(&mut self, cx: &Caller, open: bool) -> Result<(), Fault> {
+        self.allow(cx)?;
+        if open {
+            menu::open(self.ctx, self.ui);
+        } else {
+            menu::close(self.ctx);
+        }
+        Ok(())
+    }
+
+    fn launch(&mut self, cx: &Caller, app: String) -> Result<u64, Fault> {
+        self.allow(cx)?;
+        if !deskmenu::valid_app_id(&app) {
+            return Err(fault((errno::EINVAL, "not an app id")));
+        }
+        let pid = self
+            .ctx
+            .launch(&app, launch_origin(self.ctx, &app))
+            .map_err(|code| fault((code.abs(), "launch failed")))?;
+        Ok(pid)
+    }
+
+    fn refresh(&mut self, cx: &Caller) -> Result<wire::RefreshReply, Fault> {
+        self.allow(cx)?;
+        let ctx = self.ctx;
+        ctx.reload_menu();
+        ctx.reload_desktop(true);
+        ctx.repaint_menu();
+        Ok(wire::RefreshReply {
+            menu: ctx.menu.borrow().rows().len() as u32,
+            desktop: ctx.icons.borrow().len() as u32,
+        })
+    }
+
+    fn activate(&mut self, cx: &Caller, surface: u64) -> Result<(), Fault> {
+        self.allow(cx)?;
+        if !self.ctx.taskbar.borrow().contains(surface) {
+            return Err(fault((errno::ENOENT, "no such taskbar entry")));
+        }
+        self.ctx
+            .client
+            .activate_surface(surface)
+            .map_err(|code| fault((code.abs(), "activate failed")))
+    }
 }
 
 /// Where a scripted launch zooms from, as if the user had clicked it: the

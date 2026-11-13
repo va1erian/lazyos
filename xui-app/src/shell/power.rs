@@ -18,6 +18,7 @@
 //! `PowerMode` value: 0 power off, 1 reboot); for a logout
 //! `SHELL:LOGOUT:REQUEST session=<id>` or `SHELL:LOGOUT:FAIL errno=<e>`.
 
+use crate::trace::{self, Channel};
 use lazyshell::menu::Power;
 use messenger_generated::os_lazy_init_v1 as init_wire;
 
@@ -28,7 +29,7 @@ const REASON: &str = "requested from the start menu";
 
 /// The confirmation rows are showing.
 pub fn confirming() {
-    println!("SHELL:POWER:CONFIRM");
+    trace::line!(Channel::Shell, "POWER:CONFIRM");
 }
 
 /// End the session (`logind`) or stop the machine (`init`) for `power`.
@@ -39,8 +40,12 @@ pub fn request(power: Power) {
         Power::Reboot => init_wire::POWER_MODE_REBOOT,
     };
     match services::shutdown(mode, REASON) {
-        Ok(phase) => println!("SHELL:POWER:REQUEST mode={mode} phase={phase}"),
-        Err(code) => println!("SHELL:POWER:REQUEST:FAIL mode={mode} errno={}", -code),
+        Ok(phase) => trace::line!(Channel::Shell, "POWER:REQUEST mode={mode} phase={phase}"),
+        Err(code) => trace::line!(
+            Channel::Shell,
+            "POWER:REQUEST:FAIL mode={mode} errno={}",
+            -code
+        ),
     }
 }
 
@@ -48,7 +53,7 @@ pub fn request(power: Power) {
 /// (this shell included) and the login screen comes back.
 fn logout() {
     match services::logout() {
-        Ok(session) => println!("SHELL:LOGOUT:REQUEST session={session}"),
-        Err(code) => println!("SHELL:LOGOUT:FAIL errno={}", -code),
+        Ok(session) => trace::line!(Channel::Shell, "LOGOUT:REQUEST session={session}"),
+        Err(code) => trace::line!(Channel::Shell, "LOGOUT:FAIL errno={}", -code),
     }
 }

@@ -34,7 +34,7 @@ use user::trace;
 use libmessenger::{flags, Header, VERSION};
 use messenger_generated::os_lazy_init_app_events_v1 as events;
 use messenger_generated::os_lazy_init_app_v1 as app_wire;
-use user::messenger::{self, services, Endpoint, Message, Parcel};
+use user::messenger::{self, services, Endpoint, Parcel};
 use user::sys;
 
 use svcpolicy::{quit_deadline, stop_mode, StopMode};
@@ -44,7 +44,7 @@ use super::service::{Phase, Service};
 /// The interface served on [`APP_NAME`].
 pub(super) const APP_INTERFACE: u64 = app_wire::INTERFACE_ID;
 /// The name `os.lazy.init.app.v1` is served under.
-pub(super) const APP_NAME: &str = "os.lazy.init.app";
+pub(super) const APP_NAME: &str = app_wire::SERVICE_NAME;
 /// Most `Reopen`s queued for an instance that does not watch yet.
 pub(super) const REOPEN_QUEUE: usize = 16;
 /// Milliseconds per PIT tick.
@@ -141,21 +141,19 @@ fn grace_left(deadline: u64, now: u64) -> u32 {
 /// lifecycle line, then deliver what waited for it. A refused request leaves
 /// the channel with the message, which closes it, so a caller cannot fill
 /// this task's handle table.
-pub(super) fn watch(services: &mut [Service], message: &Message) -> messenger::Result<Parcel> {
+pub(super) fn watch(services: &mut [Service], sender: u64, events: u64) -> messenger::Result<()> {
     let not_mine = messenger::Error::Errno(-messenger::errno::ESRCH);
-    if message.method() != app_wire::METHOD_WATCH {
-        return Err(messenger::Error::Errno(-messenger::errno::EINVAL));
-    }
     let Some(row) = services.iter_mut().find(|row| {
         row.launched
-            && row.pid == message.sender
-            && message.sender != 0
+            && row.pid == sender
+            && sender != 0
             && matches!(row.phase, Phase::Running | Phase::Stopping)
     }) else {
+        // The decode claimed the channel: it is ours to close.
+        let _ = Endpoint::from_raw(events).release();
         return Err(not_mine);
     };
-    let args = message.decode(app_wire::decode_watch_args)?;
-    let channel = Endpoint::from_raw(args.events);
+    let channel = Endpoint::from_raw(events);
     if let Some(old) = row.life.watch.replace(channel) {
         let _ = old.release();
     }
@@ -184,24 +182,7 @@ pub(super) fn watch(services: &mut [Service], message: &Message) -> messenger::R
             );
         }
     }
-    Ok(reply(app_wire::METHOD_WATCH))
-}
-
-/// An empty reply to `method` of `os.lazy.init.app.v1` (a default parcel has
-/// no version, which the kernel refuses as malformed).
-fn reply(method: u32) -> Parcel {
-    Parcel {
-        header: Header {
-            version: VERSION,
-            flags: 0,
-            interface_id: app_wire::INTERFACE_ID,
-            method,
-            txn_id: 0,
-            reply_to: 0,
-            deadline_ns: 0,
-        },
-        ..Parcel::default()
-    }
+    Ok(())
 }
 
 /// A launch of the resident app running as `row`: hand `args` to the

@@ -12,15 +12,9 @@
 mod app;
 mod loader;
 
-use std::rc::Rc;
+use xui_app::trace::Channel;
 
-use xui_app::backend::LazyOSBackend;
-use xui_app::themed::run_themed;
-use xui_app::trace::{self, Channel};
-use xui_core::backend::PlatformSpec;
-use xui_core::units::Dip;
-
-use app::Docs;
+use app::{Docs, Msg};
 
 /// Window size a compositor lays the page out at.
 const WINDOW: (i32, i32) = (900, 640);
@@ -28,30 +22,13 @@ const WINDOW: (i32, i32) = (900, 640);
 /// Shown when no file is named on the command line.
 const WELCOME: &str = include_str!("welcome.md");
 
-fn main() -> std::process::ExitCode {
+fn main() {
     xui_app::font::register_docs();
-    let path = xui_app::platform::argv::file_arg(std::env::args_os());
-    let backend = match LazyOSBackend::connect() {
-        Ok(backend) => Rc::new(backend),
-        Err(code) => {
-            trace::fail!(Channel::Docs, "BIND", "{code}");
-            return std::process::ExitCode::FAILURE;
-        }
-    };
-    let (width, height) = backend.window_size(WINDOW);
-    backend.on_first_frame(|| trace::pass!(Channel::Docs, "UP"));
-
-    let spec = PlatformSpec::new("Docs").size(Dip(width as f32), Dip(height as f32));
-    let outcome = run_themed(&backend, spec, move |ui| {
-        // The welcome page first; a named file is then opened like any other, so
-        // a bad path shows the same error page (and `DOCS:OPEN:FAIL`) as the
-        // dialog does instead of ending the app.
-        let mut docs = Docs::build(ui, WELCOME).expect("the Docs window was created");
-        if let Some(path) = path {
-            docs.open(path, None);
-        }
-        docs
-    });
-    backend.unbind();
-    std::process::ExitCode::from(xui_app::launch::finish(Channel::Docs, outcome))
+    xui_app::app(Channel::Docs, "Docs")
+        .size(WINDOW.0, WINDOW.1)
+        // The welcome page first; a named file is then opened like any other,
+        // so a bad path shows the same error page (and `DOCS:OPEN:FAIL`) as
+        // the dialog does instead of ending the app.
+        .opens(Msg::OpenChosen)
+        .run(|ui, cx| Docs::build(ui, cx, WELCOME))
 }

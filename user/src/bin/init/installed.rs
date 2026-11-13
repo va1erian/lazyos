@@ -48,10 +48,11 @@ use user::trace;
 
 use confd::Value;
 use deskmenu::hidden::{self, Hidden};
+use libmessenger::client::Deadline;
 use pkgstore::verdicts::{self, Verdict, Verdicts};
-use user::messenger::confd::Client;
+use user::messenger::confd::{connect as connect_confd, Client, ValueClient};
 use user::messenger::pkgd::wire as pkgd;
-use user::messenger::{registry, services, Endpoint};
+use user::messenger::services;
 use user::sys;
 
 use super::state::Restart;
@@ -62,6 +63,7 @@ const PREFIX: &str = "sys/apps";
 const CORE_PREFIX: &str = "os.lazy.";
 /// Ticks one `confd` call may take (100 Hz): half a second.
 const CALL_TICKS: u64 = 50;
+const CALL_BOUND: Deadline = Deadline::ticks(CALL_TICKS);
 /// Most installed apps `init` tracks, so a corrupt subtree cannot grow it
 /// without bound.
 const MAX_APPS: usize = 64;
@@ -126,7 +128,7 @@ impl InstalledApp {
 /// The installed apps as of the last refresh.
 pub(super) struct InstalledApps {
     apps: Vec<InstalledApp>,
-    endpoint: Option<Endpoint>,
+    confd: Option<Client>,
     /// Leaked strings by content: a service row holds `&'static str`s, and the
     /// user heap never frees them anyway, so each distinct string is leaked
     /// once and reused across refreshes.
@@ -152,7 +154,7 @@ impl InstalledApps {
     pub(super) const fn new() -> InstalledApps {
         InstalledApps {
             apps: Vec::new(),
-            endpoint: None,
+            confd: None,
             interned: Vec::new(),
             verdicts: Verdicts::new(),
         }
@@ -260,13 +262,13 @@ impl InstalledApps {
         let Some(client) = self.client() else {
             return;
         };
-        let Ok(keys) = client.list(PREFIX) else {
-            self.endpoint = None;
+        let Ok(keys) = client.list_within(PREFIX, CALL_BOUND) else {
+            self.confd = None;
             return;
         };
         let mut rows: Vec<pkgd::Installed> = Vec::new();
         for key in keys.iter().take(MAX_APPS) {
-            if let Ok(Some(Value::Bytes(bytes))) = client.get(key) {
+            if let Ok(Some(Value::Bytes(bytes))) = client.get_value_within(key, CALL_BOUND) {
                 if let Ok(row) = pkgd::decode_installed(&bytes) {
                     // The row must live at the key its own name derives.
                     if key.rsplit('/').next() == Some(row.system_name.as_str()) {
@@ -331,11 +333,11 @@ impl InstalledApps {
         };
         let mut pairs: Vec<(String, Value)> = Vec::new();
         for prefix in [hidden::user_prefix(uid), String::from(hidden::SYS_PREFIX)] {
-            let Ok(keys) = client.list(&prefix) else {
+            let Ok(keys) = client.list_within(&prefix, CALL_BOUND) else {
                 continue;
             };
             for key in keys.into_iter().take(MAX_HIDDEN_KEYS) {
-                if let Ok(Some(value)) = client.get(&key) {
+                if let Ok(Some(value)) = client.get_value_within(&key, CALL_BOUND) {
                     pairs.push((key, value));
                 }
             }
@@ -344,12 +346,11 @@ impl InstalledApps {
     }
 
     /// The cached `confd` client, resolving on first use.
-    fn client(&mut self) -> Option<Client> {
-        if self.endpoint.is_none() {
-            self.endpoint = registry::resolve(user::messenger::confd::NAME).ok();
+    fn client(&mut self) -> Option<&Client> {
+        if self.confd.is_none() {
+            self.confd = connect_confd().ok();
         }
-        self.endpoint
-            .map(|endpoint| Client::from_endpoint(endpoint).with_timeout(CALL_TICKS))
+        self.confd.as_ref()
     }
 
     fn app_of(&mut self, row: pkgd::Installed) -> InstalledApp {

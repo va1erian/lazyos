@@ -14,8 +14,8 @@ use messenger_generated::os_lazy_input_v1 as wire;
 pub use inputmap::keystate::Snapshot;
 use inputmap::keystate::{SharedKeys, SIZE};
 
-use super::{call, Session, NAME};
-use crate::sys::{self, errno, msg_resolve};
+use super::{service, Session};
+use crate::sys::{self, errno};
 
 /// One page: plenty for the 56-byte layout.
 const PAGE_BYTES: u64 = 4096;
@@ -53,58 +53,29 @@ impl Session {
         let (handle, va, _) = sys::buffer_create(PAGE_BYTES)?;
         // Dropped on any failure below, which closes the buffer.
         let page = KeyStatePage { handle, va };
-        let (body, objects) = wire::encode_attach_key_state_args(&wire::AttachKeyStateArgs {
-            session: self.session,
-            state: Buffer::whole(handle, PAGE_BYTES),
-        })
-        .map_err(|_| -errno::EINVAL)?;
-        on_service(|service| call(service, wire::METHOD_ATTACHKEYSTATE, body, objects))?;
+        service()?.attach_key_state(self.session, Buffer::whole(handle, PAGE_BYTES))?;
         Ok(page)
     }
 
     /// Ask for a keyboard grab (the window must have focus, else `-EACCES`).
     /// The answer arrives as [`super::Event::Grant`].
     pub fn request_grant(&self) -> Result<(), i64> {
-        let body = wire::encode_request_grant_args(&wire::RequestGrantArgs {
-            session: self.session,
-            kind: wire::GRANT_KIND_KEYBOARD,
-        })
-        .map_err(|_| -errno::EINVAL)?;
-        on_service(|service| call(service, wire::METHOD_REQUESTGRANT, body, Vec::new())).map(|_| ())
+        Ok(service()?.request_grant(self.session, wire::GRANT_KIND_KEYBOARD)?)
     }
 
     /// Give the grab (or a pending request) back.
     pub fn release_grant(&self) -> Result<(), i64> {
-        let body = wire::encode_release_grant_args(&wire::ReleaseGrantArgs {
-            session: self.session,
-        })
-        .map_err(|_| -errno::EINVAL)?;
-        on_service(|service| call(service, wire::METHOD_RELEASEGRANT, body, Vec::new())).map(|_| ())
+        Ok(service()?.release_grant(self.session)?)
     }
 
     /// `Ping`: `inputd`'s newest processed raw sequence number while this
     /// session has focus, else 0 (a page whose `seq` is at least this is
     /// current).
     pub fn ping(&self, token: u64) -> Result<u64, i64> {
-        let body = wire::encode_ping_args(&wire::PingArgs {
-            session: self.session,
-            token,
-        })
-        .map_err(|_| -errno::EINVAL)?;
-        let reply = on_service(|service| call(service, wire::METHOD_PING, body, Vec::new()))?;
-        let reply = wire::decode_ping_reply(&reply.body).map_err(|_| -errno::EINVAL)?;
+        let reply = service()?.ping(self.session, token)?;
         if reply.token != token {
             return Err(-errno::EINVAL);
         }
         Ok(reply.seq)
     }
-}
-
-/// Run `f` against a resolved `inputd` handle, releasing it afterwards.
-fn on_service<T>(f: impl FnOnce(u64) -> Result<T, i64>) -> Result<T, i64> {
-    let service = msg_resolve(NAME)?;
-    let result = f(service);
-    // A resolved handle: release it (closing would end inputd's side).
-    let _ = crate::display::release(service);
-    result
 }

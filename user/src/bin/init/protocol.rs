@@ -7,37 +7,35 @@
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use user::central;
 use user::sys;
 use user::trace;
 
-use user::messenger::{self, router, services, Endpoint, Message, Parcel};
+use messenger_generated::os_lazy_init_app_v1 as app_wire;
+use user::messenger::services::init::wire as init_wire;
+use user::messenger::{self, services, Endpoint};
 
-use super::apps::app_infos;
-use super::apps::GREETER_APP_ID;
 use super::installed::InstalledApps;
-use super::launch::{actor, launch};
-use super::lifecycle::{self, Stops};
+use super::lifecycle::Stops;
 use super::logout::Logouts;
-use super::sessions;
-use super::shutdown::{self, Shutdown};
-use super::state::{Service, LAUNCH_CAP_PER_SESSION};
-use super::stop::stop_app;
+use super::serve::{AppHandler, Handler};
+use super::shutdown::Shutdown;
+use super::state::Service;
 
-/// Cached `Services` reply.
+/// Cached `Services` rows.
 ///
-/// The user runtime's bump allocator never reclaims memory, and every encoded
-/// reply allocates several small buffers, so the supervisor re-encodes its
-/// supervision table only when a cheap fingerprint (phase/pid/restarts) says
-/// it changed; callers get a clone of the encoded parcel.
+/// The supervisor re-reads its supervision table only when a cheap
+/// fingerprint (phase/pid/restarts) says it changed (reading the label of
+/// each installed app costs a syscall); callers get a clone of the rows.
 #[derive(Default)]
 pub(super) struct StatusCache {
     fingerprint: Option<u64>,
-    parcel: Option<Parcel>,
+    rows: Vec<services::ServiceStatus>,
 }
 
 impl StatusCache {
-    /// The current reply, re-encoding the table when it changed.
-    fn parcel(&mut self, services: &[Service]) -> messenger::Result<Parcel> {
+    /// The current rows, re-reading the table when it changed.
+    pub(super) fn rows(&mut self, services: &[Service]) -> Vec<services::ServiceStatus> {
         const PRIME: u64 = 0x0000_0100_0000_01b3;
         let mut fingerprint = 0xcbf2_9ce4_8422_2325u64;
         for service in services {
@@ -52,11 +50,11 @@ impl StatusCache {
                 fingerprint = fingerprint.wrapping_mul(PRIME);
             }
         }
-        if self.fingerprint != Some(fingerprint) || self.parcel.is_none() {
-            self.parcel = Some(services::services_reply(&status_rows(services))?);
+        if self.fingerprint != Some(fingerprint) {
+            self.rows = status_rows(services);
             self.fingerprint = Some(fingerprint);
         }
-        Ok(self.parcel.clone().unwrap_or_default())
+        self.rows.clone()
     }
 }
 
@@ -64,7 +62,7 @@ impl StatusCache {
 /// shutdown, if one is running.
 pub(super) struct Supervisor<'a> {
     pub(super) services: &'a mut Vec<Service>,
-    pub(super) broker: &'a mut router::TopicBroker,
+    pub(super) broker: &'a mut central::Publisher,
     pub(super) installed: &'a mut InstalledApps,
     pub(super) cache: &'a mut StatusCache,
     pub(super) shutdown: &'a mut Option<Shutdown>,
@@ -74,42 +72,26 @@ pub(super) struct Supervisor<'a> {
     pub(super) stops: &'a mut Stops,
     /// The sessions being logged out, waiting for their apps to quit.
     pub(super) logouts: &'a mut Logouts,
+    /// The login records and provisioning events read off the broker.
+    pub(super) feeds: &'a mut super::feeds::Feeds,
 }
 
-/// Serve queued subscriptions and control calls without blocking.
+/// Serve queued control calls without blocking.
 pub(super) fn serve_pending(
     state: &mut Supervisor,
     server: &Endpoint,
     buffer: &mut [u8],
 ) -> messenger::Result<()> {
     while let Some(message) = server.poll_recv_with(buffer)? {
-        let interface = message.interface_id();
-        let method = message.method();
-        // `Home` answers once its helper exits (`homes.rs`).
-        let home =
-            interface == services::INIT_INTERFACE && method == services::init::wire::METHOD_HOME;
-        let started = if home {
-            Some(state.homes.start(&message))
-        } else {
-            None
+        let mut handler = Handler {
+            state: &mut *state,
+            txn: message.txn,
+            held: false,
         };
-        let reply = match started {
-            Some(Ok(())) => continue,
-            Some(Err(error)) => services::init_error_reply(method, error),
-            None => match dispatch(state, &message) {
-                // A `Stop` answered later, from the reap of its last target.
-                Ok(None) => continue,
-                Ok(Some(parcel)) => parcel,
-                // A malformed request still gets an answer, or its caller would
-                // wait forever. A structured error is the useful one on the
-                // control interface; the topic router keeps an empty reply.
-                Err(error) if interface == services::INIT_INTERFACE => {
-                    services::init_error_reply(method, error)
-                }
-                Err(_) => Parcel::default(),
-            },
-        };
-        if let Some(txn) = message.txn {
+        let reply = init_wire::dispatch(&mut handler, &message);
+        // A `Stop` and a `Home` are answered later; a one-way has no txn.
+        let held = handler.held;
+        if let (Some(txn), false) = (message.txn, held) {
             server.reply_or_drop(txn, &reply)?;
         }
     }
@@ -123,13 +105,7 @@ pub(super) fn serve_app_pending(
     buffer: &mut [u8],
 ) -> messenger::Result<()> {
     while let Some(message) = server.poll_recv_with(buffer)? {
-        let reply = if message.interface_id() == lifecycle::APP_INTERFACE {
-            lifecycle::watch(services, &message)
-        } else {
-            Err(messenger::Error::Errno(-messenger::errno::EINVAL))
-        };
-        let reply =
-            reply.unwrap_or_else(|error| services::init_error_reply(message.method(), error));
+        let reply = app_wire::dispatch(&mut AppHandler { services }, &message);
         if let Some(txn) = message.txn {
             // An app's line must never take the supervisor down: a reply
             // that cannot be delivered is that caller's loss alone.
@@ -143,137 +119,6 @@ pub(super) fn serve_app_pending(
         }
     }
     Ok(())
-}
-
-/// Dispatch one inbound message to the broker, the supervision table, the
-/// app registry / launch path, or the shutdown. `None` defers the reply (a
-/// `Stop` waiting for its targets to exit).
-fn dispatch(state: &mut Supervisor, message: &Message) -> messenger::Result<Option<Parcel>> {
-    let is_stop = message.interface_id() == services::INIT_INTERFACE
-        && message.method() == services::init::METHOD_STOP;
-    if is_stop {
-        let request = services::decode_stop_request(&message.parcel)?;
-        let caller = actor(message)?;
-        let stopped = stop_app(state.services, state.broker, &request.app, &caller)?;
-        let Some(txn) = message.txn else {
-            return Ok(None);
-        };
-        state
-            .stops
-            .hold(txn, &request.app, stopped.pids, stopped.count);
-        return Ok(None);
-    }
-    dispatch_now(state, message).map(Some)
-}
-
-fn dispatch_now(state: &mut Supervisor, message: &Message) -> messenger::Result<Parcel> {
-    let Supervisor {
-        services,
-        broker,
-        installed,
-        cache,
-        shutdown,
-        logouts,
-        ..
-    } = state;
-    match message.interface_id() {
-        router::INTERFACE => {
-            // `logind`'s login events also tell the launch path who owns
-            // each session (see `sessions.rs`); a logout ends every task of
-            // the session (`logout.rs`, issues #623, #651).
-            if let Some(ended) = sessions::observe(services, message) {
-                logouts.begin(services, broker, ended);
-            }
-            // `pkgd`'s provisioning progress, for the autostart.
-            super::provisioning::observe(services, message);
-            broker.handle(message)
-        }
-        services::INIT_INTERFACE => match message.method() {
-            services::init::METHOD_SERVICES => cache.parcel(services),
-            services::init::METHOD_LISTAPPS => {
-                // Built-ins first, in registry order, then what the package
-                // manager installed, read afresh so the menu is never stale.
-                installed.refresh();
-                let caller = actor(message)?;
-                let apps = installed.infos(app_infos(), caller.uid);
-                services::list_apps_reply(&apps)
-            }
-            // A service says it serves: what waited for it may start.
-            services::init::METHOD_READY => {
-                if super::ready::observe(services, message) && !shutdown::stopping() {
-                    super::supervise::start_ready(services, broker);
-                }
-                Ok(Parcel::default())
-            }
-            // A launched app says why it is failing (issue #549).
-            services::init::wire::METHOD_REPORTFAILURE => {
-                super::notice::report(services, message);
-                Ok(Parcel::default())
-            }
-            services::init::METHOD_SHUTDOWN => {
-                let request = services::init::wire::decode_shutdown_args(&message.parcel.body)
-                    .map_err(messenger::Error::Parcel)?;
-                // The Terminal, the user's shell, is the session's owner.
-                let caller = installed.owner_cred(actor(message)?);
-                let phase = shutdown::request(shutdown, services, broker, &request, &caller)?;
-                services::shutdown_reply(true, &phase)
-            }
-            // `elevd` restarts a service an administrator approved (U2).
-            services::init::wire::METHOD_RESTARTSERVICE => {
-                super::homes::restart_service(services, message)
-            }
-            // `dbgd` hot-reloads a service (docs/dbgd-plan.md, v2).
-            services::init::wire::METHOD_RELOADSERVICE => super::reload::reload(services, message),
-            services::init::wire::METHOD_REVERTSERVICE => super::reload::revert(services, message),
-            services::init::wire::METHOD_RELOADS => super::reload::list(services),
-            services::init::wire::METHOD_RELAUNCHAPP => {
-                super::relaunch::relaunch(services, broker, installed, message)
-            }
-            // `devd` asks for a driver row for the device it matched.
-            services::init::wire::METHOD_STARTDRIVER => {
-                super::drivers::start(services, broker, message)
-            }
-            // Nothing new starts once the machine is going down.
-            services::init::METHOD_LAUNCH if shutdown::stopping() => {
-                Err(messenger::Error::Errno(-messenger::errno::EBUSY))
-            }
-            services::init::METHOD_LAUNCH => {
-                let request = services::decode_launch_request(&message.parcel)?;
-                // The login screen comes back once the ended session's apps
-                // are gone (or their grace ran out): `logind` retries.
-                if request.app == GREETER_APP_ID && logouts.holds_greeter() {
-                    trace::line!(trace::Channel::Init, "LOGOUT:GREETER:HELD");
-                    return Err(messenger::Error::Errno(-messenger::errno::EAGAIN));
-                }
-                let caller = installed.owner_cred(actor(message)?);
-                match launch(services, broker, installed, &request, &caller, false) {
-                    Ok(result) => services::launch_reply(&result),
-                    Err(error) => {
-                        let target = if request.session == 0 {
-                            caller.session
-                        } else {
-                            request.session
-                        };
-                        if error.errno() == Some(-messenger::errno::EPERM) {
-                            trace::line!(trace::Channel::Init, "LAUNCH:DENIED:PASS app={} caller_uid={} caller_session={} target={}",
-                                request.app, caller.uid, caller.session, target);
-                        } else if error.errno() == Some(-messenger::errno::EAGAIN) {
-                            trace::line!(
-                                trace::Channel::Init,
-                                "LAUNCH:CAP:PASS app={} session={} cap={}",
-                                request.app,
-                                target,
-                                LAUNCH_CAP_PER_SESSION
-                            );
-                        }
-                        Err(error)
-                    }
-                }
-            }
-            _ => Err(messenger::Error::Errno(-messenger::errno::EINVAL)),
-        },
-        _ => Err(messenger::Error::Errno(-messenger::errno::EINVAL)),
-    }
 }
 
 /// The kernel id of the label an installed app's running task carries, read

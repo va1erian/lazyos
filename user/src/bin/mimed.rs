@@ -66,9 +66,10 @@ use user::sys;
 
 use apps::{seed_default_apps, AppRegistry};
 use db::{MimeDb, OVERRIDE_BUFFER};
-use handlers::dispatch;
+use handlers::Handler;
 use prefs::Prefs;
 use selftest::selftest;
+use user::messenger::mime::wire::dispatch;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -115,12 +116,15 @@ fn run() -> messenger::Result<()> {
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     loop {
         let message = server.recv_with(&mut buffer, None)?;
-        let reply = match dispatch(&db, &mut apps, &mut bus, &mut prefs, &message) {
-            Ok(parcel) => parcel,
-            // A malformed request still gets an answer, or its caller would
-            // wait forever.
-            Err(error) => mime::error_reply(message.method(), error),
-        };
+        let reply = dispatch(
+            &mut Handler {
+                db: &db,
+                apps: &mut apps,
+                bus: &mut bus,
+                prefs: &mut prefs,
+            },
+            &message,
+        );
         if let Some(txn) = message.txn {
             // A failed reply means the caller timed out and its transaction is
             // gone; that is a normal race, not a fatal service error.

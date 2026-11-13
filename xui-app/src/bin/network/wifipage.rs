@@ -20,6 +20,7 @@
 
 use xui_app::net::wifi;
 use xui_app::net::wifimodel::{self as model, Conn, Network, Security, State};
+use xui_app::trace::{self, Channel};
 use xui_core::backend::WidgetId;
 use xui_core::prelude::*;
 
@@ -149,7 +150,7 @@ impl Page {
                 Ok(names) => {
                     self.ifname = names.into_iter().next();
                     if let Some(name) = &self.ifname {
-                        println!("NETAPP:WIFI:UP if={name}");
+                        trace::line!(Channel::Netapp, "WIFI:UP if={name}");
                     }
                 }
                 Err(error) => {
@@ -210,7 +211,7 @@ impl Page {
             self.shown = rows;
         }
         if self.reported_count != Some(networks.len()) {
-            println!("NETAPP:WIFI:SCAN:PASS n={}", networks.len());
+            trace::line!(Channel::Netapp, "WIFI:SCAN:PASS n={}", networks.len());
             self.reported_count = Some(networks.len());
         }
         self.networks = networks;
@@ -227,8 +228,9 @@ impl Page {
         if self.reported.as_ref() == Some(&now) {
             return;
         }
-        println!(
-            "NETAPP:WIFI:STATE if={} state={} ssid={:?}",
+        trace::line!(
+            Channel::Netapp,
+            "WIFI:STATE if={} state={} ssid={:?}",
             self.ifname.as_deref().unwrap_or(""),
             state.conn.name(),
             // Debug-quoted: a name from the air cannot forge a field.
@@ -290,7 +292,7 @@ impl Page {
     }
 
     fn refuse(&self, why: &str) {
-        println!("NETAPP:WIFI:JOIN:REFUSED {why}");
+        trace::line!(Channel::Netapp, "WIFI:JOIN:REFUSED {why}");
         self.say(why);
     }
 
@@ -391,10 +393,12 @@ impl Page {
         match wifi::add_network(ssid, security, hidden, passphrase) {
             Ok(id) => self.start_join(&id, ssid),
             // Saved already (not in the list yet): join that one.
-            Err(wifi::Error::Code(code)) if code == -wifi::EEXIST => match self.saved_id(ssid) {
-                Some(id) => self.start_join(&id, ssid),
-                None => self.refuse(&format!("\"{ssid}\" is saved already.")),
-            },
+            Err(wifi::Error::Code(code)) if code == -xui_app::sys::errno::EEXIST => {
+                match self.saved_id(ssid) {
+                    Some(id) => self.start_join(&id, ssid),
+                    None => self.refuse(&format!("\"{ssid}\" is saved already.")),
+                }
+            }
             Err(error) => self.refuse(&format!("Could not save \"{ssid}\": {}", error.describe())),
         }
     }
@@ -416,8 +420,9 @@ impl Page {
         match wifi::connect(&card, id) {
             Ok(()) => {
                 self.actions += 1;
-                println!(
-                    "NETAPP:WIFI:JOIN:REQUESTED id={id} ssid={name:?} n={}",
+                trace::line!(
+                    Channel::Netapp,
+                    "WIFI:JOIN:REQUESTED id={id} ssid={name:?} n={}",
                     self.actions
                 );
                 self.say(&format!("Joining \"{name}\"..."));
@@ -434,7 +439,7 @@ impl Page {
         match wifi::disconnect(&card) {
             Ok(()) => {
                 self.actions += 1;
-                println!("NETAPP:WIFI:LEAVE:PASS n={}", self.actions);
+                trace::line!(Channel::Netapp, "WIFI:LEAVE:PASS n={}", self.actions);
                 self.say("Disconnected. It stays off until you join a network.");
                 self.refresh();
             }
@@ -454,9 +459,11 @@ impl Page {
         match wifi::forget(&network.id) {
             Ok(()) => {
                 self.actions += 1;
-                println!(
-                    "NETAPP:WIFI:FORGET:PASS id={} n={}",
-                    network.id, self.actions
+                trace::line!(
+                    Channel::Netapp,
+                    "WIFI:FORGET:PASS id={} n={}",
+                    network.id,
+                    self.actions
                 );
                 self.say(&format!("Forgot \"{}\".", network.display_name()));
                 self.refresh();

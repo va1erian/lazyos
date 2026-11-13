@@ -138,7 +138,7 @@ def callable_methods(interface: Interface) -> list[Method]:
     gate-only method is not reachable over the daemon a script talks to."""
     return [
         m
-        for m in interface.methods
+        for m in interface.calls
         if not m.objects and (interface.name, m.name) not in GATE_ONLY
     ]
 
@@ -214,6 +214,12 @@ class ModuleWriter:
             self.lines += ["//"] + doc_lines(i.docs, "//")
         self.lines.append("")
         self.const(["// The interface every function of this module calls."], "INTERFACE", rhai_str(i.name))
+        if i.service:
+            self.const(
+                ["// The registry name the interface is served under (`service` in the `.midl`)."],
+                "SERVICE",
+                rhai_str(i.service.name),
+            )
         self.fn(
             [
                 "/// The connected service: `invoke`, `invoke_oneway` and method sugar",
@@ -234,7 +240,7 @@ class ModuleWriter:
                 docs += ["///", "/// One-way: returns `()` once the message is queued."]
             body = f"{self.connect_expr()}.invoke({rhai_str(method.name)}, [{', '.join(params)}])"
             self.fn(docs, snake_case(method.name), params, body)
-        skipped = [m.name for m in self.interface.methods if m.objects]
+        skipped = [m.name for m in self.interface.methods if m.objects and not m.event]
         if skipped:
             self.lines += [
                 "// Not callable from a script (the request carries a channel, buffer",
@@ -257,6 +263,17 @@ class ModuleWriter:
             self.const([f"// The variants of `{enum.name}`, in wire order."], prefix, f"[{variants}]")
             for variant in enum.variants:
                 self.const([], f"{prefix}_{snake_case(variant).upper()}", rhai_str(variant))
+
+    def errors(self) -> None:
+        """The `errors` block as `ERROR_<NAME>` code constants, to compare with
+        the code of a failed call."""
+        for error in self.interface.errors:
+            self.const(
+                [f"// Service error `{error.name}`: the code a failed call carries."]
+                + doc_lines(error.doc, "//"),
+                f"ERROR_{snake_case(error.name).upper()}",
+                str(error.code),
+            )
 
     def topics(self) -> None:
         for topic, stem in topic_helpers(self.interface):
@@ -318,6 +335,7 @@ class ModuleWriter:
         self.methods()
         self.structs()
         self.enums()
+        self.errors()
         self.topics()
         while self.lines and self.lines[-1] == "":
             self.lines.pop()

@@ -7,9 +7,11 @@
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use user::central;
 use user::trace;
 
-use user::messenger::{self, logind, router, services, Message};
+use user::messenger::client::Native;
+use user::messenger::{self, logind, services};
 use user::sys::{self, Cred as SysCred};
 
 use super::apps::{find_app, is_available, SHELL_APP_ID};
@@ -17,12 +19,6 @@ use super::installed::{report_label, InstalledApp, InstalledApps};
 use super::sessions;
 use super::state::{Phase, Service, CAP_SETUID, LAUNCH_CAP_PER_SESSION, SESSION_CAPS};
 use super::supervise::{publish_state, spawn_row};
-
-/// The kernel-stamped actor for a message: the credentials its sender had
-/// when it was queued (issue #446).
-pub(super) fn actor(message: &Message) -> messenger::Result<SysCred> {
-    Ok(message.caller())
-}
 
 /// The session-owner policy: a caller may launch into its own session; a
 /// holder of `CAP_SETUID` (`logind`, the supervisor) may launch anywhere;
@@ -84,11 +80,13 @@ fn lookup_session_uid(session: u64) -> messenger::Result<u32> {
     if let Some(uid) = sessions::owner(session) {
         return Ok(uid);
     }
-    let endpoint = services::resolve_service(logind::NAME)
+    let client = logind::Client::try_connect(Native)
         .map_err(|_| messenger::Error::Errno(-messenger::errno::ENOENT))?;
-    let (_, sessions) = logind::fetch_sessions(&endpoint)
+    let reply = client
+        .sessions()
         .map_err(|_| messenger::Error::Errno(-messenger::errno::ENOENT))?;
-    sessions
+    reply
+        .sessions
         .iter()
         .find(|record| record.id == session && record.state == "active")
         .map(|record| record.uid)
@@ -149,7 +147,7 @@ fn has_url_scheme(text: &str) -> bool {
 /// `USER`, `PATH`; [`sessions::env`]).
 pub(super) fn launch(
     services: &mut Vec<Service>,
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     installed: &mut InstalledApps,
     request: &services::LaunchRequest,
     caller: &SysCred,
@@ -194,7 +192,7 @@ fn admit(
 /// is spawned or logged: the registry lists it, the image just lacks it.
 pub(super) fn launch_row(
     services: &mut Vec<Service>,
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     request: &services::LaunchRequest,
     caller: &SysCred,
     autostart: bool,
@@ -243,7 +241,7 @@ fn admit_system(
 /// arguments (`svcpolicy::starts_in_background`, `INIT:LAUNCH:BACKGROUND`).
 fn launch_installed(
     services: &mut Vec<Service>,
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     app: &InstalledApp,
     request: &services::LaunchRequest,
     caller: &SysCred,
@@ -339,7 +337,7 @@ fn retire_stopped(services: &mut Vec<Service>, id: &str) {
 /// adopt it as a supervised child.
 fn start_row(
     services: &mut Vec<Service>,
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     mut row: Service,
     cred: &SysCred,
     session: u64,

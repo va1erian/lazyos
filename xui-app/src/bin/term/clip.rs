@@ -4,37 +4,14 @@
 //! bar, so a stray newline cannot run a command unseen.
 
 use std::path::PathBuf;
+use xui_app::trace::{self, Channel};
 
 use lazyterm::paste::{line_count, needs_confirmation, paste_bytes, shell_quote};
-use std::cell::RefCell;
-use std::rc::Rc;
 
-use xui_app::backend::{DropEvent, LazyOSBackend};
-use xui_app::platform::urilist;
-use xui_core::app::Proxy;
 use xui_core::app::Ui;
 
 use super::prompt::Prompt;
 use super::{Msg, Terminal};
-
-/// Turn files dropped on the window into `Msg::Dropped` through `outbox`, which
-/// holds the UI's proxy once the UI exists (the hook runs outside `update`).
-pub(super) fn watch_drops(backend: &LazyOSBackend, outbox: Rc<RefCell<Option<Proxy<Msg>>>>) {
-    backend.on_drag_event(move |_, event| {
-        if let DropEvent::Drop {
-            mime,
-            data: Ok(bytes),
-            ..
-        } = event
-        {
-            if mime == urilist::MIME {
-                if let Some(proxy) = outbox.borrow().as_ref() {
-                    let _ = proxy.send(Msg::Dropped(urilist::decode(bytes)));
-                }
-            }
-        }
-    });
-}
 
 /// How many of a paste's last lines `TERM:CMD` reports.
 const MAX_TRACKED_LINES: usize = 8;
@@ -45,7 +22,7 @@ impl Terminal {
         let text = self.term.borrow().selection_text();
         if let Some(text) = text {
             ui.set_clipboard_text(&text);
-            println!("TERM:COPY:{}", text.len());
+            trace::line!(Channel::Term, "COPY:{}", text.len());
         }
     }
 
@@ -68,7 +45,7 @@ impl Terminal {
         let bracketed = self.term.borrow().bracketed_paste();
         if self.conf.settings.confirm_multiline && needs_confirmation(&text, bracketed) {
             let lines = line_count(&text);
-            println!("TERM:PASTE:CONFIRM:{lines}");
+            trace::line!(Channel::Term, "PASTE:CONFIRM:{lines}");
             self.pending_text = Some(text);
             self.show_prompt(ui, Prompt::paste(lines));
         } else {
@@ -82,7 +59,7 @@ impl Terminal {
         let bracketed = self.term.borrow().bracketed_paste();
         let bytes = paste_bytes(text, bracketed);
         self.input(ui, &bytes);
-        println!("TERM:PASTE:{}", bytes.len());
+        trace::line!(Channel::Term, "PASTE:{}", bytes.len());
         if !bracketed {
             self.track_paste(&String::from_utf8_lossy(&bytes));
         }
@@ -128,7 +105,7 @@ impl Terminal {
         if accept {
             self.write_paste(ui, &text);
         } else {
-            println!("TERM:PASTE:CANCEL");
+            trace::line!(Channel::Term, "PASTE:CANCEL");
         }
     }
 }

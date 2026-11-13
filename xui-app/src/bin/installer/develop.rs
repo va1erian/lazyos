@@ -23,9 +23,9 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use xui_app::trace::{self, Channel};
 
 use xui_app::installer::{clean, elide, Package};
-use xui_app::launch;
 use xui_app::platform::{argv, pkg};
 use xui_core::app::{App, Ui};
 use xui_core::arrange::{button, column, label, row, Entry, IntoEntry, LayoutExt};
@@ -51,25 +51,25 @@ pub fn requested<I: IntoIterator<Item = OsString>>(args: I) -> Option<Option<Pat
 /// Run the `develop` verb for `path` and exit.
 pub fn main(path: Option<PathBuf>) -> ExitCode {
     let Some(path) = path.filter(|path| argv::is_acceptable(path)) else {
-        println!("INSTALLER:DEVELOP:FAIL not an absolute path");
+        trace::line!(Channel::Installer, "DEVELOP:FAIL not an absolute path");
         return ExitCode::FAILURE;
     };
     let text = path.to_string_lossy().into_owned();
     match pkg::develop(&text, false) {
         Ok((label, true)) => {
-            println!("INSTALLER:DEVELOP:PASS {} asked=0", clean(&label));
+            trace::line!(Channel::Installer, "DEVELOP:PASS {} asked=0", clean(&label));
             return ExitCode::SUCCESS;
         }
         Ok((_, false)) => {}
         Err(reason) => {
-            println!("INSTALLER:DEVELOP:FAIL {}", clean(&reason));
+            trace::line!(Channel::Installer, "DEVELOP:FAIL {}", clean(&reason));
             return ExitCode::FAILURE;
         }
     }
     let package = match pkg::inspect(&text) {
         Ok(package) => package,
         Err(reason) => {
-            println!("INSTALLER:DEVELOP:FAIL {}", clean(&reason));
+            trace::line!(Channel::Installer, "DEVELOP:FAIL {}", clean(&reason));
             return ExitCode::FAILURE;
         }
     };
@@ -94,18 +94,24 @@ impl App for Consent {
     fn update(&mut self, msg: DevMsg, ui: &mut Ui<DevMsg>) {
         match msg {
             DevMsg::Allow => match pkg::develop(&self.path, true) {
-                Ok((label, true)) => println!("INSTALLER:DEVELOP:PASS {} asked=1", clean(&label)),
-                Ok((label, false)) => {
-                    println!("INSTALLER:DEVELOP:FAIL not approved {}", clean(&label))
+                Ok((label, true)) => {
+                    trace::line!(Channel::Installer, "DEVELOP:PASS {} asked=1", clean(&label))
                 }
-                Err(reason) => println!("INSTALLER:DEVELOP:FAIL {}", clean(&reason)),
+                Ok((label, false)) => {
+                    trace::line!(
+                        Channel::Installer,
+                        "DEVELOP:FAIL not approved {}",
+                        clean(&label)
+                    )
+                }
+                Err(reason) => trace::line!(Channel::Installer, "DEVELOP:FAIL {}", clean(&reason)),
             },
             DevMsg::Deny => {
                 // Tell pkgd, so the IDE waiting for the answer stops now.
                 if let Err(reason) = pkg::develop_declined(&self.path) {
-                    println!("INSTALLER:DEVELOP:FAIL {}", clean(&reason));
+                    trace::line!(Channel::Installer, "DEVELOP:FAIL {}", clean(&reason));
                 }
-                println!("INSTALLER:DEVELOP:DENIED");
+                trace::line!(Channel::Installer, "DEVELOP:DENIED");
             }
         }
         ui.quit();
@@ -160,18 +166,18 @@ impl Consent {
 /// Show the consent window for `package` and act on the answer.
 fn ask(path: &Path, package: Package) -> ExitCode {
     let path = path.to_path_buf();
-    launch::run(
-        xui_app::trace::Channel::Installer,
-        "Run from development",
-        (560, 400),
-        move |ui, backend| {
-            backend.set_size_hints(420, 300, 0, 0);
+    xui_app::app(Channel::Installer, "Run from development")
+        .size(560, 400)
+        .min_size(420, 300)
+        .run(move |ui, cx| {
+            let backend = cx.backend();
             let permissions = package.permissions.len();
-            backend.on_first_frame(move || println!("INSTALLER:DEVELOP:ASK perms={permissions}"));
+            backend.on_first_frame(move || {
+                trace::line!(Channel::Installer, "DEVELOP:ASK perms={permissions}")
+            });
             Consent::build(ui, &path, &package)
-                .inspect_err(|error| println!("INSTALLER:BUILD:FAIL:{error}"))
-        },
-    )
+                .inspect_err(|error| trace::fail!(Channel::Installer, "BUILD", "{error}"))
+        })
 }
 
 #[cfg(test)]

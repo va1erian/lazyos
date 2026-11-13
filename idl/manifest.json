@@ -6,40 +6,52 @@
       {
         "name": "Lookup",
         "id": 1772818603,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Authenticate",
         "id": 1137183084,
-        "oneway": false
+        "oneway": false,
+        "deadline": "never"
       },
       {
         "name": "Create",
         "id": 420340861,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 60000
       },
       {
         "name": "Delete",
         "id": 1469573738,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "SetPassword",
         "id": 985541106,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 60000
       },
       {
         "name": "SetAdmin",
         "id": 1706675794,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "ListUsers",
         "id": 702470087,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000,
+        "retry": "safe"
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.accountsd"
+    ]
   },
   {
     "interface": "os.lazy.audio.v1",
@@ -48,17 +60,21 @@
       {
         "name": "Info",
         "id": 266462757,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "OpenStream",
         "id": 410137073,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "AttachRing",
         "id": 62355614,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "ring",
@@ -73,42 +89,53 @@
       {
         "name": "Commit",
         "id": 2036391452,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Start",
         "id": 182978943,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Stop",
         "id": 1266644741,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Drain",
         "id": 101727161,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Position",
         "id": 1652503594,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "CloseStream",
         "id": 973774059,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "SetVolume",
         "id": 1919741053,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "never"
       },
       {
         "name": "SetMute",
         "id": 1285443642,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "never"
       }
     ],
     "topics": [
@@ -129,6 +156,10 @@
         "producer": "client",
         "advance": "Commit"
       }
+    ],
+    "services": [
+      "os.lazy.audio",
+      "os.lazy.audio.card/{id}"
     ]
   },
   {
@@ -138,35 +169,50 @@
       {
         "name": "ListStreams",
         "id": 711680798,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000,
+        "retry": "safe"
       },
       {
         "name": "SetStreamVolume",
         "id": 953940373,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000,
+        "retry": "never"
       },
       {
         "name": "GetMaster",
         "id": 1362695053,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000,
+        "retry": "safe"
       },
       {
         "name": "SetMaster",
         "id": 301176513,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000,
+        "retry": "safe"
       },
       {
         "name": "ListOutputs",
         "id": 124559009,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000,
+        "retry": "safe"
       },
       {
         "name": "SelectOutput",
         "id": 234575836,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000,
+        "retry": "safe"
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.audio"
+    ]
   },
   {
     "interface": "os.lazy.clipboard.v1",
@@ -175,12 +221,16 @@
       {
         "name": "Offer",
         "id": 1313375869,
-        "oneway": false
+        "oneway": false,
+        "scope": "os.lazy.clipboard.write.v1",
+        "scope_id": "0x828647c8d352e8f3",
+        "deadline_ms": 500
       },
       {
         "name": "OfferBuffer",
         "id": 2074208755,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "data",
@@ -192,12 +242,16 @@
       {
         "name": "Request",
         "id": 38093138,
-        "oneway": false
+        "oneway": false,
+        "scope": "os.lazy.clipboard.read.v1",
+        "scope_id": "0x8c863642df2825cc",
+        "deadline_ms": 500
       },
       {
         "name": "Fetch",
         "id": 1396322691,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "into",
@@ -209,17 +263,22 @@
       {
         "name": "Serialize",
         "id": 1116160801,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Ping",
         "id": 2142761129,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Current",
         "id": 869319546,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       }
     ],
     "topics": [
@@ -250,6 +309,9 @@
         "publish_permission": "publish:system/events/security/clipboard",
         "subscribe_permission": "subscribe:system/events/security/clipboard"
       }
+    ],
+    "services": [
+      "os.lazy.clipboard"
     ]
   },
   {
@@ -259,27 +321,37 @@
       {
         "name": "Get",
         "id": 915881719,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000,
+        "retry": "safe"
       },
       {
         "name": "Set",
         "id": 682729123,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000,
+        "retry": "safe"
       },
       {
         "name": "Delete",
         "id": 1469573738,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000,
+        "retry": "never"
       },
       {
         "name": "List",
         "id": 220805025,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000,
+        "retry": "safe"
       },
       {
         "name": "Info",
         "id": 266462757,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000,
+        "retry": "safe"
       }
     ],
     "topics": [
@@ -301,6 +373,35 @@
         "publish_permission": "publish:user/+/confd/changed/#",
         "subscribe_permission": "subscribe:user/+/confd/changed/#"
       }
+    ],
+    "services": [
+      "os.lazy.confd"
+    ],
+    "errors": [
+      {
+        "name": "NotFound",
+        "code": 1001
+      },
+      {
+        "name": "BadPath",
+        "code": 1002
+      },
+      {
+        "name": "TooLarge",
+        "code": 1003
+      },
+      {
+        "name": "Denied",
+        "code": 1004
+      },
+      {
+        "name": "Io",
+        "code": 1005
+      },
+      {
+        "name": "BadValue",
+        "code": 1006
+      }
     ]
   },
   {
@@ -310,7 +411,9 @@
       {
         "name": "Devices",
         "id": 665645856,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       }
     ],
     "topics": [
@@ -323,6 +426,9 @@
         "publish_permission": "publish:system/devices/+",
         "subscribe_permission": "subscribe:system/devices/+"
       }
+    ],
+    "services": [
+      "os.lazy.devd"
     ]
   },
   {
@@ -333,6 +439,7 @@
         "name": "CreateSurface",
         "id": 1,
         "oneway": false,
+        "deadline_ms": 1000,
         "objects": [
           {
             "name": "events",
@@ -346,6 +453,7 @@
         "name": "AttachBuffer",
         "id": 2,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "pixels",
@@ -357,92 +465,112 @@
       {
         "name": "Commit",
         "id": 3,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "DestroySurface",
         "id": 4,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "PointerMove",
         "id": 5,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "PointerDown",
         "id": 6,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "PointerUp",
         "id": 7,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "KeyDown",
         "id": 8,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "KeyUp",
         "id": 9,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "WindowClose",
         "id": 10,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "DragStart",
         "id": 11,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "DragCancel",
         "id": 12,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "DragEnter",
         "id": 13,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "DragOver",
         "id": 14,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "DragLeave",
         "id": 15,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Drop",
         "id": 16,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "DragEnded",
         "id": 17,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "ListSurfaces",
         "id": 18,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000,
+        "retry": "safe"
       },
       {
         "name": "GetWorkArea",
         "id": 19,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000,
+        "retry": "safe"
       },
       {
         "name": "Subscribe",
         "id": 20,
         "oneway": false,
+        "deadline_ms": 2000,
         "objects": [
           {
             "name": "events",
@@ -455,27 +583,33 @@
       {
         "name": "GetTheme",
         "id": 21,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "SurfaceChanged",
         "id": 22,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "FocusChanged",
         "id": 23,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "StartMenu",
         "id": 24,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "AttachBufferSlot",
         "id": 25,
         "oneway": false,
+        "deadline_ms": 1000,
         "objects": [
           {
             "name": "pixels",
@@ -492,120 +626,152 @@
       {
         "name": "BufferRelease",
         "id": 27,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "FrameDone",
         "id": 28,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "SetTitle",
         "id": 29,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000,
+        "retry": "never"
       },
       {
         "name": "HintOpenOrigin",
         "id": 30,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500
       },
       {
         "name": "PointerWheel",
         "id": 31,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "SetSizeHints",
         "id": 32,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000,
+        "retry": "never"
       },
       {
         "name": "Configure",
         "id": 33,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "RequestSize",
         "id": 34,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Ping",
         "id": 35,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "PlaceSurface",
         "id": 36,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "ActivateSurface",
         "id": 37,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "MinimizeSurface",
         "id": 38,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "SetWorkArea",
         "id": 39,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000,
+        "retry": "safe"
       },
       {
         "name": "SetIconGeometry",
         "id": 40,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000,
+        "retry": "never"
       },
       {
         "name": "HintLaunchOrigin",
         "id": 41,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "Dismiss",
         "id": 42,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "GetOutput",
         "id": 43,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500,
+        "retry": "safe"
       },
       {
         "name": "AllowPopup",
         "id": 44,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "GrabPanelKeys",
         "id": 45,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "PanelKey",
         "id": 46,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "TrayKeys",
         "id": 47,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "SetCloseMode",
         "id": 48,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000,
+        "retry": "never"
       },
       {
         "name": "ActivateApp",
         "id": 49,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.display.v1"
+    ]
   },
   {
     "interface": "os.lazy.display.cursor.v1",
@@ -614,10 +780,15 @@
       {
         "name": "SetCursor",
         "id": 1,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000,
+        "retry": "never"
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.display.v1"
+    ]
   },
   {
     "interface": "os.lazy.echo.v1",
@@ -626,12 +797,16 @@
       {
         "name": "Echo",
         "id": 998075300,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Ping",
         "id": 2142761129,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Notify",
@@ -639,7 +814,10 @@
         "oneway": true
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.echo"
+    ]
   },
   {
     "interface": "os.lazy.elevd.v1",
@@ -648,12 +826,14 @@
       {
         "name": "Request",
         "id": 38093138,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 400000
       },
       {
         "name": "Release",
         "id": 1830722334,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       }
     ],
     "topics": [
@@ -666,6 +846,9 @@
         "publish_permission": "publish:system/events/elevd/request",
         "subscribe_permission": "subscribe:system/events/elevd/request"
       }
+    ],
+    "services": [
+      "os.lazy.elevd"
     ]
   },
   {
@@ -703,15 +886,22 @@
       {
         "name": "GetState",
         "id": 746022616,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "GetBeam",
         "id": 400769696,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.gpu"
+    ]
   },
   {
     "interface": "os.lazy.healthd.v1",
@@ -720,12 +910,15 @@
       {
         "name": "Report",
         "id": 1182923275,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Status",
         "id": 6222351,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500,
+        "retry": "safe"
       }
     ],
     "topics": [
@@ -742,11 +935,14 @@
         "name": "system/health/+",
         "source": "system/health/{name}",
         "payload": "HealthRecord",
-        "qos": "latest",
+        "qos": "buffered",
         "retained": true,
         "publish_permission": "publish:system/health/+",
         "subscribe_permission": "subscribe:system/health/+"
       }
+    ],
+    "services": [
+      "os.lazy.healthd"
     ]
   },
   {
@@ -756,32 +952,40 @@
       {
         "name": "Services",
         "id": 1672675413,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500,
+        "retry": "safe"
       },
       {
         "name": "Launch",
         "id": 936096390,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 10000
       },
       {
         "name": "ListApps",
         "id": 1009359625,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000,
+        "retry": "safe"
       },
       {
         "name": "Stop",
         "id": 1266644741,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Shutdown",
         "id": 1911669355,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       },
       {
         "name": "StartDriver",
         "id": 1713728693,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Ready",
@@ -796,32 +1000,40 @@
       {
         "name": "Home",
         "id": 1391791790,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "never"
       },
       {
         "name": "RestartService",
         "id": 726211199,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "ReloadService",
         "id": 1203429087,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "RevertService",
         "id": 1005742662,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "RelaunchApp",
         "id": 734382134,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Reloads",
         "id": 930702605,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       }
     ],
     "topics": [
@@ -838,7 +1050,7 @@
         "name": "system/events/service/+",
         "source": "system/events/service/{name}",
         "payload": "ServiceEvent",
-        "qos": "latest",
+        "qos": "buffered",
         "retained": true,
         "publish_permission": "publish:system/events/service/+",
         "subscribe_permission": "subscribe:system/events/service/+"
@@ -861,6 +1073,9 @@
         "publish_permission": "publish:session/+/apps/resident",
         "subscribe_permission": "subscribe:session/+/apps/resident"
       }
+    ],
+    "services": [
+      "os.lazy.init"
     ]
   },
   {
@@ -871,6 +1086,7 @@
         "name": "Watch",
         "id": 1,
         "oneway": false,
+        "deadline_ms": 1000,
         "objects": [
           {
             "name": "events",
@@ -881,7 +1097,10 @@
         ]
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.init.app"
+    ]
   },
   {
     "interface": "os.lazy.init.app.events.v1",
@@ -890,12 +1109,14 @@
       {
         "name": "Reopen",
         "id": 1,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Quit",
         "id": 2,
-        "oneway": true
+        "oneway": true,
+        "event": true
       }
     ],
     "topics": []
@@ -908,6 +1129,7 @@
         "name": "Open",
         "id": 1,
         "oneway": false,
+        "deadline_ms": 1000,
         "objects": [
           {
             "name": "events",
@@ -920,32 +1142,40 @@
       {
         "name": "Close",
         "id": 2,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "GetState",
         "id": 3,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "RequestGrant",
         "id": 4,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "ReleaseGrant",
         "id": 5,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Ping",
         "id": 6,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000,
+        "retry": "safe"
       },
       {
         "name": "AttachKeyState",
         "id": 7,
         "oneway": false,
+        "deadline_ms": 1000,
         "objects": [
           {
             "name": "state",
@@ -958,6 +1188,7 @@
         "name": "AttachGamepadState",
         "id": 8,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "state",
@@ -969,55 +1200,68 @@
       {
         "name": "KeyEvent",
         "id": 10,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "TextInput",
         "id": 11,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "KeyboardEnter",
         "id": 12,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "KeyboardLeave",
         "id": 13,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "LayoutChanged",
         "id": 14,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "GrantChanged",
         "id": 15,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "GamepadAxis",
         "id": 16,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "GamepadButton",
         "id": 17,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "GamepadEnter",
         "id": 18,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "GamepadLeave",
         "id": 19,
-        "oneway": true
+        "oneway": true,
+        "event": true
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.input.v1"
+    ]
   },
   {
     "interface": "os.lazy.input.shell.v1",
@@ -1027,6 +1271,7 @@
         "name": "Attach",
         "id": 1,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "events",
@@ -1039,42 +1284,51 @@
       {
         "name": "SetFocus",
         "id": 2,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "RegisterSurface",
         "id": 3,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "UnregisterSurface",
         "id": 4,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "RegisterHotkey",
         "id": 5,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "UnregisterHotkey",
         "id": 6,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "ApproveGrant",
         "id": 7,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "SetBounds",
         "id": 8,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "GetPointer",
         "id": 9,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "NoteFocus",
@@ -1109,45 +1363,56 @@
       {
         "name": "HotkeyFired",
         "id": 20,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "GrantRequested",
         "id": 21,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "EscapeChord",
         "id": 22,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "SessionOpened",
         "id": 23,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "SessionClosed",
         "id": 24,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "PointerEvent",
         "id": 25,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "GrabChanged",
         "id": 26,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "KeyActivity",
         "id": 27,
-        "oneway": true
+        "oneway": true,
+        "event": true
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.input.shell.v1"
+    ]
   },
   {
     "interface": "os.lazy.keyd.v1",
@@ -1156,90 +1421,113 @@
       {
         "name": "Verify",
         "id": 761007172,
-        "oneway": false
+        "oneway": false,
+        "deadline": "never"
       },
       {
         "name": "Sign",
         "id": 258162884,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Wrap",
         "id": 540869,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Unwrap",
         "id": 936778462,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Random",
         "id": 1091948930,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Generate",
         "id": 1196778162,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "List",
         "id": 220805025,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Ping",
         "id": 2142761129,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Provision",
         "id": 1596114784,
-        "oneway": false
+        "oneway": false,
+        "deadline": "never"
       },
       {
         "name": "Forget",
         "id": 1849666444,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Restore",
         "id": 267943793,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "StoreSecret",
         "id": 491839974,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "DeleteSecret",
         "id": 212754042,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "ListSecrets",
         "id": 1353484194,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "WifiPmk",
         "id": 249445660,
-        "oneway": false
+        "oneway": false,
+        "deadline": "never"
       },
       {
         "name": "StoreSecretFor",
         "id": 1701625789,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "DeleteSecretFor",
         "id": 268809353,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.keyd"
+    ]
   },
   {
     "interface": "os.lazy.keyd.appsecret.v1",
@@ -1248,25 +1536,34 @@
       {
         "name": "Put",
         "id": 1316564366,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       },
       {
         "name": "Get",
         "id": 915881719,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000,
+        "retry": "safe"
       },
       {
         "name": "Delete",
         "id": 1469573738,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       },
       {
         "name": "List",
         "id": 220805025,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000,
+        "retry": "safe"
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.keyd.appsecret"
+    ]
   },
   {
     "interface": "os.lazy.lifecycle.v1",
@@ -1287,30 +1584,43 @@
       {
         "name": "Tail",
         "id": 299916675,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Count",
         "id": 1642576020,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Verify",
         "id": 761007172,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Sources",
         "id": 583496657,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "TailFile",
         "id": 571114525,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.logd"
+    ]
   },
   {
     "interface": "os.lazy.logind.v1",
@@ -1319,17 +1629,21 @@
       {
         "name": "Sessions",
         "id": 916097772,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000,
+        "retry": "safe"
       },
       {
         "name": "Login",
         "id": 1441655762,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 30000
       },
       {
         "name": "Logout",
         "id": 125463051,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       }
     ],
     "topics": [
@@ -1346,7 +1660,7 @@
         "name": "system/events/login/session/+",
         "source": "system/events/login/session/{id}",
         "payload": "LoginSession",
-        "qos": "latest",
+        "qos": "buffered",
         "retained": true,
         "publish_permission": "publish:system/events/login/session/+",
         "subscribe_permission": "subscribe:system/events/login/session/+"
@@ -1364,11 +1678,14 @@
         "name": "system/events/login/end",
         "source": "system/events/login/end",
         "payload": "LoginEnd",
-        "qos": "latest",
+        "qos": "buffered",
         "retained": true,
         "publish_permission": "publish:system/events/login/end",
         "subscribe_permission": "subscribe:system/events/login/end"
       }
+    ],
+    "services": [
+      "os.lazy.logind"
     ]
   },
   {
@@ -1378,32 +1695,41 @@
       {
         "name": "Guess",
         "id": 1763202418,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Lookup",
         "id": 1772818603,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Verbs",
         "id": 1649509833,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Open",
         "id": 1401622761,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "Register",
         "id": 658098656,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Unregister",
         "id": 1480320227,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       }
     ],
     "topics": [
@@ -1416,6 +1742,9 @@
         "publish_permission": "publish:system/events/open/+",
         "subscribe_permission": "subscribe:system/events/open/+"
       }
+    ],
+    "services": [
+      "os.lazy.mimed"
     ]
   },
   {
@@ -1425,30 +1754,40 @@
       {
         "name": "Mount",
         "id": 1041399898,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "Unmount",
         "id": 2047171115,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       },
       {
         "name": "List",
         "id": 220805025,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000,
+        "retry": "safe"
       },
       {
         "name": "Volumes",
         "id": 2053774420,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Eject",
         "id": 819391126,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.mount"
+    ]
   },
   {
     "interface": "os.lazy.net.nic.v1",
@@ -1457,17 +1796,21 @@
       {
         "name": "Info",
         "id": 266462757,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "SetRxMode",
         "id": 506115710,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "AttachRing",
         "id": 62355614,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "rings",
@@ -1489,12 +1832,15 @@
       {
         "name": "DetachRing",
         "id": 162562056,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Stats",
         "id": 267161228,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Kick",
@@ -1504,7 +1850,8 @@
       {
         "name": "Notify",
         "id": 314575196,
-        "oneway": true
+        "oneway": true,
+        "event": true
       }
     ],
     "topics": [
@@ -1512,7 +1859,7 @@
         "name": "system/net/+/link",
         "source": "system/net/{ifname}/link",
         "payload": "LinkEvent",
-        "qos": "latest",
+        "qos": "buffered",
         "retained": true,
         "publish_permission": "publish:system/net/+/link",
         "subscribe_permission": "subscribe:system/net/+/link"
@@ -1531,6 +1878,9 @@
         "producer": "client",
         "doorbell": "Kick"
       }
+    ],
+    "services": [
+      "os.lazy.net.nic/{ifname}"
     ]
   },
   {
@@ -1540,42 +1890,56 @@
       {
         "name": "Interfaces",
         "id": 1779791769,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500,
+        "retry": "safe"
       },
       {
         "name": "Addresses",
         "id": 912810883,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500,
+        "retry": "safe"
       },
       {
         "name": "Routes",
         "id": 321835703,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500,
+        "retry": "safe"
       },
       {
         "name": "Stats",
         "id": 267161228,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500,
+        "retry": "safe"
       },
       {
         "name": "Ping",
         "id": 2142761129,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "never"
       },
       {
         "name": "Resolve",
         "id": 1645633795,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Renew",
         "id": 438534286,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500
       },
       {
         "name": "Reattach",
         "id": 60999493,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       }
     ],
     "topics": [
@@ -1592,7 +1956,7 @@
         "name": "system/net/+/addr",
         "source": "system/net/{ifname}/addr",
         "payload": "AddressEvent",
-        "qos": "latest",
+        "qos": "buffered",
         "retained": true,
         "publish_permission": "publish:system/net/+/addr",
         "subscribe_permission": "subscribe:system/net/+/addr"
@@ -1606,6 +1970,9 @@
         "publish_permission": "publish:system/events/network/up",
         "subscribe_permission": "subscribe:system/events/network/up"
       }
+    ],
+    "services": [
+      "os.lazy.net.stack"
     ]
   },
   {
@@ -1615,80 +1982,101 @@
       {
         "name": "Open",
         "id": 1401622761,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Bind",
         "id": 816668494,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Connect",
         "id": 1535748249,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Listen",
         "id": 1745080006,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Accept",
         "id": 1353867593,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Send",
         "id": 1921914063,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Recv",
         "id": 1829805133,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "SendTo",
         "id": 1246690602,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "RecvFrom",
         "id": 81212541,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Poll",
         "id": 1454776152,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Shutdown",
         "id": 1911669355,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "LocalAddr",
         "id": 444792203,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "PeerAddr",
         "id": 838739718,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Close",
         "id": 1300671683,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Stats",
         "id": 267161228,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.net.stack"
+    ]
   },
   {
     "interface": "os.lazy.notify.v1",
@@ -1697,17 +2085,20 @@
       {
         "name": "Notify",
         "id": 1,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 300
       },
       {
         "name": "Close",
         "id": 2,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 300
       },
       {
         "name": "Listen",
         "id": 3,
         "oneway": false,
+        "deadline_ms": 300,
         "objects": [
           {
             "name": "events",
@@ -1718,7 +2109,10 @@
         ]
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.notify"
+    ]
   },
   {
     "interface": "os.lazy.notify.events.v1",
@@ -1727,22 +2121,26 @@
       {
         "name": "Activated",
         "id": 1,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "ActionInvoked",
         "id": 2,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Closed",
         "id": 3,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Ping",
         "id": 4,
-        "oneway": true
+        "oneway": true,
+        "event": true
       }
     ],
     "topics": []
@@ -1754,57 +2152,73 @@
       {
         "name": "Inspect",
         "id": 1027767735,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 12000,
+        "retry": "safe"
       },
       {
         "name": "Install",
         "id": 890027328,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 120000
       },
       {
         "name": "Remove",
         "id": 564498461,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 12000
       },
       {
         "name": "List",
         "id": 220805025,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 12000,
+        "retry": "safe"
       },
       {
         "name": "Installed",
         "id": 1755800129,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 12000,
+        "retry": "safe"
       },
       {
         "name": "LabelName",
         "id": 775579582,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Provisioned",
         "id": 1076218465,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Develop",
         "id": 803454394,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 12000
       },
       {
         "name": "DevelopDeclined",
         "id": 1386916580,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 12000
       },
       {
         "name": "InstallApproved",
         "id": 1599511615,
-        "oneway": false
+        "oneway": false,
+        "deadline": "never"
       },
       {
         "name": "InstallDebug",
         "id": 1850060999,
-        "oneway": false
+        "oneway": false,
+        "deadline": "never"
       }
     ],
     "topics": [
@@ -1817,6 +2231,9 @@
         "publish_permission": "publish:system/events/pkg/+",
         "subscribe_permission": "subscribe:system/events/pkg/+"
       }
+    ],
+    "services": [
+      "os.lazy.pkgd"
     ]
   },
   {
@@ -1862,35 +2279,46 @@
       {
         "name": "Open",
         "id": 1401622761,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 10000
       },
       {
         "name": "Write",
         "id": 1717336572,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 10000
       },
       {
         "name": "Close",
         "id": 1300671683,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 10000
       },
       {
         "name": "Cancel",
         "id": 900713019,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 10000
       },
       {
         "name": "Status",
         "id": 6222351,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 10000,
+        "retry": "safe"
       },
       {
         "name": "Jobs",
         "id": 1256630173,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.print"
+    ]
   },
   {
     "interface": "os.lazy.messenger.registry.v1",
@@ -1899,22 +2327,32 @@
       {
         "name": "Register",
         "id": 658098656,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Resolve",
         "id": 1645633795,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
+      },
+      {
+        "name": "WaitFor",
+        "id": 1225377743,
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Connect",
         "id": 1535748249,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Connected",
         "id": 2079757168,
         "oneway": true,
+        "event": true,
         "objects": [
           {
             "name": "connection",
@@ -1927,15 +2365,20 @@
       {
         "name": "Unregister",
         "id": 1480320227,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "List",
         "id": 220805025,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.messenger.registry"
+    ]
   },
   {
     "interface": "os.lazy.shell.v1",
@@ -1944,30 +2387,39 @@
       {
         "name": "Status",
         "id": 1,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "ShowStartMenu",
         "id": 2,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Launch",
         "id": 3,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Refresh",
         "id": 4,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Activate",
         "id": 5,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.shell"
+    ]
   },
   {
     "interface": "os.lazy.sysmond.v1",
@@ -1976,7 +2428,9 @@
       {
         "name": "Snapshot",
         "id": 1312231341,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       }
     ],
     "topics": [
@@ -1998,6 +2452,9 @@
         "publish_permission": "publish:system/stats/tasks",
         "subscribe_permission": "subscribe:system/stats/tasks"
       }
+    ],
+    "services": [
+      "os.lazy.sysmond"
     ]
   },
   {
@@ -2007,32 +2464,42 @@
       {
         "name": "Now",
         "id": 188597655,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000,
+        "retry": "safe"
       },
       {
         "name": "GetZone",
         "id": 697211125,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 250,
+        "retry": "safe"
       },
       {
         "name": "SetZone",
         "id": 1574816713,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 15000,
+        "retry": "safe"
       },
       {
         "name": "SetTime",
         "id": 670376986,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 15000
       },
       {
         "name": "NtpStatus",
         "id": 209271495,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000,
+        "retry": "safe"
       },
       {
         "name": "SyncNow",
         "id": 1100029530,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 2000
       }
     ],
     "topics": [
@@ -2045,6 +2512,9 @@
         "publish_permission": "publish:time/tick",
         "subscribe_permission": "subscribe:time/tick"
       }
+    ],
+    "services": [
+      "os.lazy.timed"
     ]
   },
   {
@@ -2054,47 +2524,60 @@
       {
         "name": "Publish",
         "id": 1818372520,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500
       },
       {
         "name": "Subscribe",
         "id": 6992035,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 500
       },
       {
         "name": "Unsubscribe",
         "id": 2099666486,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "NextEvent",
         "id": 1278354512,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Ack",
         "id": 483717538,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "ListTopics",
         "id": 225427937,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Stats",
         "id": 267161228,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Ping",
         "id": 2142761129,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Bell",
         "id": 1766698328,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "bell",
@@ -2105,7 +2588,38 @@
         ]
       }
     ],
-    "topics": []
+    "topics": [
+      {
+        "name": "demo/waitany",
+        "source": "demo/waitany",
+        "payload": "Probe",
+        "qos": "latest",
+        "retained": false,
+        "publish_permission": "publish:demo/waitany",
+        "subscribe_permission": "subscribe:demo/waitany"
+      },
+      {
+        "name": "topics/depth",
+        "source": "topics/depth",
+        "payload": "Probe",
+        "qos": "buffered",
+        "retained": false,
+        "publish_permission": "publish:topics/depth",
+        "subscribe_permission": "subscribe:topics/depth"
+      },
+      {
+        "name": "system/events/selftest/forbidden",
+        "source": "system/events/selftest/forbidden",
+        "payload": "Probe",
+        "qos": "latest",
+        "retained": false,
+        "publish_permission": "publish:system/events/selftest/forbidden",
+        "subscribe_permission": "subscribe:system/events/selftest/forbidden"
+      }
+    ],
+    "services": [
+      "os.lazy.messenger.topics"
+    ]
   },
   {
     "interface": "os.lazy.messenger.topics.bell.v1",
@@ -2151,6 +2665,7 @@
         "name": "Set",
         "id": 1,
         "oneway": false,
+        "deadline_ms": 1000,
         "objects": [
           {
             "name": "events",
@@ -2163,12 +2678,14 @@
       {
         "name": "Update",
         "id": 2,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Clear",
         "id": 3,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       }
     ],
     "topics": [
@@ -2181,6 +2698,9 @@
         "publish_permission": "publish:session/+/shell/tray",
         "subscribe_permission": "subscribe:session/+/shell/tray"
       }
+    ],
+    "services": [
+      "os.lazy.shell.tray"
     ]
   },
   {
@@ -2190,27 +2710,32 @@
       {
         "name": "Activate",
         "id": 1,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "SecondaryActivate",
         "id": 2,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "MenuItem",
         "id": 3,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Scroll",
         "id": 4,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Ping",
         "id": 5,
-        "oneway": true
+        "oneway": true,
+        "event": true
       }
     ],
     "topics": []
@@ -2222,12 +2747,15 @@
       {
         "name": "Describe",
         "id": 582948360,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000,
+        "retry": "safe"
       },
       {
         "name": "Attach",
         "id": 145305188,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "staging",
@@ -2239,35 +2767,44 @@
       {
         "name": "Configure",
         "id": 373171691,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Start",
         "id": 182978943,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Stop",
         "id": 1266644741,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Release",
         "id": 1830722334,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Submit",
         "id": 1081664837,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Reap",
         "id": 1527513801,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.usb.audio"
+    ]
   },
   {
     "interface": "os.lazy.webd.view.v1",
@@ -2277,6 +2814,7 @@
         "name": "CreateView",
         "id": 1,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "events",
@@ -2289,12 +2827,14 @@
       {
         "name": "DestroyView",
         "id": 2,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "AttachSlot",
         "id": 3,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "pixels",
@@ -2311,7 +2851,8 @@
       {
         "name": "Resize",
         "id": 5,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "SetVisible",
@@ -2326,12 +2867,14 @@
       {
         "name": "Load",
         "id": 10,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "LoadHtml",
         "id": 11,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "html",
@@ -2343,32 +2886,38 @@
       {
         "name": "Reload",
         "id": 12,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Stop",
         "id": 13,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Back",
         "id": 14,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Forward",
         "id": 15,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Download",
         "id": 16,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Recover",
         "id": 17,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Mouse",
@@ -2393,32 +2942,38 @@
       {
         "name": "DialogReply",
         "id": 30,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "NavigationAnswer",
         "id": 31,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "NotifyPermission",
         "id": 32,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "DownloadCancel",
         "id": 33,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "SetBlocking",
         "id": 34,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "BlockingCompile",
         "id": 35,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "rules",
@@ -2430,175 +2985,212 @@
       {
         "name": "BlockingLoad",
         "id": 36,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "BlockingForget",
         "id": 37,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "NotifyForget",
         "id": 38,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "NotifyState",
         "id": 39,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "RecoverGroup",
         "id": 44,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "DetachSlots",
         "id": 45,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "SetUserAgent",
         "id": 46,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "Frame",
         "id": 100,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "State",
         "id": 101,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Scroll",
         "id": 102,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "LinkClicked",
         "id": 103,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "ClipboardWrite",
         "id": 104,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "ViewLost",
         "id": 105,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Ping",
         "id": 106,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Band",
         "id": 107,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Hover",
         "id": 108,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Cursor",
         "id": 109,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "NewWindowRequested",
         "id": 110,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "NavigationRequested",
         "id": 111,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Dialog",
         "id": 112,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "DownloadStarted",
         "id": 113,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "DownloadProgress",
         "id": 114,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "DownloadDone",
         "id": 115,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "DownloadFailed",
         "id": 116,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "NotifyPermissionRequest",
         "id": 117,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "NotifyClicked",
         "id": 118,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "BlockingList",
         "id": 119,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Blocked",
         "id": 120,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Responsive",
         "id": 121,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "HandedOff",
         "id": 122,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "NotifyShow",
         "id": 123,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "NotifyCancel",
         "id": 124,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "NotifyGone",
         "id": 125,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "WheelDone",
         "id": 126,
-        "oneway": true
+        "oneway": true,
+        "event": true
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "app.os.lazy.webd.view"
+    ]
   },
   {
     "interface": "os.lazy.webd.net.v1",
@@ -2608,6 +3200,7 @@
         "name": "CreateView",
         "id": 1,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "events",
@@ -2618,7 +3211,10 @@
         ]
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "app.os.lazy.webd.view"
+    ]
   },
   {
     "interface": "os.lazy.webd.browser.v1",
@@ -2628,6 +3224,7 @@
         "name": "CreateView",
         "id": 1,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "events",
@@ -2638,7 +3235,10 @@
         ]
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "app.os.lazy.webd.view"
+    ]
   },
   {
     "interface": "os.lazy.webd.light.v1",
@@ -2648,6 +3248,7 @@
         "name": "CreateView",
         "id": 1,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "events",
@@ -2660,12 +3261,14 @@
       {
         "name": "DestroyView",
         "id": 2,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "AttachSlot",
         "id": 3,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "pixels",
@@ -2682,7 +3285,8 @@
       {
         "name": "Resize",
         "id": 5,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 5000
       },
       {
         "name": "SetVisible",
@@ -2698,6 +3302,7 @@
         "name": "LoadHtml",
         "id": 11,
         "oneway": false,
+        "deadline_ms": 5000,
         "objects": [
           {
             "name": "html",
@@ -2729,40 +3334,50 @@
       {
         "name": "Frame",
         "id": 100,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "State",
         "id": 101,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Scroll",
         "id": 102,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "LinkClicked",
         "id": 103,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "ClipboardWrite",
         "id": 104,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "ViewLost",
         "id": 105,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Ping",
         "id": 106,
-        "oneway": true
+        "oneway": true,
+        "event": true
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "app.os.lazy.webd.light"
+    ]
   },
   {
     "interface": "os.lazy.net.wifi.hw.v1",
@@ -2771,12 +3386,15 @@
       {
         "name": "Info",
         "id": 266462757,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000,
+        "retry": "safe"
       },
       {
         "name": "Attach",
         "id": 145305188,
         "oneway": false,
+        "deadline_ms": 3000,
         "objects": [
           {
             "name": "events",
@@ -2789,85 +3407,106 @@
       {
         "name": "Detach",
         "id": 475812562,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       },
       {
         "name": "SetCountry",
         "id": 820455787,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       },
       {
         "name": "Scan",
         "id": 1830061320,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       },
       {
         "name": "AbortScan",
         "id": 1659626708,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       },
       {
         "name": "ScanResults",
         "id": 536623814,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000,
+        "retry": "safe"
       },
       {
         "name": "Join",
         "id": 805458841,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       },
       {
         "name": "TxMgmt",
         "id": 583187128,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       },
       {
         "name": "SetState",
         "id": 1345327380,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       },
       {
         "name": "SetKey",
         "id": 1206977594,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       },
       {
         "name": "DelKey",
         "id": 36584897,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       },
       {
         "name": "Leave",
         "id": 2049913440,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000
       },
       {
         "name": "Stats",
         "id": 267161228,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 3000,
+        "retry": "safe"
       },
       {
         "name": "ScanDone",
         "id": 2037373080,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "RxMgmt",
         "id": 1961753042,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "BeaconLoss",
         "id": 683463118,
-        "oneway": true
+        "oneway": true,
+        "event": true
       },
       {
         "name": "Deauthenticated",
         "id": 1135744209,
-        "oneway": true
+        "oneway": true,
+        "event": true
       }
     ],
-    "topics": []
+    "topics": [],
+    "services": [
+      "os.lazy.net.wifi.hw/{ifname}"
+    ]
   },
   {
     "interface": "os.lazy.net.wifi.v1",
@@ -2876,42 +3515,53 @@
       {
         "name": "Interfaces",
         "id": 1779791769,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000,
+        "retry": "safe"
       },
       {
         "name": "Scan",
         "id": 1830061320,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Networks",
         "id": 413956514,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000,
+        "retry": "safe"
       },
       {
         "name": "AddNetwork",
         "id": 69972362,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Connect",
         "id": 1535748249,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Disconnect",
         "id": 1518631179,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Forget",
         "id": 1849666444,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000
       },
       {
         "name": "Status",
         "id": 6222351,
-        "oneway": false
+        "oneway": false,
+        "deadline_ms": 1000,
+        "retry": "safe"
       }
     ],
     "topics": [
@@ -2919,7 +3569,7 @@
         "name": "system/net/+/wifi/state",
         "source": "system/net/{ifname}/wifi/state",
         "payload": "WifiState",
-        "qos": "latest",
+        "qos": "buffered",
         "retained": true,
         "publish_permission": "publish:system/net/+/wifi/state",
         "subscribe_permission": "subscribe:system/net/+/wifi/state"
@@ -2933,6 +3583,9 @@
         "publish_permission": "publish:system/net/+/wifi/scan",
         "subscribe_permission": "subscribe:system/net/+/wifi/scan"
       }
+    ],
+    "services": [
+      "os.lazy.net.wifi"
     ]
   }
 ]

@@ -6,6 +6,8 @@
 use alloc::vec::Vec;
 use user::trace;
 
+use libmessenger::client::Deadline;
+use messenger_generated::os_lazy_messenger_topics_v1 as topics_wire;
 use user::central::Bus;
 use user::messenger::wait::{wait_items, WaitItem, MAX_ENDPOINTS};
 use user::messenger::{self, errno, Endpoint, Error};
@@ -126,15 +128,17 @@ fn many_check() -> Check {
 /// wakes it on the subscription's bit only. Skipped when the image runs no
 /// topics broker (no `messengerd`).
 fn topic_check() -> Check {
-    let Ok(mut bus) = Bus::connect() else {
+    let Ok(mut bus) = Bus::connect_waiting() else {
         trace::line!(trace::Channel::Async, "WAIT:TOPIC:SKIP");
         return Ok(());
     };
-    let mut subscription = bus.subscribe("demo/waitany").map_err(report)?;
+    let mut subscription = bus
+        .subscribe(topics_wire::TOPIC_DEMO_WAITANY)
+        .map_err(report)?;
     let bell = subscription.bell().map_err(report)?;
     let (sender_a, inbox_a) = messenger::create_pair().map_err(report)?;
     let (sender_b, inbox_b) = messenger::create_pair().map_err(report)?;
-    bus.publish("demo/waitany", b"ping", false)
+    bus.publish(topics_wire::TOPIC_DEMO_WAITANY, b"ping", false)
         .map_err(report)?;
     let items = [
         WaitItem::Endpoint(inbox_a),
@@ -143,11 +147,8 @@ fn topic_check() -> Check {
     ];
     let deadline = sys::clock() + 500;
     let ready = wait_items(&items, 0, Some(deadline)).map_err(report)?;
-    let mut buf = [0u8; 512];
-    subscription.take_ring(&mut buf);
-    let event = subscription
-        .recv_with(&mut buf, Some(messenger::EXPIRED_DEADLINE))
-        .map_err(report)?;
+    subscription.take_ring();
+    let event = subscription.recv(Deadline::Poll).map_err(report)?;
     close_all(&[sender_a, inbox_a, sender_b, inbox_b]);
     let _ = subscription.unsubscribe();
     require("WAIT:TOPIC", ready == 0b100 && event.is_some())

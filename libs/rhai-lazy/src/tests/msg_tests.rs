@@ -70,7 +70,7 @@ fn nested_option_struct_replies_decode_to_maps() {
     "#;
     assert_eq!(
         value(&run_msg(&bus, src)),
-        r#"[3, "dark", (), (), "/data/confd", true]"#
+        r#"["Str", "dark", (), (), "/data/confd", true]"#
     );
 }
 

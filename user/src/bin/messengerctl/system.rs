@@ -1,18 +1,21 @@
 //! Health, session and event-log command output.
 
 use alloc::format;
-use user::messenger::{logind, services};
+use user::messenger::client::Native;
+use user::messenger::logind;
+use user::messenger::services::health::Client as HealthClient;
+use user::messenger::services::logd::Client as LogClient;
 use user::sys;
 
 use super::commands::report;
 
 /// `health`: the retained `system/health/*` rows and the aggregate.
 pub(crate) fn print_health() {
-    let endpoint = match services::resolve_service(services::HEALTHD_NAME) {
-        Ok(endpoint) => endpoint,
+    let healthd = match HealthClient::try_connect(Native) {
+        Ok(healthd) => healthd,
         Err(error) => return report(error.message()),
     };
-    match services::fetch_health(&endpoint) {
+    match healthd.status().map(|reply| (reply.summary, reply.records)) {
         Ok((summary, records)) => {
             sys::write_str(&format!(
                 "health: {} ({})\n",
@@ -33,11 +36,14 @@ pub(crate) fn print_health() {
 /// can be sitting at the console prompt, in which case it answers after the
 /// next key and this prints a friendly timeout instead of hanging.
 pub(crate) fn print_sessions() {
-    let endpoint = match services::resolve_service(logind::NAME) {
-        Ok(endpoint) => endpoint,
+    let client = match logind::Client::try_connect(Native) {
+        Ok(client) => client,
         Err(error) => return report(error.message()),
     };
-    match logind::fetch_sessions(&endpoint) {
+    match client
+        .sessions()
+        .map(|reply| (reply.active, reply.sessions))
+    {
         Ok((_, sessions)) if sessions.is_empty() => {
             sys::write_str("sessions: none yet\n");
         }
@@ -65,11 +71,11 @@ pub(crate) fn print_sessions() {
 
 /// `log [tail [n]]`: the newest records from the structured event log.
 pub(crate) fn print_log(count: u64) {
-    let endpoint = match services::resolve_service(services::LOGD_NAME) {
-        Ok(endpoint) => endpoint,
+    let logd = match LogClient::try_connect(Native) {
+        Ok(logd) => logd,
         Err(error) => return report(error.message()),
     };
-    match services::fetch_log_tail(&endpoint, count) {
+    match logd.tail(Some(count)) {
         Ok(records) if records.is_empty() => sys::write_str("log: no records yet\n"),
         Ok(records) => {
             for record in &records {
@@ -86,16 +92,19 @@ pub(crate) fn print_log(count: u64) {
 
 /// `log verify`: recompute the hash chain over the retained records.
 pub(crate) fn verify_log() {
-    let endpoint = match services::resolve_service(services::LOGD_NAME) {
-        Ok(endpoint) => endpoint,
+    let logd = match LogClient::try_connect(Native) {
+        Ok(logd) => logd,
         Err(error) => return report(error.message()),
     };
-    match services::fetch_log_verify(&endpoint) {
-        Ok((true, count)) => {
-            sys::write_str(&format!("log: chain intact over {count} record(s)\n"));
+    match logd.verify() {
+        Ok(verdict) if verdict.ok => {
+            sys::write_str(&format!(
+                "log: chain intact over {} record(s)\n",
+                verdict.index
+            ));
         }
-        Ok((false, index)) => {
-            sys::write_str(&format!("log: CHAIN BROKEN at record {index}\n"));
+        Ok(verdict) => {
+            sys::write_str(&format!("log: CHAIN BROKEN at record {}\n", verdict.index));
         }
         Err(error) => report(error.message()),
     }
@@ -103,11 +112,11 @@ pub(crate) fn verify_log() {
 
 /// `log sources`: the persisted journals under `/logs` (uid 0 only).
 pub(crate) fn print_log_sources() {
-    let endpoint = match services::resolve_service(services::LOGD_NAME) {
-        Ok(endpoint) => endpoint,
+    let logd = match LogClient::try_connect(Native) {
+        Ok(logd) => logd,
         Err(error) => return report(error.message()),
     };
-    match services::fetch_log_sources(&endpoint) {
+    match logd.sources() {
         Ok(sources) if sources.is_empty() => sys::write_str("log: no journals\n"),
         Ok(sources) => sys::write_str(&format!("log: journals {}\n", sources.join(" "))),
         Err(error) => report(error.message()),
@@ -122,11 +131,11 @@ pub(crate) fn print_log_file(args: &str) {
         return report("usage: log file <source> [n]");
     };
     let count = words.next().and_then(|n| n.parse().ok()).unwrap_or(10);
-    let endpoint = match services::resolve_service(services::LOGD_NAME) {
-        Ok(endpoint) => endpoint,
+    let logd = match LogClient::try_connect(Native) {
+        Ok(logd) => logd,
         Err(error) => return report(error.message()),
     };
-    match services::fetch_log_tail_file(&endpoint, source, count) {
+    match logd.tail_file(source, count) {
         Ok(lines) => {
             for line in &lines {
                 sys::write_str(&format!("  {}\n", line.replace('\t', " ")));

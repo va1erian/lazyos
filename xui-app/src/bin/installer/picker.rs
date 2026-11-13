@@ -17,8 +17,9 @@ use std::path::Path;
 use std::rc::Rc;
 
 use xui_app::platform::dirs::default_dir;
+use xui_app::AppContext;
 use xui_core::app::Ui;
-use xui_core::widget::{FileDialog, StdFileSystem};
+use xui_core::widget::FileDialog;
 
 use crate::msg::Msg;
 use crate::view::fail;
@@ -35,24 +36,24 @@ pub struct Picker {
 
 impl Picker {
     /// Builds the (hidden) picker.
-    pub fn build(ui: &Ui<Msg>) -> Result<Picker, String> {
+    pub fn build(ui: &Ui<Msg>, cx: &AppContext) -> Result<Picker, String> {
         let open = Rc::new(Cell::new(false));
         let accepted = Rc::clone(&open);
         let cancelled = Rc::clone(&open);
-        let dialog = FileDialog::open_file(ui, "Choose a package")
+        let dialog = cx
+            .open_dialog(
+                ui,
+                "Choose a package",
+                &[("Packages (.lzp)", &[EXTENSION])],
+                move || {
+                    cancelled.set(false);
+                    Some(Msg::PickCancelled)
+                },
+            )
             .map_err(fail)?
-            .file_system(Rc::new(StdFileSystem))
-            .initial_dir(default_dir())
-            .filter("Packages (.lzp)", &[EXTENSION])
-            .filter("All files", &[])
-            .require_existing(true)
             .on_accept(move |path| {
                 accepted.set(false);
                 Some(Msg::Picked(path))
-            })
-            .on_cancel(move || {
-                cancelled.set(false);
-                Some(Msg::PickCancelled)
             });
         Ok(Picker { dialog, open })
     }

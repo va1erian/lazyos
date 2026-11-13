@@ -13,7 +13,7 @@
 //! (`pkgstore::develop::Approvals`): the same or a narrower rule set is loaded
 //! again without asking, anything wider needs the consent screen. Nothing is
 //! persisted, and when the session logs out (`system/events/login/end` on
-//! `init`'s broker) its labels are revoked: an empty rule list, which the
+//! the central broker) its labels are revoked: an empty rule list, which the
 //! kernel reads as "not approved". A forged logout event can only cause a
 //! second prompt. The feed retains only the latest logout, so after any gap
 //! in it the approvals are reconciled with `logind`'s active sessions, or all
@@ -31,8 +31,10 @@ use user::trace;
 
 use pkgstore::access::Caller;
 use pkgstore::develop::{self, Verdict};
+use user::central::Feed;
+use user::messenger::client::Native;
 use user::messenger::pkgd::Failure;
-use user::messenger::{self, logind, policy, router, services};
+use user::messenger::{logind, policy};
 use user::sys;
 
 use super::handlers::{fail, read_failure, Pkgd, EINVAL, EIO, EPERM};
@@ -46,19 +48,16 @@ const MAX_LABELS: u32 = 256;
 /// Ticks between two looks at the logout feed while approvals are held.
 pub(crate) const LOGOUT_POLL_TICKS: u64 = 50;
 
-/// The logout feed: `system/events/login/end` on `init`'s broker.
+/// The logout feed: `system/events/login/end` on the central broker, read
+/// through its doorbell (a local queue) at each look.
 pub(crate) struct Logouts {
-    bus: Option<router::Bus>,
-    feed: Option<router::Subscriber>,
-    buffer: Vec<u8>,
+    feed: Feed<logind::wire::LoginEnd>,
 }
 
 impl Logouts {
     pub(crate) const fn new() -> Logouts {
         Logouts {
-            bus: None,
-            feed: None,
-            buffer: Vec::new(),
+            feed: Feed::new(logind::wire::subscribe_system_events_login_end),
         }
     }
 
@@ -68,49 +67,22 @@ impl Logouts {
     /// or there is none. The topic retains only the latest logout, so after
     /// such a gap only `logind`'s session list says who is still logged in.
     fn ended(&mut self) -> (Vec<u64>, bool) {
-        let mut gap = false;
-        if self.feed.is_none() {
-            if self.bus.is_none() {
-                self.bus = router::Bus::connect(services::INIT_NAME).ok();
-            }
-            let topic = logind::wire::TOPIC_SYSTEM_EVENTS_LOGIN_END;
-            self.feed = self.bus.as_ref().and_then(|bus| bus.subscribe(topic).ok());
-            gap = true;
-        }
-        if self.buffer.is_empty() {
-            self.buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
-        }
+        let mut gap = self.feed.ensure();
         let mut ended = Vec::new();
-        let Some(feed) = &self.feed else {
-            return (ended, true);
-        };
-        loop {
-            match feed.recv_with(&mut self.buffer, Some(messenger::EXPIRED_DEADLINE)) {
-                Ok(Some(event)) => {
-                    if let Ok(end) = logind::wire::decode_login_end(&event.payload) {
-                        ended.push(end.session);
-                    }
-                }
-                Ok(None) => break,
-                Err(_) => {
-                    // The broker restarted: subscribe again next time.
-                    self.feed = None;
-                    self.bus = None;
-                    gap = true;
-                    break;
-                }
-            }
-        }
+        self.feed
+            .drain_rung(|event| ended.push(event.value.session));
+        gap |= self.feed.missing();
         (ended, gap)
     }
 }
 
 /// The sessions `logind` reports active, or `None` when it cannot be asked.
 fn live_sessions() -> Option<Vec<u64>> {
-    let endpoint = services::resolve_service(logind::NAME).ok()?;
-    let (_, sessions) = logind::fetch_sessions(&endpoint).ok()?;
+    let client = logind::Client::try_connect(Native).ok()?;
+    let reply = client.sessions().ok()?;
     Some(
-        sessions
+        reply
+            .sessions
             .iter()
             .filter(|session| session.state == "active")
             .map(|session| session.id)

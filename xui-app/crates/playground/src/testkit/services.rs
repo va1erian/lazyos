@@ -264,8 +264,10 @@ pub fn gallery_world() -> World {
 
     let mixer = log.clone();
     let master = std::cell::Cell::new(32768i64);
+    // The mixer is a second interface of the audio service
+    // (`idl/audio.midl`: `service "os.lazy.audio" implements ...`).
     bus.serve(
-        "os.lazy.audio.mixer",
+        "os.lazy.audio",
         "os.lazy.audio.mixer.v1",
         Owner::default(),
         move |_, req| {

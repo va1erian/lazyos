@@ -176,11 +176,13 @@ mod acl_and_proxy;
 mod close_rights;
 mod connect_op;
 mod register_and_resolve;
+mod wait_for;
 
 pub(super) use acl_and_proxy::*;
 pub(super) use close_rights::*;
 pub(super) use connect_op::*;
 pub(super) use register_and_resolve::*;
+pub(super) use wait_for::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     (

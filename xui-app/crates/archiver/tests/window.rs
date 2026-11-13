@@ -9,11 +9,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use xui_archiver::{ArchiverApp, DragState, Host, Msg, WINDOW};
+use xui_archiver::{ArchiverApp, DragState, Msg, WINDOW};
 use xui_canvas::snapshot::{render_with, Snapshot, Stage};
 use xui_core::backend::BackendError;
 use xui_core::widget::{DialogAction, TaskDialogAction};
 use xui_core::{Dip, Image, Theme};
+use xui_host::testing::StdHost;
 
 /// A unique folder under the temp dir, removed on drop.
 struct TempDir(PathBuf);
@@ -90,11 +91,11 @@ fn drive(
     let image = render_with(
         Snapshot::new(Dip(WINDOW.0 as f32), Dip(WINDOW.1 as f32)).theme(theme),
         move |ui| {
-            let mut host = Host::std(&dir);
-            host.temp_dir = dir.join(".scratch");
-            let log = Rc::clone(&app_log);
-            host.log = Rc::new(move |line| log.borrow_mut().push(line.to_owned()));
-            ArchiverApp::build(ui, host, app_bridge).map_err(|e: BackendError| e)
+            let host = StdHost::new(&dir)
+                .channel("ARCHIVER")
+                .temp(dir.join(".scratch"))
+                .collecting(Rc::clone(&app_log));
+            ArchiverApp::build(ui, Rc::new(host), app_bridge).map_err(|e: BackendError| e)
         },
         move |stage| step(stage, &step_bridge, &step_log),
     )
@@ -103,11 +104,11 @@ fn drive(
     (image, seen)
 }
 
-/// Pump ticks until the running job is done.
+/// Pump the window's inbox (any message delivers what the job posted) until the job is done.
 fn wait(stage: &Stage<'_, Msg>, bridge: &Rc<RefCell<DragState>>) {
     let started = Instant::now();
     loop {
-        stage.emit(Msg::Tick);
+        stage.emit(Msg::Progress);
         if !bridge.borrow().busy {
             return;
         }

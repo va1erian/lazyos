@@ -50,10 +50,15 @@ dedicated system uid under its own subtree (`messengerd/filter.rs`: `_devd`
 `system/devices/`, `_elev` `system/events/elevd/`, `_net` and `_netd` their
 link and stack topics).
 
-Test-only or probe topics, not to be declared: `system/events/selftest/forbidden`
-(`messengerctl/selftest.rs:73`), `system/events/network[/up]`, `system/events/t<N>`
-and `session/1/clipboard/changed` in `libs/generated/tests/*`, and the kernel
-topic-gate fixtures in `kernel/src/tests/topics_*_suite.rs`.
+Probe topics, declared in `idl/topics.midl` (only their names matter):
+`demo/waitany` (`async_echo`'s wait-any check), `topics/depth` (`messengerctl`'s
+hostile-depth test) and `system/events/selftest/forbidden` (its security
+self-test, which expects the broker to refuse the publish). Test fixtures that
+stay undeclared: `system/events/t<N>` and `session/1/clipboard/changed` in
+`libs/generated/tests/*`, and the kernel topic-gate fixtures in
+`kernel/src/tests/topics_*_suite.rs`. `system/events/security/denial` and
+`system/events/audit/overflow` are journal keys `logd` appends under
+(`logstore::source`), not topics.
 
 ## Observations
 
@@ -70,4 +75,4 @@ topic-gate fixtures in `kernel/src/tests/topics_*_suite.rs`.
 - Retained flag is chosen per call site for login events (`publish(..., retained)`),
   so the declaration needs to settle one value per topic.
 - The MIDL `Qos` default per topic is not recorded anywhere today; subscribers pick
-  it at subscribe time (`user/src/messenger/topics_client/client.rs:254`).
+  it at subscribe time (`user::central::Bus::subscribe_with_qos`).

@@ -1,3 +1,6 @@
+service "os.lazy.net.wifi" implements os.lazy.net.wifi.v1;
+service "os.lazy.net.wifi.hw/{ifname}" implements os.lazy.net.wifi.hw.v1;
+
 /// A Wi-Fi radio, **seen from the station manager** (docs/wifi-prerequisites-plan.md
 /// section 3.5, docs/wifi-plan.md section 5.1). The chip driver (`wifid`, uid
 /// `_wifi`, holds `CAP_DEV_CLAIM` and the bus) serves it; its one client is
@@ -43,7 +46,7 @@
 /// deleted.
 ///
 /// **Events.** `Attach` carries the client's event channel; the driver sends
-/// the `oneway` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,
+/// the `event` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,
 /// `Deauthenticated`) on it. They carry the same bounds as calls: a frame is
 /// at most `HwInfo.max_mgmt` bytes, never truncated and never delivered
 /// partially; one that does not fit is dropped and counted. Anyone in radio
@@ -62,10 +65,12 @@
 /// Failures of calls are returned as the shared structured error field
 /// (`services::error_field`) instead of the declared reply fields.
 interface os.lazy.net.wifi.hw.v1 {
+    /// `wlanmd` gives a driver 3 s before it is considered wedged.
+    default deadline=3s;
     /// Describe the radio: addresses, bands, ciphers, limits. Any caller the
     /// label policy lets reach the driver may ask, attached or not: it reveals
     /// only hardware facts.
-    method Info() -> (info: HwInfo = 1);
+    method Info() -> (info: HwInfo = 1) retry=safe;
     /// Become the radio's one client. `events` is the channel the driver
     /// sends events on. `EBUSY` when attached.
     method Attach(events: Channel<os.lazy.net.wifi.hw.v1> = 1) -> ();
@@ -101,7 +106,7 @@ interface os.lazy.net.wifi.hw.v1 {
     /// 64). `more` says whether a later page holds entries. Each entry is the
     /// raw management frame, **unparsed**: parsing it is `wlanmd`'s job.
     /// An unknown `scan_id` is `ENOENT`.
-    method ScanResults(scan_id: U32 = 1, first: U32 = 2, max: U32 = 3) -> (results: Array<ScanEntry> = 1, more: Bool = 2);
+    method ScanResults(scan_id: U32 = 1, first: U32 = 2, max: U32 = 3) -> (results: Array<ScanEntry> = 1, more: Bool = 2) retry=safe;
     /// Tune to the BSS's channel and filter to its address so `TxMgmt` and
     /// `RxMgmt` carry the authentication and association exchange. Leaves any
     /// previous BSS first. The reply means the radio is on the channel, not
@@ -152,12 +157,12 @@ interface os.lazy.net.wifi.hw.v1 {
     /// down and the radio returns to idle. Not an error when not joined.
     method Leave(reason: U32 = 1) -> ();
     /// Counters since the driver started.
-    method Stats() -> (stats: HwStats = 1);
+    method Stats() -> (stats: HwStats = 1) retry=safe;
 
     /// Event, driver to client: the scan finished (`aborted` false) or was
     /// stopped (`aborted` true, or the radio could not finish); its results
     /// are readable with `ScanResults` until the next `Scan`.
-    method ScanDone(scan_id: U32 = 1, aborted: Bool = 2) -> () oneway;
+    method ScanDone(scan_id: U32 = 1, aborted: Bool = 2) -> () event;
     /// Event, driver to client: a management or EAPOL frame addressed to this
     /// station arrived from the joined BSS, and the client can be waiting for
     /// it: an authentication or (re)association response only after
@@ -168,15 +173,15 @@ interface os.lazy.net.wifi.hw.v1 {
     /// a whole management frame (from the MAC header, no FCS), or EAPOL as
     /// an 802.3 frame (destination, source, ethertype 0x888E, then the
     /// EAPOL PDU), decrypted. The bytes are unparsed and hostile.
-    method RxMgmt(kind: U32 = 1, rssi_dbm: I32 = 2, frame: Bytes = 3) -> () oneway;
+    method RxMgmt(kind: U32 = 1, rssi_dbm: I32 = 2, frame: Bytes = 3) -> () event;
     /// Event, driver to client: the radio stopped hearing the AP (the
     /// firmware's missed-beacon threshold). The client decides what to do.
-    method BeaconLoss() -> () oneway;
+    method BeaconLoss() -> () event;
     /// Event, driver to client: the AP deauthenticated or disassociated us.
     /// `reason` is the IEEE 802.11 reason code, taken from the frame by the
     /// firmware (the one field of a frame the driver reports; the frame
     /// itself is also delivered as `RxMgmt`).
-    method Deauthenticated(reason: U32 = 1) -> () oneway;
+    method Deauthenticated(reason: U32 = 1) -> () event;
 
     /// What the radio is.
     struct HwInfo {
@@ -329,19 +334,20 @@ interface os.lazy.net.wifi.hw.v1 {
 /// radio; a name `wlanmd` does not manage is `ENODEV`. Failures reply with the
 /// shared structured error field (`services::error_field`).
 interface os.lazy.net.wifi.v1 {
+    default deadline=1s;
     /// The wireless interfaces `wlanmd` manages, by name (`wlan0`).
-    method Interfaces() -> (names: Array<String> = 1);
+    method Interfaces() -> (names: Array<String> = 1) deadline=1s retry=safe;
     /// Ask for a fresh scan; returns at once, the results arrive on
     /// `system/net/{ifname}/wifi/scan`. `ssids` are hidden networks to probe
     /// for (at most 4); empty is a wildcard scan. A scan is refused while one
     /// is under way (`EBUSY`) and may be skipped while the link is busy with
     /// the handshake.
-    method Scan(ifname: String = 1, ssids: Array<String> = 2) -> ();
+    method Scan(ifname: String = 1, ssids: Array<String> = 2) -> () deadline=1s;
     /// The current scan results merged with the known profiles: one entry per
     /// network (SSID and security), strongest BSS first, with the profile id
     /// when the caller may use a known network. Profiles of other users are
     /// not shown. At most 128 entries.
-    method Networks(ifname: String = 1) -> (list: Array<Network> = 1);
+    method Networks(ifname: String = 1) -> (list: Array<Network> = 1) deadline=1s retry=safe;
     /// Remember a network; `scope` is a `Scope` ordinal. Scope `User`: the
     /// caller's network and its secret; `profile.id` must be empty (the
     /// service picks one and returns it), and the passphrase is required for
@@ -355,24 +361,24 @@ interface os.lazy.net.wifi.v1 {
     /// passphrase, or a name that matches several heard networks; `EPERM` for
     /// scope `System` from anyone but `elevd`; `ENOSPC` past 32 networks for
     /// one owner.
-    method AddNetwork(profile: Profile = 1, passphrase: Option<String> = 2) -> (id: String = 1);
+    method AddNetwork(profile: Profile = 1, passphrase: Option<String> = 2) -> (id: String = 1) deadline=1s;
     /// Join the network `id` on `ifname`: leave the current one, scan if the
     /// SSID is not in the results, pick the best BSS, authenticate, associate
     /// and run the handshake. Returns when the attempt is started; the
     /// outcome is on `system/net/{ifname}/wifi/state` (`Connected` or
     /// `Failed` with a reason). A user network belongs to its owner: another
     /// user gets `EPERM`.
-    method Connect(ifname: String = 1, id: String = 2) -> ();
+    method Connect(ifname: String = 1, id: String = 2) -> () deadline=1s;
     /// Leave the current network and do not reconnect until asked (auto-
     /// connect is suspended for this interface until the next `Connect`).
     /// Not an error when not connected.
-    method Disconnect(ifname: String = 1) -> ();
+    method Disconnect(ifname: String = 1) -> () deadline=1s;
     /// Delete a profile and its secret. Disconnects first if it is the
     /// current network. Not an error for an id that is gone.
-    method Forget(id: String = 1) -> ();
+    method Forget(id: String = 1) -> () deadline=1s;
     /// The interface's state now: the same value the retained `state` topic
     /// carries, for a client that does not subscribe.
-    method Status(ifname: String = 1) -> (status: WifiState = 1);
+    method Status(ifname: String = 1) -> (status: WifiState = 1) deadline=1s retry=safe;
 
     /// A heard network, merged with what is known about it.
     struct Network {
@@ -446,7 +452,7 @@ interface os.lazy.net.wifi.v1 {
 
     /// The interface's state, retained so a late subscriber (the tray applet
     /// after login) sees it at once. `{ifname}` is the radio's interface name.
-    topic "system/net/{ifname}/wifi/state" : WifiState retained qos=latest;
+    topic "system/net/{ifname}/wifi/state" : WifiState retained qos=buffered;
 
     /// A scan completed and `Networks` changed. Not retained: a client that
     /// arrives later calls `Networks`.

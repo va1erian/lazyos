@@ -27,6 +27,22 @@ code, friendly text).
 | SetAdmin | 1706675794 | sync | `(name: String, admin: Bool) -> ()` |
 | ListUsers | 702470087 | sync | `() -> (users: Array<User>, setup: Bool)` |
 
+## Service
+
+- Served under the registry name `os.lazy.accountsd`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Lookup | this interface | - | 5000 ms | safe |
+| Authenticate | this interface | - | never | never |
+| Create | this interface | - | 60000 ms | never |
+| Delete | this interface | - | 5000 ms | never |
+| SetPassword | this interface | - | 60000 ms | never |
+| SetAdmin | this interface | - | 5000 ms | never |
+| ListUsers | this interface | - | 3000 ms | safe |
+
 ## struct `User`
 
 - `name: String`

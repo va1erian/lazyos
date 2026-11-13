@@ -34,12 +34,21 @@ if trace::enabled(Channel::Ui) { /* work that only feeds a trace */ }
   compile error. A new app gets its row from `tools/xui/new_app.py`; add one by
   hand otherwise and run `python tools/trace/catalog.py`
   ([`docs/trace/channels.md`](../trace/channels.md)).
-- **An xui app starts with `launch::run(Channel::X, ...)`**, which prints
-  `X:BIND:FAIL` and `X:RUN:FAIL`; `UP` and `QUIT` are `trace::pass!(Channel::X,
-  "UP")`. `xui_app::probe` (`UI:RECT`/`UI:WIDGET`), `xui_app::stall`
+- **An xui app starts with `xui_app::app(Channel::X, ...)`**, which prints
+  `X:BIND:FAIL`, `X:RUN:FAIL`, `X:UP:PASS` (first frame) and `X:QUIT:PASS`
+  (clean exit) and installs the panic hook that reports a crash as
+  `X:PANIC:FAIL` and `X:PANIC:BT:<frame>` lines. `xui_app::probe` (`UI:RECT`/`UI:WIDGET`), `xui_app::stall`
   (`UI:STALL`) and `lazyrad_os::marker::Markers` are thin layers over it:
   use them, do not reimplement them. A `Markers` panic hook (`install_panic_hook`)
   reports a crash on the console.
+- **A portable crate reports through its host.** A crate under
+  `xui-app/crates/` that `xui-app` depends on cannot call `xui_app::trace`.
+  With an `xui_host::AppHost` in reach it calls `xui_host::report!(host,
+  "OPEN:PASS:{path}")`; from a free function or a worker answer it calls
+  `xui_host::evidence!("MSG:{msg:?}")`. The text is what follows the channel
+  prefix, and `AppContext` writes it as a `trace::line!` on the app's channel
+  (docs/client-api-plan.md 4.2). Host tests use `xui_host::testing::StdHost`,
+  which records the lines with the prefix.
 - **A line with free text keeps it last and unquoted** (`name=<text>`):
   session scripts parse to the end of the line. Use `trace::line!` for that
   shape, `event!` for `key=value` fields.

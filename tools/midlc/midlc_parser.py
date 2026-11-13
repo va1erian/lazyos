@@ -10,6 +10,17 @@ from __future__ import annotations
 import re
 
 from midlc_lexer import Token
+from midlc_decls import (
+    parse_default,
+    parse_policy_attr,
+    apply_default_policy,
+    validate_retry_objects,
+    parse_errors,
+    parse_scope,
+    parse_service,
+    validate_errors,
+    validate_method_attrs,
+)
 from midlc_model import (
     BUILTINS,
     ERROR_FIELD,
@@ -19,6 +30,7 @@ from midlc_model import (
     Method,
     MidlError,
     Param,
+    Service,
     Struct,
     Topic,
     Type,
@@ -44,6 +56,9 @@ class Parser:
         self.last_end = 0
         # Non-fatal findings (implicit field ids), reported by the CLI.
         self.warnings: list[str] = []
+        # The `service` declarations of the file, linked to their interfaces
+        # by `midlc_decls.attach_services` once every file is parsed.
+        self.services: list[Service] = []
 
     def peek(self) -> Token | None:
         return self.tokens[self.pos] if self.pos < len(self.tokens) else None
@@ -158,18 +173,25 @@ class Parser:
         self.expect("->")
         returns = self.parse_params()
         method_id = fnv1a32(name.text)
-        oneway = False
+        oneway = event = False
+        attrs = Method(name.text, params, returns, method_id, oneway, doc)
         while self.peek() and self.peek().text != ";":
             token = self.next()
-            if token.text == "=":
+            if token.text == "scope":
+                parse_scope(self, attrs, token)
+            elif token.text in ("deadline", "retry"):
+                parse_policy_attr(self, attrs.policy, token, f"method {name.text!r}")
+            elif token.text == "=":
                 number = self.next()
                 if number.kind != "number":
                     raise MidlError("expected a method id after '='", number.line)
                 method_id = int(number.text)
             elif token.text == "oneway":
                 oneway = True
+            elif token.text == "event":
+                oneway = event = True
             elif token.text == "sync":
-                oneway = False
+                oneway = event = False
             elif token.text == "transfers":
                 raise MidlError(
                     "the `transfers (...)` clause is gone: declare a Channel<interface>, "
@@ -181,7 +203,8 @@ class Parser:
         self.expect(";")
         self.assign_field_ids(params, f"{name.text} (args)")
         self.assign_field_ids(returns, f"{name.text} (reply)", reply=True)
-        return Method(name.text, params, returns, method_id, oneway, doc)
+        attrs.method_id, attrs.oneway, attrs.event = method_id, oneway, event
+        return attrs
 
     def parse_struct(self) -> Struct:
         doc = self.take_doc()
@@ -266,11 +289,22 @@ class Parser:
         return Enum(name.text, variants)
 
     def parse_interfaces(self) -> list[Interface]:
-        """Every interface in the file (one or more, in source order)."""
-        interfaces = [self.parse_interface()]
+        """Every interface in the file (one or more, in source order); the
+        file's `service` declarations land in `self.services`."""
+        interfaces: list[Interface] = []
         while any(t.kind != "doc" for t in self.tokens[self.pos :]):
-            interfaces.append(self.parse_interface())
+            if self.peek_keyword("service"):
+                self.expect("service")
+                self.services.append(parse_service(self))
+            else:
+                interfaces.append(self.parse_interface())
+        if not interfaces:
+            raise MidlError("unexpected end of input")
         return interfaces
+
+    def peek_keyword(self, text: str) -> bool:
+        """Whether the next significant token is `text` (doc comments skipped)."""
+        return next((t.text == text for t in self.tokens[self.pos :] if t.kind != "doc"), False)
 
     def parse_interface(self) -> Interface:
         self.expect("interface")
@@ -291,6 +325,12 @@ class Parser:
                 interface.topics.append(self.parse_topic())
             elif keyword.text == "ring":
                 interface.rings.append(self.parse_ring())
+            elif keyword.text == "default":
+                parse_default(self, interface, keyword)
+            elif keyword.text == "errors":
+                if interface.errors:
+                    raise MidlError("an interface has one errors block", keyword.line)
+                interface.errors = parse_errors(self)
             else:
                 raise MidlError(f"unexpected {keyword.text!r}", keyword.line)
         self.expect("}")
@@ -342,6 +382,7 @@ def validate(interface: Interface) -> None:
         ids[method.method_id] = method.name
         if method.oneway and method.returns:
             raise MidlError(f"oneway method {method.name!r} cannot return values")
+        validate_method_attrs(method)
         if method.params:
             claim(f"encode_{snake_case(method.name)}_args", f"{method.name} (args)")
             claim(f"decode_{snake_case(method.name)}_args", f"{method.name} (args)")
@@ -363,6 +404,9 @@ def validate(interface: Interface) -> None:
             mark_objects(f.ty, holding)
     validate_topics(interface, named, claim, holding)
     validate_rings(interface, claim)
+    validate_errors(interface)
+    apply_default_policy(interface)
+    validate_retry_objects(interface)
 
 
 def validate_topics(interface: Interface, named: set[str], claim, holding: set[str] = frozenset()) -> None:

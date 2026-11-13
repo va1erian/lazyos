@@ -71,7 +71,7 @@ impl AirRadio {
                 card.owner_uid
             ));
         }
-        let client = Client::connect(ifname).map_err(|e| format!("connect: {}", e.message()))?;
+        let client = nic_api::connect(ifname).map_err(|e| format!("connect: {}", e.message()))?;
         let info = client
             .info()
             .map_err(|e| format!("Info: {}", e.message()))?;
@@ -82,7 +82,7 @@ impl AirRadio {
             .map_err(|_| String::from("the air card reported a bad MAC"))?;
         let (mine, theirs) =
             messenger::create_pair().map_err(|e| format!("pair: {}", e.message()))?;
-        let attachment = match client.attach_notifying(SLOTS, theirs) {
+        let attachment = match nic_api::attach_notifying(&client, SLOTS, theirs) {
             Ok(attachment) => attachment,
             Err(error) => {
                 let _ = mine.close();
@@ -174,7 +174,7 @@ impl AirRadio {
 
 impl Drop for AirRadio {
     fn drop(&mut self) {
-        let _ = self.client.detach(self.ring);
+        let _ = self.client.detach_ring(self.ring);
         if let Some(shared) = self.shared.take() {
             shared.close();
         }

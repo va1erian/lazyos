@@ -13,7 +13,6 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use messenger_generated::errors::ERROR_FIELD;
 use messenger_generated::os_lazy_elevd_v1 as wire;
 use xui_confd_editor::store::{
     ConfStore, Elevation, StoreError as ConfStoreError, StoreInfo, Value,
@@ -21,81 +20,45 @@ use xui_confd_editor::store::{
 use xui_settings::store::{AppChoice, ConfigStore, Detached, StoreError as SettingsError};
 
 use super::confd_store::ConfdStore;
-use crate::platform::messenger::{CallError, Service};
+use crate::platform::messenger::{client, CallError, Deadline};
 use crate::sys::errno;
 
-/// `elevd`'s registered name.
-const NAME: &str = "os.lazy.elevd";
-/// How long a request may take (PIT ticks): the person at the screen has 90 s
-/// per prompt, and a wrong password asks again.
-const REQUEST_TICKS: u64 = 40_000;
 /// The confd subtree only a system service (or `elevd`) writes.
 const SYSTEM_PREFIX: &str = "sys/";
 
 /// Ask `elevd` for `operation` with `args`: its detail and values, or the
-/// refusal (cancelled, not approved, the service's own error).
+/// refusal (cancelled, not approved, the service's own error). The UI thread
+/// waits what `idl/elevd.midl` states for `Request` (the person at the screen
+/// has 90 s per prompt, and a wrong password asks again).
 pub fn request(operation: &str, args: &[&str]) -> Result<(String, Vec<String>), CallError> {
-    request_within(operation, args, REQUEST_TICKS)
-}
-
-fn request_within(
-    operation: &str,
-    args: &[&str],
-    ticks: u64,
-) -> Result<(String, Vec<String>), CallError> {
-    let service = Service::try_connect(NAME).ok_or_else(|| CallError {
-        code: -errno::ENOENT,
-        message: String::from("the elevation service is not running"),
+    let elevd = client(wire::Client::try_connect).map_err(|_| {
+        CallError::refusal(errno::ENOENT as u32, "the elevation service is not running")
     })?;
-    let body = wire::encode_request_args(&wire::RequestArgs {
-        operation: operation.to_string(),
-        args: args.iter().map(|arg| arg.to_string()).collect(),
-    })
-    .map_err(|_| CallError {
-        code: -errno::EINVAL,
-        message: String::from("the request could not be encoded"),
-    })?;
+    let args: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
     // A worker thread (the Settings machine-change machinery) has no
-    // window to freeze and no reason to give the prompt a tick budget: the
-    // person at the screen takes as long as they take. On the UI thread
-    // the request keeps [`REQUEST_TICKS`].
+    // window to freeze and no reason to give the prompt a budget: the
+    // person at the screen takes as long as they take.
     let reply = if crate::platform::messenger::worker_thread() {
-        service.call_detailed_unbounded(wire::INTERFACE_ID, wire::METHOD_REQUEST, ERROR_FIELD, body)
+        elevd.request_within(operation, &args, Deadline::Never)
     } else {
-        service.call_detailed(
-            wire::INTERFACE_ID,
-            wire::METHOD_REQUEST,
-            ERROR_FIELD,
-            body,
-            ticks,
-        )
+        elevd.request(operation, &args)
     }?;
-    let reply = wire::decode_request_reply(&reply.body).map_err(|_| CallError {
-        code: -errno::EINVAL,
-        message: String::from("elevd's reply could not be read"),
-    })?;
     Ok((reply.detail, reply.values))
 }
 
 /// A refusal as one line of text.
 pub fn describe(error: &CallError) -> String {
-    match -error.code {
+    match -error.code() {
         errno::ECANCELED => String::from("cancelled"),
         errno::ETIMEDOUT => String::from("nobody answered the administrator prompt"),
-        _ => error.message.clone(),
+        _ => error.message().to_string(),
     }
 }
 
 /// End this program's standing approvals (best effort).
 pub fn release() {
-    if let Some(service) = Service::try_connect(NAME) {
-        let _ = service.call(
-            wire::INTERFACE_ID,
-            wire::METHOD_RELEASE,
-            ERROR_FIELD,
-            Vec::new(),
-            100,
-        );
+    if let Ok(elevd) = client(wire::Client::try_connect) {
+        let _ = elevd.release();
     }
 }
 
@@ -142,8 +105,8 @@ impl Drop for ElevatedConf {
 }
 
 fn conf_error(error: CallError) -> ConfStoreError {
-    match ConfStoreError::from_confd_code(error.code) {
-        ConfStoreError::Transport(_) => ConfStoreError::Transport(error.code),
+    match ConfStoreError::from_confd_code(error.code()) {
+        ConfStoreError::Transport(_) => ConfStoreError::Transport(error.code()),
         known => known,
     }
 }
@@ -211,7 +174,7 @@ impl ConfigStore for ElevatingStore {
             return ConfigStore::set(&self.0, key, value);
         }
         let (kind, text) = value_args(&value);
-        request_within("conf.set", &[key, kind, &text], REQUEST_TICKS)
+        request("conf.set", &[key, kind, &text])
             .map(|_| ())
             .map_err(|error| describe(&error))
     }
@@ -220,7 +183,7 @@ impl ConfigStore for ElevatingStore {
         if !key.starts_with(SYSTEM_PREFIX) {
             return ConfigStore::delete(&self.0, key);
         }
-        request_within("conf.delete", &[key], REQUEST_TICKS)
+        request("conf.delete", &[key])
             .map(|_| ())
             .map_err(|error| describe(&error))
     }
@@ -242,7 +205,7 @@ impl ConfigStore for ElevatingStore {
     }
 
     /// A `sys/**` write waits for an administrator to type their password
-    /// (up to [`REQUEST_TICKS`]): the Settings window runs it on a worker,
+    /// (as long as the person at the screen takes): the Settings window runs it on a worker,
     /// which resolves `elevd` for itself.
     fn detached(&self) -> Option<Detached> {
         Some(Arc::new(|| {
@@ -262,8 +225,8 @@ mod tests {
     /// The worker marker is thread-local and off by default: a fresh
     /// thread has the UI-thread rules (bounded calls), and a marked
     /// worker sees them lift. (issue #720's review asked for a pinned
-    /// default; the allowlisted `call_detailed_unbounded` in
-    /// `request_within` depends on it.)
+    /// default; the unbounded wait on a worker in
+    /// `request` depends on it.)
     #[test]
     fn the_worker_marker_is_per_thread() {
         let fresh = std::thread::spawn(|| crate::platform::messenger::worker_thread())

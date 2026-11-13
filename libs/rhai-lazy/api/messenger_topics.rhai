@@ -20,6 +20,9 @@
 // The interface every function of this module calls.
 export const INTERFACE = "os.lazy.messenger.topics.v1";
 
+// The registry name the interface is served under (`service` in the `.midl`).
+export const SERVICE = "os.lazy.messenger.topics";
+
 /// The connected service: `invoke`, `invoke_oneway` and method sugar
 /// (`docs/rhai/msg.md`). Resolved once per process.
 fn connect() {
@@ -30,7 +33,13 @@ fn connect() {
 ///
 /// Publish `payload` under the literal `topic`; `retained` also remembers
 /// it as the topic's retained value. Returns how many subscriptions the
-/// event reached.
+/// event reached. Never resent, and the broker cannot undo a publish whose
+/// reply was lost: a timeout means "maybe published". The broker's byte
+/// budget is charged per task: a retained value to its publisher, a
+/// subscription's queue to its owner. A retained value over its
+/// publisher's allowance (or its count of 64 for an app; retained values
+/// cannot be removed) refuses with `ENOMEM`; a full subscriber queue never
+/// refuses a publish, it drops its oldest events (counted in `Stats`).
 fn publish(topic, payload, retained) {
     msg::connect("os.lazy.messenger.topics.v1").invoke("Publish", [topic, payload, retained])
 }
@@ -40,6 +49,9 @@ fn publish(topic, payload, retained) {
 /// Create a subscription for `filter`. `qos` is a `Qos` value; `depth` is
 /// the queue depth for `Buffered` (clamped to 1..=64) and ignored by the
 /// other policies, which use fixed depths. Retained values are replayed.
+/// One task holds at most 64 subscriptions (`EAGAIN` beyond); a subscribe
+/// whose reply cannot be delivered is rolled back, so a timeout leaks
+/// nothing.
 fn subscribe(filter, qos, depth) {
     msg::connect("os.lazy.messenger.topics.v1").invoke("Subscribe", [filter, qos, depth])
 }
@@ -55,6 +67,8 @@ fn unsubscribe(subscription) {
 ///
 /// Wait for (or, with an expired deadline, poll) the next event of a
 /// subscription. A `Reliable` subscription redelivers its head until acked.
+/// Safe to resend: the broker pops an event only once its reply reached the
+/// caller, so a resent poll is served the same head again.
 fn next_event(subscription) {
     msg::connect("os.lazy.messenger.topics.v1").invoke("NextEvent", [subscription])
 }
@@ -112,6 +126,14 @@ fn new_stats() {
     #{ qos: 0, depth: 0, queued: 0, delivered: 0, matched: 0, drops: 0 }
 }
 
+/// A `Probe` with every field at its zero value.
+///
+/// What the broker's own probes publish: only the topic name matters, the
+/// payload is whatever the test sends.
+fn new_probe() {
+    #{ note: "" }
+}
+
 // The variants of `Qos`, in wire order.
 export const QOS = ["Latest", "Buffered", "Conflate", "Reliable"];
 
@@ -122,3 +144,65 @@ export const QOS_BUFFERED = "Buffered";
 export const QOS_CONFLATE = "Conflate";
 
 export const QOS_RELIABLE = "Reliable";
+
+// Filter for every event of the topic `demo/waitany` (payload `Probe`, qos latest).
+// `async_echo`'s wait-any check publishes here to ring a doorbell.
+export const DEMO_WAITANY_PATTERN = "demo/waitany";
+
+/// Run `handler(event)` for each event of `demo/waitany` (payload `Probe`, qos latest); `event.payload` is
+/// the decoded `Probe`. Returns the `Subscription`.
+fn on_demo_waitany(handler) {
+    msg::on("demo/waitany", handler)
+}
+
+/// Subscribe to `demo/waitany` (payload `Probe`, qos latest) to pull events with `sub.next()`.
+fn subscribe_demo_waitany() {
+    msg::subscribe("demo/waitany")
+}
+
+/// Publish `payload` (a `Probe`) on `demo/waitany` (payload `Probe`, qos latest).
+fn publish_demo_waitany(payload) {
+    msg::publish("demo/waitany", payload)
+}
+
+// Filter for every event of the topic `topics/depth` (payload `Probe`, qos buffered).
+// `messengerctl`'s hostile-depth test fills a `Buffered` queue past its
+// clamp with this topic.
+export const DEPTH_PATTERN = "topics/depth";
+
+/// Run `handler(event)` for each event of `topics/depth` (payload `Probe`, qos buffered); `event.payload` is
+/// the decoded `Probe`. Returns the `Subscription`.
+fn on_depth(handler) {
+    msg::on("topics/depth", handler)
+}
+
+/// Subscribe to `topics/depth` (payload `Probe`, qos buffered) to pull events with `sub.next()`.
+fn subscribe_depth() {
+    msg::subscribe("topics/depth")
+}
+
+/// Publish `payload` (a `Probe`) on `topics/depth` (payload `Probe`, qos buffered).
+fn publish_depth(payload) {
+    msg::publish("topics/depth", payload)
+}
+
+// Filter for every event of the topic `system/events/selftest/forbidden` (payload `Probe`, qos latest).
+// `messengerctl`'s security self-test publishes here as a non-root task
+// and expects the broker to refuse it (`system/` is reserved).
+export const SELFTEST_FORBIDDEN_PATTERN = "system/events/selftest/forbidden";
+
+/// Run `handler(event)` for each event of `system/events/selftest/forbidden` (payload `Probe`, qos latest); `event.payload` is
+/// the decoded `Probe`. Returns the `Subscription`.
+fn on_selftest_forbidden(handler) {
+    msg::on("system/events/selftest/forbidden", handler)
+}
+
+/// Subscribe to `system/events/selftest/forbidden` (payload `Probe`, qos latest) to pull events with `sub.next()`.
+fn subscribe_selftest_forbidden() {
+    msg::subscribe("system/events/selftest/forbidden")
+}
+
+/// Publish `payload` (a `Probe`) on `system/events/selftest/forbidden` (payload `Probe`, qos latest).
+fn publish_selftest_forbidden(payload) {
+    msg::publish("system/events/selftest/forbidden", payload)
+}

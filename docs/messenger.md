@@ -143,7 +143,7 @@ validates in place with `ParcelView`).
 |  u16 version (=2)          u16 flags      u32 object_count   |
 |  u64 interface_id          u32 method     u32 body_len       |
 |  u64 txn_id                u64 reply_to (0 if a call)        |
-|  u64 deadline_ns (0 = none)                                  |
+|  u64 deadline_ns (0 = none; 1 = poll hint, see below)        |
 +--------------------------------------------------------------+
 | Body: sequence of TLV fields                                 |
 |   u32 type (kind | id << 8)   u32 len   u8[len] value        |
@@ -236,7 +236,11 @@ it has not answered ends with `ERR_TIMEOUT`, and a late reply is refused. A
 callee that never receives the poll cannot stall the caller: the poll expires
 `POLL_GRACE_TICKS` (3 ticks) after it was sent, replaced once received by
 `POLL_SERVICE_TICKS` (100 ticks), which only bounds a callee that wedges
-mid-request. Cancel and peer death end it as usual. The mechanism and its
+mid-request. Cancel and peer death end it as usual. The kernel does not say
+how long a caller waits, so a client that polls also sets the header's
+`deadline_ns` to `POLL_HINT_NS` (1, advisory); a long-poll service reads it
+to answer or return at once instead of parking a transaction that is already
+dead. The mechanism and its
 history are in [`architecture/ipc-core.md`](architecture/ipc-core.md),
 "Poll calls".
 
@@ -286,6 +290,29 @@ language over TLV fields (`level == ERROR && unit == "netd"`), compiled by
 **Retained values:** publishers may mark a message retained; new subscribers get
 it immediately (state-like topics such as `system/health/netd`).
 
+**Budgets (per tenant):** the broker charges a *tenant*, never a task slot (a
+slot names one thread and is reused after the task exits). An app's tenant is
+the kernel-stamped `(label, uid, session)`, so every thread and process of one
+app in one session shares one budget; a platform task (no label, no login
+session) is its own tenant. A tenant holds at most 32 subscriptions (64 for a
+platform task), 32 retained values and 1 MiB (retained values plus queues;
+platform 2 MiB), and apps together never take the last 128 subscription rows,
+256 topic rows or 2 MiB, which only platform tasks may use. A queue over its
+allowance drops its oldest events like any overflow; only a retained publish
+over its tenant's budget is refused (`ENOMEM`). Retained values cannot be
+removed and outlive the task that published them, and so does their charge.
+Who may pull, ack or unsubscribe a subscription is a separate rule: only the
+task (slot and tenant) that created it. The kernel does not tell `messengerd`
+when a task exits, so a bell-less subscription of a dead task lives on, and
+because a tenant outlives its processes, enough such leaks (32) lock that app
+out of subscribing until its session ends; one with a bell is reaped when the
+broker next rings that bell and finds its far end closed, so a program that
+can be killed mid-subscription (`messengerctl tail`, `confctl watch`) attaches
+one; a bell already rung and not yet drained is not rung again, so even then a
+kill can leak until the kernel tells `messengerd` a task died (follow-up). Apps of different labels or sessions are different
+tenants and can still fill the apps' shared part between them, which platform
+rows in use shrink further.
+
 **Backpressure and scope:** a full bounded queue drops (counted in stats);
 system topics default to `conflate` so a slow subscriber cannot stall
 publishers. Topics have owners (session, system, user); policy decides who
@@ -327,8 +354,10 @@ and `timed`'s `confd` watch use it instead of polling every few ticks.
 
 Headless verification: boot with `LAZYOS_MESSENGERD=1 LAZYOS_MESSENGERCTL=1`;
 `messengerctl` runs a topic conformance self-test (`TOPIC:FANOUT|WILDCARD|
-RETAINED|DROP|QOS|UNSUB|DEPTH:PASS` on the serial log; `DEPTH` hand-encodes a
-`u32::MAX` buffered depth and checks the broker clamps it), then `MESSAGE:OBJECTS:PASS`
+RETAINED|DROP|QOS|UNSUB|DEPTH|QUOTA:PASS` on the serial log; `DEPTH` asks the generated
+client for a `u32::MAX` buffered depth and checks the broker clamps it; `QUOTA` floods slow
+readers with full-size events and checks nothing is refused, the task stays inside its
+byte allowance and the bytes come back on unsubscribe), then `MESSAGE:OBJECTS:PASS`
 once it has checked that a received message owns its objects until a decoder
 claims them and closes the rest when it drops
 (`user/src/bin/messengerctl/object_tests.rs`). `messengerctl topics` lists
@@ -336,12 +365,19 @@ known topics and `tail <filter> [count]` streams. Under `LAZYOS_SERVICES=1`,
 `messengerd` runs a boot-time `soak=4096` request/reply self-test
 (`MSGRD:SOAK:PASS`, `MSGRD:TOPICS:PASS`; issue #169).
 
-**Central routing (issue #169).** The platform services publish and subscribe
-through this broker, not per-service brokers (`sysmond`'s `system/stats/*`,
-`clipboardd`'s per-session changed topic, `mimed`'s
-`system/events/open/<app>`, all through `user::central`; `logd` subscribes to
-`system/events/#`). `init` and `healthd` still serve their local topic
-brokers for the supervision and health paths.
+**Central routing (issue #169).** Every service publishes and subscribes
+through this broker; the per-service topic router (`os.lazy.local.topics.v1`)
+is gone (`docs/client-api-plan.md` 3.5). `init` publishes service state,
+`system/power/state`, app failures and resident apps, and `healthd` its
+retained rows, through `user::central::Publisher`, which keeps the retained
+values it cannot send while `messengerd` (a child of `init`) is not up yet.
+`logd` subscribes to `system/events/#` and `system/health/+`; `init` reads the
+login records and `pkgd`'s provisioning events and checks each event's
+kernel-stamped `publisher` slot against the manifest row it must be; `elevd`,
+`xuid`, `pkgd` and the `Logins` follower read through `central::Feed`. A native
+reader parks on the feed's doorbell or asks it locally, and an xui app or
+LazyRAD reads through `fabric::Follow` (one hub per thread); none
+of them polls the broker on a timer.
 
 **Supervision services (S2, issue #93).** `system/events/service/<name>`
 carries a service's state, `system/health/<name>` and `system/health/summary`
@@ -365,6 +401,30 @@ services|health|log` reads them back.
   not in the call path. Services dispatch by `(interface_id, method)`;
   unknown method is `ERR_NO_METHOD`. A service may implement v1 and v2 of
   an interface at once during a migration.
+- **Waiting for a name** (`WaitFor`, op `WAIT_FOR` 27, `idl/registry.midl`,
+  `kernel/src/ipc/registry/wait.rs`): a program that starts before its service
+  does not poll `Resolve`. `WaitFor(name)` is a `Resolve` whose caller sleeps
+  on the registry until a `Register` of that name (no other name wakes it) or
+  the call's deadline (`ETIMEDOUT`; deadline `0` waits for ever); the reply is
+  a `Resolve` reply. The name policy runs before the wait and again when the
+  name appears, so a waiter learns nothing a `Resolve` would not tell it
+  (`EACCES` ends the wait). One wait per task, 16 per process (threads are
+  slots) and 512 in all, 128 of which only unlabelled tasks may take
+  (`EAGAIN` beyond: the client runtimes then fall back to bounded plain
+  `Resolve` retries); the 128-place reserve is for platform tasks (no label,
+  no login session), so a user's own programs share the open part and the
+  reserve is a mitigation, not a guarantee against many same-uid processes;
+  a signal ends the wait with `EINTR` and the client runs its interrupt hook
+  (std: `sched_yield`, whose Linux return lays out a handler frame; `int 0x80`
+  returns never do) and issues it again with the same deadline;
+  a connect to a name that never registers now ends with `ETIMEDOUT` where
+  the polling runtime ended with `ENOENT` (a `Deadline::Poll` resolve is still
+  `ENOENT`); a ticket is released when the wait
+  ends, when the task is killed (`ECANCELED`) or torn down. Kernel gate only,
+  and only for the caller's own table (`EINVAL` otherwise): `messengerd`
+  answers a forwarded `WaitFor` with `ENOSYS`, since the wait would park the
+  daemon. Both client transports use
+  it for `Connection::connect`; `Deadline::Poll` stays a plain `Resolve`.
 - **Activation and leases:** `Resolve` can start a service on demand via
   `init`; handles and names are reference-counted, and process death
   releases them all (and may mark the service unhealthy for supervision).
@@ -476,8 +536,9 @@ rules, the object types and the generated names are in [`midl.md`](midl.md).
 Every reply may carry a structured error instead of its declared fields: the
 standard error field (id 15, generated as `messenger_generated::errors`)
 holds a `code` (stable within a `domain`), a `message` in plain language, a
-`hint` (how to fix it) and a `docs` id; the encoding, and that `detail` is
-not implemented yet, are in [`midl.md`](midl.md), "Errors".
+`hint` (how to fix it) and a `docs` id; the encoding is in
+[`midl.md`](midl.md), "Errors". Clients read it in one place,
+`libmessenger::client` (`CallError::Remote { code, message, detail }`).
 
 The fabric reports failures as errno values on the syscall (`EINVAL` for a
 refused object list, `EPERM` for policy, `ETIMEDOUT`, `EPIPE` for a dead peer,
@@ -494,7 +555,7 @@ All introspection is *itself* Messenger interfaces, subject to policy:
 
 | Interface | Purpose |
 |---|---|
-| `os.lazy.messenger.registry.v1` | Register, Resolve, Connect, Connected, Unregister, List |
+| `os.lazy.messenger.registry.v1` | Register, Resolve, WaitFor, Connect, Connected, Unregister, List |
 | `os.lazy.messenger.topics.v1` | Publish, Subscribe, Unsubscribe, NextEvent, Ack, ListTopics, Stats, Ping, Bell |
 
 Both are in `idl/`. The kernel-side slice is live: the `messenger` syscall's
@@ -548,7 +609,7 @@ is the shape.
   8 endpoints, pending calls and doorbells and return a ready mask;
   [architecture/wait-any.md](architecture/wait-any.md)), `CONNECT` 20
   (section 8), `ENDPOINT_FD` 21 (section 15), `BUFFER_CREATE` 22,
-  `BUFFER_MAP` 23 and `BUFFER_CLOSE` 24 (section 2).
+  `BUFFER_MAP` 23 and `BUFFER_CLOSE` 24 (section 2), `WAIT_FOR` 27 (section 8).
 - **Service supervision calls:** beside the Messenger family, `init` has
   `spawn`/`spawnv`, `wait`, `clock` and `args` (mechanism only: restart
   policy, dependencies and health live in `init`;
@@ -563,7 +624,8 @@ is the shape.
 - `user::messenger` (native programs): `Endpoint` (`call`, `send`, `reply`,
   `recv`, `create_pair`), `Server::serve` (one handler per received
   `Message`), `wait` (`wait_any`), `registry` (`resolve`, `connect`,
-  `register`) and `topics_client`; the static-musl `xui-app` has the same
+  `register`) and `topics_client` (the generated broker client; programs use
+  `user::central`); the static-musl `xui-app` has the same
   shape over `lazyos-sys`. Both encode with `libmessenger` and the generated
   `messenger-generated` codecs (section 11); nothing hand-rolls a wire.
 - A received `Message` owns its objects until a decoder claims them

@@ -1,3 +1,6 @@
+service "os.lazy.input.v1" implements os.lazy.input.v1;
+service "os.lazy.input.shell.v1" implements os.lazy.input.shell.v1;
+
 /// The system input service (`inputd`; `docs/input-plan.md`).
 ///
 /// Two interfaces, served on one endpoint and registered under both names:
@@ -21,6 +24,7 @@
 /// Failures of calls are returned as a structured error field (id 15,
 /// errno-style code plus friendly text) instead of the declared reply fields.
 interface os.lazy.input.v1 {
+    default deadline=5s;
     /// Open an input session bound to the calling task (the kernel-stamped
     /// sender). `surface` names the window it wants keys for: it must be a
     /// surface the compositor registered as owned by this same task, so a
@@ -31,12 +35,12 @@ interface os.lazy.input.v1 {
     /// second holder `EBUSY`), and it receives keys only while no compositor
     /// is attached. `events` is the event endpoint that receives every
     /// event below. A task may hold several sessions, one per surface.
-    method Open(surface: Option<U64> = 1, events: Channel<os.lazy.input.v1> = 2) -> (session: U64 = 1) = 1;
+    method Open(surface: Option<U64> = 1, events: Channel<os.lazy.input.v1> = 2) -> (session: U64 = 1) = 1 deadline=1s;
     /// End a session. Only the task that opened it may.
-    method Close(session: U64 = 1) -> () = 2;
+    method Close(session: U64 = 1) -> () = 2 deadline=1s;
     /// The current layout name, modifier and lock bits (`mods` as in
     /// `KeyEvent`) and the key-repeat timing in milliseconds.
-    method GetState() -> (layout: String = 1, mods: U32 = 2, repeat_delay_ms: U32 = 3, repeat_interval_ms: U32 = 4) = 3;
+    method GetState() -> (layout: String = 1, mods: U32 = 2, repeat_delay_ms: U32 = 3, repeat_interval_ms: U32 = 4) = 3 retry=safe;
     /// Ask for a grab of kind `kind` (a `GrantKind`) for `session`, which
     /// must be the caller's and have keyboard focus (`EACCES` otherwise;
     /// `EINVAL` for an unknown kind). The compositor decides: the answer
@@ -45,17 +49,17 @@ interface os.lazy.input.v1 {
     /// until the session releases it, loses focus or closes, or the user
     /// presses the reserved escape chord (Ctrl+Alt+Esc), which nobody can
     /// grab or register and which always reverts the grab.
-    method RequestGrant(session: U64 = 1, kind: U32 = 2) -> () = 4;
+    method RequestGrant(session: U64 = 1, kind: U32 = 2) -> () = 4 deadline=1s;
     /// Give up the grab (or a pending request) `session` holds. Only its
     /// owner may; releasing nothing is not an error.
-    method ReleaseGrant(session: U64 = 1) -> () = 5;
+    method ReleaseGrant(session: U64 = 1) -> () = 5 deadline=1s;
     /// Liveness and freshness for the caller's own `session`: echoes `token`
     /// and returns `seq`, the raw sequence number of the newest key edge
     /// `inputd` has processed *while that session has keyboard focus* (`0`
     /// otherwise, so a session cannot watch typing aimed at another window),
     /// so a client polling its key-state page can tell the page is current
     /// (`KeyStateSeq >= seq`). `EACCES` for another task's session.
-    method Ping(session: U64 = 1, token: U64 = 2) -> (token: U64 = 1, seq: U64 = 2) = 6;
+    method Ping(session: U64 = 1, token: U64 = 2) -> (token: U64 = 1, seq: U64 = 2) = 6 deadline=1s retry=safe;
     /// Attach a key-state page to `session` (the caller's): `state`, a
     /// shared buffer the client created (one page is plenty). While the
     /// session has keyboard focus `inputd` writes the
@@ -64,7 +68,7 @@ interface os.lazy.input.v1 {
     /// HID usages); the moment focus leaves it clears the page, before
     /// `KeyboardLeave` is sent. `inputd` only ever writes the page. Attaching
     /// again replaces the previous page.
-    method AttachKeyState(session: U64 = 1, state: Buffer = 2) -> () = 7;
+    method AttachKeyState(session: U64 = 1, state: Buffer = 2) -> () = 7 deadline=1s;
     /// Attach a gamepad-state page to `session` (the caller's): `state`, a
     /// shared buffer the client created (one page is plenty). While the
     /// session has keyboard focus `inputd` writes every connected pad's
@@ -90,20 +94,20 @@ interface os.lazy.input.v1 {
     /// `0x20` CapsLock, `0x40` NumLock, `0x80` ScrollLock), `state` a
     /// `KeyState`, `ts_ns` the kernel timestamp and `seq` the raw sequence
     /// number. Auto-repeat is always flagged `Repeat`, never `Down`.
-    method KeyEvent(code: U32 = 1, sym: U32 = 2, mods: U32 = 3, state: U32 = 4, ts_ns: U64 = 5, seq: U64 = 6) -> () = 10 oneway;
+    method KeyEvent(code: U32 = 1, sym: U32 = 2, mods: U32 = 3, state: U32 = 4, ts_ns: U64 = 5, seq: U64 = 6) -> () = 10 event;
     /// Event: composed text (UTF-8) for a character-producing press or repeat.
-    method TextInput(utf8: String = 1) -> () = 11 oneway;
+    method TextInput(utf8: String = 1) -> () = 11 event;
     /// Event: keyboard focus arrived. `down` lists the physical keys held right
     /// now, so the client seeds its key state.
-    method KeyboardEnter(down: Array<U32> = 1) -> () = 12 oneway;
+    method KeyboardEnter(down: Array<U32> = 1) -> () = 12 event;
     /// Event: keyboard focus left. The client **must release every key** it
     /// believes is down; `inputd` also cancels repeat.
-    method KeyboardLeave() -> () = 13 oneway;
+    method KeyboardLeave() -> () = 13 event;
     /// Event: the layout changed (a `confd` write, live).
-    method LayoutChanged(layout: String = 1) -> () = 14 oneway;
+    method LayoutChanged(layout: String = 1) -> () = 14 event;
     /// Event: the session's grab of kind `kind` started (`active`) or ended;
     /// `reason` is a `GrantReason`.
-    method GrantChanged(kind: U32 = 1, active: Bool = 2, reason: U32 = 3) -> () = 15 oneway;
+    method GrantChanged(kind: U32 = 1, active: Bool = 2, reason: U32 = 3) -> () = 15 event;
     /// Event: a gamepad axis changed (only the focused session that attached
     /// a pad page receives it).
     /// `device` is the pad's id (as in the state page), `code` the Generic
@@ -113,24 +117,24 @@ interface os.lazy.input.v1 {
     /// positive down). The hat is not an axis event: it arrives as the
     /// d-pad buttons (`GamepadButton` codes 33..=36). Changes are coalesced
     /// per drain: one event per axis, the newest value.
-    method GamepadAxis(device: U32 = 1, code: U32 = 2, value: I32 = 3, ts_ns: U64 = 4, seq: U64 = 5) -> () = 16 oneway;
+    method GamepadAxis(device: U32 = 1, code: U32 = 2, value: I32 = 3, ts_ns: U64 = 4, seq: U64 = 5) -> () = 16 event;
     /// Event: a gamepad button changed (only the focused session that
     /// attached a pad page receives it). `code` is the HID button usage `1..=32`, or `33` d-pad up, `34`
     /// down, `35` left, `36` right (the hat, one edge per direction;
     /// diagonals press two). Edges are never merged.
-    method GamepadButton(device: U32 = 1, code: U32 = 2, pressed: Bool = 3, ts_ns: U64 = 4, seq: U64 = 5) -> () = 17 oneway;
+    method GamepadButton(device: U32 = 1, code: U32 = 2, pressed: Bool = 3, ts_ns: U64 = 4, seq: U64 = 5) -> () = 17 event;
     /// Event: gamepad input arrived with this session's focus: read the
     /// state page to seed. Sent to a session that attached a pad page
     /// whenever keyboard focus enters it, when it attaches one while it
     /// already has focus, and right after a `GamepadLeave` that was a resync.
-    method GamepadEnter() -> () = 18 oneway;
+    method GamepadEnter() -> () = 18 event;
     /// Event: focus left, or events were lost. The client **must release
     /// every pad button** it believes is down and centre the axes; the page
     /// was cleared first. After a dropped-events resync (the keyboard's
     /// `KeyboardLeave` + `KeyboardEnter` pair) it is followed at once by a
     /// `GamepadEnter` with the page live again; the page is cleared before
     /// the Leave and restored before the Enter either way.
-    method GamepadLeave() -> () = 19 oneway;
+    method GamepadLeave() -> () = 19 event;
 
     /// What happened to a key. Numeric values are the wire values.
     enum KeyState { Down, Up, Repeat }
@@ -152,6 +156,7 @@ interface os.lazy.input.v1 {
 /// a focus change (docs/accounts-plan.md U2). `Attach` on that channel is
 /// refused (`EINVAL`).
 interface os.lazy.input.shell.v1 {
+    default deadline=5s;
     /// Become the shell client; `events` is the endpoint that receives the
     /// shell events below, and on which the compositor makes every later
     /// call. Attaching again replaces it.
@@ -187,7 +192,7 @@ interface os.lazy.input.shell.v1 {
     method SetBounds(width: U32 = 1, height: U32 = 2) -> () = 8;
     /// The cursor position and held `buttons` (as in `PointerEvent`), to seed
     /// the compositor's cursor after `Attach`.
-    method GetPointer() -> (x: I32 = 1, y: I32 = 2, buttons: U32 = 3) = 9;
+    method GetPointer() -> (x: I32 = 1, y: I32 = 2, buttons: U32 = 3) = 9 retry=safe;
     /// One-way `SetFocus`: the compositor's main loop never waits on `inputd`
     /// (docs/performance-plan.md P3.6). Requests on the compositor's channel
     /// are handled in the order sent, and before each client request, so a
@@ -223,21 +228,21 @@ interface os.lazy.input.shell.v1 {
     /// It ends with the compositor (`inputmap::session_layout`).
     method NoteSessionLayout(layout: Option<String> = 1) -> () = 15 oneway;
     /// Shell event: a registered chord was pressed.
-    method HotkeyFired(id: U64 = 1) -> () = 20 oneway;
+    method HotkeyFired(id: U64 = 1) -> () = 20 event;
     /// Shell event: the client owning `surface` asked for a grab of `kind`
     /// (a `GrantKind`) for `session`; answer with `ApproveGrant`. The
     /// request is withdrawn if focus moves first.
-    method GrantRequested(session: U64 = 1, kind: U32 = 2, surface: U64 = 3) -> () = 21 oneway;
+    method GrantRequested(session: U64 = 1, kind: U32 = 2, surface: U64 = 3) -> () = 21 event;
     /// Shell event: the reserved escape chord (Ctrl+Alt+Esc) was pressed. It
     /// reverted any grab (`GrabChanged` follows when one was held) and is
     /// never delivered to a client.
-    method EscapeChord() -> () = 22 oneway;
+    method EscapeChord() -> () = 22 event;
     /// Shell event: `surface` now receives keys through an input session, so
     /// the compositor must stop synthesising legacy `KeyDown`/`KeyUp` for it.
-    method SessionOpened(surface: U64 = 1) -> () = 23 oneway;
+    method SessionOpened(surface: U64 = 1) -> () = 23 event;
     /// Shell event: the last input session of `surface` ended; legacy key
     /// delivery applies again.
-    method SessionClosed(surface: U64 = 1) -> () = 24 oneway;
+    method SessionClosed(surface: U64 = 1) -> () = 24 event;
     /// Shell event: the pointer changed. One cursor for every pointing device
     /// (`docs/usb-hid-plan.md`): `x`, `y` are screen pixels inside the bounds,
     /// `buttons` the bits held after this event (`1` left, `2` right,
@@ -246,15 +251,15 @@ interface os.lazy.input.shell.v1 {
     /// Motion is coalesced; the position and wheel apply *before* the button
     /// change. Only the compositor receives it: the window under the cursor is
     /// its decision. `ts_ns`/`seq` are the newest raw record's.
-    method PointerEvent(x: I32 = 1, y: I32 = 2, buttons: U32 = 3, wheel: I32 = 4, wheel_h: I32 = 5, ts_ns: U64 = 6, seq: U64 = 7) -> () = 25 oneway;
+    method PointerEvent(x: I32 = 1, y: I32 = 2, buttons: U32 = 3, wheel: I32 = 4, wheel_h: I32 = 5, ts_ns: U64 = 6, seq: U64 = 7) -> () = 25 event;
     /// Shell event: `surface` now holds the keyboard grab (absent: nobody
     /// does). While a grab is held the compositor must not act on its own
     /// chords from the kernel key stream either: they belong to the grabber.
-    method GrabChanged(surface: Option<U64> = 1) -> () = 26 oneway;
+    method GrabChanged(surface: Option<U64> = 1) -> () = 26 event;
     /// Shell event: a key went down on some keyboard (PS/2 or USB; sent after
     /// `inputd` handled it, so a key held back while the shell asked for the
     /// keys was already dropped). The kernel key stream only carries PS/2, so
     /// this is how the compositor sees that someone is typing, for the idle
     /// timer and to wake a blank screen.
-    method KeyActivity() -> () = 27 oneway;
+    method KeyActivity() -> () = 27 event;
 }

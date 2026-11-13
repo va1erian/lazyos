@@ -5,7 +5,7 @@
 
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 
-use super::fake::{ready, Fake};
+use super::test_fake::{ready, Fake};
 use super::{wire, Qos, Subscriber};
 
 /// xorshift64*: enough randomness, no dependency.

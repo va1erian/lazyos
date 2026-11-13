@@ -5,16 +5,19 @@
 //! none may be lost. *Refresh* jobs re-prepare rows that are on screen or
 //! near it (a width change, a row that came back from dehydration); a new
 //! list replaces what still waits. Urgent jobs always run first.
+//!
+//! Finished rows go to a [`Sink`] (the window's inbox, `xui_work::inbox`):
+//! the window hears a doorbell, not a timer.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 
 use lazysky_core::feed::RowId;
 use lazysky_core::proto::FeedItem;
 use xui_core::backend::TextShaper;
+use xui_work::Sink;
 
 use crate::prepare::{prepare, prepare_load_more, Context, Prepared};
 
@@ -60,27 +63,25 @@ struct Shared {
 
 pub struct Layouts {
     shared: Arc<Shared>,
-    results: Receiver<Done>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl Layouts {
-    /// Starts the thread with `shaper` (taken from the UI thread once).
-    pub fn start(shaper: Box<dyn TextShaper>) -> Layouts {
+    /// Starts the thread with `shaper` (taken from the UI thread once); each
+    /// finished row goes to `results`.
+    pub fn start(shaper: Box<dyn TextShaper>, results: Sink<Done>) -> Layouts {
         let shared = Arc::new(Shared {
             queues: Mutex::new(Queues::default()),
             wake: Condvar::new(),
             running: AtomicUsize::new(0),
         });
-        let (tx, results) = mpsc::channel();
         let worker = Arc::clone(&shared);
         let thread = thread::Builder::new()
             .name("sky-layout".into())
-            .spawn(move || run(&*shaper, &worker, &tx))
+            .spawn(move || run(&*shaper, &worker, &results))
             .expect("the layout thread starts");
         Layouts {
             shared,
-            results,
             thread: Some(thread),
         }
     }
@@ -99,11 +100,6 @@ impl Layouts {
         queues.refresh = jobs.into();
         drop(queues);
         self.shared.wake.notify_one();
-    }
-
-    /// A finished row, if one is waiting.
-    pub fn try_next(&self) -> Option<Done> {
-        self.results.try_recv().ok()
     }
 
     /// Jobs queued or running.
@@ -130,7 +126,7 @@ impl Drop for Layouts {
     }
 }
 
-fn run(shaper: &dyn TextShaper, shared: &Shared, results: &Sender<Done>) {
+fn run(shaper: &dyn TextShaper, shared: &Shared, results: &Sink<Done>) {
     loop {
         let (job, urgent) = {
             let mut queues = shared.queues.lock().unwrap_or_else(PoisonError::into_inner);
@@ -169,7 +165,7 @@ fn run(shaper: &dyn TextShaper, shared: &Shared, results: &Sender<Done>) {
             item,
         });
         shared.running.fetch_sub(1, Ordering::SeqCst);
-        if sent.is_err() {
+        if !sent {
             return;
         }
     }

@@ -2,6 +2,16 @@
 //! `os.lazy.messenger.topics`), built so a GUI can listen without polling
 //! (`docs/messenger-playground-plan.md` D5).
 //!
+//! # Most programs use [`Follow`]
+//!
+//! An xui app or LazyRAD does not drive a [`Subscriber`] itself: it makes a
+//! [`Follow`] (or, typed, the generated `subscribe_<topic>` helper over
+//! [`Watch`]), and the thread's hub owns the subscriber: it looks at the
+//! doorbells (local queues) and drains a subscription only when its bell
+//! rang, so the UI thread never waits on the broker. Driving the
+//! [`Subscriber`] directly is for the Playground's monitor, which needs
+//! per-subscription counters and acks.
+//!
 //! # The contract the caller must keep
 //!
 //! `fabricmon` found that `messengerd`'s bump heap never frees a receive
@@ -50,24 +60,27 @@
 //! error field `code` is reported as `-code`.
 
 mod bell;
+mod follow;
 mod transport;
 mod wire;
 
-#[cfg(test)]
-mod fake;
 #[cfg(test)]
 mod fuzz;
 #[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]
+mod test_fake;
+#[cfg(test)]
 mod tests;
 
 pub use bell::Rung;
-pub use transport::{SysTransport, Transport, Wait};
+pub use follow::{park, pull, Feed, Follow, FollowError, Park, TopicEvent, Watch};
+pub use transport::{SysTransport, Transport};
 
+use libmessenger::client::Deadline;
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 
-use super::error::{EINVAL, ENOENT};
+use super::error::{EINVAL, ENOENT, EPROTO};
 pub(super) use lazyos_sys::errno::ETIMEDOUT;
 
 /// A negative errno (the module's error currency).
@@ -227,11 +240,11 @@ impl<T: Transport> Subscriber<T> {
             return Err(-EINVAL);
         }
         let request = wire::subscribe_request(filter, qos, depth)?;
-        let reply = self.exchange(&request, Wait::Bounded)?;
+        let reply = self.exchange(&request, topics::METHOD_SUBSCRIBE_DEADLINE)?;
         let id = wire::decode_subscription(&reply)?;
         if self.holds(id) {
             // A broker handing out a live id again has lost track of us.
-            return Err(-EINVAL);
+            return Err(-EPROTO);
         }
         self.subs.push(Sub {
             id,
@@ -249,7 +262,7 @@ impl<T: Transport> Subscriber<T> {
     pub fn unsubscribe(&mut self, id: SubId) -> Result<(), Errno> {
         let index = self.index(id)?;
         let request = wire::by_id_request(topics::METHOD_UNSUBSCRIBE, id)?;
-        match self.exchange(&request, Wait::Bounded) {
+        match self.exchange(&request, topics::METHOD_UNSUBSCRIBE_DEADLINE) {
             Ok(_) => {}
             Err(code) if code == -ENOENT => {}
             Err(code) => return Err(code),
@@ -265,14 +278,15 @@ impl<T: Transport> Subscriber<T> {
     pub fn ack(&mut self, id: SubId, sequence: u64) -> Result<(), Errno> {
         self.index(id)?;
         let request = wire::ack_request(id, sequence)?;
-        self.exchange(&request, Wait::Bounded).map(drop)
+        self.exchange(&request, topics::METHOD_ACK_DEADLINE)
+            .map(drop)
     }
 
     /// The broker's counters for `id`. User-driven only, never on a timer.
     pub fn stats(&mut self, id: SubId) -> Result<SubStats, Errno> {
         self.index(id)?;
         let request = wire::by_id_request(topics::METHOD_STATS, id)?;
-        let reply = self.exchange(&request, Wait::Bounded)?;
+        let reply = self.exchange(&request, topics::METHOD_STATS_DEADLINE)?;
         wire::decode_stats(&reply)
     }
 
@@ -289,7 +303,7 @@ impl<T: Transport> Subscriber<T> {
                 return out;
             }
         };
-        let poll = match wire::by_id_request(topics::METHOD_NEXTEVENT, id)
+        let poll = match wire::poll_request(topics::METHOD_NEXTEVENT, id)
             .and_then(|request| wire::encode(&request))
         {
             Ok(bytes) => bytes,
@@ -321,6 +335,31 @@ impl<T: Transport> Subscriber<T> {
         out
     }
 
+    /// Drop a subscription without waiting on the broker: the record and the
+    /// doorbell go now and the broker is asked once, with a poll. A broker
+    /// that misses the request reaps the subscription itself (`messengerd`
+    /// does, on the `EPIPE` of its next ring of the closed bell), so there is
+    /// nothing to retry and no record to keep. The hub's way out for a removed or lost feed.
+    pub fn forget(&mut self, id: SubId) {
+        if let Ok(index) = self.index(id) {
+            let sub = self.subs.remove(index);
+            self.release(sub);
+        }
+    }
+
+    fn release(&mut self, sub: Sub) {
+        if let Some(bell) = sub.bell {
+            self.transport.close(bell);
+        }
+        if let Ok(request) = wire::by_id_request(topics::METHOD_UNSUBSCRIBE, sub.id) {
+            if let Ok(encoded) = wire::encode(&request) {
+                let _ = self
+                    .transport
+                    .call(&encoded, &mut self.reply, Deadline::Poll);
+            }
+        }
+    }
+
     /// Forget every subscription without asking the broker (it was restarted
     /// and no longer knows them), closing the doorbells.
     pub fn reset(&mut self) {
@@ -342,12 +381,15 @@ impl<T: Transport> Subscriber<T> {
     /// One poll: `Ok(None)` is "nothing queued" (the kernel's timeout of an
     /// expired-deadline call, or an empty reply).
     fn poll_once(&mut self, encoded: &[u8]) -> Result<Option<RawEvent>, Errno> {
-        let length = match self.transport.call(encoded, &mut self.reply, Wait::Poll) {
+        let length = match self
+            .transport
+            .call(encoded, &mut self.reply, Deadline::Poll)
+        {
             Ok(length) => length,
             Err(code) if code == -ETIMEDOUT => return Ok(None),
             Err(code) => return Err(code),
         };
-        let bytes = self.reply.get(..length).ok_or(-EINVAL)?;
+        let bytes = self.reply.get(..length).ok_or(-EPROTO)?;
         wire::decode_event(&wire::parse_reply(bytes)?)
     }
 
@@ -356,11 +398,11 @@ impl<T: Transport> Subscriber<T> {
     fn exchange(
         &mut self,
         request: &libmessenger::Parcel,
-        wait: Wait,
+        until: Deadline,
     ) -> Result<libmessenger::Parcel, Errno> {
         let encoded = wire::encode(request)?;
-        let length = self.transport.call(&encoded, &mut self.reply, wait)?;
-        let bytes = self.reply.get(..length).ok_or(-EINVAL)?;
+        let length = self.transport.call(&encoded, &mut self.reply, until)?;
+        let bytes = self.reply.get(..length).ok_or(-EPROTO)?;
         wire::parse_reply(bytes)
     }
 }
@@ -375,14 +417,7 @@ impl<T: Transport> Drop for Subscriber<T> {
     /// again.
     fn drop(&mut self) {
         for sub in std::mem::take(&mut self.subs) {
-            if let Some(bell) = sub.bell {
-                self.transport.close(bell);
-            }
-            if let Ok(request) = wire::by_id_request(topics::METHOD_UNSUBSCRIBE, sub.id) {
-                if let Ok(encoded) = wire::encode(&request) {
-                    let _ = self.transport.call(&encoded, &mut self.reply, Wait::Poll);
-                }
-            }
+            self.release(sub);
         }
     }
 }

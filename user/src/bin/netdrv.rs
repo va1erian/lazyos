@@ -48,7 +48,7 @@ use user::trace;
 
 use user::central;
 use user::messenger::net::{self as api, wire};
-use user::messenger::{self, registry, services, wait, Endpoint, Error as MsgError};
+use user::messenger::{self, registry, wait, Endpoint, Error as MsgError};
 use user::sys;
 use virtio_net::settings::Settings;
 
@@ -311,17 +311,26 @@ fn park_on(card: &Card, server: &Endpoint, deadline: u64) {
 }
 
 /// Publish the retained link topic under the card's interface name (two cards
-/// of one model share `card.name`), connecting to the broker on first use.
-fn publish_link(bus: &mut Option<central::Bus>, service: &Service, ifname: &str) {
+/// of one model share `card.name`), connecting to the broker on first use;
+/// whether the broker took it (the caller tries again on its refresh tick,
+/// since the link may never change again to give it another chance).
+fn publish_link(bus: &mut Option<central::Bus>, service: &Service, ifname: &str) -> bool {
     if bus.is_none() {
         *bus = central::Bus::connect().ok();
     }
-    let Some(bus) = bus.as_mut() else { return };
+    let Some(broker) = bus.as_mut() else {
+        return false;
+    };
     let event = wire::LinkEvent {
         up: service.card.engine.link(),
         changes: service.card.engine.stats().link_changes,
     };
-    let _ = wire::publish_system_net_link(bus, ifname, &event);
+    if wire::publish_system_net_link(broker, ifname, &event).is_ok() {
+        return true;
+    }
+    // A broker that went away is looked up again next time.
+    *bus = None;
+    false
 }
 
 /// Serve `os.lazy.net.nic.v1` for the life of the driver.
@@ -334,7 +343,7 @@ fn serve(
 ) -> Result<(), Error> {
     let fail = |error: MsgError| Error::Messenger(error.message());
     let mut bus = None;
-    publish_link(&mut bus, &service, &args.ifname);
+    let mut link_published = publish_link(&mut bus, &service, &args.ifname);
     let mut published_changes = service.card.engine.stats().link_changes;
     let poll_ticks = u64::from(settings.poll_interval_ms).div_ceil(10).max(1);
     let irq = service.card.irq_armed();
@@ -356,9 +365,7 @@ fn serve(
         match server.poll_recv_with(&mut buffer) {
             Ok(None) => {}
             Ok(Some(message)) => {
-                let reply = service.dispatch(&message).unwrap_or_else(|error| {
-                    services::error_reply(message.interface_id(), message.method(), error)
-                });
+                let reply = service.dispatch(&message);
                 if let Some(txn) = message.txn {
                     server.reply_or_drop(txn, &reply).map_err(fail)?;
                 }
@@ -375,10 +382,13 @@ fn serve(
         let changes = service.card.engine.stats().link_changes;
         if changes != published_changes {
             published_changes = changes;
-            publish_link(&mut bus, &service, &args.ifname);
+            link_published = publish_link(&mut bus, &service, &args.ifname);
         }
         if sys::clock() >= next_refresh {
             next_refresh = sys::clock() + config::REFRESH_TICKS;
+            if !link_published {
+                link_published = publish_link(&mut bus, &service, &args.ifname);
+            }
             if let Some(mut new) = config.refresh() {
                 // The command-line override outranks `confd`, so it never
                 // looks like a setting change.

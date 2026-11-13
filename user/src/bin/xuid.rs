@@ -104,6 +104,8 @@ mod cursor;
 mod cursor_request;
 #[path = "xuid/cursor_shape.rs"]
 mod cursor_shape;
+#[path = "xuid/dispatch.rs"]
+mod dispatch;
 #[path = "xuid/drag.rs"]
 mod drag;
 #[path = "xuid/event.rs"]
@@ -173,6 +175,8 @@ mod request;
 mod request_shell;
 #[path = "xuid/resize.rs"]
 mod resize;
+#[path = "xuid/serve.rs"]
+mod serve;
 #[path = "xuid/shell.rs"]
 mod shell;
 #[path = "xuid/shellcalls.rs"]
@@ -406,22 +410,12 @@ fn run() -> ! {
         let deadline = Some(now + FALLBACK_TICKS);
         match server.recv_with(&mut request_buf, deadline) {
             Ok(message) => {
-                if Compositor::is_prompt_request(&message) {
-                    // Answered once the person at the screen does
-                    // (`take_prompt_reply` below), or refused now.
-                    if let (Some(reply), Some(txn)) = (comp.open_prompt(&message), message.txn) {
-                        let _ = server.reply(txn, &reply);
-                    }
-                } else if let Some(txn) = message.txn {
-                    let reply = comp.handle_request(&message);
-                    let _ = server.reply(txn, &reply);
-                } else if message.interface_id() == display::INTERFACE
-                    && message.method() == display::wire::METHOD_PRESENT
+                // The prompt's answer is sent once the person at the screen
+                // gives it (`take_prompt_reply` below), so it yields none now.
+                if let (Some(reply), Some(txn)) =
+                    (dispatch::serve(&mut comp, &message), message.txn)
                 {
-                    // `Present` (issue #361) is one-way: no reply, only the
-                    // `BufferRelease`/`FrameDone` events. Any other message
-                    // without a txn is dropped as before.
-                    comp.present(&message);
+                    let _ = server.reply(txn, &reply);
                 }
             }
             Err(error) if is_timeout(error) => {}

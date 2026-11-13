@@ -19,11 +19,12 @@ use elevpolicy::approvals::Caller;
 use elevpolicy::PROMPT_ATTEMPTS;
 use libmessenger::Parcel;
 use messenger_generated::os_lazy_display_prompt_v1 as prompt;
-use user::messenger::{accounts, display, errno, registry, services, Error};
+use user::messenger::accounts::Directory;
+use user::messenger::{display, errno, registry, services};
 use user::sys;
 
 use super::audit::Entry;
-use super::{accounts_endpoint, intake, Refusal, State};
+use super::{accounts_client, intake, Refusal, State};
 
 /// How long the prompt may stay up (PIT ticks): `xuid` gives up after 90 s,
 /// so this only covers a compositor that stopped answering.
@@ -170,18 +171,18 @@ fn check(name: &str, secret: &str) -> Result<Checked, ()> {
         known: false,
         approved: false,
     };
-    let Ok(endpoint) = accounts_endpoint() else {
+    let Ok(client) = accounts_client() else {
         return Ok(checked);
     };
-    let account = accounts::lookup_name(&endpoint, name).ok().flatten();
+    let account = client.lookup_name(name).ok().flatten();
     checked.known = account.is_some();
     let admin = account.is_some_and(|user| user.admin);
-    match accounts::authenticate(&endpoint, name, secret) {
+    match client.authenticate(name, secret) {
         Ok(ok) => {
             checked.approved = admin && ok;
             Ok(checked)
         }
-        Err(Error::Errno(code)) if code == -errno::EAGAIN => Err(()),
+        Err(error) if error.code() == -errno::EAGAIN => Err(()),
         Err(_) => Ok(checked),
     }
 }
@@ -232,9 +233,11 @@ fn ask(
 /// The code of `xuid`'s structured refusal (busy, not allowed, keyboard
 /// not secured), if the reply is one.
 fn refused(reply: &Parcel) -> Option<i64> {
-    match services::error_field(reply) {
-        Ok(Some(code)) => Some(code),
-        Ok(None) => None,
-        Err(_) => Some(errno::EIO),
+    match libmessenger::client::remote_error(reply) {
+        Some(libmessenger::client::CallError::Remote { code, .. }) => Some(i64::from(code)),
+        // A reply that is an error but not a structured one never counts as
+        // an answer.
+        Some(_) => Some(errno::EIO),
+        None => None,
     }
 }

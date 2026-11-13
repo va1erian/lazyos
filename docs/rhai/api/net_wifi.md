@@ -369,7 +369,7 @@ Networks in the merged list.
 The interface's state, retained so a late subscriber (the tray applet
 after login) sees it at once. `{ifname}` is the radio's interface name.
 
-Payload `WifiState`, QoS `latest`, retained.
+Payload `WifiState`, QoS `buffered`, retained.
 
 Helpers: `STATE_PATTERN`, `state_topic(ifname)`, `on_state(ifname, handler)`, `subscribe_state(ifname)`, `publish_state(ifname, payload)`.
 

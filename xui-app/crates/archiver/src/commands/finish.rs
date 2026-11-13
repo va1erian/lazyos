@@ -5,24 +5,22 @@ use std::sync::Arc;
 
 use lazyarc::extract::Report;
 use lazyarc::Error;
-use xui_core::app::Ui;
 
 use super::display_name;
-use crate::app::{ArchiverApp, Msg};
+use crate::app::ArchiverApp;
 use crate::folder;
-use crate::job::{Job, Outcome};
+use crate::job::{Finished, Outcome};
+use xui_host::report;
 
 /// Skipped entries listed in a report box before "and N more".
 const REPORT_LINES: usize = 8;
 
-pub(super) fn tick(app: &mut ArchiverApp, ui: &mut Ui<Msg>) {
-    let Some(outcome) = app.job.as_ref().and_then(Job::poll) else {
+/// The job's answer: report it and forget the job.
+pub(super) fn job_ended(app: &mut ArchiverApp, done: &Finished) {
+    let Some(outcome) = done.take() else {
         return;
     };
     let job = app.job.take();
-    if let Some(timer) = app.timer.take() {
-        ui.kill_timer(timer);
-    }
     let verb = job.as_ref().map(|job| job.task.verb()).unwrap_or("");
     let target = job
         .as_ref()
@@ -32,11 +30,11 @@ pub(super) fn tick(app: &mut ArchiverApp, ui: &mut Ui<Msg>) {
     match outcome {
         Ok(outcome) => finished(app, outcome),
         Err(Error::Cancelled) => {
-            (app.host.log)("ARCHIVER:CANCEL:PASS");
+            app.host.report("CANCEL:PASS");
             app.say("Cancelled");
         }
         Err(error) => {
-            (app.host.log)(&format!("ARCHIVER:FAIL:{verb}:{error}:{target}"));
+            report!(app.host, "FAIL:{verb}:{error}:{target}");
             app.say(format!("{verb} failed"));
             app.tell("Archiver", &format!("{verb}{target} failed: {error}"));
         }
@@ -48,10 +46,7 @@ fn finished(app: &mut ArchiverApp, outcome: Outcome) {
     match outcome {
         Outcome::Opened(archive) => {
             let count = archive.entries.len();
-            (app.host.log)(&format!(
-                "ARCHIVER:OPEN:PASS:{}:{count}",
-                archive.format.name()
-            ));
+            report!(app.host, "OPEN:PASS:{}:{count}", archive.format.name());
             app.say(format!(
                 "Opened {} ({count} entries)",
                 display_name(&archive.path)
@@ -61,11 +56,12 @@ fn finished(app: &mut ArchiverApp, outcome: Outcome) {
             app.refresh_rows();
         }
         Outcome::Extracted { report, dest } => {
-            (app.host.log)(&format!(
-                "ARCHIVER:EXTRACT:PASS:{}:{}",
+            report!(
+                app.host,
+                "EXTRACT:PASS:{}:{}",
                 report.files,
                 report.skipped.len()
-            ));
+            );
             app.say(format!(
                 "{} to {}",
                 report.summary("Extracted"),
@@ -78,7 +74,7 @@ fn finished(app: &mut ArchiverApp, outcome: Outcome) {
         }
         Outcome::Tested(report) => {
             if report.skipped.is_empty() {
-                (app.host.log)(&format!("ARCHIVER:TEST:PASS:{}", report.files));
+                report!(app.host, "TEST:PASS:{}", report.files);
                 app.say("Test passed");
                 let text = format!(
                     "No errors: {} files, {} checked.",
@@ -87,7 +83,7 @@ fn finished(app: &mut ArchiverApp, outcome: Outcome) {
                 );
                 app.tell("Test", &text);
             } else {
-                (app.host.log)(&format!("ARCHIVER:TEST:FAIL:{}", report.skipped.len()));
+                report!(app.host, "TEST:FAIL:{}", report.skipped.len());
                 app.say(format!("Test found {} problem(s)", report.skipped.len()));
                 let text = skipped_text(&report);
                 app.tell("Test found problems", &text);
@@ -98,11 +94,7 @@ fn finished(app: &mut ArchiverApp, outcome: Outcome) {
             report,
             verb,
         } => {
-            (app.host.log)(&format!(
-                "ARCHIVER:{}:PASS:{}",
-                verb.to_uppercase(),
-                report.files
-            ));
+            report!(app.host, "{}:PASS:{}", verb.to_uppercase(), report.files);
             let keep = folder::exists(&archive.entries, &app.folder).then(|| app.folder.clone());
             app.say(format!(
                 "{verb} {} - {}",
@@ -117,9 +109,9 @@ fn finished(app: &mut ArchiverApp, outcome: Outcome) {
                 app.tell("Some files were skipped", &text);
             }
         }
-        Outcome::Unpacked(path) => match (app.host.launch)(&path) {
+        Outcome::Unpacked(path) => match app.host.launch(&path) {
             Ok(()) => {
-                (app.host.log)("ARCHIVER:OPENINSIDE:PASS");
+                app.host.report("OPENINSIDE:PASS");
                 app.say(format!("Opened {}", display_name(&path)));
             }
             Err(error) => app.tell("Cannot open", &format!("{}: {error}", display_name(&path))),

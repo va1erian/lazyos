@@ -1,13 +1,14 @@
 //! Net Tools' web client and server, on worker threads over plain `std::net`
 //! (the Linux ABI's `AF_INET` shim, docs/architecture/networking.md, N5).
 //!
-//! The UI thread never blocks on a socket: a fetch runs on its own thread and
-//! leaves its outcome in a slot the UI polls on its timer; the server thread
+//! The UI thread never blocks on a socket: a fetch runs on its own thread
+//! ([`fetch_on_thread`]) and answers as a message; the server thread
 //! accepts with a non-blocking listener so it can notice a stop request, and
 //! records what it served in shared state. Threads touch only sockets and
 //! these shared values, never the UI's Messenger endpoints (on LazyOS a thread
 //! has its own descriptor table). Every read is bounded in size and time.
 
+use crate::trace::{self, Channel};
 use std::io::{ErrorKind, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -45,30 +46,21 @@ pub struct Fetched {
     pub millis: u64,
 }
 
-/// A fetch in flight.
-pub struct Fetch {
-    slot: Arc<Mutex<Option<Result<Fetched, String>>>>,
-}
-
-impl Fetch {
-    /// Fetch `url` from `addr` (already resolved) on a new thread.
-    pub fn start(addr: Ipv4Addr, url: Url) -> Result<Fetch, String> {
-        let slot = Arc::new(Mutex::new(None));
-        let out = Arc::clone(&slot);
-        std::thread::Builder::new()
-            .name("fetch".into())
-            .spawn(move || {
-                let outcome = fetch(SocketAddrV4::new(addr, url.port), &url);
-                *out.lock().unwrap_or_else(|e| e.into_inner()) = Some(outcome);
-            })
-            .map_err(|e| format!("could not start a thread: {e}"))?;
-        Ok(Fetch { slot })
-    }
-
-    /// The outcome, once (`None` while it runs).
-    pub fn take(&self) -> Option<Result<Fetched, String>> {
-        self.slot.lock().unwrap_or_else(|e| e.into_inner()).take()
-    }
+/// Fetches `url` from `addr` (already resolved) on a new thread; the outcome
+/// goes to `to` as `done(outcome)`, also when the thread could not start or
+/// panicked.
+pub fn fetch_on_thread<M: 'static, B: xui_work::Mailbox<M>>(
+    to: &B,
+    addr: Ipv4Addr,
+    url: Url,
+    done: impl FnOnce(Result<Fetched, String>) -> M + Send + 'static,
+) {
+    xui_work::spawn(
+        to,
+        "fetch",
+        move || fetch(SocketAddrV4::new(addr, url.port), &url),
+        |outcome| done(outcome.unwrap_or_else(|failed| Err(failed.to_string()))),
+    );
 }
 
 fn fetch(addr: SocketAddrV4, url: &Url) -> Result<Fetched, String> {
@@ -187,7 +179,10 @@ fn serve(port: u16, stop: &AtomicBool, state: &Mutex<ServerState>, page: &Mutex<
     // a stop request at the next visitor.
     let polling = listener.set_nonblocking(true).is_ok();
     lock(state).listening = Some(Ok(port));
-    println!("NETTOOLS:SERVER:LISTENING port={port} polling={polling}");
+    trace::line!(
+        Channel::Nettools,
+        "SERVER:LISTENING port={port} polling={polling}"
+    );
     while !stop.load(Ordering::Relaxed) {
         match listener.accept() {
             Ok((stream, peer)) => answer(stream, peer, state, page),
@@ -249,7 +244,7 @@ fn answer(
     match sent {
         Ok(()) => {
             lock(state).hits = hits;
-            println!("NETTOOLS:SERVER:HIT n={hits} from={peer}");
+            trace::line!(Channel::Nettools, "SERVER:HIT n={hits} from={peer}");
             push_log(state, format!("{peer}  {line}"));
         }
         Err(e) => push_log(state, format!("{peer}  {line}  (send failed: {e})")),

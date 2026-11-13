@@ -22,6 +22,21 @@ reply.
 | NtpStatus | 209271495 | sync | `() -> (enabled: Bool, state: U32, server: String, stratum: U32, offset_ms: I64, delay_ms: I64, last_sync_unix: I64, next_sync_unix: I64)` |
 | SyncNow | 1100029530 | sync | `() -> ()` |
 
+## Service
+
+- Served under the registry name `os.lazy.timed`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Now | this interface | - | 2000 ms | safe |
+| GetZone | this interface | - | 250 ms | safe |
+| SetZone | this interface | - | 15000 ms | safe |
+| SetTime | this interface | - | 15000 ms | never |
+| NtpStatus | this interface | - | 2000 ms | safe |
+| SyncNow | this interface | - | 2000 ms | never |
+
 ## Topics
 
 | Topic | Payload | QoS | Retained | Permissions |

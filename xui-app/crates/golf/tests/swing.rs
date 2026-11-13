@@ -14,6 +14,8 @@ use xui_core::{Dip, Image};
 use xui_golf::game::Game;
 use xui_golf::{GolfApp, Msg, WINDOW};
 
+mod support;
+
 fn register_fonts() {
     let fonts: [&[u8]; 2] = [
         include_bytes!("../../../../assets/fonts/DroidSans.ttf"),
@@ -82,6 +84,8 @@ fn swing_picture(dpi: u32, click_accuracy: bool) -> (Image, Vec<String>, f32, bo
             let mut now = Instant::now();
             let deadline = Instant::now() + Duration::from_secs(120);
             while game.borrow().run.is_none() && Instant::now() < deadline {
+                // Any input pumps the inbox, where `Msg::Gen` waits.
+                stage.hover(1, 1);
                 game.borrow_mut().tick(w, h, now);
                 std::thread::sleep(Duration::from_millis(5));
             }
@@ -217,15 +221,10 @@ fn the_look_keys_tilt_the_shot_camera() {
     use xui_golf::fly::Action;
     use xui_golf::play::{LOOK_DOWN, LOOK_UP};
 
-    let mut game = Game::with_params(xui_golf::Params::quick(4), 96);
+    let (mut game, messages) = support::quick_game();
     let (w, h) = (640, 360);
     let mut now = Instant::now();
-    let deadline = Instant::now() + Duration::from_secs(120);
-    while game.run.is_none() {
-        assert!(Instant::now() < deadline, "generation did not finish");
-        game.tick(w, h, now);
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    support::run_until_generated(&mut game, &messages, (w, h), now);
     now += Duration::from_millis(20);
     game.tick(w, h, now);
     let pitch0 = game.run.as_ref().unwrap().camera().pitch;

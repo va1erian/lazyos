@@ -1,9 +1,11 @@
 //! Progress reporting and cancellation, shared between a worker thread and
-//! the UI that polls it.
+//! the UI that reads it. A UI that wants to hear about progress rather than
+//! poll it gives the progress an observer ([`Progress::observed`]).
 
 use std::io::{self, Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use crate::error::{Error, Result, CANCELLED};
 
@@ -16,6 +18,41 @@ pub struct Progress {
     items: AtomicU64,
     cancelled: AtomicBool,
     current: Mutex<String>,
+    observer: Option<Observer>,
+}
+
+/// What to tell a listener, and when it was last told.
+struct Observer {
+    notify: Box<dyn Fn() + Send + Sync>,
+    gap: Duration,
+    since: Instant,
+    /// Milliseconds after `since` of the last call, plus one (0: never).
+    last: AtomicU64,
+}
+
+impl std::fmt::Debug for Observer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Observer").field("gap", &self.gap).finish()
+    }
+}
+
+impl Observer {
+    /// Calls the listener unless it was called less than `gap` ago. The
+    /// reading side asks for a [`Snapshot`] when it hears; a progress that
+    /// changes thousands of times a second costs one call per `gap`.
+    fn changed(&self) {
+        let now = self.since.elapsed().as_millis() as u64 + 1;
+        let last = self.last.load(Ordering::Relaxed);
+        let due = last == 0 || now.saturating_sub(last) >= self.gap.as_millis() as u64;
+        if due
+            && self
+                .last
+                .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+        {
+            (self.notify)();
+        }
+    }
 }
 
 /// A copy of a [`Progress`] at one moment.
@@ -49,6 +86,28 @@ impl Progress {
         Progress::default()
     }
 
+    /// A progress that calls `notify` (from the worker thread) when it
+    /// changes, at most once per `gap`: the UI hears about progress instead of
+    /// polling for it. The last change within a gap is not announced; the
+    /// operation's own end is, and the UI reads a fresh [`Snapshot`] then.
+    pub fn observed(gap: Duration, notify: impl Fn() + Send + Sync + 'static) -> Progress {
+        Progress {
+            observer: Some(Observer {
+                notify: Box::new(notify),
+                gap,
+                since: Instant::now(),
+                last: AtomicU64::new(0),
+            }),
+            ..Progress::default()
+        }
+    }
+
+    fn changed(&self) {
+        if let Some(observer) = &self.observer {
+            observer.changed();
+        }
+    }
+
     /// Ask the operation to stop at its next read or write.
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Relaxed);
@@ -76,6 +135,7 @@ impl Progress {
     /// Count `bytes` more as processed.
     pub fn add(&self, bytes: u64) {
         self.done.fetch_add(bytes, Ordering::Relaxed);
+        self.changed();
     }
 
     /// Name the entry being processed and count the previous one finished.
@@ -86,6 +146,8 @@ impl Progress {
         }
         current.clear();
         current.push_str(name);
+        drop(current);
+        self.changed();
     }
 
     /// The current state.
@@ -176,6 +238,31 @@ mod tests {
         assert_eq!(snap.scaled(100), 25);
         snap.done = 900;
         assert_eq!(snap.scaled(100), 100);
+    }
+
+    #[test]
+    fn an_observer_hears_the_first_change_then_one_per_gap() {
+        let heard = Arc::new(AtomicU64::new(0));
+        let counter = Arc::clone(&heard);
+        let progress = Progress::observed(Duration::from_secs(3600), move || {
+            counter.fetch_add(1, Ordering::Relaxed);
+        });
+        for _ in 0..1000 {
+            progress.add(1);
+        }
+        progress.begin("a");
+        assert_eq!(heard.load(Ordering::Relaxed), 1);
+        assert_eq!(progress.snapshot().done, 1000);
+
+        let every = Progress::observed(Duration::ZERO, {
+            let counter = Arc::clone(&heard);
+            move || {
+                counter.fetch_add(1, Ordering::Relaxed);
+            }
+        });
+        every.add(1);
+        every.add(1);
+        assert_eq!(heard.load(Ordering::Relaxed), 3);
     }
 
     #[test]

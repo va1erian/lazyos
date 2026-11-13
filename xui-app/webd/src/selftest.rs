@@ -14,19 +14,18 @@
 //! does that: `webd-abi-test network`, `tools/webd/run.py`) and it runs as webd's own label, so it does
 //! not prove the manifest grants a *client* what it needs: `webddemo` does.
 
+use libmessenger::client::Deadline;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::Instant;
 
-use libmessenger::{flags, Buffer, Header, Parcel, VERSION};
-use messenger_generated::errors::ERROR_FIELD;
+use libmessenger::{Buffer, Parcel};
 use messenger_generated::os_lazy_webd_light_v1 as wire;
-use xui_app::platform::messenger::Service;
+use xui_app::platform::messenger::{client, Observed};
 use xui_app::sys::{self, errno};
 use xui_app::trace::{self, Channel};
 use xui_webd::engine::Engine;
 use xui_webd::ffi::FfiEngine;
-
-use crate::serve::NAME;
 
 /// The `Reopen` argument that starts the test (`init` takes one absolute path as `args`).
 pub const ARG: &str = "/selftest";
@@ -80,31 +79,13 @@ fn page(color: [u8; 4]) -> Vec<u8> {
 
 /// This thread's side of the conversation.
 struct Client {
-    service: Service,
-    /// A second handle on the service, for the oneway messages `Service` has no call for.
-    endpoint: u64,
+    service: Rc<wire::Client<Observed>>,
     /// The end of the event channel this thread keeps, while it has one.
     events: Option<u64>,
     /// The view this thread has made and not destroyed.
     live: Option<u64>,
     /// The pixel buffers this thread attached: handle and the address it mapped.
     slots: Vec<(u64, u64)>,
-}
-
-fn oneway(method: u32, body: Vec<u8>) -> Parcel {
-    Parcel {
-        header: Header {
-            version: VERSION,
-            flags: flags::ONE_WAY,
-            interface_id: wire::INTERFACE_ID,
-            method,
-            txn_id: 0,
-            reply_to: 0,
-            deadline_ns: 0,
-        },
-        body,
-        objects: Vec::new(),
-    }
 }
 
 /// One event from the service.
@@ -116,49 +97,35 @@ enum Event {
 
 impl Client {
     fn new() -> Result<Client, String> {
-        let service = Service::connect(NAME).map_err(|code| format!("connect: err={}", -code))?;
-        let endpoint = sys::msg_resolve(NAME).map_err(|code| format!("resolve: err={}", -code))?;
+        let service = client(wire::Client::connect)
+            .map_err(|error| format!("connect: err={}", -error.code()))?;
         Ok(Client {
             service,
-            endpoint,
             events: None,
             live: None,
             slots: Vec::new(),
         })
     }
 
-    fn call(
-        &self,
-        method: u32,
-        (body, objects): (Vec<u8>, Vec<libmessenger::Object>),
-    ) -> Result<Parcel, i64> {
-        self.service.call_moving_within(
-            wire::INTERFACE_ID,
-            method,
-            ERROR_FIELD,
-            body,
-            objects,
-            1000,
-        )
+    /// How long a call to the service may take: ten seconds (the web process starts under it).
+    fn within() -> Deadline {
+        Deadline::ticks(1000)
     }
 
     /// `CreateView`, with two slots attached.
     fn create_view(&mut self) -> Result<u64, String> {
         let (sent, kept) = sys::msg_create_pair().map_err(|code| format!("pair: err={}", -code))?;
         self.events = Some(kept);
-        let args = wire::encode_create_view_args(&wire::CreateViewArgs {
-            config: wire::LightConfig::default(),
-            width: WIDTH,
-            height: HEIGHT,
-            events: sent,
-        })
-        .map_err(|_| "encode CreateView".to_string())?;
-        let reply = self
-            .call(wire::METHOD_CREATEVIEW, args)
-            .map_err(|code| format!("CreateView: err={}", -code))?;
-        let view = wire::decode_create_view_reply(&reply.body)
-            .map_err(|_| "CreateView reply".to_string())?
-            .view;
+        let view = self
+            .service
+            .create_view_within(
+                &wire::LightConfig::default(),
+                WIDTH,
+                HEIGHT,
+                sent,
+                Self::within(),
+            )
+            .map_err(|error| format!("CreateView: err={}", -error.code()))?;
         // From here on the view is this thread's to end, whatever fails next.
         self.live = Some(view);
         self.slots.clear();
@@ -167,14 +134,9 @@ impl Client {
             let (handle, address, _size) =
                 sys::buffer_create(bytes).map_err(|code| format!("buffer: err={}", -code))?;
             self.slots.push((handle, address));
-            let args = wire::encode_attach_slot_args(&wire::AttachSlotArgs {
-                view,
-                slot,
-                pixels: Buffer::whole(handle, bytes),
-            })
-            .map_err(|_| "encode AttachSlot".to_string())?;
-            self.call(wire::METHOD_ATTACHSLOT, args)
-                .map_err(|code| format!("AttachSlot {slot}: err={}", -code))?;
+            self.service
+                .attach_slot_within(view, slot, Buffer::whole(handle, bytes), Self::within())
+                .map_err(|error| format!("AttachSlot {slot}: err={}", -error.code()))?;
         }
         Ok(view)
     }
@@ -183,28 +145,26 @@ impl Client {
         let (handle, address, _size) = sys::buffer_create(html.len() as u64)?;
         // SAFETY: `buffer_create` mapped at least `html.len()` bytes at `address` for this task.
         unsafe { std::ptr::copy_nonoverlapping(html.as_ptr(), address as *mut u8, html.len()) };
-        let args = wire::encode_load_html_args(&wire::LoadHtmlArgs {
-            view,
-            html: Buffer::whole(handle, html.len() as u64),
-            base_url: "about:blank".into(),
-        })
-        .map_err(|_| -errno::EINVAL)?;
-        let result = self.call(wire::METHOD_LOADHTML, args).map(drop);
+        let result = self
+            .service
+            .load_html_within(
+                view,
+                Buffer::whole(handle, html.len() as u64),
+                "about:blank",
+                Self::within(),
+            )
+            .map_err(i64::from);
         // The service copied the bytes before it replied.
         let _ = sys::buffer_close(handle);
         result
     }
 
     fn release(&self, view: u64, slot: u32) {
-        if let Ok(body) = wire::encode_release_slot_args(&wire::ReleaseSlotArgs { view, slot }) {
-            let _ = sys::msg_send(self.endpoint, &oneway(wire::METHOD_RELEASESLOT, body));
-        }
+        let _ = self.service.release_slot(view, slot);
     }
 
     fn destroy(&mut self, view: u64) {
-        if let Ok(body) = wire::encode_destroy_view_args(&wire::DestroyViewArgs { view }) {
-            let _ = self.call(wire::METHOD_DESTROYVIEW, (body, Vec::new()));
-        }
+        let _ = self.service.destroy_view_within(view, Self::within());
         if self.live == Some(view) {
             self.live = None;
         }
@@ -290,13 +250,12 @@ impl Client {
 
 impl Drop for Client {
     /// Every way out of the test ends the view it made (a failed step must not leave one behind in
-    /// webd, holding a web process and its share of the quota), and gives the resolved endpoint back.
+    /// webd, holding a web process and its share of the quota).
     fn drop(&mut self) {
         match self.live.take() {
             Some(view) => self.destroy(view),
             None => self.close_local(),
         }
-        let _ = sys::msg_release(self.endpoint);
     }
 }
 
@@ -306,11 +265,10 @@ impl Client {
     fn refresh_times(&self, view: u64, count: usize) -> Result<Vec<u128>, String> {
         let mut times = Vec::new();
         for _ in 0..count {
-            let body = wire::encode_refresh_args(&wire::RefreshArgs { view })
-                .map_err(|_| "encode Refresh".to_string())?;
             let began = Instant::now();
-            sys::msg_send(self.endpoint, &oneway(wire::METHOD_REFRESH, body))
-                .map_err(|code| format!("Refresh: err={}", -code))?;
+            self.service
+                .refresh(view)
+                .map_err(|error| format!("Refresh: err={}", -error.code()))?;
             loop {
                 match self.next_event() {
                     Some(Event::Frame { slot, .. }) => {

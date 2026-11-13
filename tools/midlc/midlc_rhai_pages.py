@@ -187,7 +187,7 @@ def module_page(interface: Interface) -> str:
         lines += ["## Functions", ""]
         for method in methods:
             lines += method_section(interface, method)
-    skipped = [m.name for m in interface.methods if m.objects]
+    skipped = [m.name for m in interface.methods if m.objects and not m.event]
     if skipped:
         lines += [
             "Not callable from a script (the request carries a kernel object): "

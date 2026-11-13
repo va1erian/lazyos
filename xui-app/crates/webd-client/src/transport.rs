@@ -4,13 +4,14 @@
 //! shared memory by dropping its [`SharedMem`].
 
 use libmessenger::Object;
+use messenger_generated::{os_lazy_webd_light_v1 as light, os_lazy_webd_view_v1 as view};
 
 /// The registered name `webd` serves the light interface under.
-pub const SERVICE_NAME: &str = "app.os.lazy.webd.light";
+pub const SERVICE_NAME: &str = light::SERVICE_NAME;
 
 /// The registered name `webd` serves the full interface (`os.lazy.webd.view.v1`) and its two scope
 /// interfaces (`os.lazy.webd.net.v1`, `os.lazy.webd.browser.v1`) under.
-pub const FULL_SERVICE_NAME: &str = "app.os.lazy.webd.view";
+pub const FULL_SERVICE_NAME: &str = view::SERVICE_NAME;
 
 /// Positive errno values the client reads (`docs/midl.md`, "Errors"); transports return them
 /// negated, as the kernel does.

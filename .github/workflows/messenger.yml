@@ -39,3 +39,8 @@ jobs:
       # shell now, and the fabricated `midlc` stubs keep their own tests.
       - name: Run the generated-stub tests
         run: cargo test -p messenger-generated
+
+      # The topics broker's tables (messengerd): byte accounting, per-owner
+      # budgets and the platform reserve, with seeded stress runs.
+      - name: Run the topics broker tests
+        run: cargo test -p topicsbroker

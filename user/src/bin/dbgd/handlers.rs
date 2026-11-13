@@ -11,7 +11,8 @@ use alloc::vec::Vec;
 
 use dbgwire::json::{self, Object, Value};
 use dbgwire::{fsallow, logline, methods};
-use user::messenger::services;
+use user::messenger::client::Native;
+use user::messenger::services::logd::Client as LogClient;
 use user::sys;
 
 /// A failed call: a JSON-RPC code and its message.
@@ -140,9 +141,10 @@ pub(crate) fn log_tail(params: &Value, scratch: &mut Vec<u8>) -> Result<String, 
                 .finish())
         }
         None => {
-            let endpoint = services::resolve_service(services::LOGD_NAME)
+            let logd = LogClient::try_connect(Native)
                 .map_err(|e| (code::UNAVAILABLE, format!("logd: {}", e.message())))?;
-            let lines = services::fetch_log_tail_file(&endpoint, source, want as u64)
+            let lines = logd
+                .tail_file(source, want as u64)
                 .map_err(|e| (code::UNAVAILABLE, format!("logd {source}: {}", e.message())))?;
             let rows: Vec<(u64, &str)> = lines.iter().map(|l| (0, l.as_str())).collect();
             Ok(Object::new()
@@ -155,9 +157,10 @@ pub(crate) fn log_tail(params: &Value, scratch: &mut Vec<u8>) -> Result<String, 
 
 /// `log.sources`.
 pub(crate) fn log_sources() -> Result<String, Failure> {
-    let endpoint = services::resolve_service(services::LOGD_NAME)
+    let logd = LogClient::try_connect(Native)
         .map_err(|e| (code::UNAVAILABLE, format!("logd: {}", e.message())))?;
-    let sources = services::fetch_log_sources(&endpoint)
+    let sources = logd
+        .sources()
         .map_err(|e| (code::UNAVAILABLE, format!("logd: {}", e.message())))?;
     let mut all = vec![String::from("kernel"), String::from("programs")];
     all.extend(sources);
@@ -337,7 +340,7 @@ pub(crate) fn devices_list() -> Result<String, Failure> {
 
 /// `drivers.list`: `devd`'s view.
 pub(crate) fn drivers_list() -> Result<String, Failure> {
-    let client = user::messenger::devd::Client::connect()
+    let client = user::messenger::devd::Client::try_connect(user::messenger::client::Native)
         .map_err(|_| (code::UNAVAILABLE, String::from("devd is not running")))?;
     let devices = client
         .devices()

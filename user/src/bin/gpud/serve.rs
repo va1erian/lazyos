@@ -4,9 +4,10 @@
 use alloc::vec;
 use intelgfx::adopt::{Adopted, FbMap};
 use intelgfx::regs::{plane_ctl, DdiMode};
+use libmessenger::server::{Caller, Fault};
 use user::messenger::gpu::{self as api, wire};
 use user::messenger::services;
-use user::messenger::{self, errno, registry, Error as MsgError, Message, Parcel};
+use user::messenger::{self, errno, registry, Error as MsgError};
 use user::sys;
 
 use crate::beam::Watch;
@@ -126,9 +127,11 @@ pub(super) fn run(
     loop {
         match server.recv_with(&mut buffer, Some(sys::clock() + IDLE_TICKS)) {
             Ok(message) => {
-                let reply = dispatch(&message, &snapshot, watch.as_mut()).unwrap_or_else(|error| {
-                    services::error_reply(message.interface_id(), message.method(), error)
-                });
+                let handler = &mut Handler {
+                    snapshot: &snapshot,
+                    watch: watch.as_mut(),
+                };
+                let reply = wire::dispatch(handler, &message);
                 if let Some(txn) = message.txn {
                     let _ = server.reply_or_drop(txn, &reply);
                 }
@@ -139,28 +142,19 @@ pub(super) fn run(
     }
 }
 
-fn dispatch(
-    message: &Message,
-    snapshot: &wire::State,
-    watch: Option<&mut Watch>,
-) -> Result<Parcel, MsgError> {
-    if message.interface_id() != api::INTERFACE {
-        return Err(MsgError::Errno(-errno::EINVAL));
+/// The adopted display's state and beam, answering the generated server.
+struct Handler<'a> {
+    snapshot: &'a wire::State,
+    watch: Option<&'a mut Watch>,
+}
+
+impl wire::Server for Handler<'_> {
+    fn get_state(&mut self, _: &Caller) -> Result<wire::State, Fault> {
+        Ok(self.snapshot.clone())
     }
-    match message.method() {
-        wire::METHOD_GETSTATE => {
-            let body = wire::encode_get_state_reply(&wire::GetStateReply {
-                state: snapshot.clone(),
-            })
-            .map_err(MsgError::Parcel)?;
-            Ok(api::parcel(wire::METHOD_GETSTATE, body))
-        }
-        wire::METHOD_GETBEAM => {
-            let watch = watch.ok_or(MsgError::Errno(-errno::ENODEV))?;
-            let body = wire::encode_get_beam_reply(&wire::GetBeamReply { beam: watch.read() })
-                .map_err(MsgError::Parcel)?;
-            Ok(api::parcel(wire::METHOD_GETBEAM, body))
-        }
-        _ => Err(MsgError::Errno(-errno::EINVAL)),
+
+    fn get_beam(&mut self, _: &Caller) -> Result<wire::Beam, Fault> {
+        let watch = self.watch.as_mut().ok_or(MsgError::Errno(-errno::ENODEV))?;
+        Ok(watch.read())
     }
 }

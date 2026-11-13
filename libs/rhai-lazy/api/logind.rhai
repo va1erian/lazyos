@@ -10,6 +10,9 @@
 // The interface every function of this module calls.
 export const INTERFACE = "os.lazy.logind.v1";
 
+// The registry name the interface is served under (`service` in the `.midl`).
+export const SERVICE = "os.lazy.logind";
+
 /// The connected service: `invoke`, `invoke_oneway` and method sugar
 /// (`docs/rhai/msg.md`). Resolved once per process.
 fn connect() {
@@ -128,41 +131,41 @@ fn publish_start(payload) {
     msg::publish("system/events/login/start", payload)
 }
 
-// Filter for every event of the topic `system/events/login/session/{id}` (payload `LoginSession`, qos latest, retained).
+// Filter for every event of the topic `system/events/login/session/{id}` (payload `LoginSession`, qos buffered, retained).
 // One retained event per session id, so a late subscriber sees the
 // newest state of each live session.
 export const SESSION_PATTERN = "system/events/login/session/+";
 
-/// The topic name of `system/events/login/session/{id}` (payload `LoginSession`, qos latest, retained) for these placeholder values.
+/// The topic name of `system/events/login/session/{id}` (payload `LoginSession`, qos buffered, retained) for these placeholder values.
 fn session_topic(id) {
     `system/events/login/session/${id}`
 }
 
-/// Run `handler(event)` for each event of `system/events/login/session/{id}` (payload `LoginSession`, qos latest, retained); `event.payload` is
+/// Run `handler(event)` for each event of `system/events/login/session/{id}` (payload `LoginSession`, qos buffered, retained); `event.payload` is
 /// the decoded `LoginSession`. Returns the `Subscription`.
 fn on_session(handler) {
     msg::on("system/events/login/session/+", handler)
 }
 
-/// Subscribe to `system/events/login/session/{id}` (payload `LoginSession`, qos latest, retained) to pull events with `sub.next()`.
+/// Subscribe to `system/events/login/session/{id}` (payload `LoginSession`, qos buffered, retained) to pull events with `sub.next()`.
 fn subscribe_session() {
     msg::subscribe("system/events/login/session/+")
 }
 
-/// Run `handler(event)` for each event of `system/events/login/session/{id}` (payload `LoginSession`, qos latest, retained); `event.payload` is
+/// Run `handler(event)` for each event of `system/events/login/session/{id}` (payload `LoginSession`, qos buffered, retained); `event.payload` is
 /// the decoded `LoginSession`. Returns the `Subscription`.
 /// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
 fn on_session(id, handler) {
     msg::on(`system/events/login/session/${id}`, handler)
 }
 
-/// Subscribe to `system/events/login/session/{id}` (payload `LoginSession`, qos latest, retained) to pull events with `sub.next()`.
+/// Subscribe to `system/events/login/session/{id}` (payload `LoginSession`, qos buffered, retained) to pull events with `sub.next()`.
 /// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
 fn subscribe_session(id) {
     msg::subscribe(`system/events/login/session/${id}`)
 }
 
-/// Publish `payload` (a `LoginSession`) on `system/events/login/session/{id}` (payload `LoginSession`, qos latest, retained).
+/// Publish `payload` (a `LoginSession`) on `system/events/login/session/{id}` (payload `LoginSession`, qos buffered, retained).
 fn publish_session(id, payload) {
     msg::publish(`system/events/login/session/${id}`, payload)
 }
@@ -187,22 +190,22 @@ fn publish_denied(payload) {
     msg::publish("system/events/login/denied", payload)
 }
 
-// Filter for every event of the topic `system/events/login/end` (payload `LoginEnd`, qos latest, retained).
+// Filter for every event of the topic `system/events/login/end` (payload `LoginEnd`, qos buffered, retained).
 // The most recent logout (retained, as published today).
 export const END_PATTERN = "system/events/login/end";
 
-/// Run `handler(event)` for each event of `system/events/login/end` (payload `LoginEnd`, qos latest, retained); `event.payload` is
+/// Run `handler(event)` for each event of `system/events/login/end` (payload `LoginEnd`, qos buffered, retained); `event.payload` is
 /// the decoded `LoginEnd`. Returns the `Subscription`.
 fn on_end(handler) {
     msg::on("system/events/login/end", handler)
 }
 
-/// Subscribe to `system/events/login/end` (payload `LoginEnd`, qos latest, retained) to pull events with `sub.next()`.
+/// Subscribe to `system/events/login/end` (payload `LoginEnd`, qos buffered, retained) to pull events with `sub.next()`.
 fn subscribe_end() {
     msg::subscribe("system/events/login/end")
 }
 
-/// Publish `payload` (a `LoginEnd`) on `system/events/login/end` (payload `LoginEnd`, qos latest, retained).
+/// Publish `payload` (a `LoginEnd`) on `system/events/login/end` (payload `LoginEnd`, qos buffered, retained).
 fn publish_end(payload) {
     msg::publish("system/events/login/end", payload)
 }

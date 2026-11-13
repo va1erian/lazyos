@@ -84,10 +84,6 @@ impl FakeRunner {
         }
     }
 
-    pub fn push_plan(&mut self, plan: Plan) {
-        self.plans.push_back(plan);
-    }
-
     /// Children that have not ended.
     pub fn alive(&self) -> usize {
         self.children.iter().filter(|c| !c.done).count()

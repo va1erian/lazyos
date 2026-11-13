@@ -17,6 +17,8 @@ messenger-generated = { path = "../generated" }
 libmessenger = { path = "../messenger" }
 
 [dev-dependencies]
+# The tests run the stream over a `Transport` that fronts the real mixer.
+libmessenger = { path = "../messenger", features = ["mock"] }
 # The host tests run the client against the real mixer engine and wire layer.
 audiomix = { path = "../audiomix" }
 virtio-snd = { path = "../virtio-snd" }

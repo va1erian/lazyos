@@ -58,7 +58,7 @@ impl Output {
                 Some(sink) => Ok(Box::new(sink) as Box<dyn Sink>),
                 None => Ok(Box::new(ClockSink::new(rate, sink::wall_clock()))),
             }),
-            available: Box::new(|| xui_app::platform::audio::Audio::try_connect().is_some()),
+            available: Box::new(|| xui_app::platform::audio::try_connect().is_some()),
         }
     }
 

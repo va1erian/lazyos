@@ -34,6 +34,7 @@
 use alloc::string::String;
 use user::trace;
 
+use libmessenger::client::CallError;
 use user::messenger::display::key;
 use user::messenger::input::{mods, KeyInput, KeySession, SHELL_NAME};
 use user::messenger::{errno, registry, Endpoint, Error};
@@ -197,12 +198,15 @@ impl Compositor {
 
 /// `call` until it succeeds or `deadline` passes; `Err` is the last errno.
 /// A dead `inputd` is not retried.
-fn retry<T>(deadline: u64, mut call: impl FnMut() -> Result<T, Error>) -> Result<T, Option<i64>> {
+fn retry<T>(
+    deadline: u64,
+    mut call: impl FnMut() -> Result<T, CallError>,
+) -> Result<T, Option<i64>> {
     loop {
         match call() {
             Ok(value) => return Ok(value),
             Err(error) => {
-                let code = error.errno();
+                let code = Some(error.code());
                 if code == Some(-errno::EPIPE) || sys::clock() >= deadline {
                     return Err(code);
                 }

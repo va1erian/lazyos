@@ -31,10 +31,13 @@ use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use user::trace;
 
+use libmessenger::server::{Caller, Fault};
 use user::central;
+use user::messenger::client::Native;
 use user::messenger::devd::{self as api, wire};
-use user::messenger::services::{self, drivers, INIT_NAME};
-use user::messenger::{self, errno, registry, Endpoint, Error as MsgError, Message, Parcel};
+use user::messenger::services::init::Client as InitClient;
+use user::messenger::services::{self};
+use user::messenger::{self, errno, registry, Endpoint, Error as MsgError};
 use user::sys;
 
 #[path = "devd/devices.rs"]
@@ -45,8 +48,6 @@ use devices::{State, Tracked};
 /// Ticks between inventory reads (100 Hz): devices change only when a driver
 /// claims or lets go, so twice a second is plenty.
 const RESCAN_TICKS: u64 = 50;
-/// Attempts to reach `init` and the broker at start (a tick apart).
-const CONNECT_ATTEMPTS: usize = 200;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -68,24 +69,16 @@ pub extern "C" fn _start() -> ! {
     }
 }
 
-/// Resolve `init`, retrying while the boot is still registering names.
-fn init_endpoint() -> Result<Endpoint, &'static str> {
-    for _ in 0..CONNECT_ATTEMPTS {
-        if let Ok(endpoint) = services::resolve_service(INIT_NAME) {
-            return Ok(endpoint);
-        }
-        sys::nap();
-    }
-    Err("init is not reachable")
+/// Reach `init`, waiting while the boot is still registering names.
+fn init_client() -> Result<InitClient, &'static str> {
+    InitClient::connect(Native).map_err(|_| "init is not reachable")
 }
 
 fn run() -> Result<(), &'static str> {
     let rows = user::dev::inspect::inventory().map_err(|_| "the device inventory is refused")?;
     let mut tracked = devices::track(rows);
-    let init = init_endpoint()?;
-    start_drivers(&init, &mut tracked);
-    // Released: a resolved name aliases `init`'s own endpoint.
-    let _ = init.release();
+    // Dropped after the starts: a resolved name aliases `init`'s own endpoint.
+    start_drivers(&init_client()?, &mut tracked);
 
     let (published, server) = messenger::create_pair().map_err(|_| "no endpoint")?;
     registry::register(api::NAME, &published, &[api::INTERFACE], 0)
@@ -98,14 +91,14 @@ fn run() -> Result<(), &'static str> {
         tracked.len()
     );
     services::init::notify_ready();
-    let mut bus = central::Bus::connect_retry(CONNECT_ATTEMPTS).ok();
+    let mut bus = central::Bus::connect().ok();
     publish_changes(&mut bus, &mut tracked);
     serve(&server, &mut bus, &mut tracked)
 }
 
 /// Ask `init` for each driver start the manifest plans; a device of a driver
 /// row that serves one device only, after the first, is `busy`.
-fn start_drivers(init: &Endpoint, tracked: &mut [Tracked]) {
+fn start_drivers(init: &InitClient, tracked: &mut [Tracked]) {
     let functions: Vec<_> = tracked.iter().map(Tracked::function).collect();
     let plan = devmatch::plan_with(&functions, devices::EXTRA_MANIFEST);
     for item in tracked.iter_mut().filter(|t| t.entry.is_some()) {
@@ -124,7 +117,7 @@ fn start_drivers(init: &Endpoint, tracked: &mut [Tracked]) {
             planned.entry.model
         );
         item.ifname = String::from(ifname);
-        match drivers::start_driver(init, driver, u64::from(id), ifname) {
+        match init.start_driver(driver, u64::from(id), ifname) {
             Ok(started) => {
                 item.pid = started.pid;
                 if item.device.owner.is_none() {
@@ -139,7 +132,7 @@ fn start_drivers(init: &Endpoint, tracked: &mut [Tracked]) {
             }
             // The image does not ship this driver (an e1000 QEMU adds by
             // default to a sound-only image): nothing to start, not a fault.
-            Err(MsgError::Init(code)) if code == errno::ENOENT => {
+            Err(error) if error.code() == -errno::ENOENT => {
                 item.state = State::NoDriver;
                 trace::line!(
                     trace::Channel::Devd,
@@ -252,9 +245,7 @@ fn serve(server: &Endpoint, bus: &mut Option<central::Bus>, tracked: &mut [Track
     loop {
         match server.recv_with(&mut buffer, Some(next_scan)) {
             Ok(message) => {
-                let reply = dispatch(&message, tracked).unwrap_or_else(|error| {
-                    services::error_reply(message.interface_id(), message.method(), error)
-                });
+                let reply = wire::dispatch(&mut Handler(tracked), &message);
                 if let Some(txn) = message.txn {
                     let _ = server.reply_or_drop(txn, &reply);
                 }
@@ -276,18 +267,12 @@ fn serve(server: &Endpoint, bus: &mut Option<central::Bus>, tracked: &mut [Track
     }
 }
 
-fn dispatch(message: &Message, tracked: &[Tracked]) -> Result<Parcel, MsgError> {
-    if message.interface_id() != api::INTERFACE {
-        return Err(MsgError::Errno(-errno::EINVAL));
-    }
-    match message.method() {
-        wire::METHOD_DEVICES => {
-            let devices = tracked.iter().map(Tracked::record).collect();
-            let body = wire::encode_devices_reply(&wire::DevicesReply { devices })
-                .map_err(MsgError::Parcel)?;
-            Ok(api::parcel(wire::METHOD_DEVICES, body))
-        }
-        _ => Err(MsgError::Errno(-errno::EINVAL)),
+/// The tracked drivers, answering `Devices` (the generated server).
+struct Handler<'a>(&'a [Tracked]);
+
+impl wire::Server for Handler<'_> {
+    fn devices(&mut self, _: &Caller) -> Result<Vec<wire::DeviceState>, Fault> {
+        Ok(self.0.iter().map(Tracked::record).collect())
     }
 }
 

@@ -123,14 +123,6 @@ impl Format {
         matches!(self, Format::Gz | Format::Xz | Format::Zst)
     }
 
-    /// Whether the format is a tarball, compressed or not.
-    pub fn is_tar(self) -> bool {
-        matches!(
-            self,
-            Format::Tar | Format::TarGz | Format::TarXz | Format::TarZst
-        )
-    }
-
     /// The stream compression around a tarball or a single file.
     pub fn codec(self) -> Codec {
         match self {

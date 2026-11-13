@@ -20,6 +20,10 @@ pub(super) const ENOENT: i64 = 2;
 pub(super) const EPIPE: i64 = 32;
 /// Invalid argument.
 pub(super) const EINVAL: i64 = 22;
+/// A reply this side could not make sense of: unlike `EINVAL`, which is a
+/// refusal the broker sent, a malformed answer says nothing about the
+/// request, so asking again may succeed.
+pub(super) const EPROTO: i64 = 71;
 
 /// A friendly one-line explanation of a negative errno returned by syscall 5.
 pub fn errno_text(code: i64) -> String {
@@ -35,6 +39,7 @@ pub fn errno_text(code: i64) -> String {
         22 => "invalid argument",
         32 => "peer closed",
         35 => "deadlock",
+        71 => "malformed reply",
         110 => "timed out",
         125 => "canceled",
         _ => "unknown error",

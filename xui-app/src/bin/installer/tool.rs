@@ -23,7 +23,7 @@ use xui_app::trace::{self, Channel};
 pub fn install(path: &str, expected: &str) -> Result<Installed, String> {
     trace::line!(Channel::Installer, "ELEVATE {DEVTOOL_OPERATION}");
     let (detail, _) = elevd::request(DEVTOOL_OPERATION, &[path])
-        .map_err(|error| refusal_text(error.code, &error.message))?;
+        .map_err(|error| refusal_text(error.code(), error.message()))?;
     // The reply's own name wins: it is what `elevd` installed.
     let name = installed_name(&detail).unwrap_or(expected);
     pkg::installed(name)?

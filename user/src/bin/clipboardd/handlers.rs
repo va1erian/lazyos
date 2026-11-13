@@ -431,7 +431,7 @@ impl topics::Publish for Clipboard {
     /// Publish raw bytes through the central broker, reusing one connection.
     fn publish_topic(&mut self, topic: &str, payload: &[u8], retained: bool) -> Result<u64, Error> {
         if self.central.is_none() {
-            self.central = central::Bus::connect_retry(4).ok();
+            self.central = central::Bus::connect().ok();
         }
         let result = match &mut self.central {
             Some(bus) => bus.publish(topic, payload, retained),

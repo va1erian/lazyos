@@ -7,6 +7,7 @@ license = "GPL-3.0-or-later"
 description = "LazySky's headless core: Bluesky protocol, session, HTTPS, images and the feed model (no xui, no LazyOS crate; docs/lazysky-plan.md)"
 
 [dependencies]
+atomicfile = { path = "../atomicfile" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"

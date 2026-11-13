@@ -145,10 +145,6 @@ impl Table {
         self.blockers.insert(profile, settings);
     }
 
-    pub fn blocking_settings(&self, profile: &Profile) -> BlockSettings {
-        self.blockers.get(profile).cloned().unwrap_or_default()
-    }
-
     pub fn navigate(
         &self,
         view: u64,

@@ -1,116 +1,73 @@
-//! The native transport for `libs/audioclient` (docs/audio-plan.md A4).
+//! The native runtime for `libs/audioclient` (docs/audio-plan.md A4).
 //!
-//! `audioclient` holds the audio API itself: typed `os.lazy.audio.v1` and
-//! `os.lazy.audio.mixer.v1` calls and the blocking `PlaybackStream`. This
-//! module only plugs the native runtime in: requests travel over a Messenger
-//! endpoint resolved by name, and rings are display shared buffers.
+//! `audioclient` holds the audio API itself: the generated `os.lazy.audio.v1`
+//! and `os.lazy.audio.mixer.v1` clients and the blocking `PlaybackStream`.
+//! This module only plugs the native runtime in: the calls travel over
+//! [`Native`] (a Messenger endpoint resolved by name), and rings are display
+//! shared buffers ([`Runtime`]).
 //!
 //! ```ignore
-//! let audio = user::audio::connect_wait(audioclient::NAME, 500)?;
-//! let mut out = PlaybackStream::open(&audio, Params::new(48_000, 2))?;
+//! let audio = user::audio::connect_wait(audioclient::NAME)?;
+//! let mut out = user::audio::open(audio, Params::new(48_000, 2))?;
 //! ```
 
-use alloc::vec::Vec;
 use core::ptr;
 
-use audioclient::{Error, Object, Result, RingBuffer, RingRef, Transport};
-use libmessenger::{Header, Parcel, VERSION};
+use audioclient::{CallError, Errno, RingBuffer, RingRef};
+use libmessenger::client::Connection;
 
-use crate::messenger::services::error_field;
-use crate::messenger::{registry, Endpoint, Error as MsgError};
+use crate::messenger::client::Native;
 use crate::sys;
 
-pub use audioclient::{
-    Client, MixerControl, Params, PlaybackStream, CARD_PREFIX, NAME, TICK_HZ, UNITY_GAIN,
-};
+pub use audioclient::{Client, MixerControl, Params, CARD_PREFIX, NAME, TICK_HZ, UNITY_GAIN};
 
-/// `EIO`, for transport failures that carry no errno of their own.
-const EIO: i64 = 5;
+/// The native runtime of a playback stream: rings from the display buffer
+/// syscalls, the scheduler clock.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Runtime;
 
-/// A Messenger failure as the audio API reports it: a kernel errno becomes
-/// its positive value, an undecodable parcel [`Error::Malformed`].
-pub fn error_of(error: MsgError) -> Error {
-    match error {
-        MsgError::Errno(code) => Error::Errno(-code),
-        MsgError::Parcel(_) => Error::Malformed,
-        _ => Error::Errno(EIO),
-    }
+/// A playback stream on the native runtime.
+pub type PlaybackStream = audioclient::PlaybackStream<Native, Runtime>;
+
+/// A client of the audio service `name` ([`NAME`] for the mixer,
+/// [`CARD_PREFIX`] and an id for a card), waiting the runtime's connect bound
+/// ([`crate::messenger::client::CONNECT_BOUND`]) while the service starts.
+pub fn connect_wait(name: &str) -> Result<Client<Native>, CallError> {
+    let client = Client::from_connection(Connection::named(Native, name.into()));
+    client
+        .connection()
+        .connect()
+        .map_err(CallError::Transport)?;
+    Ok(client)
 }
 
-/// An audio service reached over a Messenger endpoint.
-pub struct Native {
-    endpoint: Endpoint,
+/// [`connect_wait`] with one attempt, for a caller that falls back without
+/// sound.
+pub fn connect_once(name: &str) -> Result<Client<Native>, CallError> {
+    let client = Client::from_connection(Connection::named(Native, name.into()));
+    client
+        .connection()
+        .try_connect()
+        .map_err(CallError::Transport)?;
+    Ok(client)
 }
 
-impl Native {
-    /// Resolve `name` ([`NAME`] for the mixer, [`CARD_PREFIX`] and an id for a card).
-    pub fn connect(name: &str) -> Result<Native> {
-        let endpoint = registry::resolve(name).map_err(error_of)?;
-        Ok(Native { endpoint })
-    }
+/// The mixer's control panel (`os.lazy.audio.mixer.v1`, served on the same
+/// name as the streams), waiting for the mixer to register.
+pub fn mixer_control() -> Result<MixerControl<Native>, CallError> {
+    MixerControl::connect(Native)
 }
 
-impl Drop for Native {
-    fn drop(&mut self) {
-        // The endpoint was obtained by name, so other holders may still use
-        // the channel: release this task's handle rather than closing it.
-        // Without this, `audiod` would leak a handle each time it reconnects
-        // to a restarted driver.
-        let _ = self.endpoint.release();
-    }
+/// Open a playback stream on `client`.
+pub fn open(client: Client<Native>, params: Params) -> audioclient::Result<PlaybackStream> {
+    PlaybackStream::open(client, Runtime, params)
 }
 
-/// Resolve `name`, retrying for up to `ticks` while the service starts.
-pub fn connect_wait(name: &str, ticks: u64) -> Result<Native> {
-    let deadline = sys::clock() + ticks;
-    loop {
-        match Native::connect(name) {
-            Ok(native) => return Ok(native),
-            Err(error) if sys::clock() >= deadline => return Err(error),
-            Err(_) => nap(),
-        }
-    }
-}
-
-/// Sleep one PIT tick ([`sys::nap`]).
-fn nap() {
-    sys::nap();
-}
-
-impl Transport for Native {
+impl audioclient::Runtime for Runtime {
     type Ring = NativeRing;
 
-    fn call(
-        &self,
-        interface: u64,
-        method: u32,
-        body: Vec<u8>,
-        objects: Vec<Object>,
-        deadline: Option<u64>,
-    ) -> Result<Vec<u8>> {
-        let request = Parcel {
-            header: Header {
-                version: VERSION,
-                flags: 0,
-                interface_id: interface,
-                method,
-                txn_id: 0,
-                reply_to: 0,
-                deadline_ns: 0,
-            },
-            body,
-            objects,
-        };
-        let reply = self.endpoint.call(&request, deadline).map_err(error_of)?;
-        match error_field(&reply).map_err(error_of)? {
-            Some(code) => Err(Error::Errno(code)),
-            None => Ok(reply.body),
-        }
-    }
-
-    fn create_ring(&self, bytes: usize) -> Result<NativeRing> {
-        let (handle, va, _) =
-            sys::buffer_create(bytes as u64).map_err(|code| Error::Errno(-code))?;
+    fn create_ring(&self, bytes: usize) -> Result<NativeRing, Errno> {
+        let (handle, va, _) = sys::buffer_create(bytes as u64).map_err(Errno::from_syscall)?;
         Ok(NativeRing {
             handle,
             base: va as *mut u8,
@@ -123,7 +80,7 @@ impl Transport for Native {
     }
 
     fn sleep(&self) {
-        nap();
+        sys::nap();
     }
 }
 

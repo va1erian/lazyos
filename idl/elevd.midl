@@ -1,3 +1,5 @@
+service "os.lazy.elevd" implements os.lazy.elevd.v1;
+
 /// The elevation service (docs/accounts-plan.md U2, issue #625).
 ///
 /// Nobody is handed root or a capability: `elevd` runs a fixed table of
@@ -21,6 +23,7 @@
 /// `EAGAIN` also when the compositor could not take the keyboard from the
 /// apps for the prompt, or the performing service's own error.
 interface os.lazy.elevd.v1 {
+    default deadline=400s;
     /// Perform `operation` (a row of the operation table, e.g.
     /// `account.create`, `conf.set`, `time.set`) with its `args`, after an
     /// administrator approved it on the prompt. Every change asks every time;
@@ -30,10 +33,10 @@ interface os.lazy.elevd.v1 {
     /// `Release`. `detail` describes what was done,
     /// `values` carries the operation's results (`conf.list`'s paths,
     /// `conf.get`'s kind and value).
-    method Request(operation: String = 1, args: Array<String> = 2) -> (detail: String = 1, values: Array<String> = 2);
+    method Request(operation: String = 1, args: Array<String> = 2) -> (detail: String = 1, values: Array<String> = 2) deadline=400s;
 
     /// End the caller's standing approvals now (an elevated editor closing).
-    method Release() -> ();
+    method Release() -> () deadline=1s;
 
     /// One request's audit record: the payload of
     /// `system/events/elevd/request`.

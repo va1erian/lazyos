@@ -14,10 +14,11 @@
 //! flight.
 
 use alloc::vec::Vec;
+use user::central;
 use user::trace;
 
 use svcpolicy::StopMode;
-use user::messenger::{self, router};
+use user::messenger::{self};
 use user::sys::{self, Cred as SysCred};
 
 use super::lifecycle;
@@ -41,7 +42,7 @@ pub(super) struct Stopped {
 /// error: the answer is 0.
 pub(super) fn stop_app(
     services: &mut [Service],
-    broker: &mut router::TopicBroker,
+    broker: &mut central::Publisher,
     app: &str,
     caller: &SysCred,
 ) -> messenger::Result<Stopped> {

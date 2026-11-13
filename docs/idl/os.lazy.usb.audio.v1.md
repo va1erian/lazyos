@@ -38,6 +38,23 @@ No device bound (it was unplugged) is `ENODEV`; a call out of order
 | Submit | 1081664837 | sync | `(slot: U32, offset: U32, len: U32) -> ()` |
 | Reap | 1527513801 | sync | `() -> (progress: Progress)` |
 
+## Service
+
+- Served under the registry name `os.lazy.usb.audio`; registered once.
+
+## Scopes, deadlines and retries
+
+| Method | Scope interface | Scope id | Deadline | Retry |
+|---|---|---|---|---|
+| Describe | this interface | - | 5000 ms | safe |
+| Attach | this interface | - | 5000 ms | never |
+| Configure | this interface | - | 5000 ms | never |
+| Start | this interface | - | 5000 ms | never |
+| Stop | this interface | - | 5000 ms | never |
+| Release | this interface | - | 5000 ms | never |
+| Submit | this interface | - | 5000 ms | never |
+| Reap | this interface | - | 5000 ms | never |
+
 ## Objects
 
 Kernel objects a request carries, in the order of the parcel's

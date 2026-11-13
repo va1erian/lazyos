@@ -21,6 +21,7 @@
 use std::cell::RefCell;
 use std::io;
 use std::path::{Path, PathBuf};
+use xui_app::trace::{self, Channel};
 
 use messenger_generated::os_lazy_files_v1 as files_wire;
 use xui_app::platform::topics::{Broker, PublishError};
@@ -57,11 +58,11 @@ impl Session for LazySession {
         let bytes = urilist::encode(paths).into_bytes();
         match clipboard::offer(urilist::MIME, &bytes) {
             Ok(_) => {
-                println!("FILES:COPY:PASS:{}", paths.len());
+                trace::pass!(Channel::Files, "COPY", "{}", paths.len());
                 Ok(())
             }
             Err(code) => {
-                println!("FILES:COPY:FAIL:{code}");
+                trace::fail!(Channel::Files, "COPY", "{code}");
                 Err(errno_error(code))
             }
         }
@@ -71,24 +72,24 @@ impl Session for LazySession {
         let bytes = match clipboard::paste(0, urilist::MIME) {
             Ok(bytes) => bytes,
             Err(ENOENT) => {
-                println!("FILES:PASTE:EMPTY");
+                trace::line!(Channel::Files, "PASTE:EMPTY");
                 return Ok(Pasted::default());
             }
             Err(code) => {
-                println!("FILES:PASTE:FAIL:{code}");
+                trace::fail!(Channel::Files, "PASTE", "{code}");
                 return Err(errno_error(code));
             }
         };
         let sources = urilist::decode(&bytes);
         if sources.is_empty() {
-            println!("FILES:PASTE:EMPTY");
+            trace::line!(Channel::Files, "PASTE:EMPTY");
             return Ok(Pasted::default());
         }
         let CopyReport { copied, failed } = copy_into(&sources, dir);
         for (path, error) in &failed {
-            println!("FILES:PASTE:SKIP:{}:{error}", path.display());
+            trace::line!(Channel::Files, "PASTE:SKIP:{}:{error}", path.display());
         }
-        println!("FILES:PASTE:PASS:{copied}:{}", failed.len());
+        trace::pass!(Channel::Files, "PASTE", "{copied}:{}", failed.len());
         Ok(Pasted { copied, failed })
     }
 
@@ -102,7 +103,7 @@ impl Session for LazySession {
 
     fn selection_changed(&self, dir: &Path, paths: &[PathBuf]) {
         if self.dir.borrow().as_deref() != Some(dir) {
-            println!("FILES:DIR:{}", dir.display());
+            trace::line!(Channel::Files, "DIR:{}", dir.display());
             *self.dir.borrow_mut() = Some(dir.to_path_buf());
         }
         let Some(session) = self.session else {
@@ -126,12 +127,12 @@ impl Session for LazySession {
         );
         match published {
             Ok(_) => {
-                println!("FILES:SELECTION:PASS:{}", paths.len());
+                trace::pass!(Channel::Files, "SELECTION", "{}", paths.len());
                 *self.last.borrow_mut() = Some(current);
             }
             // No broker (a console image): nothing to tell, nothing failed.
             Err(PublishError::Errno(ENOENT)) => {}
-            Err(error) => println!("FILES:SELECTION:FAIL:{error:?}"),
+            Err(error) => trace::fail!(Channel::Files, "SELECTION", "{error:?}"),
         }
     }
 }

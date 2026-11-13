@@ -6,9 +6,10 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::central;
 use user::trace;
 
-use user::messenger::{self, router, services};
+use user::messenger::{self, services};
 use user::sys::Cred as SysCred;
 
 use super::apps::{available_count, find_app, selftest_builtins, SHELL_APP_ID};
@@ -51,7 +52,7 @@ impl LaunchSelftest {
     pub(super) fn step(
         &mut self,
         services: &mut Vec<Service>,
-        broker: &mut router::TopicBroker,
+        broker: &mut central::Publisher,
         now: u64,
     ) {
         if self.done || now < self.due || !super::ready::settled(services) {
@@ -135,7 +136,7 @@ pub(super) fn selftest_launch_cap() {
             row
         })
         .collect();
-    let mut broker = router::TopicBroker::new("os.lazy.selftest.sink");
+    let mut broker = central::Publisher::new();
     let request = services::LaunchRequest {
         app: String::from("messengerctl"),
         args: String::new(),

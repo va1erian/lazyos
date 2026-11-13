@@ -10,13 +10,13 @@
 //! boot self-test can exercise them.
 
 use alloc::vec::Vec;
-use libmessenger::Parcel;
+use libmessenger::server::{Caller, Fault};
 use user::messenger::display::{wire, Rect};
-use user::messenger::{self, Message};
+use user::messenger::errno;
 use user::sys;
 
 use super::compositor::Compositor;
-use super::protocol::{empty_reply, error_reply};
+use super::protocol::refuse;
 use super::window::surface_by_id;
 
 /// How long a hint stays valid, in PIT ticks (10 ms each): two seconds, far
@@ -72,22 +72,23 @@ pub(super) fn take(hints: &mut Vec<OpenHint>, owner: u64, now: u64) -> Option<Re
 }
 
 impl Compositor {
-    /// `HintOpenOrigin`: remember where `message.sender`'s next window opens
+    /// `HintOpenOrigin`: remember where `cx.sender`'s next window opens
     /// from. Only the owner of `surface` may hint relative to it.
-    pub(super) fn hint_open_origin(&mut self, message: &Message, body: &[u8]) -> Parcel {
-        let Ok(args) = wire::decode_hint_open_origin_args(body) else {
-            return error_reply(message.method(), messenger::errno::EINVAL);
-        };
+    pub(super) fn hint_open_origin(
+        &mut self,
+        cx: &Caller,
+        args: wire::HintOpenOriginArgs,
+    ) -> Result<(), Fault> {
         let Some(surface) = surface_by_id(&self.surfaces, args.surface) else {
-            return error_reply(message.method(), messenger::errno::ENOENT);
+            return Err(refuse(errno::ENOENT));
         };
-        if surface.owner != message.sender {
-            return error_reply(message.method(), messenger::errno::EACCES);
+        if surface.owner != cx.sender {
+            return Err(refuse(errno::EACCES));
         }
         // A minimized window has no on-screen content to start from, and the
         // desktop layer has no window to open "from".
         if surface.minimized || surface.is_desktop() {
-            return empty_reply(message.method());
+            return Ok(());
         }
         if let Some(from) = translate(
             surface.content(),
@@ -96,13 +97,13 @@ impl Compositor {
         ) {
             let now = sys::clock();
             let hint = OpenHint {
-                owner: message.sender,
+                owner: cx.sender,
                 from,
                 expires: now + HINT_TTL_TICKS,
             };
             store(&mut self.hints, hint, now);
         }
-        empty_reply(message.method())
+        Ok(())
     }
 }
 

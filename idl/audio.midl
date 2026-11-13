@@ -1,3 +1,6 @@
+service "os.lazy.audio" implements os.lazy.audio.v1, os.lazy.audio.mixer.v1;
+service "os.lazy.audio.card/{id}" implements os.lazy.audio.v1;
+
 /// An audio card's control and data-plane interface (docs/driver-plan.md §3.8).
 ///
 /// Two services serve it (docs/audio-plan.md). The system mixer `audiod`
@@ -43,9 +46,10 @@
 /// shared structured error field (see `services::error_field`) instead of the
 /// declared reply fields.
 interface os.lazy.audio.v1 {
+    default deadline=5s;
     /// Describe the card: stream count and the formats, rates and channel
     /// counts it accepts.
-    method Info() -> (info: AudioInfo = 1);
+    method Info() -> (info: AudioInfo = 1) retry=safe;
     /// Open a stream. `dir` and `format` are `Direction` and `Format`
     /// ordinals (enums travel as `U32`). The reply carries the stream index and
     /// the granted parameters. The stream is idle until a ring is attached and
@@ -70,7 +74,7 @@ interface os.lazy.audio.v1 {
     /// Play everything committed, then stop. Replies once drained.
     method Drain(stream: U32 = 1) -> (ok: Bool = 1);
     /// Frames the device has played since the last `Start`.
-    method Position(stream: U32 = 1) -> (frames: U64 = 1);
+    method Position(stream: U32 = 1) -> (frames: U64 = 1) retry=safe;
     /// Close a stream and release its ring. Also implied when the owner exits.
     method CloseStream(stream: U32 = 1) -> ();
     /// Scale the stream by `gain_q16` (16.16 fixed point: 65536 is unity, 0
@@ -78,10 +82,10 @@ interface os.lazy.audio.v1 {
     /// `EINVAL`. Samples are scaled as they are copied out of the ring and
     /// saturate instead of wrapping. A driver that cannot scale the granted
     /// format fails with `ENOTSUP`.
-    method SetVolume(stream: U32 = 1, gain_q16: U32 = 2) -> ();
+    method SetVolume(stream: U32 = 1, gain_q16: U32 = 2) -> () retry=never;
     /// Silence the stream (`mute`) or restore its volume, without losing it.
     /// A muted stream keeps consuming and its position keeps moving.
-    method SetMute(stream: U32 = 1, mute: Bool = 2) -> ();
+    method SetMute(stream: U32 = 1, mute: Bool = 2) -> () retry=never;
 
     /// Card capabilities.
     struct AudioInfo {

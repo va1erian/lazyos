@@ -54,6 +54,13 @@ pub const STACK_INTERFACE: &str = "os.lazy.net.stack.v1";
 /// The socket interface `netd` serves next to it (`idl/net.midl`, stage N3).
 pub const SOCKET_INTERFACE: &str = "os.lazy.net.socket.v1";
 
+/// A declared family's prefix (`os.lazy.net.nic/`, `service` in the `.midl`) as
+/// the namespace the registry reserves (`os.lazy.net.nic`, with everything
+/// under it), so no namespace is spelled twice.
+const fn namespace(family_prefix: &'static str) -> &'static str {
+    family_prefix.split_at(family_prefix.len() - 1).0
+}
+
 mod nic;
 pub use nic::{
     is_nic_name, may_own_nic, may_register_nic_name, nic_kind_allowed, stack_attaches,
@@ -209,11 +216,22 @@ pub const SOCKET_CLIENT_RULES: &[RuleSpec] = &[
 /// `idl/net.midl`. Nothing
 /// else under `system/` is the stack's (a NIC's link is its driver's).
 pub fn is_stack_topic(topic: &str) -> bool {
-    let addr = topic
-        .strip_prefix("system/net/")
-        .and_then(|rest| rest.strip_suffix("/addr"))
-        .is_some_and(|name| !name.is_empty() && !name.contains('/'));
-    addr || topic == "system/net/interfaces" || topic == "system/events/network/up"
+    use messenger_generated::os_lazy_net_stack_v1::{
+        TOPIC_SYSTEM_EVENTS_NETWORK_UP, TOPIC_SYSTEM_NET_ADDR, TOPIC_SYSTEM_NET_INTERFACES,
+    };
+    [
+        TOPIC_SYSTEM_NET_ADDR,
+        TOPIC_SYSTEM_NET_INTERFACES,
+        TOPIC_SYSTEM_EVENTS_NETWORK_UP,
+    ]
+    .iter()
+    .any(|declared| declared_topic(declared, topic))
+}
+
+/// Whether the concrete `topic` is an instance of the declared `pattern`: the
+/// broker's own filter match, and no empty segment (the broker refuses one).
+fn declared_topic(pattern: &str, topic: &str) -> bool {
+    messenger_generated::topics::matches(pattern, topic) && topic.split('/').all(|s| !s.is_empty())
 }
 
 #[cfg(test)]
