@@ -43,6 +43,14 @@ python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs \
 # Pin every implicit field id (`= N`) into the sources; midlc warns about them.
 python tools/midlc/midlc.py --pin-field-ids idl/*.midl
 
+# Java classes for LazyVM programs (LazyVM docs/msg.md): client, server,
+# listener, errors, topics and codec per interface, in a package named like it.
+python tools/midlc/midlc.py --java build/java idl/*.midl
+
+# LazyVM's Java conformance test and the corpus classes it uses
+# (LazyVM's tools/msg_gen.py runs this and the line above).
+python tools/midlc/conformance_java.py --test Conformance.java --gen build/java
+
 # The conformance corpus (idl/conformance/, docs/midl.md): regenerate or check.
 python tools/midlc/conformance.py --write
 python tools/midlc/conformance.py --check
@@ -54,6 +62,7 @@ python tools/midlc/test_midlc_objects.py
 python tools/midlc/test_midlc_rings.py
 python tools/midlc/test_midlc_decls.py
 python tools/midlc/test_midlc_rhai.py
+python tools/midlc/test_midlc_java.py
 python tools/midlc/test_midl_browser.py
 
 # Generated-code round trips (host).
