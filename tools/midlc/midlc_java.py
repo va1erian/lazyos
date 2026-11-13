@@ -200,7 +200,8 @@ def emit_client(names: Names, calls: list[Method]) -> str:
         "    /** Serves {@code server} under {@code name}; a name already served fails with EEXIST. */",
         f"    public static lazy.msg.Registration serve(String name, {base}Server server) {{",
         '        Wire.need(server, "server");',
-        f"        return lazy.internal.msg.Server.serve(name, call -> {names.codec}.dispatch(server, call));",
+        f"        return lazy.internal.msg.Server.serve(name, INTERFACE, {names.codec}.INTERFACE_ID,",
+        f"                call -> {names.codec}.dispatch(server, call));",
         "    }",
     ]
     for m in calls:
