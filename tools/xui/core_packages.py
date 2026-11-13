@@ -403,7 +403,8 @@ def lazyvm_apps() -> Path:
 
 
 def build_core_packages(xui_dir: Path, out_dir: Path, version: str | None = None,
-                        lazyrad_dir: Path | None = None) -> list[Path]:
+                        lazyrad_dir: Path | None = None,
+                        lazyvm_dir: Path | None = None) -> list[Path]:
     """Build every core package whose programs exist; returns the archives.
 
     A missing optional program (Docs not built, LazyRAD not built) is skipped
@@ -414,7 +415,7 @@ def build_core_packages(xui_dir: Path, out_dir: Path, version: str | None = None
     """
     version = version or workspace_version()
     build_dirs = {"xui": xui_dir, "lazyrad": lazyrad_dir or ROOT / "target" / "lazyrad",
-                  "lazyvm": lazyvm_apps()}
+                  "lazyvm": lazyvm_dir or lazyvm_apps()}
     lines = ["# short system_name version file digest autostart_file autostart_digest"]
     written = []
     keep: set[Path] = set()
