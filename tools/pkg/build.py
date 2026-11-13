@@ -117,7 +117,7 @@ def validate_layout(files):
 def _check_references(manifest, files, problems):
     entry = manifest.get("entry")
     binary = entry.get("binary") if isinstance(entry, dict) else None
-    if isinstance(binary, str) and binary.endswith(".elf") and binary not in files:
+    if isinstance(binary, str) and binary.endswith((".elf", ".jar")) and binary not in files:
         problems.append(f"entry.binary {binary!r} is missing from the package")
     mime = manifest.get("mime", [])
     if not isinstance(mime, list):

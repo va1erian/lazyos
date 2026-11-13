@@ -99,6 +99,38 @@ the shared LazyVM rules below. The block is an identical copy of the one in
 LazyVM's `AGENTS.md`, which is the master; LazyVM's `tools/check_rules.py
 --lazyos <path>` compares them.
 
+## Desktop apps on LazyVM (LOS-02)
+
+LazyVM's `lazy.ui` apps run on the desktop like any xui app:
+
+- **The runtime.** LazyVM stages `bin/lazyvm-ui` beside `bin/lazyvm`: a static
+  musl program built from LazyVM's GPL `crates/lazyvm-lazyos` against this
+  checkout's `xui-app` (`LazyOSBackend::connect_with_font`, so the binary
+  carries no font). It reads the UI faces from `fhs::share::FONTS_XUI`
+  (`/system/share/fonts/xui`), which the image fills from `assets/fonts` when
+  it embeds LazyVM, and prints `LAZYVM:UI:UP:PASS` on its first frame.
+- **Packages.** `entry.abi = "lazyvm"` makes a package's `entry.binary` a jar
+  under `resources/`; `init` starts `/system/lazyvm/bin/lazyvm-ui
+  -Xbootclasspath:/system/lazyvm/lib/lazyrt.jar -jar <jar> <entry.args>` under
+  the app's label, in the Linux personality ([`packages.md`](../packages.md)).
+  `init` splits its launch line on spaces and appends `attempt=N`, so an app
+  must not need spaces in an argument and must skip that token.
+- **LazyWriter (LazyVM)**, `os.lazy.writerj` (`xui-app/packages/writerj`), is
+  the first: LazyVM's `samples/writer`, packaged by `tools/xui/core_packages.py`
+  from the stage's `apps/writer.jar` and shipped by images built with
+  `LAZYOS_LAZYVM=1` on the desktop.
+
+```bash
+# in LazyVM: stage lazyvm, lazyvm-ui, lazyrt.jar and apps/writer.jar here
+python tools/lazyos_demo.py --lazyos <this checkout>
+# here:
+python tools/xui/core_packages.py
+LAZYOS_DESKTOP=1 LAZYOS_LAZYVM=1 LAZYOS_XUI_AUTOSTART=writerj cargo build
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/writerj     --script tools/screenshot/examples/xui_writerj.json --fail-on "WRITER:[A-Z]+:FAIL"
+```
+
+LazyVM's `docs/ui-writer.md` compares it with LazyWriter: size and start-up.
+
 <!-- lazyvm-rules:begin -->
 ## Shared rules for LazyVM work
 

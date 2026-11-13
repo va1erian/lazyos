@@ -389,6 +389,13 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
             crate::pictures_embed::not_built(),
         ),
     ];
+    for short in crate::linuxapps_embed::lazyvm::APP_SHORTS {
+        requested.push((
+            crate::linuxapps_embed::lazyvm::ui_apps(desktop),
+            short,
+            crate::linuxapps_embed::lazyvm::not_built(short),
+        ));
+    }
     for tool in crate::devtools_embed::TOOLS {
         let elf = dir.join(tool.elf);
         crate::os_image::rerun_if_changed(&elf);

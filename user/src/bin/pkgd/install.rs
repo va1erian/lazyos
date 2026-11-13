@@ -463,11 +463,7 @@ pub(crate) fn row_of(
         digest: String::from(digest),
         binary: manifest.entry.binary.clone(),
         installed_at,
-        abi: String::from(if manifest.entry.is_linux() {
-            "linux"
-        } else {
-            "native"
-        }),
+        abi: String::from(manifest.entry.abi_name()),
         args: manifest.entry.args.clone(),
         origin,
         category: String::from(manifest.app.category().as_str()),

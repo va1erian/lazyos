@@ -113,9 +113,15 @@ fn check_app(manifest: &Manifest, problems: &mut Vec<Problem>) {
 
 fn check_entry(manifest: &Manifest, files: Option<&BTreeSet<&str>>, problems: &mut Vec<Problem>) {
     let binary = &manifest.entry.binary;
-    if !binary.ends_with(".elf") {
+    // A LazyVM app is a jar the shared `lazyvm-ui` runs; anything else is a program.
+    let (suffix, what) = if manifest.entry.is_lazyvm() {
+        (".jar", "a .jar file (abi \"lazyvm\")")
+    } else {
+        (".elf", "a .elf file")
+    };
+    if !binary.ends_with(suffix) {
         problems.push(Problem::new(format!(
-            "entry.binary {binary:?} must name a .elf file"
+            "entry.binary {binary:?} must name {what}"
         )));
     } else if files.is_some_and(|files| !files.contains(binary.as_str())) {
         problems.push(Problem::new(format!(
@@ -123,9 +129,9 @@ fn check_entry(manifest: &Manifest, files: Option<&BTreeSet<&str>>, problems: &m
         )));
     }
     if let Some(abi) = &manifest.entry.abi {
-        if abi != "native" && abi != "linux" {
+        if abi != "native" && abi != "linux" && abi != "lazyvm" {
             problems.push(Problem::new(format!(
-                "entry.abi {abi:?} must be \"native\" or \"linux\""
+                "entry.abi {abi:?} must be \"native\", \"linux\" or \"lazyvm\""
             )));
         }
     }
@@ -395,6 +401,21 @@ mod tests {
         assert!(!minimal().entry.is_linux());
         m.entry.abi = Some("linux".into());
         assert!(m.entry.is_linux());
+        assert_eq!(m.entry.abi_name(), "linux");
+    }
+
+    #[test]
+    fn a_lazyvm_entry_is_a_jar() {
+        let mut m = minimal();
+        m.entry.abi = Some("lazyvm".into());
+        let problems = validate(&m, &files(&["bin/app.elf"]));
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].message().contains(".jar"));
+        m.entry.binary = "app/app.jar".into();
+        assert!(validate(&m, &files(&["app/app.jar"])).is_empty());
+        assert!(m.entry.is_lazyvm() && !m.entry.is_linux());
+        assert_eq!(m.entry.abi_name(), "lazyvm");
+        assert_eq!(minimal().entry.abi_name(), "native");
     }
 
     #[test]

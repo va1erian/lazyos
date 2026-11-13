@@ -1,0 +1,21 @@
+[
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
+  {"wait_for": "LAZYVM:UI:UP:PASS", "timeout": 240},
+  {"wait_for": "NOTES:LIST:", "timeout": 60},
+  {"at": 3.0, "shot": "01_notes_empty"},
+  {"at": 3.5, "key_down": "ctrl"},
+  {"at": 3.8, "key": "n"},
+  {"at": 4.1, "key_up": "ctrl"},
+  {"wait_for": "NOTES:SAVE:PASS:note1.txt", "timeout": 60},
+  {"at": 2.0, "type": "Notes on LazyVM, on LazyOS."},
+  {"at": 12.0, "key": "enter"},
+  {"at": 12.5, "type": "Saved through lazy.ui and a worker thread."},
+  {"at": 27.0, "key_down": "ctrl"},
+  {"at": 27.3, "key": "s"},
+  {"at": 27.6, "key_up": "ctrl"},
+  {"wait_for": "NOTES:SAVE:PASS:note1.txt", "occurrence": 2, "timeout": 60},
+  {"at": 2.0, "mouse_move": [1240, 0], "note": "park the pointer on the desktop"},
+  {"at": 2.3, "mouse_move": [0, 400]},
+  {"at": 4.0, "shot": "02_note_saved"},
+  {"at": 5.0, "quit": true}
+]

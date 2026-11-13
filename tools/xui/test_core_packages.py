@@ -45,15 +45,18 @@ class CorePackageTests(unittest.TestCase):
         self.xui.mkdir()
         self.lazyrad = self.dir / "lazyrad"
         self.lazyrad.mkdir()
+        self.lazyvm = self.dir / "lazyvm"
+        self.lazyvm.mkdir()
         # Stand-ins for the built programs: different bytes per program.
         for short, app in core_packages.CORE_APPS.items():
             for name in app.programs:
-                built = {"xui": self.xui, "lazyrad": self.lazyrad}[app.build_dir]
+                built = {"xui": self.xui, "lazyrad": self.lazyrad,
+                         "lazyvm": self.lazyvm}[app.build_dir]
                 (built / name).write_bytes(b"\x7fELF " + (short + name).encode() * 1000)
 
     def build(self, out: str):
         return core_packages.build_core_packages(self.xui, self.dir / out, "0.1.0",
-                                                 lazyrad_dir=self.lazyrad)
+                                                 lazyrad_dir=self.lazyrad, lazyvm_dir=self.lazyvm)
 
     def test_every_core_app_has_a_source_tree_and_nothing_else_does(self) -> None:
         trees = sorted(p.name for p in core_packages.SOURCES.iterdir() if p.is_dir())
@@ -82,10 +85,15 @@ class CorePackageTests(unittest.TestCase):
             manifest = tomllib.loads(text)
             self.assertEqual(pkgmanifest.validate_manifest(manifest), [], short)
             self.assertEqual(manifest["app"]["system_name"], f"os.lazy.{short}")
-            self.assertEqual(manifest["entry"]["binary"], f"bin/{short}.elf")
             self.assertIn(manifest["entry"]["binary"], core_packages.CORE_APPS[short].programs.values())
-            self.assertEqual(manifest["entry"]["args"], ["--client"])
-            self.assertEqual(manifest["entry"]["abi"], "linux")
+            if core_packages.CORE_APPS[short].build_dir == "lazyvm":
+                # A jar that init runs with the shared `lazyvm-ui` (LOS-02).
+                self.assertEqual(manifest["entry"]["abi"], "lazyvm", short)
+                self.assertTrue(manifest["entry"]["binary"].endswith(".jar"), short)
+            else:
+                self.assertEqual(manifest["entry"]["binary"], f"bin/{short}.elf")
+                self.assertEqual(manifest["entry"]["args"], ["--client"])
+                self.assertEqual(manifest["entry"]["abi"], "linux")
             if manifest["app"].get("kind") == "developer-tool":
                 # Default-allow (docs/devtool-packages-plan.md section 2): no list that would
                 # look like a limit; the display comes with the label.
@@ -224,12 +232,14 @@ class CorePackageTests(unittest.TestCase):
     def test_the_image_build_lists_the_same_core_apps(self) -> None:
         # `build_support/core_packages.rs` `is_core_stem` mirrors CORE_APPS
         # (minus the LazyRAD IDE and the Picture Viewer, LazyRAD programs that
-        # `xui_embed` adds on their own switches).
+        # `xui_embed` adds on their own switches, and the LazyVM jars, which
+        # `lazyvm_embed` adds).
         source = (core_packages.ROOT / "build_support" / "core_packages.rs").read_text(encoding="utf-8")
         block = re.search(r"const CORE: &\[&str\] = &\[(.*?)\];", source, re.S)
         self.assertIsNotNone(block)
         stems = set(re.findall(r'"([a-z]+)"', block.group(1)))
-        self.assertEqual(stems, set(core_packages.CORE_APPS) - {"lazyrad", "pictures"})
+        lazyvm = {s for s, a in core_packages.CORE_APPS.items() if a.build_dir == "lazyvm"}
+        self.assertEqual(stems, set(core_packages.CORE_APPS) - {"lazyrad", "pictures"} - lazyvm)
 
     def test_the_package_carries_both_programs(self) -> None:
         import zipfile
@@ -308,7 +318,7 @@ class CorePackageTests(unittest.TestCase):
         (out / core_packages.AUTOSTART_DIR).mkdir(parents=True)
         stale = out / "os.lazy.gone-0.0.1.lzp"
         stale.write_bytes(b"old")
-        core_packages.build_core_packages(self.xui, out, "0.1.0", lazyrad_dir=self.lazyrad)
+        core_packages.build_core_packages(self.xui, out, "0.1.0", lazyrad_dir=self.lazyrad, lazyvm_dir=self.lazyvm)
         self.assertFalse(stale.exists())
 
     def test_an_unchanged_package_is_not_made_again(self) -> None:
@@ -337,7 +347,7 @@ class CorePackageTests(unittest.TestCase):
     def test_a_changed_version_makes_every_package_again(self) -> None:
         self.build("i")
         names = {p.name for p in core_packages.build_core_packages(
-            self.xui, self.dir / "i", "0.2.0", lazyrad_dir=self.lazyrad)}
+            self.xui, self.dir / "i", "0.2.0", lazyrad_dir=self.lazyrad, lazyvm_dir=self.lazyvm)}
         self.assertTrue(names and all(name.endswith("-0.2.0.lzp") for name in names))
         # The 0.1.0 archives are stale and gone, not left beside them.
         self.assertEqual({p.name for p in (self.dir / "i").glob("*.lzp")}, names)

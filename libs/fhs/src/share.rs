@@ -29,6 +29,21 @@ pub const USER_FONTS_SUBDIR: &str = ".local/share/fonts";
 /// Fontconfig file prefers them for web pages. Written by the image build.
 pub const FONTS_LIBERATION: &str = "/system/share/fonts/liberation";
 
+/// The fonts xui apps bundle (`DroidSans{,-Bold}.ttf`, `DroidSerif-Regular.ttf`,
+/// Apache-2.0, and `JetBrainsMono-Regular.ttf`, SIL OFL 1.1; `assets/fonts`), as
+/// files, for programs that read their fonts at start instead of carrying them:
+/// LazyVM's `lazyvm-ui` (docs/agents/lazyvm.md, LOS-02). Written by the image
+/// build when it embeds LazyVM.
+pub const FONTS_XUI: &str = "/system/share/fonts/xui";
+
+/// The files [`FONTS_XUI`] holds, by name under `assets/fonts`.
+pub const FONTS_XUI_FILES: [&str; 4] = [
+    "DroidSans.ttf",
+    "DroidSans-Bold.ttf",
+    "DroidSerif-Regular.ttf",
+    "JetBrainsMono-Regular.ttf",
+];
+
 /// The sample files the image ships (`hello.txt`, `notes.txt`, `testdoc.md`,
 /// `writer-sample.png`, `archiver-sample.zip`, `archiver-sample.7z`,
 /// `lazyos-sample.pdf`, `pkgdemo.lzp`). Written by the image build. Target (F5): `pkgdemo.lzp` is

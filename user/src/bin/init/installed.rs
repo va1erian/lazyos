@@ -355,7 +355,8 @@ impl InstalledApps {
 
     fn app_of(&mut self, row: pkgd::Installed) -> InstalledApp {
         let id = self.intern(&row.system_name);
-        let path = self.intern(&fhs::install_path(&row.install_dir, &row.binary));
+        let (program, args) = program_of(&row);
+        let path = self.intern(&program);
         let label = self.intern(&label_of(&row));
         let shell = is_shell(&row);
         InstalledApp {
@@ -363,8 +364,9 @@ impl InstalledApps {
             name: row.name,
             path,
             label,
-            args: row.args,
-            linux: row.abi == "linux",
+            args,
+            // `lazyvm-ui` is a static musl program, like a `linux` app.
+            linux: row.abi == "linux" || row.abi == LAZYVM,
             restart: Restart::OnFailure,
             core: row.origin == pkgd::ORIGIN_CORE,
             category: row.category,
@@ -449,4 +451,27 @@ pub(super) fn report_label(pid: u64, id: &str) {
         Some(label) => trace::line!(trace::Channel::Pkgd, "LAUNCH:LABEL {label} pid={pid}"),
         None => trace::line!(trace::Channel::Pkgd, "LAUNCH:LABEL:FAIL {id} pid={pid}"),
     }
+}
+
+/// The `abi` of an app that is a jar for LazyVM (docs/agents/lazyvm.md, LOS-02).
+const LAZYVM: &str = "lazyvm";
+
+/// The program `init` starts for `row` and its arguments: the package's own
+/// binary, or for a LazyVM app the shared `lazyvm-ui` running its jar, with
+/// the class library named (the Linux ABI has no `/proc/self/exe` for the VM
+/// to find it beside itself).
+fn program_of(row: &pkgd::Installed) -> (String, Vec<String>) {
+    let binary = fhs::install_path(&row.install_dir, &row.binary);
+    if row.abi != LAZYVM {
+        return (binary, row.args.clone());
+    }
+    let mut args = Vec::with_capacity(row.args.len() + 3);
+    args.push(alloc::format!(
+        "-Xbootclasspath:{}/lib/lazyrt.jar",
+        fhs::LAZYVM
+    ));
+    args.push(String::from("-jar"));
+    args.push(binary);
+    args.extend(row.args.iter().cloned());
+    (alloc::format!("{}/bin/lazyvm-ui", fhs::LAZYVM), args)
 }

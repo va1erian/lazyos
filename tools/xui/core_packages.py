@@ -48,8 +48,9 @@ class CoreApp:
 
     #: built file name -> path inside the package (the manifest's `binary` first).
     programs: dict[str, str]
-    #: the directory the programs are built into: "xui" (`target/xui`) or
-    #: "lazyrad" (`target/lazyrad`).
+    #: the directory the programs are built into: "xui" (`target/xui`),
+    #: "lazyrad" (`target/lazyrad`) or "lazyvm" (the LazyVM stage's `apps/`,
+    #: `LAZYOS_LAZYVM_STAGE` or `target/lazyvm/stage`).
     build_dir: str = "xui"
     #: a missing program skips the package (with a note) instead of failing.
     optional: bool = False
@@ -129,6 +130,22 @@ CORE_APPS: dict[str, CoreApp] = {
     # esMail (docs/mail.md): links SQLite's C (zig), built only on request
     # (`tools/xui/build.py --mail`); shipped by `LAZYOS_MAIL=1` images.
     "mail": xui_app("xui-mail.elf", "mail", optional=True),
+    # LazyWriter in Java on LazyVM (LOS-02): a jar for the shared `lazyvm-ui`
+    # (`abi = "lazyvm"`), staged by LazyVM's tools; shipped only by images with
+    # LazyVM and the desktop (`build_support/lazyvm_embed.rs`).
+    "writerj": CoreApp(
+        {"writer.jar": "resources/writer.jar"},
+        build_dir="lazyvm",
+        optional=True,
+        built_by="LazyVM: python tools/lazyos_demo.py --lazyos <this checkout>",
+    ),
+    # LazyVM's Notes sample, its S9 gate: like `writerj`, a jar for `lazyvm-ui`.
+    "notesj": CoreApp(
+        {"notes.jar": "resources/notes.jar"},
+        build_dir="lazyvm",
+        optional=True,
+        built_by="LazyVM: python tools/lazyos_demo.py --lazyos <this checkout>",
+    ),
     # The IDE and its player, built by `tools/lazyrad/build.py`.
     "lazyrad": CoreApp(
         {"lazyrad.elf": "bin/lazyrad.elf", "lrplay.elf": "bin/lrplay.elf"},
@@ -376,8 +393,18 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def lazyvm_apps() -> Path:
+    """Where the LazyVM stage keeps its app jars (`build_support/lazyvm_embed.rs`)."""
+    import os
+
+    stage = os.environ.get("LAZYOS_LAZYVM_STAGE") or "target/lazyvm/stage"
+    path = Path(stage)
+    return (path if path.is_absolute() else ROOT / path) / "apps"
+
+
 def build_core_packages(xui_dir: Path, out_dir: Path, version: str | None = None,
-                        lazyrad_dir: Path | None = None) -> list[Path]:
+                        lazyrad_dir: Path | None = None,
+                        lazyvm_dir: Path | None = None) -> list[Path]:
     """Build every core package whose programs exist; returns the archives.
 
     A missing optional program (Docs not built, LazyRAD not built) is skipped
@@ -387,7 +414,8 @@ def build_core_packages(xui_dir: Path, out_dir: Path, version: str | None = None
     build.
     """
     version = version or workspace_version()
-    build_dirs = {"xui": xui_dir, "lazyrad": lazyrad_dir or ROOT / "target" / "lazyrad"}
+    build_dirs = {"xui": xui_dir, "lazyrad": lazyrad_dir or ROOT / "target" / "lazyrad",
+                  "lazyvm": lazyvm_dir or lazyvm_apps()}
     lines = ["# short system_name version file digest autostart_file autostart_digest"]
     written = []
     keep: set[Path] = set()
