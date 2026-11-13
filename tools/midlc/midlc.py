@@ -90,6 +90,7 @@ from midlc_pin import pin_files
 from midlc_rust_decls import SERVICES_SUPPORT, emit_service_table
 from midlc_split import FILE_HEADER, check_features, feature_name, mod_declaration, module_file, rewrite_features, split_module, stale_generated
 from midlc_schema import emit_schema
+from midlc_java import generate_java
 from midlc_rhai import emit_rhai_api
 from midlc_rhai_pages import emit_rhai_pages
 from midlc_rust import (
@@ -210,6 +211,8 @@ def main() -> int:
     parser.add_argument("--rhai-api", type=Path, help="write the Rhai API modules into this directory")
     parser.add_argument("--rhai-docs", type=Path,
                         help="write the Rhai API reference pages (index and one per module) into this directory")
+    parser.add_argument("--java", type=Path,
+                        help="write the Java classes LazyVM programs use (LazyVM docs/msg.md) under this directory")
     parser.add_argument("--check", action="store_true",
                         help="fail if --out/--schema/--rhai-api/--rhai-docs/--manifest/--docs would change")
     parser.add_argument("--pin-field-ids", action="store_true",
@@ -226,6 +229,7 @@ def main() -> int:
         schema = emit_schema(parse_all(args.inputs)) if args.schema else ""
         rhai_api = emit_rhai_api(parse_all(args.inputs)) if args.rhai_api else {}
         rhai_pages = emit_rhai_pages(parse_all(args.inputs)) if args.rhai_docs else {}
+        java = generate_java(parse_all(args.inputs)) if args.java else {}
     except MidlError as error:
         print(f"midlc: {error}", file=sys.stderr)
         return 1
@@ -244,8 +248,10 @@ def main() -> int:
             targets.append(("--manifest", args.manifest, json.dumps(manifests, indent=2) + "\n"))
         if args.docs:
             targets += [("--docs", args.docs / f"{name}.md", text) for name, text in sorted(docs.items())]
+        if args.java:
+            targets += [("--java", args.java / name, text) for name, text in sorted(java.items())]
         if not targets:
-            print("midlc: --check needs --out, --schema, --rhai-api, --rhai-docs, --manifest and/or --docs",
+            print("midlc: --check needs --out, --schema, --rhai-api, --rhai-docs, --manifest, --java and/or --docs",
                   file=sys.stderr)
             return 1
         if args.out:
@@ -286,6 +292,11 @@ def main() -> int:
         write_rhai_api(args.rhai_api, rhai_api)
     if args.rhai_docs:
         write_rhai_api(args.rhai_docs, rhai_pages)
+    if args.java:
+        for name, text in java.items():
+            (args.java / name).parent.mkdir(parents=True, exist_ok=True)
+            (args.java / name).write_text(text, encoding="utf-8", newline="\n")
+        print(f"midlc: wrote {len(java)} Java file(s) to {args.java}")
     if args.manifest:
         args.manifest.parent.mkdir(parents=True, exist_ok=True)
         args.manifest.write_text(json.dumps(manifests, indent=2) + "\n", encoding="utf-8", newline="\n")

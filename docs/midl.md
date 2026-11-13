@@ -616,6 +616,29 @@ A reader that knows only the code and the message
 Decoders of the declared reply skip the field (it is an unknown id to them),
 so a client checks for the error before trusting the reply.
 
+## Generated Java
+
+`midlc --java DIR` writes the classes LazyVM programs (Java and Siesta) use
+through LazyVM's `lazy.msg` runtime; the design is LazyVM's `docs/msg.md`. Each
+interface becomes a package named like it (`os.lazy.echo.v1`) holding: the
+client `<Base>` (`Echo`, from the segment before the version) with
+`connect()` for its `service` name, `connect(name)`, `connectInstance(id)` for
+a family and `within(ms)`, one method per call returning a
+`CompletionStage` (a `oneway` one completes when the request is queued);
+`<Base>Server`, one method per call, for a program to implement; a
+`<Base>Listener` when the interface has `event` methods or a `Channel<I>`
+carries it; `<Base>Error` and `<Base>Exception` for `errors`; `<Base>Topics`
+with a `Topic` and, for a pattern with placeholders, a `...Filter` per topic;
+a class per struct and enum, `<M>Args` for a method of more than four
+parameters and `<M>Reply` for a reply of several fields; and `<Base>Codec`,
+the wire code. Deadlines, `retry=`, scopes and ids come from the declarations
+above; a method with no deadline has no bound. Methods with a `Ring`
+parameter are left out (LazyVM has no ring runtime yet). A name that is a Java
+keyword, or that would clash with a generated or inherited member, gets a
+trailing `_` (`Wait(ms)` is `wait_`, beside `Object.wait(long)`).
+`conformance_java.py` writes LazyVM's corpus test, which holds these codecs
+to the bytes below.
+
 ## Conformance corpus
 
 `idl/conformance/` is a language-neutral test corpus for anything that reads

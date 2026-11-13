@@ -41,6 +41,10 @@ jobs:
       - name: Rust client emitter tests
         run: python tools/midlc/test_midlc_client.py
 
+      # The Java backend LazyVM's lazy.msg uses; LazyVM compiles and runs its output.
+      - name: Java backend tests
+        run: python tools/midlc/test_midlc_java.py
+
       - name: Package compatibility checker tests
         run: python tools/pkg/test_idl_compat.py
 

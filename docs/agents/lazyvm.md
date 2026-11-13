@@ -3,8 +3,9 @@
 Companion to [`AGENTS.md`](../../AGENTS.md); covers: LazyVM, the Java 8
 bytecode VM that runs on LazyOS and Windows, and the LazyOS-side work it
 needs: the `LAZYOS_LAZYVM` build switch and the test hook (LOS-01, below); the
-display grant, the `midlc` Java backend and app packaging come later (LOS-02 to
-LOS-04).
+display grant (LOS-02); the `midlc` Java backend (LOS-03: `midlc.py --java` and
+`conformance_java.py`, [`midl.md`](../midl.md) "Generated Java", whose output
+LazyVM checks in with its `tools/msg_gen.py`); and app packaging (LOS-04).
 
 LazyVM lives in its own repository (`lazyvm`). Its plan is `docs/plan.md` and
 `docs/plan-2.md` there; the LazyOS-side items are `LOS-01` to `LOS-04` at the
