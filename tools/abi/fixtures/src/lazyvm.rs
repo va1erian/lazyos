@@ -23,6 +23,10 @@
 //!   when a pipe was still open when the fixture stopped waiting (output may be
 //!   missing);
 //! - `LAZYVM:DONE` after the last, or `LAZYVM:FAIL:<reason>`.
+//!
+//! This fixture is the boot program, so nothing else starts `messengerd`; it
+//! starts it first, as `init` does, so a program's topics reach the broker
+//! (`lazy.msg` on LazyOS). An image without it runs the commands without one.
 
 use std::io::Read;
 use std::os::unix::process::CommandExt;
@@ -30,6 +34,8 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
 use std::thread;
 use std::time::{Duration, Instant};
+
+use lazyos_sys::spawn::{spawnv, Personality, SpawnCred};
 
 /// Output bytes per `DATA` line (twice as many hex digits).
 const CHUNK: usize = 256;
@@ -76,6 +82,7 @@ fn main() {
         }
     };
     let lines: Vec<&str> = list.lines().filter(|line| !line.is_empty()).collect();
+    start_broker();
     println!("LAZYVM:INIT:{}", lines.len());
     for (index, line) in lines.iter().enumerate() {
         let n = index + 1;
@@ -89,6 +96,18 @@ fn main() {
         }
     }
     println!("LAZYVM:DONE");
+}
+
+/// Starts `messengerd`, which runs for the rest of the boot: a native
+/// program, so through LazyOS's own spawn, as `init` starts it (a Linux
+/// `execve` leaves it without its heap). Its lines go to the console, where
+/// the judge ignores them. A program that needs it waits in the kernel for its
+/// names to register (`lazy.msg` resolves with a bound), so nothing waits here.
+fn start_broker() {
+    let path = fhs::bin::MESSENGERD;
+    if let Err(code) = spawnv(path, &[path], &[], Personality::Native, SpawnCred::Inherit) {
+        println!("lazyvm: no messengerd ({code}): topics have no broker");
+    }
 }
 
 /// A list line: the timeout and the decoded arguments.
