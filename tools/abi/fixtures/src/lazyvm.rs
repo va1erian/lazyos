@@ -29,13 +29,14 @@
 //! (`lazy.msg` on LazyOS). An image without it runs the commands without one.
 
 use std::io::Read;
+use std::os::fd::AsRawFd;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use lazyos_sys::spawn::{spawnv, Personality, SpawnCred};
+use lazyos_sys::spawn::{spawnv_stdio, Personality, SpawnCred};
 
 /// Output bytes per `DATA` line (twice as many hex digits).
 const CHUNK: usize = 256;
@@ -100,12 +101,23 @@ fn main() {
 
 /// Starts `messengerd`, which runs for the rest of the boot: a native
 /// program, so through LazyOS's own spawn, as `init` starts it (a Linux
-/// `execve` leaves it without its heap). Its lines go to the console, where
-/// the judge ignores them. A program that needs it waits in the kernel for its
-/// names to register (`lazy.msg` resolves with a bound), so nothing waits here.
+/// `execve` leaves it without its heap). Its streams go to `/dev/null`: a
+/// line of its own in the middle of a marker on the console would corrupt
+/// it. A program that needs it waits in the kernel for its names to register
+/// (`lazy.msg` resolves with a bound), so nothing waits here.
 fn start_broker() {
+    let null = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/null");
+    let Ok(null) = null else {
+        println!("lazyvm: no /dev/null: topics have no broker");
+        return;
+    };
+    let stdio = [Some(null.as_raw_fd()); 3];
     let path = fhs::bin::MESSENGERD;
-    if let Err(code) = spawnv(path, &[path], &[], Personality::Native, SpawnCred::Inherit) {
+    let cred = SpawnCred::Inherit;
+    if let Err(code) = spawnv_stdio(path, &[path], &[], Personality::Native, cred, Some(stdio)) {
         println!("lazyvm: no messengerd ({code}): topics have no broker");
     }
 }
