@@ -64,6 +64,10 @@ saying where the image is, and later runs refuse to start until that file is
 moved back. Only the stage, `LAZYOS_OS_SIZE` and `LAZYOS_LIMIT_*` of the
 caller's `LAZYOS_*` variables reach that build.
 
+The fixture is the boot program, so nothing else starts `messengerd`; it starts it
+first (streams to `/dev/null`, so its log lines cannot corrupt a marker), which
+gives `lazy.msg` topics a broker.
+
 The fixture runs the commands in order through the Linux ABI, stdin closed,
 each in a process group of its own, and streams each one's stdout and stderr
 hex-encoded over the serial log while it reads them, so the bytes arrive
