@@ -52,7 +52,8 @@ impl Smooth {
     }
 
     /// The page view was drawn at `now_us` (`now_ms` the same instant), `rows` high of which `checker`
-    /// rows were checkerboard; `moving` while the picture is shown away from where the page is.
+    /// rows were checkerboard; `moving` while the picture glides (not while it is held still ahead of
+    /// a busy page: a draw of it long after the last notch is no gap in a scroll).
     pub fn drawn(&mut self, now_us: u64, rows: u32, checker: u32, moving: bool) {
         let now_ms = now_us / 1000;
         let active = self.active(now_ms, moving);

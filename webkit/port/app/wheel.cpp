@@ -50,6 +50,8 @@ void settle(View& v, size_t pending)
     }
     if (!done)
         return;
+    if (v.wheelTurns.empty())
+        wheelSettled(v);
     int x = 0, y = 0;
     latestScroll(v, x, y);
     v.sink->wheelDone(done, x, y);

@@ -94,9 +94,12 @@ impl State {
 
     /// A draw of `rows` rows (`checker` of them checkerboard) that started at `started`, for the counters.
     pub(crate) fn record_draw(&self, started: Instant, rows: u32, checker: u32, ahead: i32) {
+        // Moving is the glide on its way, not a picture held ahead while the page is busy: that one
+        // stands still, and a draw of it long after the last notch (a page update) is no scroll gap.
+        let moving = self.glide.borrow().moving(self.target());
         self.smooth
             .borrow_mut()
-            .drawn(speculate::now_us(), rows, checker, ahead != 0);
+            .drawn(speculate::now_us(), rows, checker, moving);
         if let Some(at) = self.wheel_at.take() {
             if ahead != 0 {
                 let us = at.elapsed().as_micros() as u64;

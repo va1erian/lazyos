@@ -30,7 +30,8 @@
 // event arrives, not before), the UI process prints
 //   INFO:PAINT:mode=<m>:n=<paints>:needs=<reports>:px=<painted>:clear|wk|swz|post=<us, summed>:
 //              avg|max=<us per paint>:lat=<longest us from a report to the paint that took it>:
-//              wheel=<window calls>:mouse=<events>:w2d=<us, average/longest, wheel to first report>:
+//              wheel=<window calls>:mouse=<events>:w2d=<us, average/longest, wheel to first report;
+//                not counted for a turn the page answered without moving, nor across a commit>:
 //              full=<whole frames>:delta=<deltas>:scroll=<deltas that moved the picture>:
 //              checks=<comparisons with a whole paint>:bad=<those that differed> (probe images):
 //              wkcalls=<WKPagePaint calls>:wkmax=<the longest, us>:bands=<overscan bands handed on>
@@ -205,8 +206,10 @@ struct PaintState {
     const int viewId;
     Painting paint;
     Stats stats;
-    // When the wheel was last turned and no report has answered it yet (0: none).
+    // When the wheel was last turned and no report has answered it yet (0: none), and where the page
+    // was then: a turn the page answered without moving has no report to wait for (wheelSettled).
     long long wheelTurnedUs { 0 };
+    int wheelFromX { 0 }, wheelFromY { 0 };
     Shadow shadow;
     ScrollOffset latestScroll, paintedScroll;
     std::vector<uint8_t> bandPixels;
@@ -665,6 +668,17 @@ void resetScroll(View& v)
 {
     // The new document's own PageDidScroll (a restored position, an anchor) comes after the commit.
     ps(v).latestScroll = {};
+    // A turn given to the old document is not answered by the new one's first paint (a load, not w2d).
+    ps(v).wheelTurnedUs = 0;
+}
+
+void wheelSettled(View& v)
+{
+    PaintState& state = ps(v);
+    // Every turn is answered and the page stayed (the top or the end of a page, a box that took the
+    // wheel, a cancelled event): no report answers it, and the next unrelated one is not its w2d.
+    if (state.latestScroll.x == state.wheelFromX && state.latestScroll.y == state.wheelFromY)
+        state.wheelTurnedUs = 0;
 }
 
 void installPaintObserver(View& v)
@@ -721,8 +735,11 @@ void notePointer(View& v, bool wheel)
         return;
     }
     ++state.stats.wheels;
-    if (!state.wheelTurnedUs || now - state.wheelTurnedUs > kWheelAnswerUs)
+    if (!state.wheelTurnedUs || now - state.wheelTurnedUs > kWheelAnswerUs) {
         state.wheelTurnedUs = now;
+        state.wheelFromX = state.latestScroll.x;
+        state.wheelFromY = state.latestScroll.y;
+    }
 }
 
 // The page's process is gone: what both bitmaps hold is a page that no longer exists, and the next
