@@ -885,23 +885,30 @@ spent more than 11 ms on a frame. But 20 jank findings, and most were the meters
   was shown ahead of the page (`ahead != 0`). A picture held ahead of a page that has not answered stands still;
   a page update drawn seconds after the last notch then counted the whole idle stretch as one gap (2.1 s and
   0.7 s on `about:blocker`, 2.5 s on `about:downloads`, 10.8 s across a navigation to Stack Overflow). Now
-  only the glide counts as moving (`View::record_draw`, `glide.moving`).
+  only the glide counts as moving (`View::record_draw`, `glide.moving`), and a gap is measured from a notch:
+  one that moved the picture, or one refused because the picture is already as far ahead as it may go
+  (the person is still scrolling and waits on a busy page: that stall stays counted,
+  `smooth::scrolling_notch`).
 * *Wheel answers that were not answers.* webd's `w2d` clock ran from a wheel turn to the next report of any
   damage. A turn the page declined (the top or the end of a short page, the GitHub login page) was "answered"
   by the next caret blink about 450 ms later, and a turn given just before a navigation by the new page's first
-  paint (`about:history`, `about:downloads`: 410-490 ms). Now the clock stops when every turn is answered and
-  the page did not move (`wheelSettled`, from `wheel.cpp`'s `settle`), and on a commit (`resetScroll`).
+  paint (`about:history`, `about:downloads`: 410-490 ms). Now, once every turn is answered and the main
+  frame did not move (`wheelSettled`, from `wheel.cpp`'s `settle`), only a report within 100 ms is taken
+  as the answer: the repaint of a box the turns scrolled comes at once, a caret blink later. A commit
+  stops the clock (`resetScroll`).
 
 | run (seed 1) | findings | wheel answers >= 400 ms | worst wheel answer | worst scroll gap | scroll seconds with a gap >= 100 ms | gaps > 33 ms / frames |
 |---|---|---|---|---|---|---|
 | before | 20 | 11 | 489 ms | 10 769 ms | 9 | 43 / 1453 |
-| after | 2 | 0 | 328 ms | 842 ms | 2 | 27 / 1452 |
+| after, first version of the rules | 2 | 0 | 328 ms | 842 ms | 2 | 27 / 1452 |
+| after, the rules as merged | 1 | 0 | 324 ms | 213 ms | 1 | 28 / 1556 |
 
-The two left are page-bound (issue #1037): Reddit, whose content scrolls while its main frame does not (the
-window refuses the next notches as a declined direction and draws checkerboard), and a fling at the end of
-GitHub Trending.
+What is left is page-bound: The Verge while it loads (213 ms), and in the run before Reddit, whose content
+scrolls while its main frame does not (the window refuses the next notches as a declined direction and
+draws checkerboard), and a fling at the end of GitHub Trending (issue #1037). The window thread's worst frame
+in the three runs was 11, 27 and 51 ms.
 
-**Filed from the same runs:** the PERF report holding the SMP entry lock 20-90 ms every 2 s (#1032), a native
-`DEV` syscall with 15 ms of interrupts off (#1033), the shell's 30 ms poll and its wake-ups with every input
+**Filed from the same runs:** the PERF report holding the SMP entry lock 20-90 ms every 2 s (#1032), syscalls with 15-18 ms of interrupts
+off (`DEV`, `pread64`, `munmap`: #1033), the shell's 30 ms poll and its wake-ups with every input
 burst (#1034), `sysmond` failing with `E2BIG` once the browser runs (#1035), page processes with no font cache
 (#1036).
