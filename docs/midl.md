@@ -625,7 +625,9 @@ client `<Base>` (`Echo`, from the segment before the version) with
 `connect()` for its `service` name, `connect(name)`, `connectInstance(id)` for
 a family and `within(ms)`, one method per call returning a
 `CompletionStage` (a `oneway` one completes when the request is queued);
-`<Base>Server`, one method per call, for a program to implement; a
+`<Base>Server`, one method per call, for a program to implement, and
+`serve(name, server)` to register it (the registration names the interface
+and its id, as the kernel requires of a labelled app); a
 `<Base>Listener` when the interface has `event` methods or a `Channel<I>`
 carries it; `<Base>Error` and `<Base>Exception` for `errors`; `<Base>Topics`
 with a `Topic` and, for a pattern with placeholders, a `...Filter` per topic;
