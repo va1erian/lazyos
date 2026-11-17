@@ -628,6 +628,8 @@ void releasePaint(View& view);
 void latestScroll(View& view, int& x, int& y);
 // A new document committed: it is at its top until its process says it scrolled.
 void resetScroll(View& view);
+// Every wheel turn given to the page is answered: one that left the page where it was stops the w2d clock.
+void wheelSettled(View& view);
 
 // ---- wheel.cpp -----------------------------------------------------------------------------------
 

@@ -17,6 +17,15 @@ pub const ACTIVE_MS: u64 = 250;
 /// A gap longer than this is a frame a 30 fps display would have missed.
 pub const JANK_US: u64 = 33_333;
 
+/// Whether a wheel notch counts as scrolling under way for [`Smooth::wheel`]: a plain notch that moved
+/// the picture; with nothing shown ahead, every plain notch (the view moves when the page answers);
+/// and a plain notch the window could not show because the picture is already as far ahead as it may
+/// go (`held_ahead`): the person is scrolling and waiting on a busy page, which is the stall to count.
+/// A notch against the end of the page, or in a direction the page declined, moves nothing and is not.
+pub fn scrolling_notch(plain: bool, moved: bool, showing_ahead: bool, held_ahead: bool) -> bool {
+    moved || (plain && (!showing_ahead || held_ahead))
+}
+
 #[derive(Debug, Default)]
 pub struct Smooth {
     since_ms: u64,
@@ -52,7 +61,8 @@ impl Smooth {
     }
 
     /// The page view was drawn at `now_us` (`now_ms` the same instant), `rows` high of which `checker`
-    /// rows were checkerboard; `moving` while the picture is shown away from where the page is.
+    /// rows were checkerboard; `moving` while the picture glides (not while it is held still ahead of
+    /// a busy page: a draw of it long after the last notch is no gap in a scroll).
     pub fn drawn(&mut self, now_us: u64, rows: u32, checker: u32, moving: bool) {
         let now_ms = now_us / 1000;
         let active = self.active(now_ms, moving);
@@ -165,6 +175,51 @@ mod tests {
             line,
             "INFO:SMOOTH:wheel=3:frames=2:gapmax=20000:over33=0:shown=1800:checker=0"
         );
+    }
+
+    #[test]
+    fn a_picture_held_ahead_and_drawn_after_a_pause_is_no_gap() {
+        let mut s = Smooth::default();
+        s.line(0);
+        s.wheel(1000, true);
+        s.drawn(1_010_000, 900, 0, false);
+        // The page answered two seconds later with nothing turning meanwhile: the picture stood still.
+        s.drawn(3_000_000, 900, 0, false);
+        let line = s.line(3500).unwrap();
+        assert_eq!(
+            line,
+            "INFO:SMOOTH:wheel=1:frames=1:gapmax=0:over33=0:shown=900:checker=0"
+        );
+    }
+
+    #[test]
+    fn notches_held_ahead_of_a_busy_page_are_a_stall() {
+        let mut s = Smooth::default();
+        s.line(0);
+        s.wheel(1000, true);
+        s.drawn(1_010_000, 900, 0, false);
+        // At the limit ahead every notch is refused, but the person keeps turning: scrolling is under
+        // way, and the frame the page's late answer brings ends a 600 ms gap.
+        for at in (1100..=1600).step_by(100) {
+            s.wheel(at, scrolling_notch(true, false, true, true));
+        }
+        s.drawn(1_610_000, 900, 0, false);
+        let line = s.line(2000).unwrap();
+        assert_eq!(
+            line,
+            "INFO:SMOOTH:wheel=7:frames=2:gapmax=600000:over33=1:shown=1800:checker=0"
+        );
+    }
+
+    #[test]
+    fn which_notches_are_scrolling() {
+        // Moved the picture; shown ahead off (the view follows the page); held at the limit ahead.
+        assert!(scrolling_notch(true, true, true, false));
+        assert!(scrolling_notch(true, false, false, false));
+        assert!(scrolling_notch(true, false, true, true));
+        // Against the end of the page or a declined direction (nothing ahead), or a modified wheel.
+        assert!(!scrolling_notch(true, false, true, false));
+        assert!(!scrolling_notch(false, false, true, true));
     }
 
     #[test]

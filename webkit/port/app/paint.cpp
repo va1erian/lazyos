@@ -30,7 +30,9 @@
 // event arrives, not before), the UI process prints
 //   INFO:PAINT:mode=<m>:n=<paints>:needs=<reports>:px=<painted>:clear|wk|swz|post=<us, summed>:
 //              avg|max=<us per paint>:lat=<longest us from a report to the paint that took it>:
-//              wheel=<window calls>:mouse=<events>:w2d=<us, average/longest, wheel to first report>:
+//              wheel=<window calls>:mouse=<events>:w2d=<us, average/longest, wheel to first report;
+//                not across a commit, and for turns answered without the main frame moving only a
+//                report within kSettledReportUs of the answer (a box's repaint, not a caret blink)>:
 //              full=<whole frames>:delta=<deltas>:scroll=<deltas that moved the picture>:
 //              checks=<comparisons with a whole paint>:bad=<those that differed> (probe images):
 //              wkcalls=<WKPagePaint calls>:wkmax=<the longest, us>:bands=<overscan bands handed on>
@@ -147,6 +149,9 @@ struct Stats {
 // A turn of the wheel that no report has answered for this long is forgotten, not charged to whatever
 // damage comes next.
 constexpr long long kWheelAnswerUs = 500000;
+// Turns answered without the main frame moving: a report this soon after the answer is the repaint of a
+// box they scrolled; a later one is unrelated damage (wheelSettled).
+constexpr long long kSettledReportUs = 100000;
 
 // WKPagePaint's own time, as the page's process counts it (patch 0025), at the last report (the
 // counters are the process's, not a view's).
@@ -205,8 +210,12 @@ struct PaintState {
     const int viewId;
     Painting paint;
     Stats stats;
-    // When the wheel was last turned and no report has answered it yet (0: none).
+    // When the wheel was last turned and no report has answered it yet (0: none); whether the main
+    // frame scrolled since; and when every turn was answered without that (0: not yet), after which
+    // only a report within kSettledReportUs is the answer (wheelSettled).
     long long wheelTurnedUs { 0 };
+    bool wheelScrolled { false };
+    long long wheelAnsweredUs { 0 };
     Shadow shadow;
     ScrollOffset latestScroll, paintedScroll;
     std::vector<uint8_t> bandPixels;
@@ -545,8 +554,10 @@ void noteReport(View& v, long long now)
     ++state.stats.needs;
     if (state.wheelTurnedUs) {
         const long long latency = now - state.wheelTurnedUs;
+        const bool unrelated = state.wheelAnsweredUs && now - state.wheelAnsweredUs > kSettledReportUs;
         state.wheelTurnedUs = 0;
-        if (latency <= kWheelAnswerUs) {
+        state.wheelAnsweredUs = 0;
+        if (latency <= kWheelAnswerUs && !unrelated) {
             state.stats.w2dSumUs += latency, ++state.stats.w2dCount;
             state.stats.w2dMaxUs = std::max(state.stats.w2dMaxUs, latency);
         }
@@ -559,8 +570,12 @@ void noteReport(View& v, long long now)
 // the context: they find it by the page they are called for.
 void pageScrolled(WKPageRef page, int x, int y, void*)
 {
-    if (View* v = viewOfPage(page))
-        ps(*v).latestScroll = { x, y };
+    if (View* v = viewOfPage(page)) {
+        PaintState& state = ps(*v);
+        if (state.latestScroll.x != x || state.latestScroll.y != y)
+            state.wheelScrolled = true;
+        state.latestScroll = { x, y };
+    }
 }
 
 // An update from the page's process (WKPageSetUpdateCallback): what scrolled and what was repainted.
@@ -665,6 +680,20 @@ void resetScroll(View& v)
 {
     // The new document's own PageDidScroll (a restored position, an anchor) comes after the commit.
     ps(v).latestScroll = {};
+    // A turn given to the old document is not answered by the new one's first paint (a load, not w2d).
+    ps(v).wheelTurnedUs = 0;
+    ps(v).wheelAnsweredUs = 0;
+}
+
+void wheelSettled(View& v)
+{
+    PaintState& state = ps(v);
+    // Every turn is answered and the main frame did not move. Either the turns scrolled a box inside
+    // the page, whose repaint follows at once and is the answer, or nothing moved (a short page, the
+    // wheel against an edge, a cancelled event) and the next report is unrelated (a caret blink up to
+    // half a second later): noteReport takes only a report that comes soon after this.
+    if (state.wheelTurnedUs && !state.wheelScrolled)
+        state.wheelAnsweredUs = nowUs();
 }
 
 void installPaintObserver(View& v)
@@ -721,8 +750,13 @@ void notePointer(View& v, bool wheel)
         return;
     }
     ++state.stats.wheels;
-    if (!state.wheelTurnedUs || now - state.wheelTurnedUs > kWheelAnswerUs)
+    // The clock runs from the oldest turn not answered: a new one after the earlier turns were all
+    // answered (without a move, wheelSettled) starts it again, else its answer is timed from theirs.
+    if (!state.wheelTurnedUs || now - state.wheelTurnedUs > kWheelAnswerUs || state.wheelAnsweredUs) {
         state.wheelTurnedUs = now;
+        state.wheelScrolled = false;
+    }
+    state.wheelAnsweredUs = 0;
 }
 
 // The page's process is gone: what both bitmaps hold is a page that no longer exists, and the next

@@ -13,8 +13,8 @@ use xui_core::{Key, Modifiers, MouseButton};
 use crate::engine::{Button, Engine, MouseKind};
 use crate::events::CursorKind;
 use crate::keys::{char_keysym, chord_keysym, keysym, modifier_bits};
-use crate::speculate;
 use crate::view::{IsShortcut, State};
+use crate::{smooth, speculate};
 
 /// xui's wheel unit: 120 for one notch (`WHEEL_DELTA`).
 const NOTCH: i32 = 120;
@@ -368,11 +368,11 @@ pub(crate) fn wheel<M: 'static>(
         state.wheel_asked.set(Some((now_ms, asked + step)));
     }
     let moved = plain && speculate::ahead() && state.spec.borrow_mut().wheel(ticks, now_ms, seq);
-    // The scroll meter counts a notch sent with nothing shown ahead as the start of a burst too.
-    state
-        .smooth
-        .borrow_mut()
-        .wheel(now_ms, moved || (plain && !speculate::ahead()));
+    // The scroll meter counts a notch sent with nothing shown ahead as the start of a burst too, and
+    // one refused because the picture is as far ahead as it may go (the page is late, not finished).
+    let held_ahead = !moved && state.spec.borrow().is_ahead();
+    let scrolling = smooth::scrolling_notch(plain, moved, speculate::ahead(), held_ahead);
+    state.smooth.borrow_mut().wheel(now_ms, scrolling);
     if moved {
         if state.spec.borrow().is_ahead() && state.wheel_at.get().is_none() {
             state.wheel_at.set(Some(Instant::now()));
