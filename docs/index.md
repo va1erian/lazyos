@@ -44,7 +44,7 @@ installable app. You rarely need to write Rust.
 
 | Guide | What it covers |
 |---|---|
-| [README](README.md) | What LazyOS is and how to build and boot it |
+| [README](../README.md) | What LazyOS is and how to build and boot it |
 | [LazyOS on a USB stick](usb-stick.md) | Booting real hardware |
 | [Installing beside Linux](installing-beside-linux.md) | Adding LazyOS to a GRUB menu |
 | [Build switches](build-switches.md) | The `LAZYOS_*` options that choose what an image contains |
